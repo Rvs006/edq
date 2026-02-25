@@ -3805,6 +3805,444 @@ All identified operational gaps and their resolution status:
 
 **All identified gaps: 19 total. 19 resolved. 0 open.**
 
+# Section 26 — Integration Testing & Real Device Validation Protocol
+
+> **Purpose**: This section provides the AI development agent (Verdent, Claude Code, or equivalent) with a complete playbook for guiding the user through real-device integration testing. The agent MUST walk the user through these steps interactively when the user indicates they are ready to test against a physical device. This section is device-agnostic — the same protocol applies regardless of manufacturer, model, or device category.
+
 ---
+
+## 26.1 Pre-Test Environment Checklist
+
+Before connecting any physical device, the agent must verify the following prerequisites are met. The agent should run these checks programmatically where possible and prompt the user for manual confirmation where not.
+
+### 26.1.1 Infrastructure Health Checks (Automated)
+
+The agent should execute these commands and verify expected output:
+
+```bash
+# 1. Docker services running
+docker compose ps
+# Expected: 3 services (api, frontend, tools) all showing "Up"
+
+# 2. Tools sidecar responsive
+curl -s http://tools:8001/health
+# Expected: {"status": "healthy", "tools": {"nmap": true, "testssl": true, "ssh_audit": true, "hydra": true}}
+
+# 3. Backend API responsive
+curl -s http://localhost:8000/api/health
+# Expected: {"status": "ok", "database": "connected", "version": "1.x.x"}
+
+# 4. Frontend accessible
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
+# Expected: 200
+
+# 5. WebSocket endpoint available
+# Agent should verify /ws/ path is proxied correctly in nginx.conf
+
+# 6. Database seeded
+curl -s http://localhost:8000/api/tests/definitions | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Test definitions loaded: {len(d)}')"
+# Expected: Test definitions loaded: 25 (minimum, universal tests)
+```
+
+If any check fails, the agent must diagnose and fix the issue before proceeding. Common fixes:
+
+| Check Failed | Likely Cause | Fix |
+|---|---|---|
+| Docker services not running | Docker Desktop not started | Prompt user to start Docker Desktop, wait 30s, retry |
+| Tools sidecar unhealthy | Missing tool binary | Check Dockerfile, ensure `apt-get install nmap` etc. ran |
+| Backend DB not connected | SQLite file missing or permissions | Check `/data/edq.db` exists, verify volume mount |
+| Frontend 404/502 | nginx misconfigured or frontend not built | Run `npm run build` in frontend, check nginx.conf proxy paths |
+| 0 test definitions | Seed script not run | Execute `python3 seed_data.py` |
+
+### 26.1.2 Network Readiness Checks (User-Assisted)
+
+The agent must ask the user the following and adapt accordingly:
+
+**Q1: "How is the test device connected to your computer?"**
+
+| Answer | Agent Action |
+|---|---|
+| Direct Ethernet cable (device → laptop) | Identify the Ethernet interface (`ip link show` on Linux, `ipconfig` on Windows). Device likely uses static IP or APIPA (169.254.x.x). May need to set static IP on test interface. |
+| Through a switch/hub | Same as above but multiple devices possible. Agent should warn about scanning only the target IP. |
+| On the corporate network | Warn user that scanning corporate network devices may trigger security alerts. Confirm user has authorisation. Identify correct interface. |
+| Wi-Fi only | Inform user that Wi-Fi testing has limitations — no Layer 2 ARP scanning, potential firewall issues. Recommend Ethernet if possible. |
+
+**Q2: "What is the device's IP address? If unknown, do you know the expected subnet?"**
+
+| Answer | Agent Action |
+|---|---|
+| Known IP (e.g., 192.168.1.100) | Proceed directly to connectivity verification |
+| Known subnet but not exact IP | Run targeted subnet scan: `nmap -sn 192.168.1.0/24` to find live hosts |
+| Completely unknown | Check if device uses DHCP (run DHCP discovery), check for APIPA range, try common defaults (192.168.1.1, 192.168.0.1, 10.0.0.1) |
+
+**Q3: "Can you ping the device from your computer?"**
+
+The agent should instruct: `ping <device_ip>` and interpret results:
+
+| Result | Meaning | Fix |
+|---|---|---|
+| Reply received | Device reachable, proceed | None needed |
+| Request timed out | Device unreachable or ICMP blocked | Check cable, check IP config on test interface, try `arp -a` to see if MAC appears |
+| Destination unreachable | Wrong subnet | Set static IP on test interface to match device subnet |
+
+---
+
+## 26.2 Generic Device Integration Testing Protocol
+
+This is a 5-phase protocol. The agent walks the user through each phase sequentially, verifying results before proceeding. The protocol is identical for every device type.
+
+### Phase 1: Discovery Validation
+
+**What the agent does:** Triggers the auto-discovery pipeline against the target IP and validates each step produced correct output.
+
+```
+POST /api/discovery
+Body: {"ip_address": "<device_ip>"}
+```
+
+**Validation checkpoints the agent must verify:**
+
+| Step | Check | Pass Criteria | Failure Action |
+|---|---|---|---|
+| ARP Lookup | MAC address resolved | Non-empty MAC in format XX:XX:XX:XX:XX:XX | Check device is on same Layer 2 segment. If through router, ARP won't work — agent should note this and skip to port scan. |
+| OUI Lookup | Manufacturer identified | Manufacturer name populated (e.g., "Pelco", "EasyIO", "Hikvision") | Unknown OUI is acceptable — device gets "Unknown Manufacturer". Agent should note this is normal for less common brands. |
+| Port Scan | Open ports found | At least 1 open port detected | Check firewall on device, increase nmap timeout, try `-Pn` flag to skip host discovery |
+| Service Fingerprint | Services identified on open ports | Service names populated (e.g., "https", "ssh", "rtsp") | Some devices don't respond to service probes. Agent should note which ports are open but unidentified. |
+| Category Inference | Device category assigned | One of: Camera, Controller, Intercom, IoT Sensor, Network Device, Unknown | "Unknown" is a valid result — means universal tests only. Agent should ask user to confirm or correct the category. |
+
+**Agent guidance to user:** "Discovery found [summary]. Does this look correct for your device? The manufacturer is [X], I found [N] open ports ([list]), and categorised it as a [category]. If any of this is wrong, I can adjust before we run tests."
+
+### Phase 2: Automated Test Execution
+
+**What the agent does:** Creates a test session and triggers automated (Tier 1) tests against the device.
+
+```
+POST /api/sessions
+Body: {"device_id": "<id>", "profile": "<detected_or_selected_profile>"}
+
+POST /api/sessions/<session_id>/run
+Body: {"tier": "automatic"}
+```
+
+**Validation checkpoints:**
+
+| Check | Pass Criteria | Failure Action |
+|---|---|---|
+| Session created | Session ID returned, status = "created" | Check API logs for database errors |
+| Tests queued | Correct number of Tier 1 tests queued based on profile | Verify test definitions are seeded and profile mapping is correct |
+| WebSocket connected | Real-time progress updates streaming | Check nginx WebSocket proxy config, verify `/ws/` path forwarding |
+| Each test completes | Status transitions: queued → running → completed/failed | If stuck on "running" >5 min: check tools sidecar logs, check device still reachable |
+| Tool output stored | Raw tool output (nmap XML, testssl JSON, etc.) saved | Check file storage path, check disk space |
+| Results parsed | Each test has a grade (Pass/Fail/Warning/Info) and populated findings | Check parser matched expected output format — log raw output for debugging |
+
+**Agent guidance to user:** Display real-time progress. After completion: "Automated tests complete. [X] passed, [Y] failed, [Z] warnings. Here's a summary: [list critical failures]. Want to review any specific result before we move to manual tests?"
+
+**Common failure patterns and fixes:**
+
+```
+Symptom: nmap test completes but all ports show "filtered"
+Cause:   Device firewall blocking scan, or wrong interface used
+Fix:     Agent should check which network interface nmap used.
+         Try: nmap -e <correct_interface> <device_ip>
+
+Symptom: testssl.sh returns empty/error
+Cause:   Device doesn't have TLS enabled, or port 443 not open
+Fix:     Check port scan results first. If no TLS port found,
+         mark TLS tests as N/A with reason "No TLS service detected"
+
+Symptom: ssh-audit fails to connect
+Cause:   SSH not enabled on device, or non-standard port
+Fix:     Check port scan for SSH on non-standard ports.
+         Try common alternatives: 2222, 22222, 8022
+
+Symptom: hydra default credential check hangs
+Cause:   Device rate-limits or blocks login attempts
+Fix:     Reduce thread count, add delay between attempts.
+         If device locks out, inform user and skip test.
+
+Symptom: Test result says "parser_error"
+Cause:   Tool output format doesn't match expected schema
+Fix:     Agent should dump raw tool output to console,
+         identify the format difference, and fix the parser.
+         This is the most common issue with new device types.
+```
+
+### Phase 3: Manual Guided Test Execution
+
+**What the agent does:** Presents each Tier 2 (guided manual) test to the user with structured prompts.
+
+**Agent guidance to user for each manual test:**
+
+```
+"Test [ID]: [Name]
+Category: [What this tests]
+Instructions: [Step-by-step what to check on the device]
+
+What did you observe?
+  1. Pass — [predefined pass description]
+  2. Fail — [predefined fail description]
+  3. N/A — [predefined N/A reason]
+
+You can also attach a screenshot or photo as evidence."
+```
+
+**Validation checkpoints:**
+
+| Check | Pass Criteria | Failure Action |
+|---|---|---|
+| All Tier 2 tests presented | User sees every manual test for the device profile | Check test definitions include `tier: "guided_manual"` |
+| Structured options shown | User selects from predefined choices, not free text | Verify UI renders radio buttons / select dropdowns |
+| Evidence upload works | User can attach images/PDFs, files are stored | Check upload endpoint, verify `/data/evidence/` directory exists and is writable |
+| Results saved | Each manual test has a grade and optional comment | Check database after each submission |
+
+### Phase 4: Report Generation
+
+**What the agent does:** Triggers report generation and validates the output against the template.
+
+```
+POST /api/sessions/<session_id>/report
+Body: {"format": "excel", "template": "<auto_detected_or_selected>"}
+```
+
+**Validation checkpoints:**
+
+| Check | Pass Criteria | Failure Action |
+|---|---|---|
+| Report generated | .xlsx file created in output directory | Check openpyxl logs for errors, verify template file exists |
+| File opens in Excel | No corruption errors when opened | Validate with `openpyxl.load_workbook()` after generation |
+| Device details populated | Device name, IP, MAC, manufacturer in correct cells | Agent should programmatically read the generated file and verify key cells are non-empty |
+| Test results in correct rows | Each test result appears in the expected row | Agent should compare test IDs to row mapping |
+| Grades/comments populated | Pass/Fail/Warning values and finding text present | Check for empty result cells that should be populated |
+| Formatting preserved | Original template formatting intact (colours, borders, merged cells, fonts) | Compare formatting attributes of key cells between template and output |
+| Logo present | Company logo appears in expected position | Check if image was copied from template |
+
+**Automated report validation script the agent should run:**
+
+```python
+"""
+Agent runs this after report generation to catch common issues.
+"""
+import openpyxl
+
+def validate_report(generated_path, template_path):
+    gen = openpyxl.load_workbook(generated_path)
+    tmpl = openpyxl.load_workbook(template_path)
+    issues = []
+
+    for sheet_name in tmpl.sheetnames:
+        if sheet_name not in gen.sheetnames:
+            issues.append(f"Missing sheet: {sheet_name}")
+            continue
+
+        gs = gen[sheet_name]
+        ts = tmpl[sheet_name]
+
+        # Check merged cells match
+        if gs.merged_cells.ranges != ts.merged_cells.ranges:
+            issues.append(f"Sheet '{sheet_name}': Merged cells differ")
+
+        # Check key formatting cells (first 5 rows typically header/device info)
+        for row in range(1, 6):
+            for col in range(1, 10):
+                gc = gs.cell(row=row, column=col)
+                tc = ts.cell(row=row, column=col)
+                if tc.font.bold != gc.font.bold:
+                    issues.append(f"Sheet '{sheet_name}' cell ({row},{col}): Font bold mismatch")
+                if tc.fill.start_color != gc.fill.start_color:
+                    issues.append(f"Sheet '{sheet_name}' cell ({row},{col}): Fill colour mismatch")
+
+    if not issues:
+        print("REPORT VALIDATION: ALL CHECKS PASSED")
+    else:
+        print(f"REPORT VALIDATION: {len(issues)} ISSUES FOUND")
+        for i in issues:
+            print(f"  - {i}")
+
+    return issues
+```
+
+### Phase 5: End-to-End Result Verification
+
+**What the agent does:** Final walkthrough with the user to confirm everything is correct.
+
+**Agent guidance to user:**
+
+```
+"Testing complete. Here's the full session summary:
+
+Device: [Manufacturer] [Model] at [IP]
+Category: [Category]
+Tests run: [X] automated, [Y] manual, [Z] auto-N/A
+Results: [A] Pass, [B] Fail, [C] Warning, [D] N/A
+
+Report generated: [filename]
+
+Please open the report in Excel and confirm:
+1. Does the device name and IP appear correctly at the top?
+2. Do the test results match what you saw in the app?
+3. Does the formatting look right — same colours, fonts, layout as your existing reports?
+4. Are there any empty cells where you expected data?
+
+If anything looks wrong, tell me what and where and I'll fix it."
+```
+
+---
+
+## 26.3 Symptom-Based Troubleshooting Guide
+
+This section is organised by **what the user sees**, not by device type. The agent should reference this when the user reports a problem during any phase.
+
+### Network & Connectivity Issues
+
+| Symptom | Likely Cause | Diagnostic Steps | Fix |
+|---|---|---|---|
+| "Device not found during discovery" | Subnet mismatch — test laptop and device on different subnets | `ip addr show` (Linux) or `ipconfig` (Windows) to check laptop's IP on test interface. Compare subnet to device's known IP. | Set static IP on test interface to same subnet as device. E.g., if device is 192.168.1.100, set laptop to 192.168.1.200/24. |
+| "Discovery finds MAC but no ports" | Device has aggressive firewall or is still booting | Wait 60 seconds, retry. Try `nmap -Pn -sV <ip>` to skip ping and probe services directly. | If still no ports after 3 retries, device may have all ports filtered. Note this in report — it's actually a valid security finding. |
+| "Discovery finds device but wrong manufacturer" | OUI database outdated or device uses rebranded NIC | Check MAC prefix against latest IEEE OUI database. Some devices use generic Realtek/Broadcom NICs. | Allow user to manually correct manufacturer. This doesn't affect test execution. |
+| "Tests were running then suddenly all fail" | Device rebooted, cable disconnected, or IP changed | Wobbly Cable Handler should detect this. Check if handler paused the session. Ping device manually. | If device is back: resume session. If IP changed: update session, restart failed tests. If device is gone: pause and wait. |
+| "Everything works but only on my PC" | Docker network interface binding or firewall specific to machine | Check if Docker is using the right network interface. Windows Defender or corporate firewall may block Docker containers from accessing physical network. | Add firewall exception for Docker, or use `--network host` for the tools container (Linux only — on Windows, use port forwarding). |
+
+### Test Execution Issues
+
+| Symptom | Likely Cause | Diagnostic Steps | Fix |
+|---|---|---|---|
+| "Test stuck on 'running' forever" | Tool process hung or timeout too generous | Check tools sidecar logs: `docker logs edq-tools-1`. Look for the specific tool process. | Kill hung process, reduce timeout value, restart test. Default timeouts: nmap 300s, testssl 120s, ssh-audit 60s, hydra 120s. |
+| "Test completed but result is empty" | Parser didn't recognise tool output format | Check raw tool output in `/data/tool_output/<session_id>/`. Compare against parser's expected format. | This is the most common issue with new device types. The tool output may have unexpected fields or missing sections. Fix the parser. |
+| "All TLS tests say N/A" | Device doesn't serve TLS on any port | Verify with `openssl s_client -connect <ip>:443`. Device may use HTTP only or TLS on non-standard port. | If no TLS: N/A is correct. If TLS on non-standard port: update device profile to include the correct port. |
+| "Default credential test blocked/hangs" | Device rate-limiting or account lockout after N attempts | Check hydra output for "blocked" or "too many attempts" messages. | Reduce hydra threads to 1, add `-W 3` wait flag. If device locks out, reset device and skip this test. Document in report. |
+| "SSH audit fails with 'connection refused'" | SSH not enabled on device | Try `nc -zv <ip> 22` to confirm port state. | If port closed: SSH test should be N/A. If port open but refused: device may require key-based auth only. Note in report. |
+
+### Report Generation Issues
+
+| Symptom | Likely Cause | Diagnostic Steps | Fix |
+|---|---|---|---|
+| "Report file is corrupted / won't open" | openpyxl error during generation | Check backend logs for Python traceback. Common: writing to merged cell, invalid cell reference. | Fix the specific openpyxl error. Usually a cell coordinate that doesn't exist or an attempt to write to a merged cell's non-primary coordinate. |
+| "Report opens but cells are empty" | Result-to-cell mapping incorrect | Run validation script (Section 26.2 Phase 4). Compare expected cell coordinates against actual. | Update the template mapping configuration. Each template has a map of test_id → (sheet, row, column) that may need adjustment. |
+| "Report formatting looks different from original" | Template formatting overwritten during generation | Compare specific cell formatting (font, fill, border) between template and output using openpyxl. | Ensure code reads template as read-only reference, copies formatting to output. Never modify the template file itself. |
+| "Logo is missing" | Image not copied from template | openpyxl has limited image support. Check if template uses embedded vs linked images. | Copy image explicitly using `openpyxl.drawing.image.Image()`. Store logo as separate file in `/templates/assets/`. |
+| "Wrong template used" | Category-to-template mapping incorrect | Check which template was selected and why. Compare device category against template mapping config. | If device category was wrong, correct it and regenerate. If mapping is wrong, fix the config. |
+
+### WebSocket & UI Issues
+
+| Symptom | Likely Cause | Diagnostic Steps | Fix |
+|---|---|---|---|
+| "Progress bar doesn't update" | WebSocket not connected or nginx not proxying | Browser console (F12) → check for WebSocket errors. Look for "WebSocket connection failed". | nginx.conf needs: `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";` in the `/ws/` location block. |
+| "UI shows old data after test completes" | Frontend not refreshing from API after WS event | Check if WebSocket message triggers a data refetch. | Ensure WS `test_completed` event triggers `GET /api/sessions/<id>/results` to refresh the results list. |
+| "Login works but redirects back to login" | Cookie not being set or CSRF mismatch | Check browser cookies (F12 → Application → Cookies). Look for `session` and `csrf_token` cookies. | Ensure backend sets cookies with `SameSite=Lax`, `Path=/`, and frontend sends credentials with `fetch(..., {credentials: 'include'})`. |
+
+---
+
+## 26.4 Testing a New/Unknown Device Type
+
+When the user tests a device that has no matching device profile, the agent should guide them through this specific flow:
+
+1. **Run discovery normally** — the device will get category "Unknown" or a best-guess category
+2. **Inform the user**: "This device doesn't match any existing profile. I'll run the 25 universal tests that apply to all IP devices. These cover port scanning, TLS/SSL, SSH, default credentials, HTTP headers, and network services."
+3. **Execute universal tests only** — no device-specific tests
+4. **After tests complete**, ask: "Based on what we found, this device has [list of services]. Would you like me to create a new device profile for this type so future tests include device-specific checks?"
+5. **If user says yes**: Create a minimal profile entry with the detected ports, services, and manufacturer. This becomes a starting point that the user can refine over time.
+6. **Generate report using the universal template** (MANUFACTURER MODEL IP Device Qualification Template)
+
+This is the core of the device-agnostic design — the app is useful from the very first device, even if that device has never been seen before.
+
+---
+
+## 26.5 Agent Behaviour Requirements
+
+The following instructions are for the AI development agent specifically. They define how the agent should behave during integration testing.
+
+### 26.5.1 When the User Says "I'm ready to test" or "I've connected a device"
+
+1. **Stop all other work.** Integration testing requires focus.
+2. Run the Pre-Test Environment Checklist (26.1) automatically.
+3. Fix any failing checks before proceeding.
+4. Ask the three network readiness questions (26.1.2).
+5. Proceed through the 5-phase protocol (26.2) step by step.
+6. After each phase, confirm results with the user before moving to the next.
+7. If any test fails unexpectedly, consult the Troubleshooting Guide (26.3) before asking the user for help.
+
+### 26.5.2 When Debugging a Failed Test
+
+1. **Always check logs first** — `docker logs edq-tools-1` and `docker logs edq-api-1`
+2. **Always check raw tool output** — read the actual file in `/data/tool_output/`
+3. **Never assume the device is broken** — the code is more likely wrong than the device
+4. **Show the user what you found** — don't just say "I fixed it", explain what was wrong
+5. **If you can't diagnose within 3 attempts**, tell the user: "I'm stuck on this issue. Here's what I've tried: [list]. The raw output looks like: [snippet]. This might need manual investigation or help from the Claude project chat."
+
+### 26.5.3 When Generating Reports
+
+1. **Always run the validation script** (26.2 Phase 4) after generating a report
+2. **Never modify the template file** — always copy it to a new file, then populate
+3. **If validation finds issues**, fix them and regenerate before showing the user
+4. **Ask the user to visually verify** — the agent cannot see what the Excel looks like when opened, so the user's eyes are the final check
+
+### 26.5.4 Escalation Protocol
+
+If the agent encounters any of these situations, it should inform the user that additional help may be needed:
+
+- Device uses a protocol the tools don't support (e.g., BACnet, Modbus, ZigBee) — these need custom test implementations
+- Tool output format is completely unrecognisable — parser may need a rewrite, not just a fix
+- Docker networking issue that persists after 3 fix attempts — may be Windows/WSL2 specific
+- Report template has complex formatting that openpyxl can't replicate — may need manual Excel adjustment
+
+In these cases, the agent should say: "This is beyond what I can fix automatically. I recommend opening your Claude project chat with the EDQ context and describing [specific issue]. The full project history there will help diagnose this."
+
+---
+
+## 26.6 Validation Checklist
+
+The agent should walk the user through this final checklist after completing all tests on their first device. Every item must be confirmed before the app is considered ready for production use.
+
+```
+FIRST DEVICE VALIDATION CHECKLIST
+===================================
+
+Discovery Pipeline
+  [ ] Device detected at correct IP address
+  [ ] MAC address resolved (or noted as unavailable if through router)
+  [ ] Manufacturer identified (or "Unknown" acknowledged)
+  [ ] Open ports match known device specifications
+  [ ] Device category correctly assigned (or manually corrected)
+
+Automated Tests (Tier 1)
+  [ ] All expected automated tests executed
+  [ ] No tests stuck in "running" state
+  [ ] Each test has a grade (Pass/Fail/Warning/N/A)
+  [ ] Raw tool output files stored and accessible
+  [ ] WebSocket progress updates displayed in real-time
+
+Manual Tests (Tier 2)
+  [ ] All guided manual tests presented with structured options
+  [ ] User could select Pass/Fail/N/A with predefined comments
+  [ ] Evidence upload (screenshot/photo) works
+  [ ] Manual results saved to database
+
+Auto-N/A Tests (Tier 3)
+  [ ] Tests with unmet prerequisites automatically marked N/A
+  [ ] N/A reason clearly stated
+
+Report Generation
+  [ ] Report generated as .xlsx file
+  [ ] Correct template selected (or universal template for unknown devices)
+  [ ] Device details populated in correct cells
+  [ ] All test results appear in correct rows
+  [ ] Grades and findings text present
+  [ ] Template formatting preserved (colours, fonts, borders, merged cells)
+  [ ] Logo present (if applicable)
+  [ ] Report opens without errors in Excel
+  [ ] User confirms report matches expected format
+
+Overall
+  [ ] Full session data persisted in database
+  [ ] Session can be reopened and reviewed
+  [ ] All evidence files accessible from results
+  [ ] Audit log contains entries for all actions
+```
+
+When all items are checked, the agent should tell the user: "First device validation complete. The app is working correctly. You can now test additional devices — the process will be the same. If you want to add a custom device profile for this device type, I can help set that up."
+
+---
+
+*END OF SECTION 26*
 
 *END OF DOCUMENT — EDQ Implementation PRD v1.2 (Unified)*
