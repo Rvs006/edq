@@ -1,2 +1,6 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+* text=auto eol=lf
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.pdf binary
+*.db binary

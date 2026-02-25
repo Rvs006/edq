@@ -1,5 +1,0 @@
-* text=auto eol=lf
-   *.xlsx binary
-   *.png binary
-   *.jpg binary
-   *.pdf binary
