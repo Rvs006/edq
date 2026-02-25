@@ -1,565 +1,1112 @@
-# ELECTRACOM DEVICE QUALIFIER — Product Requirements Document
+# CLAUDE.md — Electracom Device Qualifier (EDQ)
 
-**V1.0 — Launch Edition**
+## CRITICAL: READ THIS ENTIRE FILE BEFORE WRITING ANY CODE
 
-| Field | Value |
-|---|---|
-| **Document Version** | 1.0.0 |
-| **Status** | Draft for Engineering Review |
-| **Classification** | Internal — Confidential |
-| **Product Owner** | Platform Engineering |
-| **Last Updated** | 2026-02-23 |
-| **Target Release** | V1.0 — 12 Weeks from Approval |
+This is the master instruction file for all AI development agents (Verdent Decks, Claude Code, Antigravity). It is the single source of truth for the EDQ project. If any other document contradicts this file, THIS FILE WINS.
 
-*Electracom Projects Ltd — A Sauter Group Company*
-**CONFIDENTIAL — Internal Use Only**
+**Last Updated:** 25 February 2026
+**Status:** Production Build — Gap Closure Phase
+**Company:** Electracom Projects Ltd (a Sauter Group Company)
 
 ---
 
-## Version History
+## 1. WHAT EDQ IS (60-Second Summary)
 
-| Version | Date | Author | Changes |
-|---|---|---|---|
-| 1.0.0 | 2026-02-23 | Platform Engineering | Initial V1.0 Launch PRD — consolidated from V6.0 Enterprise PRD, architectural review, and modular device-agnostic redesign |
+EDQ is a web app that automates cybersecurity qualification testing for smart building IP devices (cameras, HVAC controllers, intercoms, IoT sensors). It replaces a manual process where a security engineer (Dylan) currently spends a FULL WORKING DAY per device running terminal commands (nmap, testssl.sh, ssh-audit, hydra), manually typing results into Excel spreadsheets, and hand-writing Word reports.
 
----
+EDQ reduces this to 1–2 hours by:
+1. Auto-discovering and fingerprinting the connected device
+2. Running 60–65% of security tests automatically
+3. Presenting remaining manual tests as structured single-click forms (not free-text)
+4. Generating pixel-perfect Excel/Word reports matching existing Electracom client formats
 
-## Table of Contents
-
-1. [Executive Summary](#1-executive-summary)
-2. [Target Users](#2-target-users)
-3. [System Architecture](#3-system-architecture)
-4. [Auto-Discovery & Device Fingerprinting](#4-auto-discovery--device-fingerprinting)
-5. [Three-Tier Test Engine](#5-three-tier-test-engine)
-6. [Universal Test Library & Device Profiles](#6-universal-test-library--device-profiles)
-7. [AI-Assisted Draft Synopsis Generator](#7-ai-assisted-draft-synopsis-generator)
-8. [Reporting & Compliance Engine](#8-reporting--compliance-engine)
-9. [Security Architecture & Threat Model](#9-security-architecture--threat-model)
-10. [Offline Architecture](#10-offline-architecture)
-11. [Database Schema](#11-database-schema)
-12. [Deployment & Infrastructure](#12-deployment--infrastructure)
-13. [Phased Delivery Plan](#13-phased-delivery-plan)
-14. [Risk Register](#14-risk-register)
-15. [Deferred Features (V2.0+ Roadmap)](#15-deferred-features-v20-roadmap)
+**Key Constraint:** Runs entirely offline on a test laptop via Docker. No cloud dependency. No internet required for testing.
 
 ---
 
-## 1. Executive Summary
-
-The Electracom Device Qualifier (EDQ) is an automated network security testing platform purpose-built to qualify smart building devices for enterprise network deployment. It supports any IP-connected device — cameras, HVAC controllers, intercoms, access panels, lighting controllers, sensors, meters, and any future device type — through a modular, device-agnostic testing architecture.
-
-The platform addresses a critical operational bottleneck: each device qualification currently requires a full working day of manual testing by a security engineer, involving repetitive command-line tool execution, manual result transcription into Excel spreadsheets, and hand-written narrative reports. With 30+ devices requiring qualification per month across a team of 10 engineers working from multiple office locations, this manual process is unsustainable, error-prone, and unauditable.
-
-EDQ V1.0 reduces device qualification time from one full working day to approximately 1–2 hours through three mechanisms: a zero-input auto-discovery pipeline that fingerprints devices automatically, a three-tier test engine that maximises automation while preserving human judgment only where genuinely required, and template-based report generation that produces pixel-perfect client deliverables in Excel, Word, and PDF formats mapping to ISO 27001, SOC2, and Cyber Essentials compliance frameworks.
-
-**Key Design Principle: Zero Unnecessary Input.** The engineer plugs in a device with a Cat6 cable and clicks one button. The system discovers the device, identifies the manufacturer and category, determines which tests apply, auto-stamps inapplicable tests as N/A, runs all automated assessments, and presents only the genuinely manual tests as structured single-click decisions — not free-form text. The AI-assisted draft synopsis generator then writes the narrative security assessment from the structured results, which the engineer reviews and approves.
-
-**Key Architectural Decision:** EDQ operates as a central web application with a lightweight desktop agent on each engineer's laptop. The agent executes scanning tools locally over a direct Cat6 ethernet connection to the device, providing full Layer 2 network access. The agent operates fully offline when internet is unavailable, syncing results when connectivity is restored.
-
----
-
-## 2. Target Users
-
-### 2.1 Security Test Engineer (10 users)
-
-Conducts daily device qualification testing from multiple locations (main office, coworking spaces, client sites). Connects devices directly to their laptop via Cat6 ethernet. Currently spends an entire working day per device running CLI tools manually and transcribing results. V1.0 benefit: plugs in a device, clicks one button, automated tests run while they handle other work, completes structured manual checks in minutes, downloads a finished report. Total time: 1–2 hours. Full offline capability.
-
-### 2.2 Reviewing Manager / QA Lead (2–3 users)
-
-Reviews test evidence, validates engineering judgments, overrides automated verdicts with documented justification, approves final reports before client delivery. Accesses the web dashboard from any browser — no agent required. Sees real-time status of all tests across the entire team. No more aggregating results from individual laptops.
-
-### 2.3 Platform Developer / Admin (1 user)
-
-Maintains the platform, manages users, creates test templates for new device types via the admin UI (no code changes required), monitors agent connectivity and sync status, deploys updates.
-
----
-
-## 3. System Architecture
-
-### 3.1 Overview
-
-EDQ V1.0 has two physical components: a central server accessible over the internet, and lightweight desktop agents on engineer laptops. The control plane (coordination, storage, UI, reporting) is separated from the execution plane (network scanning), enabling portable testing from any location with centralised data management.
-
-### 3.2 Architecture Diagram
+## 2. ARCHITECTURE (What You Are Building)
 
 ```
-┌─────────────────────────────────────────────┐
-│  CENTRAL SERVER (Azure VM / On-Prem)        │
-│  ┌────────┐ ┌────────┐ ┌────────┐ ┌──────┐ │
-│  │ Nginx  │ │FastAPI │ │SQLite  │ │Redis │ │
-│  │ +React │ │Backend │ │  /PG   │ │Queue │ │
-│  └────────┘ └────────┘ └────────┘ └──────┘ │
-└─────────────────────────────────────────────┘
-              HTTPS │         │
-    ┌──────────────┼─────────┼─────────┐
- ┌──┴─────┐  ┌────┴────┐  ┌─┴────────┐
- │ Agent  │  │ Agent   │  │ Reviewer │
- │ Eng #1 │  │ Eng #2  │  │ (Browser)│
- └──┬─────┘  └──┬──────┘  └──────────┘
-    │ Cat6      │ Cat6
- ┌──┴─────┐  ┌──┴──────┐
- │ Camera │  │ Contrlr │  (Any IP Device)
- └────────┘  └─────────┘
+┌─────────────────────────────────────────────────────────┐
+│  DOCKER COMPOSE (runs on engineer's Windows/Mac laptop) │
+│                                                          │
+│  ┌──────────┐   ┌──────────┐   ┌────────────────────┐  │
+│  │  NGINX   │   │ FASTAPI  │   │   TOOLS SIDECAR    │  │
+│  │ (port 80)│──▶│ BACKEND  │──▶│  (nmap, testssl,   │  │
+│  │  serves  │   │ (port    │   │   ssh-audit, hydra, │  │
+│  │  React   │   │  8000)   │   │   nikto)            │  │
+│  │  SPA     │   │          │   │  (port 8001)        │  │
+│  └──────────┘   └────┬─────┘   └────────────────────┘  │
+│                      │                                   │
+│                 ┌────┴─────┐                              │
+│                 │  SQLite  │                              │
+│                 │  /data/  │                              │
+│                 │  edq.db  │                              │
+│                 └──────────┘                              │
+└─────────────────────────────────────────────────────────┘
+         │ Cat6 Ethernet cable
+    ┌────┴────────┐
+    │   DEVICE    │  (Pelco camera, EasyIO controller, etc.)
+    │  UNDER TEST │
+    └─────────────┘
 ```
 
-### 3.3 Central Server
+### 2.1 Three Docker Services
 
-Hosted on an Azure B2s VM (or equivalent). Runs four containerised services via Docker Compose:
+| Service | Base Image | Port | Purpose |
+|---------|-----------|------|---------|
+| `frontend` | node:18 → nginx:alpine | 80 | Serves React SPA, proxies /api/* and /ws/* to backend |
+| `api` | python:3.12-slim | 8000 | FastAPI backend: auth, API, WebSocket, database, reports |
+| `tools` | ubuntu:22.04 | 8001 | Security scanning tools with REST API wrapper |
 
-- **Nginx reverse proxy:** Serves React frontend, terminates TLS, enforces rate limiting, proxies API requests to backend.
-- **FastAPI backend (Python 3.12):** Auth, REST API, WebSocket, database, report generation, agent coordination.
-- **SQLite database:** V1.0. Migration path to PostgreSQL for V2.0 when concurrent write contention emerges.
-- **Redis 7:** Job queuing and WebSocket pub/sub for real-time terminal streaming.
+### 2.2 Tools Sidecar API
 
-### 3.4 Laptop Scanning Agent
+The tools container exposes a simple REST API that the backend calls:
 
-A lightweight desktop application installed on each engineer's Windows or Mac laptop. Bundles all scanning tool binaries (nmap, testssl.sh, ssh-audit, nikto) within its installation package — no dependencies on the engineer having any tools pre-installed.
+```
+GET  /health                    → {"status": "healthy", "tools": {"nmap": true, ...}}
+POST /scan/nmap                 → Runs nmap with provided args, returns XML output
+POST /scan/testssl              → Runs testssl.sh, returns JSON output  
+POST /scan/ssh-audit            → Runs ssh-audit, returns JSON output
+POST /scan/hydra                → Runs hydra, returns stdout
+POST /scan/nikto                → Runs nikto, returns stdout
+```
 
-#### 3.4.1 Online Mode
+Each endpoint accepts:
+```json
+{
+  "target": "192.168.1.100",
+  "args": ["-sV", "-O", "-p-"],
+  "timeout": 300
+}
+```
 
-Agent connects to central server via HTTPS. Engineer initiates tests from the web UI. Server pushes job to Redis queue. Agent polls queue, executes tools on the local ethernet interface connected to the device via Cat6, streams results back to the server. Web UI shows real-time progress via WebSocket.
+And returns:
+```json
+{
+  "exit_code": 0,
+  "stdout": "...",
+  "stderr": "...",
+  "output_file": "base64-encoded XML/JSON if applicable",
+  "duration_seconds": 45.2
+}
+```
 
-#### 3.4.2 Offline Mode
+### 2.3 Docker Networking
 
-When the agent cannot reach the central server, it switches to fully autonomous operation. The agent serves a lightweight local UI at `https://localhost:8433` for test execution and manual assessments. All data is stored in an AES-256 encrypted local SQLite database. When connectivity is restored, results automatically sync to the central server with conflict detection and resolution.
+**CRITICAL:** The tools sidecar needs `network_mode: host` (or `NET_ADMIN` + `NET_RAW` capabilities) to scan devices on the host's network. The backend communicates with the tools sidecar via Docker's internal network. The frontend nginx proxies everything.
 
-#### 3.4.3 System Tray Behaviour
-
-- **Grey:** Idle, no server connection.
-- **Green:** Connected to server, ready.
-- **Blue (pulsing):** Actively scanning a device.
-- **Orange:** Unsynced offline results pending upload.
-- **Red:** Error (connection failed, scan error, sync conflict).
-
-### 3.5 Network Architecture
-
-The fundamental constraint: many security tests (MAC discovery, ARP scanning, switch negotiation, IPv6 SLAAC) require Layer 2 access — the scanner must be on the same physical network segment as the device. When an engineer connects a device directly via Cat6, the laptop's ethernet interface and the device form a two-node network. The agent scans on this interface while communicating with the server over WiFi or a separate connection.
-
-**Security constraint:** The agent must never route traffic between the test network interface and the corporate/internet interface. OS-level routing isolation is enforced during active scans.
-
----
-
-## 4. Auto-Discovery & Device Fingerprinting
-
-Auto-discovery is the mandatory first step of every test session. The engineer provides nothing except the device's IP address (or clicks "Scan Network" for automatic detection). The system determines everything else.
-
-### 4.1 Discovery Sequence
-
-The following sequence executes automatically in under 60 seconds:
-
-1. **ARP Resolution:** Obtain the device's MAC address via ARP request. Map MAC to manufacturer using the IEEE OUI database (e.g., `00:04:7D` → Motorola Solutions / Pelco).
-2. **Port Scan:** Full TCP SYN scan of all 65,535 ports (`nmap -sS`). UDP scan of top 100 common ports. Identify all open ports and running services with version detection.
-3. **Service Fingerprinting:** Banner grabbing on all open services. HTTP server identification (headers, response patterns). TLS certificate extraction (subject, issuer, validity, SANs).
-4. **Device Category Inference:** Rules-based classification from discovered services:
-   - RTSP (554) or ONVIF (80/8080 with ONVIF endpoint) → **IP Camera**
-   - BACnet (47808) or Modbus (502) → **Building Controller**
-   - SIP (5060/5061) → **Intercom / VoIP Device**
-   - MQTT (1883/8883) or CoAP (5683) → **IoT Sensor**
-   - HTTP/HTTPS only → **Generic Network Device**
-5. **Template Matching:** Cross-reference manufacturer + category against the template database. If an exact match exists (e.g., Pelco + Camera → "Pelco Camera Qualification Rev 2"), auto-select it. If no match, use the closest category template or the Universal Security Assessment template.
-
-### 4.2 Discovery Output
-
-The auto-discovery produces a **Device Fingerprint Card** displayed to the engineer:
-
-| Field | Example Value |
-|---|---|
-| IP Address | 192.168.1.50 |
-| MAC Address | 00:04:7D:D7:D1:58 |
-| Manufacturer | Motorola Solutions Inc. (Pelco) |
-| Device Category | IP Camera (auto-detected: RTSP on port 554) |
-| Open Ports | 22 (SSH), 80 (HTTP), 443 (HTTPS), 554 (RTSP) |
-| TLS Version | TLS 1.2 / TLS 1.3 supported |
-| SSH Version | OpenSSH 8.2 |
-| Web Server | lighttpd/1.4.55 |
-| Matched Template | Pelco Camera Qualification Rev 2 |
-
-The engineer reviews this card and either confirms ("Start Testing") or corrects the category/template selection. In the majority of cases, the auto-detection is correct and the engineer simply clicks one button.
-
-**If no template matches:** The system uses the Universal Security Assessment template, which runs all device-agnostic tests. The admin can create a device-specific template later and retroactively map the existing results to it — no re-testing required.
+```yaml
+# docker-compose.yml structure
+services:
+  frontend:
+    build: ./frontend
+    ports: ["80:80"]
+    depends_on: [api]
+    
+  api:
+    build: ./backend
+    ports: ["8000:8000"]
+    volumes:
+      - ./data:/data
+      - ./templates:/app/templates
+    environment:
+      - DATABASE_URL=sqlite:///data/edq.db
+      - TOOLS_SIDECAR_URL=http://tools:8001
+      - JWT_SECRET=${JWT_SECRET}
+      
+  tools:
+    build: ./tools
+    ports: ["8001:8001"]
+    cap_add: [NET_ADMIN, NET_RAW]
+    network_mode: host  # Required for Layer 2 scanning
+```
 
 ---
 
-## 5. Three-Tier Test Engine
+## 3. DATABASE SCHEMA (11 Tables)
 
-Every test in every template falls into exactly one of three tiers. The tier determines how the test executes and what (if any) engineer input is required.
+Use SQLAlchemy 2.0 ORM with SQLite. All IDs are UUID v4 strings.
 
-### 5.1 Tier 1: Fully Automatic (60–65% of tests)
+### 3.1 users
+```sql
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    full_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,          -- bcrypt, cost factor 12
+    role TEXT NOT NULL CHECK (role IN ('admin', 'tester', 'reviewer')),
+    is_active BOOLEAN NOT NULL DEFAULT 1,
+    last_login TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-The engineer does nothing. The system executes the test, evaluates the result against deterministic rules, assigns a verdict (Pass/Fail/Advisory), and generates the report comment text — all without any human input.
+### 3.2 devices
+```sql
+CREATE TABLE devices (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    ip_address TEXT NOT NULL,
+    mac_address TEXT,
+    vendor TEXT,
+    manufacturer TEXT,
+    model TEXT,
+    firmware_version TEXT,
+    serial_number TEXT,
+    device_category TEXT NOT NULL DEFAULT 'generic',
+    fingerprint JSON,                     -- Full discovery results
+    template_id TEXT REFERENCES test_templates(id),
+    profile_id TEXT REFERENCES device_profiles(id),
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP
+);
+```
 
-**Execution:** The agent runs the mapped scanning tool (nmap, testssl.sh, ssh-audit, nikto) via subprocess. Raw stdout is captured and persisted. A structured parser extracts specific findings. A rule engine evaluates findings against pass/fail criteria defined in the template.
+### 3.3 device_profiles
+```sql
+CREATE TABLE device_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL UNIQUE,        -- camera, controller, intercom, iot_sensor, generic
+    description TEXT,
+    detection_rules JSON NOT NULL,        -- Rules for auto-detection
+    additional_tests JSON NOT NULL,       -- Profile-specific test definitions
+    scan_policy JSON NOT NULL DEFAULT '{"intensity": "safe", "nmap_rate_limit": "--max-rate 200"}',
+    is_active BOOLEAN NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-**Example — Test T5 (MAC Address):** nmap ARP scan → discovers MAC `00:04:7D:D7:D1:58` → OUI lookup returns "Motorola Solutions Inc." → vendor is registered → **PASS**. Auto-generated comment: "MAC: 00:04:7D:D7:D1:58. Vendor: Motorola Solutions Inc. Company Address: 500 W Monroe Street, Chicago IL US 60661. Last Update: 2021-01-28."
+### 3.4 test_templates
+```sql
+CREATE TABLE test_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    device_category TEXT,
+    manufacturer_match TEXT,
+    description TEXT,
+    source_xlsx_path TEXT,
+    source_xlsx_hash TEXT,
+    test_definitions JSON NOT NULL,       -- Array of test definition objects
+    cell_mappings JSON,                   -- Maps test_number → Excel cell coordinates
+    is_active BOOLEAN NOT NULL DEFAULT 1,
+    created_by TEXT REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-**Example — Test T16 (TLS Assessment):** testssl.sh runs against port 443 → finds TLS 1.2 with CBC cipher suites → rule: if TLS < 1.3 AND weak ciphers present → **ADVISORY**. Auto-generated comment lists all weak cipher suites found.
+### 3.5 test_runs
+```sql
+CREATE TABLE test_runs (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL REFERENCES devices(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    template_id TEXT NOT NULL REFERENCES test_templates(id),
+    template_version TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'discovering', 'running', 'paused_manual',
+                          'paused_cable', 'awaiting_review', 'complete', 'error')),
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    overall_verdict TEXT CHECK (overall_verdict IN ('pass', 'fail', 'advisory', 'incomplete')),
+    synopsis_text TEXT,
+    synopsis_ai_draft TEXT,
+    synopsis_ai_drafted BOOLEAN NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-### 5.2 Tier 2: Guided Manual (25–30% of tests)
+### 3.6 test_results
+```sql
+CREATE TABLE test_results (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES test_runs(id),
+    test_number TEXT NOT NULL,            -- e.g. "1", "16.1", "16.2"
+    test_name TEXT NOT NULL,
+    tier TEXT NOT NULL CHECK (tier IN ('automatic', 'guided_manual', 'auto_na')),
+    tool_used TEXT,                        -- nmap, testssl, ssh-audit, hydra, manual
+    tool_command TEXT,                     -- Exact command executed
+    raw_stdout TEXT,                       -- Full tool output
+    raw_stderr TEXT,
+    parsed_findings JSON,                 -- Structured parsed results
+    verdict TEXT CHECK (verdict IN ('pass', 'fail', 'advisory', 'info', 'n/a', 'pending')),
+    auto_comment TEXT,                    -- Auto-generated test comment
+    engineer_selection TEXT,              -- Manual test: engineer's selection
+    engineer_notes TEXT,                  -- Manual test: free-text notes
+    is_overridden BOOLEAN NOT NULL DEFAULT 0,
+    override_reason TEXT,
+    overridden_by TEXT REFERENCES users(id),
+    script_flag TEXT DEFAULT 'No',        -- "Yes" or "No" — whether test was automated
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-The system cannot make the final determination, but it does as much work as possible and asks the engineer for the minimum input — a single-click structured decision, not free-form text.
+### 3.7 attachments
+```sql
+CREATE TABLE attachments (
+    id TEXT PRIMARY KEY,
+    result_id TEXT NOT NULL REFERENCES test_results(id),
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size_bytes INTEGER,
+    sha256_hash TEXT,
+    upload_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-**Design principle:** Every manual test presents the engineer with predefined outcome options. The system auto-generates the report comment text based on which option the engineer selects. The engineer never writes a sentence unless they choose to add optional supplementary notes.
+### 3.8 protocol_whitelists
+```sql
+CREATE TABLE protocol_whitelists (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    protocols JSON NOT NULL,              -- Array of {protocol, connection, port} objects
+    is_default BOOLEAN NOT NULL DEFAULT 0,
+    created_by TEXT REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-Examples of structured manual test interactions:
+### 3.9 report_configs
+```sql
+CREATE TABLE report_configs (
+    id TEXT PRIMARY KEY,
+    client_name TEXT,
+    logo_path TEXT,
+    compliance_standards JSON,
+    branding_colours JSON,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-| Test | What System Shows | Engineer Action |
-|---|---|---|
-| Network Disconnection | "Disconnect the Cat6 cable for 30 seconds, then reconnect. What happened?" | Selects: [Resumed normally] [Did not resume] [Device lost power (PoE)] [Other] |
-| Web Password Change | "Log into the web interface. Can the admin password be changed?" | Selects: [Yes — password changed] [Yes — but requires reboot] [No — no option found] [Cannot access web UI] |
-| Firmware Update | "Does the web interface provide a firmware update mechanism?" | Selects: [Yes — manual upload] [Yes — auto-update] [No mechanism found] [N/A] |
-| Physical Tamper | "Is the device's reset button / USB port physically accessible without tools?" | Selects: [Accessible] [Requires tools] [No reset mechanism] [N/A] |
-| Documentation | "Does the manufacturer provide a security hardening guide?" | Selects: [Yes — comprehensive] [Yes — basic] [No documentation found] [Link: ___] |
+### 3.10 audit_logs
+```sql
+CREATE TABLE audit_logs (
+    id TEXT PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    user_id TEXT REFERENCES users(id),
+    action TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id TEXT,
+    ip_address TEXT,
+    details JSON
+);
+```
 
-Each selection maps to a predefined verdict and auto-generated comment. For example, if the engineer selects "Device lost power (PoE)" for the Network Disconnection test, the system auto-assigns **N/A** with the comment: "Device is Power over Ethernet (PoE). Without the ethernet connection, the device loses power and cannot operate. Test not applicable."
-
-**Evidence capture:** For manual tests, the system prompts for optional screenshot or photo upload. The agent can trigger an automatic screenshot of the device's web interface (if accessible) to pre-attach as evidence.
-
-### 5.3 Tier 3: Auto N/A (5–15% of tests)
-
-Tests that are provably inapplicable based on the auto-discovery results. The system stamps them as N/A automatically with a generated explanation. Zero engineer involvement.
-
-**Rules engine:** Each test in each template has prerequisite conditions defined:
-
-- SSH tests require SSH service detected on at least one port. If no SSH → all SSH tests = N/A ("SSH service not detected on any port").
-- RTSP tests require RTSP service detected. If no RTSP → RTSP tests = N/A.
-- IPv6 tests require "Essential Pass = NO" AND no IPv6 stack detected. If the template marks IPv6 as non-essential and the device has no IPv6 → N/A.
-- BACnet/Modbus tests on a camera → N/A ("Building automation protocols not applicable to this device category").
-- Nessus-specific tests without a .nessus file uploaded → N/A ("Nessus scan not performed for this assessment").
-
-**Percentage varies by device:** A camera might have 5% auto-N/A tests (most network tests apply). A simple temperature sensor might have 30% auto-N/A tests (no web interface, no SSH, no TLS). This is correct behaviour — the system intelligently scopes the assessment to what's actually present on the device.
-
-### 5.4 Wobbly Cable Resilience Handler
-
-Between each major test module, the agent performs a connectivity check (ICMP ping + TCP SYN to a known open port). If the device is unreachable: the UI shows a warning, the current test pauses (not fails), the agent enters exponential backoff polling (2s → 4s → 8s → up to 60s, max 15 minutes). Upon reconnection, testing resumes from exactly where it stopped. If unreachable after 15 minutes, the run pauses indefinitely with an engineer notification.
-
-### 5.5 Nessus Integration
-
-Engineers run Nessus vulnerability scans separately (Nessus has its own licensing and scanning infrastructure). They export the results as a `.nessus` XML file and upload it to EDQ. The system parses the XML using `defusedxml` (preventing XXE attacks), maps each finding to the template's Nessus results sheet by plugin ID and severity, and auto-populates the corresponding test rows. The engineer reviews the mapped results and confirms.
+### 3.11 nessus_findings
+```sql
+CREATE TABLE nessus_findings (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES test_runs(id),
+    plugin_id INTEGER NOT NULL,
+    plugin_name TEXT NOT NULL,
+    severity TEXT NOT NULL,               -- critical, high, medium, low, info
+    risk_factor TEXT,
+    description TEXT,
+    solution TEXT,
+    port INTEGER,
+    protocol TEXT,
+    plugin_output TEXT,
+    cvss_score REAL,
+    cve_ids JSON,
+    imported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
 
 ---
 
-## 6. Universal Test Library & Device Profiles
+## 4. THREE TEST TEMPLATE FORMATS
 
-### 6.1 Universal Tests (Apply to Every Device)
+EDQ must support three distinct Excel template formats. The generated reports must be PIXEL-PERFECT matches to the originals.
 
-These tests execute regardless of device type. They form the base layer of every qualification:
+### 4.1 Pelco Camera Format (31 tests)
 
-| # | Test | Tool | Tier | Compliance Map |
-|---|---|---|---|---|
-| U01 | Ping response | nmap | Automatic | Baseline |
-| U02 | MAC address vendor lookup | nmap + OUI DB | Automatic | ISO 27001 A.12.6 |
-| U03 | Switch negotiation (speed/duplex) | nmap + ethtool | Automatic | Baseline |
-| U04 | DHCP behaviour | nmap + dhclient | Automatic | Baseline |
-| U05 | IPv6 support detection | nmap | Automatic | Baseline |
-| U06 | Full TCP port scan | nmap | Automatic | CE Boundary |
-| U07 | UDP top-100 port scan | nmap | Automatic | CE Boundary |
-| U08 | Service version detection | nmap | Automatic | SOC2 CC7.1 |
-| U09 | Protocol whitelist compliance | nmap + rules | Automatic | CE Secure Config |
-| U10 | TLS version assessment | testssl.sh | Automatic | ISO 27001 A.14.1 |
-| U11 | Cipher suite strength | testssl.sh | Automatic | ISO 27001 A.14.1 |
-| U12 | Certificate validity | testssl.sh | Automatic | ISO 27001 A.14.1 |
-| U13 | HSTS header presence | testssl.sh | Automatic | CE Secure Config |
-| U14 | HTTP security headers | nikto | Automatic | CE Secure Config |
-| U15 | SSH algorithm assessment | ssh-audit | Automatic | ISO 27001 A.14.1 |
-| U16 | Default credential check | custom + hydra | Automatic | SOC2 CC6.1 |
-| U17 | Brute force protection | custom | Automatic | SOC2 CC6.1 |
-| U18 | HTTP vs HTTPS availability | nmap + curl | Automatic | CE Secure Config |
-| U19 | OS fingerprinting | nmap | Automatic | SOC2 CC8.1 |
-| U20 | Network disconnection behaviour | — | Guided Manual | Baseline |
-| U21 | Web interface password change | — | Guided Manual | SOC2 CC6.1 |
-| U22 | Firmware update mechanism | — | Guided Manual | CE Patch Mgmt |
-| U23 | Session timeout validation | — | Guided Manual | ISO 27001 A.14.1 |
-| U24 | Physical security (reset/USB) | — | Guided Manual | CE Secure Config |
-| U25 | Manufacturer documentation | — | Guided Manual | Baseline |
+Source: `templates/1TS__Pelco_SMLE115V53H_Camera_Device_Qualification_Rev_2.xlsx`
+Sheets: TEST SYNOPSIS, TESTPLAN, ADDITIONAL INFO
 
-### 6.2 Device Category Profiles (Extensions)
+TESTPLAN columns (starting row 12):
+| Column | Content |
+|--------|---------|
+| B | Test Number (integer: 1, 2, 3... or decimal: 16.1, 16.2) |
+| C | Brief Description |
+| D | Test Description |
+| E | Essential Pass (YES/NO) |
+| F | Test Result (PASS/FAIL/ADVISORY/N/A) |
+| G | Test Comments |
+| H | Script? (Yes/No) |
 
-Each profile adds tests specific to that device category. Profiles are auto-selected based on discovery results and can be overridden by the engineer.
+TEST SYNOPSIS metadata cells:
+| Cell | Content |
+|------|---------|
+| G7 | Test Attempt number |
+| G8 | Date range "DD/MM/YYYY - DD/MM/YYYY" |
+| G9 | System (e.g. "Security") |
+| G11 | Manufacturer |
+| G12 | Model |
+| G13 | Firmware Version |
+| G14 | Serial Number |
+| G15 | Name of Tester |
+| G16 | TEST RESULT (overall: PASS/FAIL/ADVISORY) |
+| B19 | Synopsis text (multi-paragraph narrative) |
 
-#### 6.2.1 IP Camera Profile
+### 4.2 EasyIO Controller Format (46 tests)
 
-- RTSP port detection and encryption assessment
-- ONVIF service discovery and authentication check
-- Video stream encryption validation (SRTP vs RTP)
-- Multicast traffic analysis
-- RTSP credential exposure check
+Source: `templates/EasyIO_FW08__Device_Testing_Plan__v1_1.xlsx`
+Sheets: Synopsis, Protocol Whitelist, 01 Test - Questions, 01 Test - Nessus
 
-#### 6.2.2 Building Controller Profile (BACnet/HVAC)
+01 Test - Questions columns (starting row 13):
+| Column | Content |
+|--------|---------|
+| B | Test # (text with non-breaking spaces: "1\xa0", "2\xa0") |
+| C | Test Description (full description, not brief) |
+| D | Essential Pass (YES/NO/INFO with trailing \xa0) |
+| E | Pass, Fail, Info, N/A |
+| F | Notes |
+| G | Script? (Yes/No) |
 
-- BACnet service detection (port 47808)
-- BACnet authentication and encryption check
-- Modbus TCP exposure detection (port 502)
-- Control protocol segmentation assessment
+**DIFFERENCES FROM PELCO:** Uses "INFO" as a verdict type. Uses "Notes" instead of "Test Comments". No separate "Brief Description" column. Test numbers have trailing non-breaking spaces. Essential Pass values have trailing non-breaking spaces.
 
-#### 6.2.3 Intercom / Access Control Profile
+Protocol Whitelist sheet (starting row 8):
+| Column | Content |
+|--------|---------|
+| B | Item number |
+| C | Protocol name and RFC reference |
+| D | Connection type (TCP/UDP/TCP+UDP) |
+| E | IANA Assigned Port |
 
-- SIP protocol detection and encryption (SRTP, TLS-SIP)
-- Door relay / control API exposure
-- Audio stream encryption check
+### 4.3 Generic Template Format (43 tests)
 
-#### 6.2.4 IoT Sensor Profile
+Source: `templates/MANUFACTURER__MODEL__IP_Device_Qualification_Template_C00__ADDED_SCRIPT_NO_YES_1.xlsx`
+Sheets: TEST SUMMARY, TESTPLAN, ADDITIONAL INFORMATION
 
-- MQTT broker detection and authentication
-- CoAP endpoint discovery
-- Telemetry data encryption assessment
+TESTPLAN columns (starting row 10):
+| Column | Content |
+|--------|---------|
+| B | Test Number |
+| C | Brief Description |
+| D | Test Description |
+| E | Script? (Yes/No) — NOTE: different column position vs Pelco! |
+| F | Essential Pass |
+| G | Test Result |
+| H | Test Comments |
 
-#### 6.2.5 Generic / Unknown Device
+**DIFFERENCES:** Column E is Script? (in Pelco it's Essential Pass). Column F is Essential Pass (in Pelco it's Test Result). Some Essential Pass values are conditional: "YES (IoT GATEWAYS ONLY)".
 
-Universal tests only. No category-specific extensions. Used when the device type is unknown or doesn't match any existing profile. This is the safe default — it never skips tests that might be relevant.
+### 4.4 Cell Mapping Strategy
 
-### 6.3 Template Import System
+Create JSON cell mapping files for each template that define EXACTLY where each piece of data goes:
 
-When a new device type or client format needs supporting, the admin uploads the client's Excel template and uses the admin UI to:
+```json
+{
+  "template_name": "pelco_camera_rev2",
+  "synopsis_sheet": "TEST SYNOPSIS",
+  "testplan_sheet": "TESTPLAN",
+  "additional_sheet": "ADDITIONAL INFO",
+  "metadata_cells": {
+    "test_attempt": "G7",
+    "date_range": "G8",
+    "system": "G9",
+    "manufacturer": "G11",
+    "model": "G12",
+    "firmware": "G13",
+    "serial": "G14",
+    "tester_name": "G15",
+    "overall_result": "G16",
+    "synopsis_text": "B19"
+  },
+  "testplan_start_row": 13,
+  "testplan_columns": {
+    "test_number": "B",
+    "brief_description": "C",
+    "test_description": "D",
+    "essential_pass": "E",
+    "test_result": "F",
+    "test_comments": "G",
+    "script_flag": "H"
+  }
+}
+```
 
-- Map each row in the template to a test from the Universal Library or a Device Profile.
-- Define the cell positions for each result and comment column.
-- Configure pass/fail rules for any device-specific tests.
-- Set prerequisite conditions for auto-N/A stamping.
-
-This configuration is stored as JSON in the database. No code changes or redeployment needed.
-
----
-
-## 7. AI-Assisted Draft Synopsis Generator
-
-### 7.1 Purpose and Scope
-
-After all tests are complete and verdicts are final, the system can draft a professional security assessment narrative — the "Test Synopsis" section of the report. This is the one area where an LLM adds genuine value: synthesising structured test results into coherent, client-facing prose with specific remediation recommendations.
-
-**This is a writing assistant, not a decision maker.** The AI never determines pass/fail verdicts. It receives the finalised structured results and writes a human-readable summary. The engineer reviews, edits, and approves the draft before it enters any report.
-
-### 7.2 How It Works
-
-1. Engineer clicks "Draft Synopsis" after all tests are complete.
-2. The system compiles all test results, verdicts, and auto-generated comments into a structured prompt.
-3. The prompt is sent to the LLM API (Claude API) with strict instructions: write a professional security assessment referencing specific test findings, list remediation steps in priority order, use Electracom's standard technical language, do not invent findings not present in the data.
-4. The draft appears in an editable rich text field. The engineer reviews it, makes any corrections, and clicks "Approve."
-5. The approved text is saved as the test synopsis and included in reports.
-
-### 7.3 Guardrails
-
-- **No hallucinated findings:** The prompt explicitly constrains the LLM to reference only test results present in the input data. The system validates that every test number cited in the synopsis exists in the actual results.
-- **Human always in the loop:** The synopsis is never auto-inserted into a report. It requires explicit engineer approval.
-- **Audit trail:** The database stores both the AI draft and the final approved version, with a flag indicating AI assistance was used.
-- **Offline:** Synopsis generation is unavailable offline (requires API access). Engineers can write the synopsis manually or generate it after syncing.
-- **Optional:** This feature can be deferred to V1.1 without blocking V1.0 launch. Engineers can write synopses manually as they do today.
-
----
-
-## 8. Reporting & Compliance Engine
-
-### 8.1 Template-Based Excel Generation
-
-Client deliverables must be pixel-perfect replicas of existing manually-created reports. The system opens the actual client `.xlsx` template file and writes results into specific cells. It does NOT generate Excel files from scratch. This preserves all formatting, merged cells, conditional formatting, formulas, column widths, print areas, and page breaks exactly as designed.
-
-Each template has a cell mapping stored as JSON: which cell receives which data point. This mapping is configured via the admin UI when importing a template.
-
-### 8.2 Word Report Generation
-
-Executive summary `.docx` reports generated via `python-docx` and Jinja2 against an actual `.docx` template file. Includes: cover page with client logo, colour-coded risk matrix, individual findings with severity and remediation, compliance control mapping, and the AI-drafted (or manually written) synopsis.
-
-### 8.3 PDF Export
-
-All reports exportable as PDF via LibreOffice headless conversion. Generated on-demand, not stored permanently.
-
-### 8.4 Client Branding
-
-Each client project can have: custom logo (PNG/JPG, max 2MB, SVG forbidden), branding colours for report headers, applicable compliance standards (ISO 27001, SOC2, Cyber Essentials, or custom), and custom header/footer text.
-
-### 8.5 Compliance Mapping
-
-| Standard | Control | Requirement | EDQ Implementation |
-|---|---|---|---|
-| ISO 27001 | A.12.6.1 | Technical Vulnerability Mgmt | Automated scanning, Nessus import, structured remediation tracking |
-| ISO 27001 | A.14.1.2 | Securing App Services | TLS assessment, cipher validation, certificate chain verification |
-| ISO 27001 | A.14.1.3 | Protecting Transactions | Session testing, brute force validation, auth mechanism assessment |
-| SOC2 | CC6.1 | Logical Access Security | Default credential testing, password policy, access control verification |
-| SOC2 | CC7.1 | System Monitoring | Port scan analysis, service enumeration, protocol whitelist compliance |
-| SOC2 | CC8.1 | Change Management | Firmware tracking, config baseline, template versioning |
-| Cyber Essentials | Boundary | Network perimeter | Open port analysis, unnecessary service detection, exposure assessment |
-| Cyber Essentials | Secure Config | Device hardening | Default settings, unnecessary protocols, HTTP/HTTPS configuration |
-| Cyber Essentials | Patching | Software currency | Firmware version recording, CVE cross-referencing via Nessus |
-| Cyber Essentials | Access Control | Authentication | Brute force testing, session timeout, credential strength |
+**CRITICAL:** The report generator must open the ACTUAL .xlsx template file (not create from scratch), fill in cells, and save. This preserves all formatting, merged cells, borders, colours, conditional formatting, and logos.
 
 ---
 
-## 9. Security Architecture & Threat Model
+## 5. UNIVERSAL TEST LIBRARY (30 Tests)
 
-### 9.1 Threat Landscape
+These 30 tests apply to ANY IP device. Additional device-specific tests come from templates.
 
-EDQ processes highly sensitive data: network vulnerability assessments, device weaknesses, firmware versions, network topology, and authentication details. A breach provides an attacker with a precise roadmap for exploiting every qualified device across all client deployments. EDQ's security posture must exceed that of a typical internal tool.
+### 5.1 Automatic Tests (Tool-Executed)
 
-### 9.2 Threat Vectors & Mitigations
+| ID | Name | Tool | What It Does | Pass Criteria |
+|----|------|------|-------------|---------------|
+| U01 | Ping Response | nmap -sn | Verify device responds to ICMP | Reply received |
+| U02 | MAC Vendor Lookup | nmap + OUI DB | Identify manufacturer from MAC | MAC registered to known vendor |
+| U03 | Switch Negotiation | ethtool / nmap | Check speed/duplex | Full duplex, auto-negotiates |
+| U04 | DHCP Behaviour | discovery metadata | Check DHCP address acceptance | Device accepts DHCP lease |
+| U05 | IPv6 Support | nmap -6 | Detect IPv6 capability | Informational (no pass/fail) |
+| U06 | Full TCP Port Scan | nmap -sS -p- | Scan all 65535 TCP ports | Returns open port list |
+| U07 | UDP Top-100 Scan | nmap -sU --top-ports 100 | Scan common UDP ports | Returns open port list |
+| U08 | Service Detection | nmap -sV | Identify services on open ports | Services identified |
+| U09 | Protocol Whitelist | custom rules | Compare open ports vs allowed list | All ports on whitelist |
+| U10 | TLS Version | testssl.sh / sslyze | Check TLS versions supported | TLS 1.2+ only |
+| U11 | Cipher Suites | testssl.sh / sslyze | List and rate cipher suites | No weak ciphers |
+| U12 | Certificate Validity | testssl.sh / sslyze | Check cert expiry and chain | Valid, not expired |
+| U13 | HSTS Header | testssl.sh / curl | Check HSTS header presence | HSTS present |
+| U14 | HTTP Security Headers | nikto / curl | Check CSP, X-Content-Type, etc. | Key headers present |
+| U15 | SSH Algorithms | ssh-audit | Assess SSH config | No weak algorithms |
+| U16 | Default Credentials | hydra | Try manufacturer defaults | Defaults changed |
+| U17 | Brute Force Protection | custom | Rapid login attempts | Lockout after N failures |
+| U18 | HTTP→HTTPS Redirect | curl -L | Check unencrypted access | HTTP disabled or redirects |
+| U19 | OS Fingerprinting | nmap -O | Identify operating system | Informational |
 
-#### 9.2.1 Agent–Server Interception
+### 5.2 Guided Manual Tests (Human-Assisted)
 
-Scan results transit the internet between agent and server. Mitigation: mandatory TLS 1.3, no TLS 1.2 fallback, certificate pinning on agent.
-
-#### 9.2.2 Stolen Laptop with Offline Data
-
-Offline agent stores vulnerability data locally. Mitigation: AES-256-GCM encryption at rest, key derived via PBKDF2 (100K iterations), auto-purge after sync, maximum 7-day offline retention.
-
-#### 9.2.3 Malicious Nessus File
-
-Crafted `.nessus` XML could exploit XXE vulnerabilities. Mitigation: `defusedxml` parsing, external entity resolution disabled, 50MB file limit, sandboxed parsing context.
-
-#### 9.2.4 Terminal Output Injection
-
-Compromised device returns malicious HTML/JS in service banners. Mitigation: server-side sanitisation before WebSocket broadcast, `textContent` insertion in React (never `innerHTML`).
-
-#### 9.2.5 Cross-Site Request Forgery
-
-Malicious webpage triggers state-changing API calls. Mitigation: double-submit CSRF cookie pattern, `X-CSRF-Token` header on all POST/PUT/DELETE, `SameSite=Strict` cookies.
-
-#### 9.2.6 Network Cross-Contamination
-
-Agent bridges test network and corporate network. Mitigation: OS-level routing isolation, no IP forwarding, interface binding verification on scan startup.
-
-### 9.3 Security Controls Matrix
-
-| ID | Control | Implementation | Priority |
-|---|---|---|---|
-| **SEC-01** | Transport Encryption | All agent–server over TLS 1.3. Certificate pinning on agent. | **Critical** |
-| **SEC-02** | Authentication | bcrypt (cost 12). httpOnly, Secure, SameSite=Strict cookies. | **Critical** |
-| **SEC-03** | CSRF Protection | Double-submit cookie. X-CSRF-Token on mutating requests. | **Critical** |
-| **SEC-04** | Input Validation | Server-side on all inputs. Parameterised queries only. | **Critical** |
-| **SEC-05** | File Upload Security | Magic byte validation. SVG forbidden. MIME whitelist. Nginx size limits. | **High** |
-| **SEC-06** | Terminal Sanitisation | Strip HTML/script/ANSI from tool output before WebSocket broadcast. | **High** |
-| **SEC-07** | Offline Encryption | AES-256-GCM for local database. PBKDF2 key derivation. | **High** |
-| **SEC-08** | Session Management | 15-min idle timeout. Max 3 concurrent sessions. Invalidation on password change. | **Medium** |
-| **SEC-09** | Rate Limiting | Nginx: 100 req/min API, 10 req/min auth. Client exponential backoff. | **Medium** |
-| **SEC-10** | Audit Logging | All security events logged: logins, test runs, overrides, report generation. | **High** |
-| **SEC-11** | Content Security Policy | Strict CSP via Nginx. No inline scripts. | **Medium** |
-| **SEC-12** | Agent Integrity | Code-signed installer. Checksum verification of bundled tool binaries. | **High** |
-| **SEC-13** | Data Classification | Scan results = CONFIDENTIAL. No vuln data in URLs or localStorage. | **High** |
-| **SEC-14** | Network Isolation | Test interface isolated from corporate interface. No routing between them. | **Critical** |
-| **SEC-15** | Nessus File Handling | defusedxml. XXE disabled. Size limits. Sandboxed parsing. | **High** |
+| ID | Name | What Engineer Does | Input Type |
+|----|------|--------------------|------------|
+| U20 | Network Disconnection | Toggle cable, observe recovery | Single-click: Pass/Fail/N/A + notes |
+| U21 | Password Change | Change default password via web UI | Single-click: Pass/Fail + notes |
+| U22 | Firmware Update | Check update mechanism | Single-click: Pass/Fail/Info + notes |
+| U23 | Session Timeout | Wait for inactivity logout | Single-click: Pass/Fail + notes |
+| U24 | Physical Security | Check for reset buttons, USB ports | Single-click: Pass/Fail/Info + notes |
+| U25 | VLAN Isolation | Test VLAN tagging support | Single-click: Pass/Fail/N/A + notes |
+| U26 | Multicast Traffic | Monitor broadcast/multicast output | Single-click: Info + notes |
+| U27 | API Authentication | Check API endpoints require auth | Single-click: Pass/Fail/N/A + notes |
+| U28 | Audit Trail | Review device logs | Single-click: Pass/Fail/Info + notes |
+| U29 | Data-at-Rest Encryption | Check storage encryption | Single-click: Pass/Fail/Info + notes |
+| U30 | Vendor Support / EOL | Check manufacturer support status | Single-click: Pass/Fail/Info + notes |
 
 ---
 
-## 10. Offline Architecture
+## 6. API ENDPOINTS (Complete List)
 
-### 10.1 Design Principle
+### 6.1 Authentication
+```
+POST /api/auth/login          → {email, password} → Set httpOnly cookie + CSRF token
+POST /api/auth/logout         → Clear cookies
+POST /api/auth/register       → {email, full_name, password, role} (admin only)
+GET  /api/auth/me             → Current user info
+POST /api/auth/change-password → {old_password, new_password}
+```
 
-Offline is not degraded. An engineer at a construction site with no internet has the same testing capability as one in the office. The only difference is that results sync later.
+### 6.2 Devices
+```
+GET    /api/devices/                → List all devices (paginated)
+POST   /api/devices/               → Create device
+GET    /api/devices/{id}           → Device detail
+PUT    /api/devices/{id}           → Update device
+DELETE /api/devices/{id}           → Soft delete
+POST   /api/devices/discover       → Trigger auto-discovery scan
+```
 
-### 10.2 Local Data Store
+### 6.3 Test Templates
+```
+GET    /api/templates/              → List templates
+POST   /api/templates/              → Create template (admin)
+GET    /api/templates/{id}          → Template detail
+PUT    /api/templates/{id}          → Update template (admin)
+GET    /api/templates/library       → Get universal test library (30 tests)
+POST   /api/templates/import-xlsx   → Import from Excel file
+```
 
-Encrypted SQLite database with: template snapshots (synced on last server contact), pending/completed test runs, raw tool output and evidence files, user credential hash for local auth. AES-256-GCM encryption, PBKDF2 key derivation, random salt.
+### 6.4 Test Runs
+```
+GET    /api/runs/                   → List test runs (with filters)
+POST   /api/runs/                   → Create new test run
+GET    /api/runs/{id}               → Run detail with all results
+PUT    /api/runs/{id}               → Update run status
+POST   /api/runs/{id}/start         → Begin automated tests
+POST   /api/runs/{id}/pause         → Pause execution
+POST   /api/runs/{id}/resume        → Resume execution
+DELETE /api/runs/{id}               → Cancel/delete run
+```
 
-### 10.3 Offline UI
+### 6.5 Test Results
+```
+GET    /api/runs/{run_id}/results           → All results for a run
+GET    /api/runs/{run_id}/results/{test_id} → Single result detail
+PUT    /api/runs/{run_id}/results/{test_id} → Update result (manual test entry)
+POST   /api/runs/{run_id}/results/{test_id}/override → Reviewer override
+POST   /api/runs/{run_id}/results/{test_id}/rerun    → Re-execute a test
+```
 
-Lightweight local web UI at `https://localhost:8433`. Provides: device registration, full test execution with real-time terminal output, structured manual test forms, result viewing. Does NOT provide: report generation (requires server), team dashboard, user management.
+### 6.6 Reports
+```
+POST   /api/runs/{run_id}/report/excel      → Generate Excel report → returns .xlsx download
+POST   /api/runs/{run_id}/report/word       → Generate Word report → returns .docx download
+POST   /api/runs/{run_id}/report/pdf        → Generate PDF report → returns .pdf download
+GET    /api/runs/{run_id}/report/preview     → Preview report data as JSON
+```
 
-### 10.4 Sync Protocol
+### 6.7 Nessus
+```
+POST   /api/runs/{run_id}/nessus/upload     → Upload .nessus XML file
+GET    /api/runs/{run_id}/nessus/findings    → List parsed findings
+```
 
-On connectivity restoration: authenticate, upload unsynced runs chronologically, upload evidence files, server validates and stores, mark as synced. Conflicts (same device tested by another engineer while offline) flagged for manual review. Sync is resumable — continues from last checkpoint if connectivity drops mid-sync.
+### 6.8 Protocol Whitelists
+```
+GET    /api/whitelists/                      → List whitelists
+POST   /api/whitelists/                      → Create whitelist
+GET    /api/whitelists/{id}                  → Whitelist detail
+PUT    /api/whitelists/{id}                  → Update whitelist
+```
 
-### 10.5 Offline Limitations
+### 6.9 Device Profiles
+```
+GET    /api/profiles/                        → List profiles
+POST   /api/profiles/                        → Create profile (admin)
+GET    /api/profiles/{id}                    → Profile detail
+PUT    /api/profiles/{id}                    → Update profile (admin)
+```
 
-Clearly communicated to engineers: report generation (Excel/Word/PDF) requires the server, new templates unavailable until reconnection, reviewer overrides only via central UI, AI synopsis generation requires API access.
+### 6.10 Admin
+```
+GET    /api/admin/users                      → List users
+PUT    /api/admin/users/{id}                 → Update user (role, active)
+GET    /api/admin/audit-logs                 → View audit trail
+GET    /api/admin/stats                      → Dashboard statistics
+```
 
----
+### 6.11 WebSocket
+```
+WS /ws/test-run/{run_id}    → Real-time test progress updates
+```
 
-## 11. Database Schema
+WebSocket message format:
+```json
+{
+  "type": "test_progress",
+  "data": {
+    "test_number": "U06",
+    "test_name": "Full TCP Port Scan",
+    "status": "running",
+    "progress_pct": 45,
+    "stdout_line": "Scanning 192.168.1.100 [65535 ports]",
+    "elapsed_seconds": 23
+  }
+}
+```
 
-### 11.1 Server Schema
-
-| Table | Columns |
-|---|---|
-| **users** | id (UUID PK), email (unique), full_name, password_hash (bcrypt), role (enum: admin/tester/reviewer), is_active, last_login, created_at |
-| **devices** | id (UUID PK), name, ip_address, mac_address, vendor, model, firmware_version, serial_number, device_category, fingerprint (JSON), created_by (FK), created_at, deleted_at |
-| **test_templates** | id (UUID PK), name, version, device_category, manufacturer_match, source_xlsx_hash, test_definitions (JSON), cell_mappings (JSON), profile_extensions (JSON), prereq_rules (JSON), is_active, created_at |
-| **test_runs** | id (UUID PK), device_id (FK), user_id (FK), agent_id (FK), template_id (FK), template_version, status (enum), start_time, end_time, overall_verdict, synopsis_text, synopsis_ai_drafted (bool), sync_status, created_offline (bool) |
-| **test_results** | id (UUID PK), run_id (FK), test_number, test_name, tier (enum: auto/guided/auto_na), tool_used, raw_stdout, parsed_findings (JSON), verdict, auto_comment, engineer_selection, engineer_notes, is_overridden, override_reason, overridden_by (FK) |
-| **attachments** | id (UUID PK), result_id (FK), file_name, mime_type, file_path, file_size_bytes, sha256_hash, upload_time |
-| **agents** | id (UUID PK), name, user_id (FK), os_type, os_version, agent_version, last_heartbeat, status (enum), ip_address |
-| **audit_logs** | id (UUID PK), timestamp, user_id (FK), action, resource_type, resource_id, ip_address, details (JSON) |
-| **report_configs** | id (UUID PK), client_name, logo_path, compliance_standards (JSON), branding_colours (JSON) |
-| **sync_queue** | id (UUID PK), agent_id (FK), run_id (FK), payload (JSON), created_at, synced_at, retry_count, status (enum) |
-| **device_profiles** | id (UUID PK), name, category, detection_rules (JSON), additional_tests (JSON), is_active |
-
----
-
-## 12. Deployment & Infrastructure
-
-### 12.1 Central Server
-
-Azure B2s VM (2 vCPU, 4GB RAM, 30GB SSD, ~£30/month). Docker Compose: Nginx (443), FastAPI (8000), Redis (6379), report worker. SQLite on persistent volume. Daily backups to Azure Blob. TLS via Let's Encrypt or corporate cert.
-
-### 12.2 Agent Distribution
-
-- **Windows:** NSIS/MSI installer. Bundles nmap.exe, MSYS2 runtime (testssl.sh, ssh-audit), nikto (Perl), Python agent (PyInstaller). ~200MB installed.
-- **Mac:** .dmg with .app bundle. Native nmap, bash tools, Python agent. ~150MB installed.
-
-Auto-update check on startup (when online). Updates prompted, never forced during active testing.
-
-### 12.3 Agent System Tray
-
-Right-click menu: Open Dashboard (browser to server or localhost if offline), Force Sync, View Local Results, Check for Updates, Quit.
-
----
-
-## 13. Phased Delivery Plan
-
-12 weeks from PRD approval. Phases overlap — independent workstreams proceed in parallel.
-
-| Phase | Timeline | Deliverables |
-|---|---|---|
-| **Phase 1: Core Platform** | Weeks 1–4 | Central server, web UI, database, auth, device CRUD, agent protocol, auto-discovery pipeline, universal test library |
-| **Phase 2: Scanning Agent** | Weeks 3–6 | Windows + Mac installer, tool bundling, scan execution, three-tier test engine, Wobbly Cable Handler, offline queue |
-| **Phase 3: Manual + Templates** | Weeks 5–8 | Guided manual test workflow, template import system, device profiles, Nessus parser, cell mapping admin UI |
-| **Phase 4: Reports** | Weeks 7–10 | Template-based Excel generation, Word reports, PDF export, compliance mapping, client branding, AI synopsis generator |
-| **Phase 5: Hardening** | Weeks 9–12 | All 15 security controls verified, cross-platform testing, offline sync stress testing, penetration testing, documentation |
-
-### 13.1 Definition of Done
-
-V1.0 ships when ALL of the following pass:
-
-1. At least one real device fully qualified through the complete pipeline (discovery → auto tests → manual tests → review → report) with output validated against a manually-created report for the same device.
-2. Agent installs and operates on at least one Windows 10/11 and one macOS machine.
-3. Offline testing validated: agent disconnected, full test executed, reconnected, results synced.
-4. Generated Excel reports for both Pelco and EasyIO templates confirmed as client-deliverable quality by the lead security engineer.
-5. All 15 security controls (Section 9.3) implemented and verified.
-6. A completely new device type (not Pelco or EasyIO) has been tested using only the auto-discovery and universal test library, confirming device-agnostic operation.
-7. PDF export produces accurate representations of both Excel and Word reports.
-
----
-
-## 14. Risk Register
-
-| ID | Level | Risk | Mitigation |
-|---|---|---|---|
-| **R-001** | **High** | Offline sync conflicts when multiple agents sync for same device | Last-write-wins with conflict detection queue for manual review |
-| **R-002** | **High** | Scanning tools behave differently on Windows vs Mac vs Linux | Cross-platform test matrix; WSL fallback on Windows |
-| **R-003** | Medium | Excel template pixel-fidelity vs hand-crafted originals | Template-based filling (edit actual .xlsx); 2–3 iteration rounds |
-| **R-004** | Medium | Agent installer blocked by corporate antivirus | Code-sign installer; IT whitelisting docs; portable mode |
-| **R-005** | Medium | New device types don't map to existing automated tools | Graceful degradation to manual; template supports custom mappings |
-| **R-006** | Low | Server connection failures under 10 concurrent agents | Connection pooling, health checks, exponential backoff |
-| **R-007** | **High** | Vulnerability data intercepted agent–server | TLS 1.3 mandatory; certificate pinning |
-| **R-008** | Medium | Stolen laptop exposes offline scan data | AES-256 encryption; auto-purge after sync; 7-day max retention |
-| **R-009** | Medium | AI synopsis hallucinates findings not in test data | Structured prompt with explicit constraints; human approval required; validation check |
-| **R-010** | Low | Auto-discovery misidentifies device category | Engineer confirms/corrects before testing begins; universal tests run regardless |
-
----
-
-## 15. Deferred Features (V2.0+ Roadmap)
-
-| Feature | Target | Rationale |
-|---|---|---|
-| **Microsoft Entra ID SSO** | V2.0+ | Not needed until >15 users or external mandate |
-| **PostgreSQL migration** | V2.0 | SQLite adequate for V1.0; migrate on write contention |
-| **S3/MinIO object storage** | V2.0+ | Local file storage adequate for V1.0 evidence volumes |
-| **Raspberry Pi station mode** | V2.0 | Laptop agent covers V1.0; Pi for permanent labs |
-| **OpenTelemetry SIEM** | V3.0 | Database audit table sufficient for V1.0 |
-| **Kubernetes / Helm** | V3.0+ | Docker Compose adequate until multi-region needed |
-| **CI/CD pipeline** | V2.0 | Manual deployment acceptable for V1.0 |
-| **Geographic replication** | V3.0+ | Single-region covers V1.0 team distribution |
-| **Comparison view between runs** | V1.1 | Useful for retests but not day-one critical |
-| **Browser notifications** | V1.1 | Nice-to-have; tray icon covers status awareness |
-
-The V6.0 Enterprise PRD remains the authoritative long-term architectural reference. This V1.0 PRD defines the minimum viable product required to deliver immediate production value.
+### 6.12 Health
+```
+GET /api/health              → {"status": "ok", "database": "connected", "tools_sidecar": "healthy"}
+```
 
 ---
 
-*END OF DOCUMENT*
+## 7. SECURITY REQUIREMENTS
+
+### 7.1 Authentication
+- JWT tokens stored in httpOnly cookies (NEVER localStorage)
+- CSRF protection via double-submit cookie pattern
+- bcrypt password hashing, cost factor 12
+- Session expiry: 24 hours
+- Role-based access: admin, tester, reviewer
+
+### 7.2 API Security
+- All endpoints require authentication except: POST /api/auth/login, GET /api/health
+- Rate limiting: 100 requests/minute per IP for auth endpoints, 1000/minute for others
+- Input validation on all endpoints (Pydantic schemas)
+- SQL injection prevention via SQLAlchemy ORM (never raw SQL with user input)
+
+### 7.3 Network Security
+- nginx adds security headers: X-Content-Type-Options, X-Frame-Options, CSP, HSTS
+- CORS restricted to same origin
+- File uploads: validate MIME type by magic bytes, max 50MB, only .nessus/.xlsx/.png/.jpg
+
+### 7.4 Terminal Output Sanitisation
+- All raw tool output displayed in the UI must be sanitised (strip ANSI codes, escape HTML)
+- Never render tool output as raw HTML
+
+---
+
+## 8. FRONTEND SPECIFICATIONS
+
+### 8.1 Tech Stack
+- React 18 + Vite
+- Tailwind CSS 3 (dark theme: navy/charcoal backgrounds, amber accents)
+- Zustand for state management
+- React Query (TanStack) for API data fetching
+- Axios with httpOnly cookie auth + CSRF
+- xterm.js for live terminal output
+- Recharts for dashboard statistics
+- Lucide React for icons
+
+### 8.2 Pages (8 total)
+
+**1. Login Page** — Centred card, dark background, "EDQ" logo, email/password, amber sign-in button
+
+**2. Dashboard** — Overview cards showing: total devices, active test runs, completed today, tests passed/failed. Recent test sessions as cards with device name, IP, status badge, progress bar.
+
+**3. Devices Page** — Searchable/filterable list of all registered devices. Each device shows: name, IP, manufacturer, model, category badge, last test date, last verdict badge.
+
+**4. Device Detail Page** — Full device info card. List of all test runs for this device. "Start New Test Run" button.
+
+**5. Test Session Page (MOST COMPLEX)** — This is the main testing screen:
+  - Device info header (name, IP, firmware, serial, MAC)
+  - "Run All Automated" button + "Generate Report" button
+  - Progress bar: "X/Y tests complete"
+  - Grouped test list with expandable cards:
+    - Each card: test number, name, tool badge, status icon, verdict badge
+    - Expanded: raw terminal output (xterm.js), parsed findings, verdict, comments
+    - For manual tests: structured form with single-click PASS/FAIL/INFO/N/A buttons + notes field
+  - Wobbly Cable alert banner (shows when device connectivity lost)
+  - Live WebSocket progress updates
+
+**6. Reports Page** — List of generated reports. Generate new report: select test run, choose format (Excel/Word/PDF), download.
+
+**7. Review Page** (reviewer role) — List of test runs awaiting review. Click to see all results, ability to override any verdict with documented justification.
+
+**8. Admin Page** (admin role) — User management, template management, protocol whitelists, device profiles, audit log viewer.
+
+### 8.3 Component Architecture
+
+```
+src/
+├── App.jsx                    # Routes
+├── main.jsx                   # Entry point
+├── api/
+│   ├── client.js              # Axios instance with CSRF + cookie auth
+│   ├── auth.js
+│   ├── devices.js
+│   ├── runs.js
+│   ├── templates.js
+│   ├── reports.js
+│   └── websocket.js
+├── components/
+│   ├── layout/
+│   │   ├── AppLayout.jsx      # Sidebar + header + main content
+│   │   ├── Sidebar.jsx
+│   │   └── ProtectedRoute.jsx
+│   ├── devices/
+│   │   ├── DeviceList.jsx
+│   │   ├── DeviceCard.jsx
+│   │   └── CreateDeviceModal.jsx
+│   ├── testing/
+│   │   ├── TestSession.jsx    # Main test view
+│   │   ├── TestProgress.jsx
+│   │   ├── TestResultCard.jsx
+│   │   ├── ManualTestForm.jsx
+│   │   ├── LiveTerminal.jsx   # xterm.js wrapper
+│   │   ├── WobblyCableAlert.jsx
+│   │   └── NessusUpload.jsx
+│   ├── reports/
+│   │   ├── ReportGenerator.jsx
+│   │   └── SynopsisEditor.jsx
+│   └── common/
+│       ├── StatusBadge.jsx
+│       ├── VerdictBadge.jsx
+│       └── DataTable.jsx
+├── pages/
+│   ├── LoginPage.jsx
+│   ├── DashboardPage.jsx
+│   ├── DevicesPage.jsx
+│   ├── DeviceDetailPage.jsx
+│   ├── TestSessionPage.jsx
+│   ├── ReportsPage.jsx
+│   ├── ReviewPage.jsx
+│   └── AdminPage.jsx
+├── hooks/
+│   ├── useAuth.js
+│   ├── useWebSocket.js
+│   └── useTestSession.js
+└── context/
+    └── AuthContext.jsx
+```
+
+### 8.4 Theme Constants
+
+```javascript
+// tailwind.config.js extend
+colors: {
+  edq: {
+    bg: '#0f172a',          // Slate 900 - main background
+    surface: '#1e293b',     // Slate 800 - cards, panels
+    sidebar: '#0c1524',     // Darker than bg - sidebar
+    border: '#334155',      // Slate 700 - borders
+    amber: '#f59e0b',       // Amber 500 - primary action
+    amberHover: '#d97706',  // Amber 600 - hover
+    success: '#22c55e',     // Green 500 - pass
+    danger: '#ef4444',      // Red 500 - fail
+    warning: '#f59e0b',     // Amber 500 - advisory
+    info: '#3b82f6',        // Blue 500 - info
+    muted: '#94a3b8',       // Slate 400 - secondary text
+  }
+}
+fontFamily: {
+  mono: ['JetBrains Mono', 'Fira Code', 'monospace'],  // Technical data
+  sans: ['Inter', 'system-ui', 'sans-serif'],           // UI text
+}
+```
+
+---
+
+## 9. REPORT GENERATION ENGINE
+
+### 9.1 Excel Report Generator (openpyxl)
+
+**Strategy:** Open the actual template .xlsx file, fill in data cells, save as new file. NEVER create from scratch.
+
+```python
+from openpyxl import load_workbook
+from pathlib import Path
+
+class ExcelReportGenerator:
+    def generate(self, run_id: str, template_path: str, cell_mapping_path: str) -> Path:
+        """
+        1. Load cell_mapping JSON
+        2. Load template .xlsx with openpyxl (keep_vba=False, data_only=False)
+        3. Fill metadata cells (synopsis sheet)
+        4. Fill test result rows (testplan sheet)
+        5. Fill additional info (if applicable)
+        6. Save to /data/reports/{run_id}/report.xlsx
+        """
+        wb = load_workbook(template_path)
+        mapping = json.loads(Path(cell_mapping_path).read_text())
+        
+        # Fill synopsis/summary sheet
+        synopsis_ws = wb[mapping["synopsis_sheet"]]
+        for field, cell in mapping["metadata_cells"].items():
+            synopsis_ws[cell] = get_metadata_value(run, field)
+        
+        # Fill testplan sheet
+        testplan_ws = wb[mapping["testplan_sheet"]]
+        cols = mapping["testplan_columns"]
+        for i, result in enumerate(test_results):
+            row = mapping["testplan_start_row"] + i
+            testplan_ws[f"{cols['test_result']}{row}"] = result.verdict.upper()
+            testplan_ws[f"{cols['test_comments']}{row}"] = result.auto_comment or result.engineer_notes
+            testplan_ws[f"{cols['script_flag']}{row}"] = result.script_flag
+        
+        output_path = Path(f"/data/reports/{run_id}/report.xlsx")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        wb.save(output_path)
+        return output_path
+```
+
+### 9.2 Handling Template Differences
+
+The generator MUST handle all three formats correctly. Key differences:
+
+| Feature | Pelco | EasyIO | Generic Template |
+|---------|-------|--------|-----------------|
+| Verdict values | PASS/FAIL/ADVISORY/N/A | PASS/FAIL/INFO/N/A | PASS/FAIL/ADVISORY/INFO/N/A |
+| Test number format | Integer or decimal | Text with \xa0 suffix | Integer |
+| Column order | B:num C:brief D:desc E:essential F:result G:comments H:script | B:num C:desc D:essential E:result F:notes G:script | B:num C:brief D:desc E:script F:essential G:result H:comments |
+| Synopsis location | Sheet "TEST SYNOPSIS", cell B19 | Sheet "Synopsis" | Sheet "TEST SUMMARY" |
+| Protocol whitelist | None (in this file) | Separate sheet | None |
+| Nessus data | In ADDITIONAL INFO | Separate sheet "01 Test - Nessus" | In ADDITIONAL INFORMATION |
+
+---
+
+## 10. WOBBLY CABLE HANDLER
+
+Monitors device connectivity during testing. If the device becomes unreachable (cable disconnected, device rebooted), the handler:
+
+1. Detects loss: ping fails 3 times consecutively
+2. Pauses current test execution
+3. Sends WebSocket alert to frontend
+4. Retries connectivity every 30 seconds
+5. After device returns: waits 10 seconds for stability, then resumes
+6. After 5 minutes of no connectivity: marks test run as "paused_cable", notifies user
+
+```python
+class WobblyCableHandler:
+    async def check_connectivity(self, ip: str) -> bool:
+        """Ping device, return True if reachable."""
+        result = await asyncio.create_subprocess_exec(
+            "ping", "-c", "1", "-W", "2", ip,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        await result.wait()
+        return result.returncode == 0
+    
+    async def monitor(self, ip: str, run_id: str):
+        """Continuous monitoring during test execution."""
+        consecutive_failures = 0
+        while self.is_running:
+            if await self.check_connectivity(ip):
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    await self.pause_testing(run_id)
+                    await self.notify_frontend(run_id, "cable_disconnected")
+                    await self.wait_for_reconnection(ip, run_id)
+```
+
+---
+
+## 11. NESSUS IMPORT
+
+Parse .nessus XML files (Tenable vulnerability scan output). Use `defusedxml` for safe parsing.
+
+```python
+from defusedxml import ElementTree
+
+class NessusParser:
+    def parse(self, nessus_file_path: str) -> list[dict]:
+        tree = ElementTree.parse(nessus_file_path)
+        findings = []
+        for report_host in tree.findall('.//ReportHost'):
+            host_ip = report_host.get('name')
+            for item in report_host.findall('ReportItem'):
+                findings.append({
+                    "plugin_id": int(item.get('pluginID')),
+                    "plugin_name": item.get('pluginName'),
+                    "severity": int(item.get('severity')),  # 0=info, 1=low, 2=med, 3=high, 4=crit
+                    "port": int(item.get('port')),
+                    "protocol": item.get('protocol'),
+                    "description": item.findtext('description', ''),
+                    "solution": item.findtext('solution', ''),
+                    "risk_factor": item.findtext('risk_factor', ''),
+                    "cvss_score": float(item.findtext('cvss_base_score', '0')),
+                    "cve_ids": [cve.text for cve in item.findall('cve')],
+                    "plugin_output": item.findtext('plugin_output', '')
+                })
+        return findings
+```
+
+---
+
+## 12. SEED DATA
+
+On first run, the database must be seeded with:
+
+1. **Default admin user:** admin@electracom.co.uk / Admin123! / role: admin
+2. **30 universal test definitions** (Section 5)
+3. **5 device profiles:** camera, controller, intercom, iot_sensor, generic (with scan policies)
+4. **1 default protocol whitelist** (from EasyIO template: sFTP/22, DHCP/68, DNS/53, HTTPS/443, NTP/123, SNMPv3/161, LDAPS/636, FTPS/989-990, MQTTS/8883, BACnet/47808)
+5. **3 test templates** with cell mappings for Pelco, EasyIO, and Generic formats
+
+Create `backend/seed_data.py`:
+```python
+def seed_database():
+    """Run once on first startup to populate initial data."""
+    # Check if already seeded
+    if db.query(User).count() > 0:
+        return
+    
+    # 1. Create admin
+    # 2. Load universal tests
+    # 3. Create device profiles
+    # 4. Create default whitelist
+    # 5. Create 3 templates with cell mappings
+```
+
+---
+
+## 13. DEVELOPMENT RULES
+
+### 13.1 Code Standards
+- Python: type hints on EVERY function, docstrings on classes and public methods
+- Python: use `async def` for all route handlers and service methods
+- Python: use Pydantic schemas for ALL request/response validation
+- JavaScript: functional components only, hooks for state
+- NEVER use `console.log` in production code — use proper logging
+- NEVER store secrets in code — use environment variables
+
+### 13.2 File Organisation
+- One model per file in `models/`
+- One router per resource in `routes/`
+- Business logic in `services/`, NEVER in routes
+- Pydantic schemas in `schemas/`, mirroring models
+
+### 13.3 Error Handling
+- All API errors return JSON: `{"detail": "Human-readable error message"}`
+- Use FastAPI's HTTPException with appropriate status codes
+- Log all errors with traceback
+- Never expose internal errors to the user
+
+### 13.4 Git Discipline
+- Commit after each completed feature
+- Descriptive commit messages: "Add nmap parser with XML output handling"
+- Never commit broken code — test before committing
+
+---
+
+## 14. VERDENT DECK PROMPTS (Copy-Paste Ready)
+
+### WAVE 1 — Foundation (Run These 3 in Parallel)
+
+**Deck A — Database + Auth + API Shell**
+```
+Read CLAUDE.md thoroughly before writing any code.
+
+Build the EDQ backend foundation:
+1. Create all 11 SQLAlchemy models from CLAUDE.md Section 3
+2. Create Alembic migration for initial schema
+3. Implement auth routes with httpOnly cookie JWT + CSRF
+4. Create Pydantic schemas for all models
+5. Scaffold all API route files with correct endpoints
+6. Create seed_data.py with all seed data from CLAUDE.md Section 12
+7. Create requirements.txt with all dependencies
+8. Ensure backend starts with: uvicorn app.main:app --reload
+
+Do NOT create the tools sidecar or frontend. Focus only on backend Python code.
+Use async/await throughout. Type hints on every function.
+```
+
+**Deck B — Docker + nginx + Tools Sidecar**
+```
+Read CLAUDE.md thoroughly before writing any code.
+
+Build the Docker infrastructure:
+1. Create docker-compose.yml with 3 services (api, frontend, tools) per CLAUDE.md Section 2
+2. Create backend/Dockerfile (python:3.12-slim, install requirements, run uvicorn)
+3. Create frontend/Dockerfile (node:18 build stage → nginx:alpine serve)
+4. Create tools/Dockerfile (ubuntu:22.04, install nmap, testssl.sh, ssh-audit, hydra, nikto)
+5. Create tools/server.py — Flask/FastAPI app on port 8001 with endpoints from Section 2.2
+6. Create nginx.conf: serve frontend on /, proxy /api/* to backend:8000, proxy /ws/* for WebSocket
+7. Add security headers in nginx
+8. Create .env.example with all required env vars
+9. Create setup.bat AND setup.sh scripts
+
+Test: docker compose up --build should start all 3 services.
+Tools health check at http://localhost:8001/health should show all tools available.
+```
+
+**Deck C — React Frontend Shell**
+```
+Read CLAUDE.md thoroughly before writing any code.
+
+Build the React frontend structure:
+1. Create Vite + React 18 project with Tailwind CSS
+2. Set up dark theme from CLAUDE.md Section 8.4
+3. Create all 8 pages as outlined in Section 8.2
+4. Create AppLayout with sidebar navigation
+5. Create AuthContext with httpOnly cookie auth (axios interceptors for CSRF)
+6. Create API client layer (api/*.js files)
+7. Create all common components (StatusBadge, VerdictBadge, DataTable)
+8. Set up React Router with ProtectedRoute
+9. Create WebSocket hook for real-time updates
+10. Install all frontend dependencies from Section 3.4
+
+Each page should have working UI layout with mock/placeholder data.
+Use Tailwind utility classes. Dark theme throughout.
+```
+
+### WAVE 2 — Features (Run After Wave 1 Merge)
+
+**Deck D — Test Engine + Tool Parsers**
+```
+Read CLAUDE.md thoroughly before writing any code.
+
+Build the test execution engine:
+1. Create test_engine.py — orchestrator that sequences tests for a run
+2. Create tool runners: call tools sidecar REST API, handle timeouts
+3. Create parsers for each tool output:
+   - nmap XML → structured port/service/OS data
+   - testssl.sh JSON → TLS versions, ciphers, certificate info
+   - ssh-audit JSON → SSH algorithms, recommendations
+   - hydra stdout → credential test results
+4. Create evaluation_engine.py — apply pass/fail rules from CLAUDE.md Section 5
+5. Create WobblyCableHandler from CLAUDE.md Section 10
+6. Wire test execution to WebSocket progress updates
+7. Create Nessus parser from CLAUDE.md Section 11
+
+Each parser should have test fixtures (sample tool outputs) and unit tests.
+```
+
+**Deck E — Report Generator**
+```
+Read CLAUDE.md thoroughly before writing any code.
+
+Build the report generation engine:
+1. Copy the 3 template .xlsx files from templates/ into backend/templates/excel/
+2. Create cell_mappings/ JSON files for all 3 templates per CLAUDE.md Section 4.4
+3. Create ExcelReportGenerator per CLAUDE.md Section 9
+4. Implement report generation for ALL 3 template formats
+5. Handle all differences between Pelco/EasyIO/Generic (Section 9.2)
+6. Create the report API endpoints (POST /api/runs/{id}/report/excel etc.)
+7. Test: generate a report using the Pelco template, open in Excel, verify all cells filled correctly
+
+CRITICAL: Use openpyxl load_workbook on the ACTUAL template file. Do NOT create Excel from scratch.
+Preserve ALL formatting, merged cells, borders, colours, logos.
+```
+
+**Deck F — Frontend Wiring**
+```
+Read CLAUDE.md thoroughly before writing any code.
+
+Connect the React frontend to the live backend:
+1. Replace all mock data with real API calls
+2. Wire LoginPage to POST /api/auth/login (cookie-based)
+3. Wire DashboardPage to GET /api/admin/stats
+4. Wire DevicesPage to GET /api/devices
+5. Wire TestSessionPage to:
+   - GET /api/runs/{id} for run detail
+   - POST /api/runs/{id}/start to begin testing
+   - WebSocket /ws/test-run/{id} for live progress
+   - PUT /api/runs/{id}/results/{test_id} for manual test entry
+6. Wire ReportsPage to POST /api/runs/{id}/report/excel (download)
+7. Wire AdminPage to user management + template endpoints
+8. Handle loading states, error states, empty states on every page
+9. Test the complete flow: login → create device → start test run → view progress → download report
+```
+
+### WAVE 3 — Integration (Run After Wave 2 Merge)
+
+**Deck G — Integration + Testing**
+```
+Read CLAUDE.md thoroughly before writing any code.
+
+Final integration and testing:
+1. Run docker compose up --build and fix ALL startup errors
+2. Test complete user flow: login → create device → start test → complete manual tests → generate report
+3. Fix any API mismatches between frontend and backend
+4. Ensure WebSocket connection works through nginx proxy
+5. Verify Excel report opens correctly in Microsoft Excel
+6. Verify all 3 template formats generate correct reports
+7. Run seed_data.py and verify all data loads
+8. Test all CRUD operations on every resource
+9. Check security: CSRF tokens present, cookies httpOnly, no sensitive data in responses
+10. Add error handling for common failures (tools sidecar down, database locked, file not found)
+```
+
+---
+
+## 15. CRITICAL GOTCHAS
+
+1. **Windows line endings:** Docker builds fail with \r\n. Use `.gitattributes`: `* text=auto eol=lf`
+2. **SQLite concurrent writes:** Use WAL mode: `PRAGMA journal_mode=WAL;`
+3. **openpyxl preserving formulas:** Use `data_only=False` when loading templates
+4. **Non-breaking spaces in EasyIO:** Test numbers have `\xa0` — strip before comparing
+5. **Docker networking:** Tools sidecar needs `network_mode: host` for scanning
+6. **CSRF with cookies:** Frontend must include CSRF token header on every mutation request
+7. **WebSocket through nginx:** Need `proxy_set_header Upgrade $http_upgrade;` in nginx.conf
+8. **testssl.sh on Windows:** Does NOT work. Use sslyze instead on Windows.
+9. **nmap needs root/admin:** Container needs `cap_add: [NET_ADMIN, NET_RAW]`
+10. **Template column differences:** Pelco, EasyIO, and Generic templates have DIFFERENT column orders — use cell_mappings JSON, never hardcode
+
+---
+
+## 16. DEFINITION OF DONE
+
+EDQ V1.0 is complete when:
+
+1. ✅ Engineer can log in, create a device, start a test run
+2. ✅ All 19 automated tests execute against a real device via tools sidecar
+3. ✅ All 11 manual tests present structured forms with single-click verdicts
+4. ✅ WebSocket shows real-time progress during automated testing
+5. ✅ Wobbly Cable Handler detects and recovers from cable disconnection
+6. ✅ Nessus .nessus file can be uploaded and findings parsed
+7. ✅ Excel report generates using Pelco template with all cells filled correctly
+8. ✅ Excel report generates using EasyIO template with all cells filled correctly
+9. ✅ Excel report generates using Generic template with all cells filled correctly
+10. ✅ Generated report is pixel-perfect match to manually-created original
+11. ✅ Protocol whitelist comparison flags non-compliant ports
+12. ✅ Reviewer can override any verdict with documented justification
+13. ✅ Audit log records all actions
+14. ✅ Docker Compose starts all 3 services with one command
+15. ✅ Application works fully offline (no internet required)
+
+---
+
+*END OF CLAUDE.md — Electracom Device Qualifier*
