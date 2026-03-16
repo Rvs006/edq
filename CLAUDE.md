@@ -54,7 +54,7 @@ EDQ reduces this to 1–2 hours by:
 ### 2.1 Three Docker Services
 
 | Service | Base Image | Port | Purpose |
-|---------|-----------|------|---------|
+| --- | --- | --- | --- |
 | `frontend` | node:18 → nginx:alpine | 80 | Serves React SPA, proxies /api/* and /ws/* to backend |
 | `api` | python:3.12-slim | 8000 | FastAPI backend: auth, API, WebSocket, database, reports |
 | `tools` | ubuntu:22.04 | 8001 | Security scanning tools with REST API wrapper |
@@ -332,7 +332,7 @@ Sheets: TEST SYNOPSIS, TESTPLAN, ADDITIONAL INFO
 
 TESTPLAN columns (starting row 12):
 | Column | Content |
-|--------|---------|
+| --- | --- |
 | B | Test Number (integer: 1, 2, 3... or decimal: 16.1, 16.2) |
 | C | Brief Description |
 | D | Test Description |
@@ -343,7 +343,7 @@ TESTPLAN columns (starting row 12):
 
 TEST SYNOPSIS metadata cells:
 | Cell | Content |
-|------|---------|
+| --- | --- |
 | G7 | Test Attempt number |
 | G8 | Date range "DD/MM/YYYY - DD/MM/YYYY" |
 | G9 | System (e.g. "Security") |
@@ -362,7 +362,7 @@ Sheets: Synopsis, Protocol Whitelist, 01 Test - Questions, 01 Test - Nessus
 
 01 Test - Questions columns (starting row 13):
 | Column | Content |
-|--------|---------|
+| --- | --- |
 | B | Test # (text with non-breaking spaces: "1\xa0", "2\xa0") |
 | C | Test Description (full description, not brief) |
 | D | Essential Pass (YES/NO/INFO with trailing \xa0) |
@@ -374,7 +374,7 @@ Sheets: Synopsis, Protocol Whitelist, 01 Test - Questions, 01 Test - Nessus
 
 Protocol Whitelist sheet (starting row 8):
 | Column | Content |
-|--------|---------|
+| --- | --- |
 | B | Item number |
 | C | Protocol name and RFC reference |
 | D | Connection type (TCP/UDP/TCP+UDP) |
@@ -387,7 +387,7 @@ Sheets: TEST SUMMARY, TESTPLAN, ADDITIONAL INFORMATION
 
 TESTPLAN columns (starting row 10):
 | Column | Content |
-|--------|---------|
+| --- | --- |
 | B | Test Number |
 | C | Brief Description |
 | D | Test Description |
@@ -444,7 +444,7 @@ These 30 tests apply to ANY IP device. Additional device-specific tests come fro
 ### 5.1 Automatic Tests (Tool-Executed)
 
 | ID | Name | Tool | What It Does | Pass Criteria |
-|----|------|------|-------------|---------------|
+| --- | --- | --- | --- | --- |
 | U01 | Ping Response | nmap -sn | Verify device responds to ICMP | Reply received |
 | U02 | MAC Vendor Lookup | nmap + OUI DB | Identify manufacturer from MAC | MAC registered to known vendor |
 | U03 | Switch Negotiation | ethtool / nmap | Check speed/duplex | Full duplex, auto-negotiates |
@@ -468,7 +468,7 @@ These 30 tests apply to ANY IP device. Additional device-specific tests come fro
 ### 5.2 Guided Manual Tests (Human-Assisted)
 
 | ID | Name | What Engineer Does | Input Type |
-|----|------|--------------------|------------|
+| --- | --- | --- | --- |
 | U20 | Network Disconnection | Toggle cable, observe recovery | Single-click: Pass/Fail/N/A + notes |
 | U21 | Password Change | Change default password via web UI | Single-click: Pass/Fail + notes |
 | U22 | Firmware Update | Check update mechanism | Single-click: Pass/Fail/Info + notes |
@@ -795,7 +795,7 @@ class ExcelReportGenerator:
 The generator MUST handle all three formats correctly. Key differences:
 
 | Feature | Pelco | EasyIO | Generic Template |
-|---------|-------|--------|-----------------|
+| --- | --- | --- | --- |
 | Verdict values | PASS/FAIL/ADVISORY/N/A | PASS/FAIL/INFO/N/A | PASS/FAIL/ADVISORY/INFO/N/A |
 | Test number format | Integer or decimal | Text with \xa0 suffix | Integer |
 | Column order | B:num C:brief D:desc E:essential F:result G:comments H:script | B:num C:desc D:essential E:result F:notes G:script | B:num C:brief D:desc E:script F:essential G:result H:comments |
