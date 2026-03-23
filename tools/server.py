@@ -37,10 +37,10 @@ BLOCKED_ARGS = {"&&", "||", ";", "|", "`", "$", "(", ")", "{", "}", "<", ">", "\
 # Whitelist of allowed flags per tool to prevent argument injection
 ALLOWED_FLAGS = {
     "nmap": {
-        "-sn", "-sS", "-sT", "-sU", "-sV", "-sC", "-A", "-O", "-Pn", "-p",
+        "-sn", "-sS", "-sT", "-sU", "-sV", "-sC", "-A", "-O", "-Pn", "-p", "-p-",
         "-T0", "-T1", "-T2", "-T3", "-T4", "-T5", "--top-ports", "--open",
         "-oX", "-oN", "-oG", "-v", "-vv", "--version-intensity",
-        "--script", "-F", "-n", "-R",
+        "--script", "-F", "-n", "-R", "-6", "--max-rate", "-",
     },
     "hydra": {
         "-l", "-L", "-p", "-P", "-s", "-t", "-f", "-V", "-v", "-e",
@@ -55,7 +55,7 @@ ALLOWED_FLAGS = {
         "-p", "-T", "-t", "-n", "-v", "-l",
     },
     "nikto": {
-        "-h", "-p", "-ssl", "-nossl", "-Tuning", "-Display", "-output",
+        "-h", "-host", "-p", "-ssl", "-nossl", "-Tuning", "-Display", "-output",
         "-Format", "-timeout", "-maxtime", "-Cgidirs", "-id", "-ask",
     },
 }

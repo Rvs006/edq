@@ -63,25 +63,28 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(data.password, user.password_hash):
-        # Track failed attempts for account lockout
-        if user:
-            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-            if user.failed_login_attempts >= settings.ACCOUNT_LOCKOUT_ATTEMPTS:
-                user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
-                logger.warning("Account locked for user %s after %d failed attempts", data.username, user.failed_login_attempts)
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account is deactivated")
-
-    # Check account lockout
+    # Check account lockout before password verification to avoid leaking credential validity
     if user.locked_until and user.locked_until > datetime.now(timezone.utc):
         remaining = int((user.locked_until - datetime.now(timezone.utc)).total_seconds() / 60) + 1
         raise HTTPException(
             status_code=403,
             detail=f"Account is temporarily locked. Try again in {remaining} minute(s).",
         )
+
+    if not verify_password(data.password, user.password_hash):
+        # Track failed attempts for account lockout and commit before raising
+        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+        if user.failed_login_attempts >= settings.ACCOUNT_LOCKOUT_ATTEMPTS:
+            user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
+            logger.warning("Account locked for user %s after %d failed attempts", data.username, user.failed_login_attempts)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is deactivated")
 
     # Reset failed attempts on successful login
     user.failed_login_attempts = 0
