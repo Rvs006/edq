@@ -13,10 +13,12 @@ from app.models.audit_log import AuditLog
 from app.models.report_config import ReportConfig
 from app.models.sync_queue import SyncQueue
 from app.models.protocol_whitelist import ProtocolWhitelist
+from app.models.nessus_finding import NessusFinding
 
 __all__ = [
     "Base", "get_db", "init_db",
     "User", "Device", "DeviceProfile", "TestTemplate",
     "TestRun", "TestResult", "Attachment", "Agent",
     "AuditLog", "ReportConfig", "SyncQueue", "ProtocolWhitelist",
+    "NessusFinding",
 ]

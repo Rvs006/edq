@@ -1,10 +1,15 @@
 """Test Run management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+import asyncio
+import logging
+import os
+import uuid
 from typing import List, Optional
 from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 
 from app.models.database import get_db
 from app.models.test_run import TestRun, TestRunStatus
@@ -12,11 +17,19 @@ from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.test_template import TestTemplate
 from app.models.device import Device
 from app.models.user import User
+from app.models.nessus_finding import NessusFinding
 from app.schemas.test import TestRunCreate, TestRunUpdate, TestRunResponse
 from app.security.auth import get_current_active_user
 from app.services.test_library import get_test_by_id
+from app.services.test_engine import test_engine
+from app.services.nessus_parser import nessus_parser
+from app.config import settings
+
+logger = logging.getLogger("edq.routes.test_runs")
 
 router = APIRouter()
+
+_running_tasks: dict[str, asyncio.Task] = {}
 
 
 @router.get("/", response_model=List[TestRunResponse])
@@ -64,18 +77,15 @@ async def create_test_run(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    # Validate device exists
     device = await db.execute(select(Device).where(Device.id == data.device_id))
     if not device.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Device not found")
 
-    # Validate template exists
     template_result = await db.execute(select(TestTemplate).where(TestTemplate.id == data.template_id))
     template = template_result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # Create test run
     test_run = TestRun(
         device_id=data.device_id,
         template_id=data.template_id,
@@ -88,7 +98,6 @@ async def create_test_run(
     db.add(test_run)
     await db.flush()
 
-    # Create individual test results for each test in the template
     for test_id in template.test_ids:
         test_def = get_test_by_id(test_id)
         if test_def:
@@ -139,7 +148,7 @@ async def update_test_run(
     return run
 
 
-@router.post("/{run_id}/start", response_model=TestRunResponse)
+@router.post("/{run_id}/start")
 async def start_test_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),
@@ -149,11 +158,70 @@ async def start_test_run(
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found")
-    run.status = TestRunStatus.RUNNING
-    run.started_at = datetime.now(timezone.utc)
+
+    if run.status not in (TestRunStatus.PENDING, TestRunStatus.FAILED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot start run in '{run.status.value}' status. Must be 'pending' or 'failed'.",
+        )
+
+    if run_id in _running_tasks and not _running_tasks[run_id].done():
+        raise HTTPException(status_code=409, detail="Test run is already executing")
+
+    task = asyncio.create_task(test_engine.run(run_id))
+    _running_tasks[run_id] = task
+
+    task.add_done_callback(lambda t: _running_tasks.pop(run_id, None))
+
+    return {"status": "running", "message": "Test execution started", "run_id": run_id}
+
+
+@router.post("/{run_id}/pause")
+async def pause_test_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Test run not found")
+
+    if run.status != TestRunStatus.RUNNING:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot pause run in '{run.status.value}' status. Must be 'running'.",
+        )
+
+    run.status = TestRunStatus.PAUSED
     await db.flush()
     await db.refresh(run)
-    return run
+
+    return {"status": "paused", "message": "Test execution paused", "run_id": run_id}
+
+
+@router.post("/{run_id}/resume")
+async def resume_test_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Test run not found")
+
+    if run.status != TestRunStatus.PAUSED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resume run in '{run.status.value}' status. Must be 'paused'.",
+        )
+
+    run.status = TestRunStatus.RUNNING
+    await db.flush()
+    await db.refresh(run)
+
+    return {"status": "running", "message": "Test execution resumed", "run_id": run_id}
 
 
 @router.post("/{run_id}/complete", response_model=TestRunResponse)
@@ -167,7 +235,6 @@ async def complete_test_run(
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found")
 
-    # Calculate verdict from results
     results = await db.execute(select(TestResult).where(TestResult.test_run_id == run_id))
     all_results = results.scalars().all()
 
@@ -202,3 +269,126 @@ async def complete_test_run(
     await db.flush()
     await db.refresh(run)
     return run
+
+
+@router.post("/{run_id}/nessus/upload")
+async def upload_nessus(
+    run_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Test run not found")
+
+    if not file.filename or not file.filename.endswith(".nessus"):
+        raise HTTPException(status_code=400, detail="Only .nessus files are accepted")
+
+    content = await file.read()
+    if len(content) > settings.MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"File exceeds maximum size of {settings.MAX_FILE_SIZE // (1024*1024)}MB")
+
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "nessus")
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(upload_dir, f"{run_id}_{uuid.uuid4().hex[:8]}.nessus")
+
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    try:
+        findings = nessus_parser.parse(file_path)
+    except Exception as exc:
+        os.remove(file_path)
+        raise HTTPException(status_code=400, detail=f"Failed to parse .nessus file: {exc}")
+
+    existing = await db.execute(
+        select(func.count(NessusFinding.id)).where(NessusFinding.run_id == run_id)
+    )
+    existing_count = existing.scalar() or 0
+
+    created = 0
+    for finding_data in findings:
+        nf = NessusFinding(
+            run_id=run_id,
+            plugin_id=finding_data["plugin_id"],
+            plugin_name=finding_data["plugin_name"],
+            severity=finding_data["severity"],
+            risk_factor=finding_data.get("risk_factor"),
+            description=finding_data.get("description"),
+            solution=finding_data.get("solution"),
+            port=finding_data.get("port"),
+            protocol=finding_data.get("protocol"),
+            plugin_output=finding_data.get("plugin_output"),
+            cvss_score=finding_data.get("cvss_score"),
+            cve_ids=finding_data.get("cve_ids"),
+        )
+        db.add(nf)
+        created += 1
+
+    await db.flush()
+
+    severity_counts = {}
+    for f in findings:
+        sev = f["severity"]
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+    return {
+        "message": f"Successfully imported {created} Nessus findings",
+        "run_id": run_id,
+        "findings_imported": created,
+        "previously_existing": existing_count,
+        "severity_breakdown": severity_counts,
+        "file_path": file_path,
+    }
+
+
+@router.get("/{run_id}/nessus/findings")
+async def list_nessus_findings(
+    run_id: str,
+    severity: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Test run not found")
+
+    query = select(NessusFinding).where(NessusFinding.run_id == run_id)
+    if severity:
+        query = query.where(NessusFinding.severity == severity)
+    query = query.order_by(NessusFinding.cvss_score.desc()).offset(skip).limit(limit)
+
+    findings_result = await db.execute(query)
+    findings = findings_result.scalars().all()
+
+    count_query = select(func.count(NessusFinding.id)).where(NessusFinding.run_id == run_id)
+    if severity:
+        count_query = count_query.where(NessusFinding.severity == severity)
+    count_result = await db.execute(count_query)
+    total = count_result.scalar() or 0
+
+    return {
+        "total": total,
+        "findings": [
+            {
+                "id": f.id,
+                "plugin_id": f.plugin_id,
+                "plugin_name": f.plugin_name,
+                "severity": f.severity,
+                "risk_factor": f.risk_factor,
+                "port": f.port,
+                "protocol": f.protocol,
+                "cvss_score": f.cvss_score,
+                "cve_ids": f.cve_ids,
+                "description": f.description,
+                "solution": f.solution,
+                "plugin_output": f.plugin_output,
+                "imported_at": f.imported_at.isoformat() if f.imported_at else None,
+            }
+            for f in findings
+        ],
+    }

@@ -42,6 +42,8 @@ async def lifespan(app: FastAPI):
     """Application startup/shutdown lifecycle."""
     print(f"[EDQ] Frontend directory: {FRONTEND_DIR} (exists: {os.path.isdir(FRONTEND_DIR)})")
     await init_db()
+    from app.services.test_engine import recover_orphaned_runs
+    await recover_orphaned_runs()
     yield
 
 
