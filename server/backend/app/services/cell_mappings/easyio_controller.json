@@ -16,6 +16,7 @@
     "synopsis_text": "B28"
   },
   "testplan_start_row": 14,
+  "testplan_row_count": 46,
   "testplan_columns": {
     "test_number": "B",
     "test_description": "C",
@@ -26,9 +27,10 @@
   },
   "verdict_map": {
     "pass": "PASS",
+    "qualified_pass": "QUALIFIED PASS",
     "fail": "FAIL",
     "advisory": "INFO",
-    "na": "N/A",
-    "info": "INFO"
+    "info": "INFO",
+    "na": "N/A"
   }
 }

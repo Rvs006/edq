@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { reportsApi, testRunsApi } from '@/lib/api'
-import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate } from 'lucide-react'
+import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const TEMPLATE_OPTIONS = [
@@ -10,9 +10,11 @@ const TEMPLATE_OPTIONS = [
   { key: 'easyio_controller', label: 'EasyIO Controller (FW08)', category: 'controller' },
 ]
 
+type ReportFormat = 'excel' | 'word' | 'pdf'
+
 export default function ReportsPage() {
   const [selectedRun, setSelectedRun] = useState('')
-  const [reportType, setReportType] = useState<'excel' | 'word'>('excel')
+  const [reportType, setReportType] = useState<ReportFormat>('excel')
   const [templateKey, setTemplateKey] = useState('generic')
   const [includeSynopsis, setIncludeSynopsis] = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -39,7 +41,22 @@ export default function ReportsPage() {
       })
       toast.success(`Report generated: ${data.filename}`)
       if (data.download_url) {
-        window.open(data.download_url, '_blank')
+        const mimeMap: Record<ReportFormat, string> = {
+          excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          pdf: 'application/pdf',
+        }
+        try {
+          const blob = await reportsApi.download(data.filename)
+          const url = URL.createObjectURL(new Blob([blob.data], { type: mimeMap[reportType] }))
+          const a = document.createElement('a')
+          a.href = url
+          a.download = data.filename
+          a.click()
+          URL.revokeObjectURL(url)
+        } catch {
+          window.open(data.download_url, '_blank')
+        }
       }
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Report generation failed')
@@ -50,11 +67,17 @@ export default function ReportsPage() {
 
   const availableTemplates = templates || TEMPLATE_OPTIONS
 
+  const formatOptions: { key: ReportFormat; label: string; ext: string; icon: typeof FileSpreadsheet }[] = [
+    { key: 'excel', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet },
+    { key: 'word', label: 'Word', ext: '.docx', icon: FileText },
+    { key: 'pdf', label: 'PDF', ext: '.pdf', icon: FileDown },
+  ]
+
   return (
     <div className="page-container">
       <div className="mb-5">
         <h1 className="section-title">Reports</h1>
-        <p className="section-subtitle">Generate Excel and Word qualification reports from test results</p>
+        <p className="section-subtitle">Generate Excel, Word, and PDF qualification reports from test results</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -76,37 +99,25 @@ export default function ReportsPage() {
 
             <div>
               <label className="label">Report Format</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setReportType('excel')}
-                  className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
-                    reportType === 'excel'
-                      ? 'border-brand-500 bg-brand-50'
-                      : 'border-zinc-200 hover:border-zinc-300'
-                  }`}
-                >
-                  <FileSpreadsheet className={`w-6 h-6 ${reportType === 'excel' ? 'text-brand-500' : 'text-zinc-400'}`} />
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-zinc-900">Excel</p>
-                    <p className="text-xs text-zinc-500">.xlsx format</p>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReportType('word')}
-                  className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
-                    reportType === 'word'
-                      ? 'border-brand-500 bg-brand-50'
-                      : 'border-zinc-200 hover:border-zinc-300'
-                  }`}
-                >
-                  <FileText className={`w-6 h-6 ${reportType === 'word' ? 'text-brand-500' : 'text-zinc-400'}`} />
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-zinc-900">Word</p>
-                    <p className="text-xs text-zinc-500">.docx format</p>
-                  </div>
-                </button>
+              <div className="grid grid-cols-3 gap-3">
+                {formatOptions.map(({ key, label, ext, icon: Icon }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setReportType(key)}
+                    className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
+                      reportType === key
+                        ? 'border-brand-500 bg-brand-50'
+                        : 'border-zinc-200 hover:border-zinc-300'
+                    }`}
+                  >
+                    <Icon className={`w-6 h-6 ${reportType === key ? 'text-brand-500' : 'text-zinc-400'}`} />
+                    <div className="text-left">
+                      <p className="text-sm font-semibold text-zinc-900">{label}</p>
+                      <p className="text-xs text-zinc-500">{ext} format</p>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -177,9 +188,10 @@ export default function ReportsPage() {
                 'Executive summary with overall verdict',
                 'Device information and network details',
                 'Individual test results with findings',
-                'Compliance mapping (ISO 27001, CE, SOC2)',
+                'Protocol whitelist comparison',
+                'Detailed findings for FAIL/ADVISORY tests',
+                'Tool versions and connection scenario',
                 'AI-generated narrative synopsis',
-                'Recommendations and remediation steps',
               ].map(item => (
                 <li key={item} className="flex items-start gap-2">
                   <span className="text-brand-500 mt-0.5">&bull;</span>
@@ -187,6 +199,23 @@ export default function ReportsPage() {
                 </li>
               ))}
             </ul>
+          </div>
+
+          <div className="card p-4">
+            <h3 className="font-semibold text-zinc-900 mb-3">Verdict Legend</h3>
+            <div className="space-y-1.5">
+              {[
+                { label: 'PASS', color: 'bg-green-500', desc: 'All tests passed' },
+                { label: 'QUALIFIED PASS', color: 'bg-amber-500', desc: 'Essential pass, advisories noted' },
+                { label: 'FAIL', color: 'bg-red-500', desc: 'Essential test(s) failed' },
+              ].map(v => (
+                <div key={v.label} className="flex items-center gap-2">
+                  <div className={`w-2.5 h-2.5 rounded-full ${v.color}`} />
+                  <span className="text-xs font-medium text-zinc-900 w-28">{v.label}</span>
+                  <span className="text-xs text-zinc-500">{v.desc}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

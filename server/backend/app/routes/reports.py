@@ -1,5 +1,6 @@
 """Report generation routes."""
 
+import json
 import os
 from typing import Literal, Optional
 
@@ -12,13 +13,16 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.models.database import get_db
+from app.models.protocol_whitelist import ProtocolWhitelist
 from app.models.report_config import ReportConfig
 from app.models.test_result import TestResult
 from app.models.test_run import TestRun
+from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.security.auth import get_current_active_user
 from app.services.report_generator import (
     generate_excel_report,
+    generate_pdf_report,
     generate_word_report,
     get_available_templates,
 )
@@ -28,7 +32,7 @@ router = APIRouter()
 
 class ReportRequest(BaseModel):
     test_run_id: str
-    report_type: str = "excel"
+    report_type: Literal["excel", "word", "pdf"] = "excel"
     report_config_id: Optional[str] = None
     include_synopsis: bool = False
     template_key: Literal["generic", "pelco_camera", "easyio_controller"] = "generic"
@@ -40,13 +44,7 @@ async def list_report_templates(_: User = Depends(get_current_active_user)):
     return get_available_templates()
 
 
-@router.post("/generate")
-async def generate_report(
-    data: ReportRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_active_user),
-):
-    """Generate a report for a test run."""
+async def _load_run_context(data: ReportRequest, db: AsyncSession):
     result = await db.execute(
         select(TestRun)
         .options(selectinload(TestRun.device), selectinload(TestRun.engineer))
@@ -70,6 +68,52 @@ async def generate_report(
         )
         report_config = config_result.scalar_one_or_none()
 
+    enabled_test_ids = None
+    template = None
+    if test_run.template_id:
+        tmpl_result = await db.execute(
+            select(TestTemplate).where(TestTemplate.id == test_run.template_id)
+        )
+        template = tmpl_result.scalar_one_or_none()
+        if template and template.test_ids:
+            raw_ids = template.test_ids
+            if isinstance(raw_ids, str):
+                try:
+                    raw_ids = json.loads(raw_ids)
+                except (json.JSONDecodeError, TypeError):
+                    raw_ids = None
+            if isinstance(raw_ids, list):
+                enabled_test_ids = raw_ids
+
+    whitelist_entries = None
+    if template and getattr(template, "whitelist_id", None):
+        wl_result = await db.execute(
+            select(ProtocolWhitelist).where(ProtocolWhitelist.id == template.whitelist_id)
+        )
+        wl = wl_result.scalar_one_or_none()
+        if wl and wl.entries:
+            entries = wl.entries
+            if isinstance(entries, str):
+                try:
+                    entries = json.loads(entries)
+                except (json.JSONDecodeError, TypeError):
+                    entries = None
+            whitelist_entries = entries
+
+    return test_run, test_results, report_config, enabled_test_ids, whitelist_entries
+
+
+@router.post("/generate")
+async def generate_report(
+    data: ReportRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Generate a report for a test run."""
+    test_run, test_results, report_config, enabled_test_ids, whitelist_entries = (
+        await _load_run_context(data, db)
+    )
+
     try:
         if data.report_type == "excel":
             file_path = await generate_excel_report(
@@ -77,14 +121,29 @@ async def generate_report(
                 test_results,
                 report_config,
                 template_key=data.template_key,
+                enabled_test_ids=enabled_test_ids,
             )
         elif data.report_type == "word":
             file_path = await generate_word_report(
-                test_run, test_results, report_config, data.include_synopsis
+                test_run,
+                test_results,
+                report_config,
+                include_synopsis=data.include_synopsis,
+                enabled_test_ids=enabled_test_ids,
+                whitelist_entries=whitelist_entries,
+            )
+        elif data.report_type == "pdf":
+            file_path = await generate_pdf_report(
+                test_run,
+                test_results,
+                report_config,
+                include_synopsis=data.include_synopsis,
+                enabled_test_ids=enabled_test_ids,
+                whitelist_entries=whitelist_entries,
             )
         else:
             raise HTTPException(
-                status_code=400, detail="Invalid report type. Use 'excel' or 'word'."
+                status_code=400, detail="Invalid report type. Use 'excel', 'word', or 'pdf'."
             )
 
         filename = os.path.basename(file_path)

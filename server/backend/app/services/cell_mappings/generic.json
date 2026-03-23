@@ -16,6 +16,7 @@
     "synopsis_text": "B19"
   },
   "testplan_start_row": 11,
+  "testplan_row_count": 43,
   "testplan_columns": {
     "test_number": "B",
     "brief_description": "C",
@@ -24,5 +25,13 @@
     "essential_pass": "F",
     "test_result": "G",
     "test_comments": "H"
+  },
+  "verdict_map": {
+    "pass": "PASS",
+    "qualified_pass": "QUALIFIED PASS",
+    "fail": "FAIL",
+    "advisory": "ADVISORY",
+    "info": "INFO",
+    "na": "N/A"
   }
 }
