@@ -26,62 +26,23 @@ import json
 
 DEVICE_PROFILES = [
     {
-        "name": "Network Camera",
+        "name": "IoT Gateway",
         "manufacturer": "Generic",
-        "category": "camera",
-        "description": "IP cameras, PTZ cameras, fixed dome cameras",
-        "additional_tests": [],
-        "safe_mode": {"intensity": "safe", "nmap_rate_limit": "--max-rate 200", "parallel_probes": 2},
-        "fingerprint_rules": {
-            "port_hints": [554, 8554, 80, 443, 8080],
-            "service_hints": ["rtsp", "http", "https"],
-            "oui_vendors": ["Axis", "Pelco", "Hikvision", "Dahua", "Bosch"],
-        },
-    },
-    {
-        "name": "Building Controller",
-        "manufacturer": "Generic",
-        "category": "controller",
-        "description": "HVAC controllers, BMS controllers, DDC controllers",
+        "category": "iot_gateway",
+        "description": "Devices with BACnet, MQTT, CoAP, or Modbus — controllers, gateways, BMS systems",
         "additional_tests": [],
         "safe_mode": {"intensity": "safe", "nmap_rate_limit": "--max-rate 100", "parallel_probes": 1},
         "fingerprint_rules": {
-            "port_hints": [47808, 502, 4911, 1911],
-            "service_hints": ["bacnet", "modbus", "niagara"],
+            "port_hints": [47808, 1883, 8883, 5683, 502, 4911],
+            "service_hints": ["bacnet", "mqtt", "coap", "modbus"],
             "oui_vendors": ["EasyIO", "Distech", "Johnson Controls", "Schneider Electric", "Sauter"],
         },
     },
     {
-        "name": "IP Intercom",
+        "name": "Standard Device",
         "manufacturer": "Generic",
-        "category": "intercom",
-        "description": "Door stations, video intercoms, access panels",
-        "additional_tests": [],
-        "safe_mode": {"intensity": "safe", "nmap_rate_limit": "--max-rate 150", "parallel_probes": 2},
-        "fingerprint_rules": {
-            "port_hints": [5060, 5061, 80, 443],
-            "service_hints": ["sip", "http", "https"],
-            "oui_vendors": ["2N", "Aiphone", "Comelit", "Doorbird"],
-        },
-    },
-    {
-        "name": "IoT Sensor",
-        "manufacturer": "Generic",
-        "category": "iot_sensor",
-        "description": "Environmental sensors, occupancy sensors, energy meters",
-        "additional_tests": [],
-        "safe_mode": {"intensity": "safe", "nmap_rate_limit": "--max-rate 50", "parallel_probes": 1},
-        "fingerprint_rules": {
-            "port_hints": [1883, 8883, 5683, 161],
-            "service_hints": ["mqtt", "coap", "snmp"],
-            "oui_vendors": [],
-        },
-    },
-    {
-        "name": "Generic IP Device",
-        "manufacturer": "Generic",
-        "category": "unknown",
-        "description": "Default profile for unclassified IP devices",
+        "category": "standard_device",
+        "description": "All other IP devices — cameras, intercoms, sensors, access control panels",
         "additional_tests": [],
         "safe_mode": {"intensity": "safe", "nmap_rate_limit": "--max-rate 200", "parallel_probes": 2},
         "fingerprint_rules": {},
@@ -102,6 +63,20 @@ ELECTRACOM_WHITELIST_ENTRIES = [
     {"port": 47808, "protocol": "UDP", "service": "BACnet/IP", "required_version": ""},
 ]
 
+DISCOURAGED_PORTS = [
+    {"port": 21, "reason": "FTP — cleartext credentials"},
+    {"port": 23, "reason": "Telnet — cleartext protocol"},
+    {"port": 80, "reason": "HTTP — unencrypted web traffic"},
+    {"port": 69, "reason": "TFTP — no authentication"},
+    {"port": 110, "reason": "POP3 — cleartext email"},
+    {"port": 143, "reason": "IMAP — cleartext email"},
+    {"port": 161, "reason": "SNMP v1/v2 — community string auth (v3 only is acceptable)"},
+    {"port": 445, "reason": "SMB — high attack surface"},
+    {"port": 1900, "reason": "UPnP/SSDP — network discovery exposure"},
+    {"port": 5353, "reason": "mDNS — device information leakage"},
+    {"port": 8080, "reason": "HTTP-alt — unencrypted web traffic"},
+]
+
 
 def init_db() -> None:
     """Create all tables and seed default data."""
@@ -120,7 +95,7 @@ def init_db() -> None:
 
         db.commit()
         print("\nDatabase initialization complete!")
-        print("Default credentials: admin / admin123")
+        print("Default credentials: admin / Admin123!")
 
     except Exception as e:
         db.rollback()
@@ -137,6 +112,8 @@ def _run_migrations(db: Session) -> None:
         "ALTER TABLE report_configs ADD COLUMN logo_path TEXT",
         "ALTER TABLE report_configs ADD COLUMN compliance_standards TEXT",
         "ALTER TABLE report_configs ADD COLUMN branding_colours TEXT",
+        "ALTER TABLE test_runs ADD COLUMN connection_scenario TEXT DEFAULT 'direct'",
+        "ALTER TABLE test_results ADD COLUMN engineer_notes TEXT",
     ]
     for sql in migrations:
         try:
@@ -176,6 +153,9 @@ def _seed_protocol_whitelist(db: Session, admin: User) -> ProtocolWhitelist:
 
     existing = db.query(ProtocolWhitelist).filter(ProtocolWhitelist.name == "Electracom Standard").first()
     if existing:
+        existing.entries = json.dumps(ELECTRACOM_WHITELIST_ENTRIES)
+        existing.description = "Standard Electracom protocol whitelist for smart building devices (from EasyIO template)"
+        db.flush()
         return existing
 
     whitelist = ProtocolWhitelist(
@@ -222,57 +202,73 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
     all_test_ids = [t["test_id"] for t in UNIVERSAL_TESTS]
     essential_ids = [t["test_id"] for t in UNIVERSAL_TESTS if t.get("is_essential")]
 
-    if not db.query(TestTemplate).filter(TestTemplate.name == "Full Security Assessment").first():
+    full_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "Full Security Assessment").first()
+    if full_tmpl:
+        full_tmpl.test_ids = json.dumps(all_test_ids)
+        full_tmpl.description = f"Complete {len(all_test_ids)}-test qualification suite covering all security domains"
+    else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
             name="Full Security Assessment",
-            description="Complete 30-test qualification suite covering all security domains",
+            description=f"Complete {len(all_test_ids)}-test qualification suite covering all security domains",
             test_ids=json.dumps(all_test_ids),
             whitelist_id=whitelist.id,
             report_config=json.dumps({"template_key": "generic", "device_category": "generic"}),
             is_default=True,
             created_by=admin.id,
         ))
-        print(f"Created 'Full Security Assessment' template with {len(all_test_ids)} tests")
+    print(f"Seeded 'Full Security Assessment' template with {len(all_test_ids)} tests")
 
-    if not db.query(TestTemplate).filter(TestTemplate.name == "Essential Tests Only").first():
+    essential_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "Essential Tests Only").first()
+    if essential_tmpl:
+        essential_tmpl.test_ids = json.dumps(essential_ids)
+        essential_tmpl.description = f"Minimum required tests for device qualification ({len(essential_ids)} essential tests)"
+    else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
             name="Essential Tests Only",
-            description="Minimum required tests for device qualification",
+            description=f"Minimum required tests for device qualification ({len(essential_ids)} essential tests)",
             test_ids=json.dumps(essential_ids),
             whitelist_id=whitelist.id,
             report_config=json.dumps({"template_key": "generic", "device_category": "generic"}),
             is_default=False,
             created_by=admin.id,
         ))
-        print(f"Created 'Essential Tests Only' template with {len(essential_ids)} tests")
+    print(f"Seeded 'Essential Tests Only' template with {len(essential_ids)} tests")
 
-    if not db.query(TestTemplate).filter(TestTemplate.name == "Pelco Camera Assessment").first():
+    pelco_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "Pelco Camera Assessment").first()
+    if pelco_tmpl:
+        pelco_tmpl.test_ids = json.dumps(all_test_ids)
+        pelco_tmpl.description = f"Full {len(all_test_ids)}-test qualification for Pelco camera devices (Rev 2 format)"
+    else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
             name="Pelco Camera Assessment",
-            description="Full 30-test qualification for Pelco camera devices (Rev 2 format)",
+            description=f"Full {len(all_test_ids)}-test qualification for Pelco camera devices (Rev 2 format)",
             test_ids=json.dumps(all_test_ids),
             whitelist_id=whitelist.id,
             report_config=json.dumps({"template_key": "pelco_camera", "device_category": "camera"}),
             is_default=False,
             created_by=admin.id,
         ))
-        print("Created 'Pelco Camera Assessment' template")
+    print("Seeded 'Pelco Camera Assessment' template")
 
-    if not db.query(TestTemplate).filter(TestTemplate.name == "EasyIO Controller Assessment").first():
+    easyio_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "EasyIO Controller Assessment").first()
+    if easyio_tmpl:
+        easyio_tmpl.test_ids = json.dumps(all_test_ids)
+        easyio_tmpl.description = f"Full {len(all_test_ids)}-test qualification for EasyIO building controllers (v1.1 format)"
+    else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
             name="EasyIO Controller Assessment",
-            description="Full 30-test qualification for EasyIO building controllers (v1.1 format)",
+            description=f"Full {len(all_test_ids)}-test qualification for EasyIO building controllers (v1.1 format)",
             test_ids=json.dumps(all_test_ids),
             whitelist_id=whitelist.id,
             report_config=json.dumps({"template_key": "easyio_controller", "device_category": "controller"}),
             is_default=False,
             created_by=admin.id,
         ))
-        print("Created 'EasyIO Controller Assessment' template")
+    print("Seeded 'EasyIO Controller Assessment' template")
 
     db.flush()
 

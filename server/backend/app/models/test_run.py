@@ -11,6 +11,8 @@ from app.models.database import Base
 
 class TestRunStatus(str, enum.Enum):
     PENDING = "pending"
+    SELECTING_INTERFACE = "selecting_interface"
+    SYNCING = "syncing"
     RUNNING = "running"
     PAUSED = "paused"
     AWAITING_MANUAL = "awaiting_manual"
@@ -21,8 +23,8 @@ class TestRunStatus(str, enum.Enum):
 
 class TestRunVerdict(str, enum.Enum):
     PASS = "pass"
+    QUALIFIED_PASS = "qualified_pass"
     FAIL = "fail"
-    ADVISORY = "advisory"
     INCOMPLETE = "incomplete"
 
 
@@ -34,6 +36,7 @@ class TestRun(Base):
     template_id = Column(String(36), ForeignKey("test_templates.id"), nullable=False)
     engineer_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     agent_id = Column(String(36), ForeignKey("agents.id"), nullable=True)
+    connection_scenario = Column(String(32), nullable=False, default="direct")  # direct, test_lab, site_network
     status = Column(SAEnum(TestRunStatus), default=TestRunStatus.PENDING)
     overall_verdict = Column(SAEnum(TestRunVerdict), nullable=True)
     progress_pct = Column(Float, default=0.0)
