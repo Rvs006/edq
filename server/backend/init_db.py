@@ -18,6 +18,8 @@ from app.models.sync_queue import SyncQueue
 from app.models.protocol_whitelist import ProtocolWhitelist
 from app.security.auth import hash_password
 from app.services.test_library import UNIVERSAL_TESTS
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 import uuid
 import json
 
@@ -101,7 +103,7 @@ ELECTRACOM_WHITELIST_ENTRIES = [
 ]
 
 
-def init_db():
+def init_db() -> None:
     """Create all tables and seed default data."""
     print("Creating database tables...")
     Base.metadata.create_all(bind=sync_engine)
@@ -109,6 +111,7 @@ def init_db():
 
     db = SessionLocal()
     try:
+        _run_migrations(db)
         admin = _seed_admin_user(db)
         whitelist = _seed_protocol_whitelist(db, admin)
         _seed_device_profiles(db, admin, whitelist)
@@ -127,7 +130,23 @@ def init_db():
         db.close()
 
 
-def _seed_admin_user(db):
+def _run_migrations(db: Session) -> None:
+    """Add columns that may be missing from existing databases."""
+    migrations = [
+        "ALTER TABLE report_configs ADD COLUMN client_name TEXT",
+        "ALTER TABLE report_configs ADD COLUMN logo_path TEXT",
+        "ALTER TABLE report_configs ADD COLUMN compliance_standards TEXT",
+        "ALTER TABLE report_configs ADD COLUMN branding_colours TEXT",
+    ]
+    for sql in migrations:
+        try:
+            db.execute(text(sql))
+        except Exception:
+            pass
+    db.commit()
+
+
+def _seed_admin_user(db: Session) -> User:
     admin = db.query(User).filter(User.username == "admin").first()
     if not admin:
         admin = User(
@@ -145,7 +164,7 @@ def _seed_admin_user(db):
     return admin
 
 
-def _seed_protocol_whitelist(db, admin):
+def _seed_protocol_whitelist(db: Session, admin: User) -> ProtocolWhitelist:
     old_wl = db.query(ProtocolWhitelist).filter(ProtocolWhitelist.name == "Electracom Default").first()
     if old_wl:
         old_wl.name = "Electracom Standard"
@@ -173,7 +192,7 @@ def _seed_protocol_whitelist(db, admin):
     return whitelist
 
 
-def _seed_device_profiles(db, admin, whitelist):
+def _seed_device_profiles(db: Session, admin: User, whitelist: ProtocolWhitelist) -> None:
     created = 0
     for profile_data in DEVICE_PROFILES:
         existing = db.query(DeviceProfile).filter_by(category=profile_data["category"]).first()
@@ -199,7 +218,7 @@ def _seed_device_profiles(db, admin, whitelist):
         print(f"Created {created} device profile(s)")
 
 
-def _seed_test_templates(db, admin, whitelist):
+def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist) -> None:
     all_test_ids = [t["test_id"] for t in UNIVERSAL_TESTS]
     essential_ids = [t["test_id"] for t in UNIVERSAL_TESTS if t.get("is_essential")]
 
@@ -258,7 +277,7 @@ def _seed_test_templates(db, admin, whitelist):
     db.flush()
 
 
-def _seed_report_config(db, admin):
+def _seed_report_config(db: Session, admin: User) -> None:
     existing = db.query(ReportConfig).filter(ReportConfig.client_name == "Electracom Projects Ltd").first()
     if existing:
         return
