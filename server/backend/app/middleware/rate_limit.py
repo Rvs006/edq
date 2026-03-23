@@ -48,10 +48,11 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-def check_rate_limit(request: Request, max_requests: int, window_seconds: int = 60) -> None:
-    """Raise 429 if rate limit is exceeded for the client IP."""
+def check_rate_limit(request: Request, max_requests: int, window_seconds: int = 60, action: str = "default") -> None:
+    """Raise 429 if rate limit is exceeded for the client IP + action."""
     ip = get_client_ip(request)
-    if not rate_limiter.check(ip, max_requests, window_seconds):
+    key = f"{ip}:{action}"
+    if not rate_limiter.check(key, max_requests, window_seconds):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many requests. Please try again later.",

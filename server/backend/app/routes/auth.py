@@ -42,7 +42,7 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(data: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    check_rate_limit(request, max_requests=3, window_seconds=60)
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="register")
 
     result = await db.execute(select(User).where((User.email == data.email) | (User.username == data.username)))
     if result.scalar_one_or_none():
@@ -63,7 +63,7 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
 
 @router.post("/login")
 async def login(data: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
-    check_rate_limit(request, max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE, window_seconds=60)
+    check_rate_limit(request, max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE, window_seconds=60, action="login")
 
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
@@ -78,6 +78,11 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
             status_code=403,
             detail=f"Account is temporarily locked. Try again in {remaining} minute(s).",
         )
+
+    # Reset failed attempts after lockout period expires, giving a fresh window
+    if user.locked_until and user.locked_until <= _utcnow():
+        user.failed_login_attempts = 0
+        user.locked_until = None
 
     if not verify_password(data.password, user.password_hash):
         # Track failed attempts for account lockout and commit before raising
