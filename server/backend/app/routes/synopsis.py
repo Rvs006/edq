@@ -56,8 +56,7 @@ async def generate_synopsis(
             response = await client.post(
                 settings.AI_API_URL,
                 headers={
-                    "x-api-key": settings.AI_API_KEY,
-                    "anthropic-version": "2023-06-01",
+                    "Authorization": f"Bearer {settings.AI_API_KEY}",
                     "content-type": "application/json",
                 },
                 json={

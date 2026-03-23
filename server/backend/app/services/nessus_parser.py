@@ -1,6 +1,6 @@
 """Nessus .nessus XML file parser.
 
-Parses Tenable vulnerability scan output per CLAUDE.md Section 11.
+Parses Tenable vulnerability scan output.
 Uses defusedxml for safe XML parsing.
 """
 

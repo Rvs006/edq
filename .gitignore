@@ -144,3 +144,15 @@ electron/out/
 *.deb
 *.exe
 *.msi
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Database
+*.db
+
+# Application data
+reports/
+uploads/

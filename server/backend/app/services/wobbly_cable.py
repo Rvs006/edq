@@ -3,7 +3,7 @@
 Detects cable disconnection via consecutive ping failures, pauses testing,
 retries until reconnection, and resumes automatically.
 
-Per CLAUDE.md Section 10.
+See ENGINEERING_SPEC.md Section 10 for protocol details.
 """
 
 import asyncio
