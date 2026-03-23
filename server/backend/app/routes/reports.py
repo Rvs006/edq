@@ -1,7 +1,7 @@
 """Report generation routes."""
 
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -31,7 +31,7 @@ class ReportRequest(BaseModel):
     report_type: str = "excel"
     report_config_id: Optional[str] = None
     include_synopsis: bool = False
-    template_key: str = "generic"
+    template_key: Literal["generic", "pelco_camera", "easyio_controller"] = "generic"
 
 
 @router.get("/templates")

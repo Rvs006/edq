@@ -118,10 +118,21 @@ async def generate_excel_report(
     preserve formulas), writes metadata + test results into the mapped
     cells, and saves to the reports directory.
 
-    Falls back to scratch generation if the template or mapping file is
-    missing.
+    Callers must pass a valid key from TEMPLATE_FILES ("generic",
+    "pelco_camera", or "easyio_controller"). The routes layer enforces
+    this via Pydantic Literal validation, so invalid keys are rejected
+    with a 422 before reaching this function.
+
+    Falls back to scratch generation only if the on-disk template or
+    mapping file is physically missing (e.g. deleted after deployment).
     """
-    template_file = _TEMPLATES_DIR / TEMPLATE_FILES.get(template_key, TEMPLATE_FILES["generic"])
+    if template_key not in TEMPLATE_FILES:
+        raise ValueError(
+            f"Unknown template_key '{template_key}'. "
+            f"Valid keys: {', '.join(TEMPLATE_FILES.keys())}"
+        )
+
+    template_file = _TEMPLATES_DIR / TEMPLATE_FILES[template_key]
     mapping_file = _MAPPINGS_DIR / f"{template_key}.json"
 
     if not template_file.exists() or not mapping_file.exists():
