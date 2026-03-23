@@ -1,4 +1,13 @@
-"""Initialize the database and create default admin user."""
+"""Initialize the database and create default admin user.
+
+NOTE: For schema changes after the initial release, use Alembic migrations:
+    cd server/backend
+    alembic revision --autogenerate -m "describe_change"
+    alembic upgrade head
+
+This script remains as a fallback for fresh installs where Base.metadata.create_all()
+is used to bootstrap the schema before seeding default data.
+"""
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))

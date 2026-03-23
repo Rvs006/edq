@@ -174,6 +174,8 @@ WebSocket-powered live updates during test execution:
 
 ## Quick Start
 
+> **Full installation guide with Windows-specific instructions:** [INSTALL.md](INSTALL.md)
+
 ### Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows, macOS, or Linux)
