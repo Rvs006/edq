@@ -1,3 +1,6 @@
+# EDQ .gitignore
+# Electracom Device Qualifier — build artifacts, dependencies, and local data
+
 # Logs
 logs
 *.log

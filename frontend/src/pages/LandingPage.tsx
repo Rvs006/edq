@@ -45,9 +45,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-zinc-200">
         <div className="max-w-6xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
-              <Shield className="w-4 h-4 text-white" />
-            </div>
+            <img src="/electracom-logo.png" alt="Electracom" className="h-8" />
             <span className="text-base font-bold text-zinc-900 tracking-tight">EDQ</span>
           </div>
           <Link
@@ -180,9 +178,7 @@ export default function LandingPage() {
       <footer className="bg-white border-t border-zinc-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-brand-500 flex items-center justify-center">
-              <Shield className="w-3 h-3 text-white" />
-            </div>
+            <img src="/electracom-logo.png" alt="Electracom" className="h-6" />
             <span className="text-sm font-semibold text-zinc-700">EDQ</span>
           </div>
           <p className="text-xs text-zinc-400">

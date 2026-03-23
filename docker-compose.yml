@@ -1,3 +1,7 @@
+# EDQ Docker Compose Configuration
+# Electracom Device Qualifier — three-service architecture
+# Usage: docker compose up --build
+
 services:
   backend:
     build:

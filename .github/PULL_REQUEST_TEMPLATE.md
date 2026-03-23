@@ -12,6 +12,9 @@ Brief description of changes.
 - [ ] API endpoints verified
 - [ ] Frontend pages render correctly
 
+## Screenshots
+If applicable, add screenshots or screen recordings to demonstrate the changes.
+
 ## Checklist
 - [ ] Code follows project conventions
 - [ ] Type hints added (Python)

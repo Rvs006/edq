@@ -34,3 +34,13 @@ Use descriptive commit messages:
 - One router per resource in `routes/`
 - Pydantic schemas in `schemas/`
 - Business logic in `services/`
+
+## Questions?
+
+If you have questions about the codebase, architecture decisions, or how to implement a feature, check the documentation in the `docs/` directory:
+
+- **`docs/PRODUCT_REQUIREMENTS.md`** — Full product specification and feature details
+- **`docs/ENGINEERING_SPEC.md`** — Technical architecture, database schema, API design
+- **`docs/DESIGN_SYSTEM.md`** — UI design tokens, colour palette, component guidelines
+
+For anything not covered in the docs, open a GitHub Issue with the `question` label.
