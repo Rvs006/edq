@@ -93,9 +93,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     print(f"[EDQ] Frontend directory: {FRONTEND_DIR} (exists: {os.path.isdir(FRONTEND_DIR)})")
     await init_db()
-    from app.services.test_engine import recover_orphaned_runs
-    await recover_orphaned_runs()
+    _seed_on_startup()
+    try:
+        from app.services.test_engine import recover_orphaned_runs
+        await recover_orphaned_runs()
+    except Exception as e:
+        print(f"[EDQ] Warning: could not recover orphaned runs: {e}")
     yield
+
+
+def _seed_on_startup() -> None:
+    """Run synchronous seed logic (idempotent) after tables are created."""
+    try:
+        from init_db import init_db as seed_db
+        seed_db()
+    except Exception as e:
+        print(f"[EDQ] Warning: seed data error (may be already seeded): {e}")
 
 
 def create_app() -> FastAPI:

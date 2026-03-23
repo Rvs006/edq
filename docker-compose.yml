@@ -8,6 +8,8 @@ services:
       context: ./server/backend
       dockerfile: Dockerfile
     container_name: edq-backend
+    ports:
+      - "8000:8000"
     volumes:
       - edq-data:/app/data
       - edq-uploads:/app/uploads
@@ -16,21 +18,15 @@ services:
       - .env
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///./data/edq.db
-      - TOOLS_SIDECAR_URL=http://host.docker.internal:8001
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - TOOLS_SIDECAR_URL=http://tools:8001
+    depends_on:
+      tools:
+        condition: service_healthy
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "1.0"
-        reservations:
-          memory: 128M
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
       retries: 5
       start_period: 30s
     logging:
@@ -50,13 +46,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.5"
-        reservations:
-          memory: 32M
     logging:
       driver: json-file
       options:
@@ -68,22 +57,16 @@ services:
       context: ./tools
       dockerfile: Dockerfile
     container_name: edq-tools
+    ports:
+      - "8001:8001"
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    network_mode: host
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "2.0"
-        reservations:
-          memory: 256M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
       retries: 5
       start_period: 15s
     logging:
