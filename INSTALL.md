@@ -37,20 +37,13 @@ JWT_SECRET=<generate-with: openssl rand -hex 32>
 SECRET_KEY=<generate-with: openssl rand -hex 32>
 ```
 
-### 3. (Optional) Replace Logo
-If you have the Electracom SMART logo file, copy it to these locations:
-```powershell
-copy "path\to\Electracom-Logo_Redesigned_SMART.png" "assets\electracom-logo.png"
-copy "path\to\Electracom-Logo_Redesigned_SMART.png" "frontend\public\electracom-logo.png"
-```
-
-### 4. Build and Start
+### 3. Build and Start
 ```powershell
 docker compose up --build -d
 ```
 First build takes **5-10 minutes** (downloads base images, installs dependencies).
 
-### 5. Verify
+### 4. Verify
 ```powershell
 docker compose ps
 ```
