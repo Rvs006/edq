@@ -213,7 +213,7 @@ export default function NetworkScanPage() {
   }, [step, scanId])
 
   return (
-    <div className="page-container">
+    <div className="page-container" data-tour="scan-config">
       <div className="mb-5">
         <h1 className="section-title">Network Scan</h1>
         <p className="section-subtitle">Discover and batch-test devices across a subnet</p>

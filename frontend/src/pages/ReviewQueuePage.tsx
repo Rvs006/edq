@@ -11,7 +11,7 @@ export default function ReviewQueuePage() {
   })
 
   return (
-    <div className="page-container">
+    <div className="page-container" data-tour="review-list">
       <div className="mb-5">
         <h1 className="section-title">Review Queue</h1>
         <p className="section-subtitle">Test runs awaiting reviewer sign-off</p>

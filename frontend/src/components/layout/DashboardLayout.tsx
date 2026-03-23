@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import {
   LayoutDashboard, Monitor, Play, FileText, Shield, ClipboardList,
   ListChecks, Settings, LogOut, Menu, X, ChevronDown, User,
-  Bell, Search, Users, Eye, Network, Wifi
+  Bell, Search, Users, Eye, Network, Wifi, Activity
 } from 'lucide-react'
 
 const navSections = [
@@ -40,8 +41,11 @@ const navSections = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [statusTooltipOpen, setStatusTooltipOpen] = useState(false)
   const { user, logout } = useAuth()
   const location = useLocation()
+  const { backendHealthy, toolsHealthy } = useOnlineStatus()
+  const systemOk = backendHealthy && toolsHealthy
 
   const isActive = (href: string) => {
     if (href === '/') return location.pathname === '/'
@@ -99,6 +103,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   placeholder="Search..."
                   className="bg-transparent text-sm text-zinc-700 placeholder-zinc-400 outline-none w-full"
                 />
+              </div>
+
+              <div className="relative">
+                <button
+                  onClick={() => setStatusTooltipOpen(!statusTooltipOpen)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    systemOk
+                      ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                      : 'bg-red-50 text-red-700 hover:bg-red-100'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${
+                    systemOk ? 'bg-green-500' : 'bg-red-500 animate-pulse'
+                  }`} />
+                  <span className="hidden sm:inline">{systemOk ? 'System OK' : 'Service Issue'}</span>
+                  <Activity className="w-3 h-3 sm:hidden" />
+                </button>
+                {statusTooltipOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setStatusTooltipOpen(false)} />
+                    <div className="absolute right-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-zinc-200 p-3 z-50">
+                      <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">System Status</p>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-zinc-700">Backend API</span>
+                          <span className={`flex items-center gap-1.5 text-xs font-medium ${backendHealthy ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${backendHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
+                            {backendHealthy ? 'Healthy' : 'Unavailable'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-zinc-700">Tools Sidecar</span>
+                          <span className={`flex items-center gap-1.5 text-xs font-medium ${toolsHealthy ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${toolsHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
+                            {toolsHealthy ? 'Healthy' : 'Unavailable'}
+                          </span>
+                        </div>
+                      </div>
+                      {!toolsHealthy && backendHealthy && (
+                        <p className="text-[11px] text-amber-600 mt-2 leading-tight">
+                          Security tools sidecar is unreachable. Automated tests will not run.
+                        </p>
+                      )}
+                      {!backendHealthy && (
+                        <p className="text-[11px] text-red-600 mt-2 leading-tight">
+                          Backend service unavailable. Check that Docker services are running.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               <button className="p-2 rounded-lg hover:bg-zinc-100 transition-colors relative">

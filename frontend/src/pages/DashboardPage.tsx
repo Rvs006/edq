@@ -4,12 +4,18 @@ import { devicesApi, testRunsApi } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   Monitor, Play, CheckCircle2, XCircle, AlertTriangle, Clock,
-  ArrowRight, TrendingUp, Plus, FileText, Percent
+  ArrowRight, TrendingUp, Plus, FileText, Percent, Sparkles
 } from 'lucide-react'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import VerdictBadge from '@/components/common/VerdictBadge'
 
-export default function DashboardPage() {
+interface TourState {
+  showWelcomeBanner: boolean
+  startTour: () => void
+  dismissTour: () => void
+}
+
+export default function DashboardPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
   const { data: deviceStats } = useQuery({
     queryKey: ['device-stats'],
@@ -61,6 +67,37 @@ export default function DashboardPage() {
 
   return (
     <div className="page-container">
+      {tourState?.showWelcomeBanner && (
+        <div className="bg-gradient-to-r from-brand-500 to-blue-600 text-white rounded-xl p-5 sm:p-6 mb-6 shadow-lg shadow-brand-500/10">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center shrink-0 mt-0.5">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-base font-bold mb-1">Welcome to EDQ!</h2>
+              <p className="text-sm text-blue-100 mb-4 leading-relaxed">
+                Take a 2-minute tour to learn how EDQ helps you qualify devices faster.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={tourState.startTour}
+                  className="inline-flex items-center gap-1.5 bg-white text-brand-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-50 transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Start Tour
+                </button>
+                <button
+                  onClick={tourState.dismissTour}
+                  className="text-white/70 hover:text-white text-sm font-medium transition-colors"
+                >
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-zinc-900">
           Welcome back, {user?.full_name || user?.username}
@@ -70,7 +107,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+      <div data-tour="kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         {stats.map((stat) => (
           <div key={stat.label} className="card p-4">
             <div className="flex items-center gap-3">
@@ -146,7 +183,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4" data-tour="quick-actions">
           <div className="card p-4">
             <h3 className="font-semibold text-zinc-900 mb-3">Quick Actions</h3>
             <div className="space-y-2">
