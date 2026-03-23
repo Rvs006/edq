@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     AI_MODEL: str = "claude-sonnet-4-20250514"
     AI_MAX_SYNOPSIS_PER_HOUR: int = 10
 
+    # Tools Sidecar
+    TOOLS_SIDECAR_URL: str = "http://localhost:8001"
+
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
 

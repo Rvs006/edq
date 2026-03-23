@@ -26,6 +26,7 @@ from app.routes import (
     admin,
     synopsis,
     websocket_routes,
+    health,
 )
 
 
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
     app.include_router(synopsis.router, prefix="/api/synopsis", tags=["AI Synopsis"])
     app.include_router(websocket_routes.router, prefix="/api/ws", tags=["WebSocket"])
+    app.include_router(health.router, prefix="/api/health", tags=["Health"])
 
     # Serve built frontend static files
     if os.path.isdir(FRONTEND_DIR):
