@@ -1,0 +1,76 @@
+{
+  "name": "edq-desktop",
+  "version": "1.0.0",
+  "description": "Electracom Device Qualifier — Desktop Application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac --x64 --arm64",
+    "build:linux": "electron-builder --linux --x64"
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.0",
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.electracom.edq",
+    "productName": "EDQ",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "docker-manager.js",
+      "tray.js",
+      "updater.js",
+      "splash.html",
+      "splash.css",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../docker-compose.yml",
+        "to": "docker-compose.yml"
+      },
+      {
+        "from": "../.env.example",
+        "to": ".env.example"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "include": "build/installer.nsh"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://updates.electracom.co.uk/edq"
+    }
+  }
+}
