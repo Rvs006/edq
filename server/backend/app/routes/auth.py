@@ -1,27 +1,49 @@
 """Authentication routes — login, register, refresh, change password (httpOnly cookies)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timedelta, timezone
 
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.middleware.rate_limit import check_rate_limit
 from app.models.database import get_db
 from app.models.user import User, UserRole
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, RefreshRequest, ChangePasswordRequest
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+)
 from app.schemas.user import UserResponse
 from app.security.auth import (
-    hash_password, verify_password,
-    create_access_token, create_refresh_token, verify_token,
-    generate_csrf_token, set_auth_cookies, clear_auth_cookies,
-    get_current_active_user, SESSION_COOKIE,
+    clear_auth_cookies,
+    create_access_token,
+    create_refresh_token,
+    generate_csrf_token,
+    hash_password,
+    set_auth_cookies,
+    verify_password,
+    verify_token,
+    get_current_active_user,
 )
-from app.config import settings
+
+logger = logging.getLogger("edq.routes.auth")
+
+
+def _utcnow() -> datetime:
+    """Return current UTC time as a naive datetime (matches SQLite storage)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 router = APIRouter()
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(data: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="register")
+
     result = await db.execute(select(User).where((User.email == data.email) | (User.username == data.username)))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email or username already registered")
@@ -40,17 +62,44 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login")
-async def login(data: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(data: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    check_rate_limit(request, max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE, window_seconds=60, action="login")
+
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(data.password, user.password_hash):
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Check account lockout before password verification to avoid leaking credential validity
+    if user.locked_until and user.locked_until > _utcnow():
+        remaining = int((user.locked_until - _utcnow()).total_seconds() / 60) + 1
+        raise HTTPException(
+            status_code=403,
+            detail=f"Account is temporarily locked. Try again in {remaining} minute(s).",
+        )
+
+    # Reset failed attempts after lockout period expires, giving a fresh window
+    if user.locked_until and user.locked_until <= _utcnow():
+        user.failed_login_attempts = 0
+        user.locked_until = None
+
+    if not verify_password(data.password, user.password_hash):
+        # Track failed attempts for account lockout and commit before raising
+        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+        if user.failed_login_attempts >= settings.ACCOUNT_LOCKOUT_ATTEMPTS:
+            user.locked_until = _utcnow() + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
+            logger.warning("Account locked for user %s after %d failed attempts", data.username, user.failed_login_attempts)
+        await db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated")
 
-    user.last_login = datetime.now(timezone.utc)
+    # Reset failed attempts on successful login
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    user.last_login = _utcnow()
 
     access_token = create_access_token({"sub": user.id, "role": user.role.value})
     refresh_token = create_refresh_token({"sub": user.id})

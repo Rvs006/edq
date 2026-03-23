@@ -51,12 +51,13 @@ def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
-    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+    return jwt.encode(to_encode, settings.JWT_REFRESH_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
 def verify_token(token: str, token_type: str = "access") -> dict:
+    secret = settings.JWT_REFRESH_SECRET if token_type == "refresh" else settings.JWT_SECRET
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(token, secret, algorithms=[settings.JWT_ALGORITHM])
         if payload.get("type") != token_type:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
         return payload
@@ -69,7 +70,7 @@ def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> 
         key=SESSION_COOKIE,
         value=access_token,
         httponly=True,
-        secure=False,
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
@@ -78,7 +79,7 @@ def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> 
         key=CSRF_COOKIE,
         value=csrf_token,
         httponly=False,
-        secure=False,
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",

@@ -23,6 +23,7 @@ from app.security.auth import get_current_active_user
 from app.services.tools_client import tools_client
 from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
+from app.services.parsers.nmap_parser import nmap_parser
 
 logger = logging.getLogger("edq.routes.network_scan")
 
@@ -64,58 +65,6 @@ class NetworkScanResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-def _parse_nmap_host_discovery(stdout: str) -> list[dict]:
-    """Parse nmap -sn output for discovered hosts."""
-    hosts = []
-    lines = stdout.splitlines()
-    current_ip = None
-    current_mac = None
-    current_vendor = None
-    current_hostname = None
-
-    for line in lines:
-        line = line.strip()
-        if "Nmap scan report for" in line:
-            if current_ip:
-                hosts.append({
-                    "ip": current_ip,
-                    "mac": current_mac,
-                    "vendor": current_vendor,
-                    "hostname": current_hostname,
-                })
-            current_mac = None
-            current_vendor = None
-            current_hostname = None
-
-            parts = line.replace("Nmap scan report for ", "")
-            if "(" in parts and ")" in parts:
-                hostname_part = parts.split("(")[0].strip()
-                ip_part = parts.split("(")[1].rstrip(")")
-                current_ip = ip_part
-                current_hostname = hostname_part
-            else:
-                current_ip = parts.strip()
-                current_hostname = None
-
-        elif "MAC Address:" in line:
-            mac_part = line.replace("MAC Address: ", "")
-            if " " in mac_part:
-                current_mac = mac_part.split(" ")[0].strip()
-                current_vendor = mac_part.split("(", 1)[1].rstrip(")") if "(" in mac_part else None
-            else:
-                current_mac = mac_part.strip()
-
-    if current_ip:
-        hosts.append({
-            "ip": current_ip,
-            "mac": current_mac,
-            "vendor": current_vendor,
-            "hostname": current_hostname,
-        })
-
-    return hosts
 
 
 @router.get("/", response_model=List[NetworkScanResponse])
@@ -163,7 +112,7 @@ async def discover_devices(
             ["-sn"],
             timeout=120,
         )
-        hosts = _parse_nmap_host_discovery(raw.get("stdout", ""))
+        hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
 
         scan.devices_found = hosts
         scan.status = NetworkScanStatus.PENDING
@@ -317,15 +266,25 @@ async def get_scan_results(
         raise HTTPException(status_code=404, detail="Network scan not found")
 
     run_ids = scan.run_ids or []
+    if not run_ids:
+        return {"scan_id": scan_id, "status": scan.status.value, "results": []}
+
+    # Batch-load all test runs and devices in two queries instead of N+1
+    runs_result = await db.execute(select(TestRun).where(TestRun.id.in_(run_ids)))
+    runs = {r.id: r for r in runs_result.scalars().all()}
+
+    device_ids = [r.device_id for r in runs.values() if r.device_id]
+    devices_map: dict = {}
+    if device_ids:
+        devs_result = await db.execute(select(Device).where(Device.id.in_(device_ids)))
+        devices_map = {d.id: d for d in devs_result.scalars().all()}
+
     results = []
     for rid in run_ids:
-        run_result = await db.execute(select(TestRun).where(TestRun.id == rid))
-        run = run_result.scalar_one_or_none()
+        run = runs.get(rid)
         if not run:
             continue
-
-        dev_result = await db.execute(select(Device).where(Device.id == run.device_id))
-        device = dev_result.scalar_one_or_none()
+        device = devices_map.get(run.device_id)
 
         results.append({
             "run_id": run.id,

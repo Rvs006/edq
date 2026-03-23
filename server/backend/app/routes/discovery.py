@@ -58,56 +58,6 @@ def _decode_output_file(raw: Dict[str, Any]) -> str:
         return output_file if isinstance(output_file, str) else ""
 
 
-def _parse_nmap_host_discovery(stdout: str) -> List[Dict[str, Any]]:
-    """Parse nmap -sn stdout for discovered hosts (same logic as network_scan)."""
-    hosts: List[Dict[str, Any]] = []
-    lines = stdout.splitlines()
-    current_ip = None
-    current_mac = None
-    current_vendor = None
-    current_hostname = None
-
-    for line in lines:
-        line = line.strip()
-        if "Nmap scan report for" in line:
-            if current_ip:
-                hosts.append({
-                    "ip": current_ip,
-                    "mac": current_mac,
-                    "vendor": current_vendor,
-                    "hostname": current_hostname,
-                })
-            current_mac = None
-            current_vendor = None
-            current_hostname = None
-
-            parts = line.replace("Nmap scan report for ", "")
-            if "(" in parts and ")" in parts:
-                hostname_part = parts.split("(")[0].strip()
-                ip_part = parts.split("(")[1].rstrip(")")
-                current_ip = ip_part
-                current_hostname = hostname_part
-            else:
-                current_ip = parts.strip()
-                current_hostname = None
-
-        elif "MAC Address:" in line:
-            mac_part = line.replace("MAC Address: ", "")
-            if " " in mac_part:
-                current_mac = mac_part.split(" ")[0].strip()
-                current_vendor = mac_part.split("(", 1)[1].rstrip(")") if "(" in mac_part else None
-            else:
-                current_mac = mac_part.strip()
-
-    if current_ip:
-        hosts.append({
-            "ip": current_ip,
-            "mac": current_mac,
-            "vendor": current_vendor,
-            "hostname": current_hostname,
-        })
-
-    return hosts
 
 
 def _guess_category(os_fp: Optional[str], services: List[Dict[str, Any]]) -> DeviceCategory:
@@ -258,7 +208,7 @@ async def initiate_discovery(
             logger.exception("Nmap ping sweep failed for %s: %s", data.subnet, exc)
             raise HTTPException(status_code=502, detail=f"Tools sidecar error: {exc}")
 
-        hosts = _parse_nmap_host_discovery(raw.get("stdout", ""))
+        hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
 
         for host in hosts:
             device, is_new = await _upsert_device(

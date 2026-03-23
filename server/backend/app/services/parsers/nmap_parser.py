@@ -144,5 +144,55 @@ class NmapParser:
             "hosts": parsed.get("hosts", []),
         }
 
+    def parse_host_discovery(self, stdout: str) -> list[dict[str, Any]]:
+        """Parse nmap -sn stdout for discovered hosts (IP, MAC, vendor, hostname)."""
+        hosts: list[dict[str, Any]] = []
+        current_ip = None
+        current_mac = None
+        current_vendor = None
+        current_hostname = None
+
+        for line in stdout.splitlines():
+            line = line.strip()
+            if "Nmap scan report for" in line:
+                if current_ip:
+                    hosts.append({
+                        "ip": current_ip,
+                        "mac": current_mac,
+                        "vendor": current_vendor,
+                        "hostname": current_hostname,
+                    })
+                current_mac = None
+                current_vendor = None
+                current_hostname = None
+
+                parts = line.replace("Nmap scan report for ", "")
+                if "(" in parts and ")" in parts:
+                    hostname_part = parts.split("(")[0].strip()
+                    ip_part = parts.split("(")[1].rstrip(")")
+                    current_ip = ip_part
+                    current_hostname = hostname_part
+                else:
+                    current_ip = parts.strip()
+                    current_hostname = None
+
+            elif "MAC Address:" in line:
+                mac_part = line.replace("MAC Address: ", "")
+                if " " in mac_part:
+                    current_mac = mac_part.split(" ")[0].strip()
+                    current_vendor = mac_part.split("(", 1)[1].rstrip(")") if "(" in mac_part else None
+                else:
+                    current_mac = mac_part.strip()
+
+        if current_ip:
+            hosts.append({
+                "ip": current_ip,
+                "mac": current_mac,
+                "vendor": current_vendor,
+                "hostname": current_hostname,
+            })
+
+        return hosts
+
 
 nmap_parser = NmapParser()

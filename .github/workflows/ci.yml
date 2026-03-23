@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-lint-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server/backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx ruff
+
+      - name: Lint with ruff
+        run: ruff check app/ --select E,F,W --ignore E402,E501,E712,F401,F841
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            pnpm install --frozen-lockfile
+          elif [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build
+        run: |
+          if command -v pnpm >/dev/null 2>&1 && [ -f pnpm-lock.yaml ]; then
+            pnpm run build
+          else
+            npm run build
+          fi
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -t edq-backend ./server/backend
+
+      - name: Build tools image
+        run: docker build -t edq-tools ./tools
+
+      - name: Build frontend image
+        run: docker build -t edq-frontend ./frontend

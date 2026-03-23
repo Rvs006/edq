@@ -1,7 +1,18 @@
 """Authentication schemas."""
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
+
+
+def _validate_password_strength(password: str) -> str:
+    """Enforce password complexity: uppercase, lowercase, digit required."""
+    if not any(c.isupper() for c in password):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not any(c.islower() for c in password):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not any(c.isdigit() for c in password):
+        raise ValueError("Password must contain at least one digit")
+    return password
 
 
 class LoginRequest(BaseModel):
@@ -15,6 +26,11 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
     full_name: Optional[str] = Field(None, max_length=128)
     role: str = Field(default="engineer")
+
+    @field_validator("password")
+    @classmethod
+    def check_password_strength(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class TokenResponse(BaseModel):
@@ -31,3 +47,8 @@ class RefreshRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def check_password_strength(cls, v: str) -> str:
+        return _validate_password_strength(v)

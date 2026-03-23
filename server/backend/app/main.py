@@ -1,15 +1,20 @@
 """EDQ — Electracom Device Qualifier: FastAPI Application Factory."""
 
-from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from contextlib import asynccontextmanager
+import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+
 from app.config import settings
+
+logger = logging.getLogger("edq.main")
 from app.models.database import init_db
 from app.security.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.routes import (
@@ -84,6 +89,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self' ws: wss:; "
+            "font-src 'self'; "
+            "frame-ancestors 'none'"
+        )
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
@@ -121,12 +135,33 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:80", "http://localhost"],
+        allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*", "X-CSRF-Token"],
         expose_headers=["X-CSRF-Token"],
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        errors = []
+        for err in exc.errors():
+            errors.append({
+                "field": ".".join(str(loc) for loc in err.get("loc", [])),
+                "message": err.get("msg", "Validation error"),
+            })
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "Validation error", "errors": errors},
+        )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
 
     app.add_middleware(CSRFMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

@@ -34,6 +34,32 @@ IP_RE = re.compile(
 
 BLOCKED_ARGS = {"&&", "||", ";", "|", "`", "$", "(", ")", "{", "}", "<", ">", "\n", "\r"}
 
+# Whitelist of allowed flags per tool to prevent argument injection
+ALLOWED_FLAGS = {
+    "nmap": {
+        "-sn", "-sS", "-sT", "-sU", "-sV", "-sC", "-A", "-O", "-Pn", "-p", "-p-",
+        "-T0", "-T1", "-T2", "-T3", "-T4", "-T5", "--top-ports", "--open",
+        "-oX", "-oN", "-oG", "-v", "-vv", "--version-intensity",
+        "--script", "-F", "-n", "-R", "-6", "--max-rate", "-",
+    },
+    "hydra": {
+        "-l", "-L", "-p", "-P", "-s", "-t", "-f", "-V", "-v", "-e",
+        "nsr", "-o", "-M", "-C",
+    },
+    "testssl": {
+        "--jsonfile", "--csv", "--html", "--quiet", "--wide", "--color",
+        "--fast", "--ip", "--nodns", "--sneaky", "--bugs", "--assume-http",
+        "-p", "-s", "-f", "-U", "-S", "-P", "-h", "-E",
+    },
+    "ssh-audit": {
+        "-p", "-T", "-t", "-n", "-v", "-l",
+    },
+    "nikto": {
+        "-h", "-host", "-p", "-ssl", "-nossl", "-Tuning", "-Display", "-output",
+        "-Format", "-timeout", "-maxtime", "-Cgidirs", "-id", "-ask",
+    },
+}
+
 
 def _tool_available(binary: str) -> bool:
     return shutil.which(binary) is not None
@@ -68,6 +94,20 @@ def _validate_args(args: list) -> list:
             if blocked in arg:
                 raise ValueError(f"Blocked character in argument: {blocked}")
         sanitised.append(arg)
+    return sanitised
+
+
+def _validate_args_for_tool(args: list, tool_name: str) -> list:
+    """Validate args against both blocked chars and per-tool flag whitelist."""
+    sanitised = _validate_args(args)
+    allowed = ALLOWED_FLAGS.get(tool_name)
+    if not allowed:
+        return sanitised
+    for arg in sanitised:
+        if arg.startswith("-"):
+            flag = arg.split("=")[0]
+            if flag not in allowed:
+                raise ValueError(f"Flag '{flag}' is not allowed for {tool_name}")
     return sanitised
 
 
@@ -108,7 +148,7 @@ def _run_tool(cmd: list, timeout: int) -> dict:
         }
 
 
-def _parse_scan_request():
+def _parse_scan_request(tool_name=None):
     data = request.get_json(force=True, silent=True)
     if not data:
         return None, None, None, ("Missing JSON body", 400)
@@ -124,7 +164,10 @@ def _parse_scan_request():
 
     args = data.get("args", [])
     try:
-        args = _validate_args(args)
+        if tool_name:
+            args = _validate_args_for_tool(args, tool_name)
+        else:
+            args = _validate_args(args)
     except ValueError as e:
         return None, None, None, (str(e), 400)
 
@@ -151,7 +194,7 @@ def health() -> Response:
 
 @app.route("/scan/nmap", methods=["POST"])
 def scan_nmap() -> Union[Response, Tuple[Response, int]]:
-    target, args, timeout, err = _parse_scan_request()
+    target, args, timeout, err = _parse_scan_request(tool_name="nmap")
     if err:
         return jsonify({"error": err[0]}), err[1]
 
@@ -165,7 +208,7 @@ def scan_nmap() -> Union[Response, Tuple[Response, int]]:
 
 @app.route("/scan/testssl", methods=["POST"])
 def scan_testssl() -> Union[Response, Tuple[Response, int]]:
-    target, args, timeout, err = _parse_scan_request()
+    target, args, timeout, err = _parse_scan_request(tool_name="testssl")
     if err:
         return jsonify({"error": err[0]}), err[1]
 
@@ -191,7 +234,7 @@ def scan_testssl() -> Union[Response, Tuple[Response, int]]:
 
 @app.route("/scan/ssh-audit", methods=["POST"])
 def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
-    target, args, timeout, err = _parse_scan_request()
+    target, args, timeout, err = _parse_scan_request(tool_name="ssh-audit")
     if err:
         return jsonify({"error": err[0]}), err[1]
 
@@ -205,7 +248,7 @@ def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
 
 @app.route("/scan/hydra", methods=["POST"])
 def scan_hydra() -> Union[Response, Tuple[Response, int]]:
-    target, args, timeout, err = _parse_scan_request()
+    target, args, timeout, err = _parse_scan_request(tool_name="hydra")
     if err:
         return jsonify({"error": err[0]}), err[1]
 
@@ -219,7 +262,7 @@ def scan_hydra() -> Union[Response, Tuple[Response, int]]:
 
 @app.route("/scan/nikto", methods=["POST"])
 def scan_nikto() -> Union[Response, Tuple[Response, int]]:
-    target, args, timeout, err = _parse_scan_request()
+    target, args, timeout, err = _parse_scan_request(tool_name="nikto")
     if err:
         return jsonify({"error": err[0]}), err[1]
 
