@@ -1,0 +1,28 @@
+{
+  "template_name": "generic_c00",
+  "synopsis_sheet": "TEST SUMMARY",
+  "testplan_sheet": "TESTPLAN",
+  "additional_sheet": "ADDITIONAL INFORMATION",
+  "metadata_cells": {
+    "test_attempt": "G7",
+    "date_range": "G8",
+    "system": "G9",
+    "manufacturer": "G11",
+    "model": "G12",
+    "firmware": "G13",
+    "serial": "G14",
+    "tester_name": "G15",
+    "overall_result": "G16",
+    "synopsis_text": "B19"
+  },
+  "testplan_start_row": 11,
+  "testplan_columns": {
+    "test_number": "B",
+    "brief_description": "C",
+    "test_description": "D",
+    "script_flag": "E",
+    "essential_pass": "F",
+    "test_result": "G",
+    "test_comments": "H"
+  }
+}
