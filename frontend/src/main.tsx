@@ -7,6 +7,13 @@ import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import './index.css'
 
+const storedTheme = (localStorage.getItem('edq_theme') as 'light' | 'dark' | 'system') || 'light'
+if (storedTheme === 'dark') {
+  document.documentElement.classList.add('dark')
+} else if (storedTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  document.documentElement.classList.add('dark')
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

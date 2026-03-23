@@ -31,7 +31,7 @@ export default function TestRunsPage() {
       </div>
 
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-        {['', 'pending', 'running', 'paused_manual', 'awaiting_review', 'completed', 'complete', 'failed'].map(s => (
+        {['', 'pending', 'running', 'paused_manual', 'awaiting_review', 'complete', 'failed', 'error'].map(s => (
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
