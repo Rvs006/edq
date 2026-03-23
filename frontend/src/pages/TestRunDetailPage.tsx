@@ -1,266 +1,495 @@
 import { useParams, Link } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { testRunsApi, testResultsApi, synopsisApi, reportsApi } from '@/lib/api'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { testRunsApi, testResultsApi, reportsApi } from '@/lib/api'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
-  ArrowLeft, CheckCircle2, XCircle, AlertTriangle,
-  Download, FileText, Sparkles, Loader2, ChevronDown, ChevronUp
+  ArrowLeft, Loader2, Monitor, Wifi, WifiOff,
+  FileText, Cpu, Menu, X
 } from 'lucide-react'
-import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
-import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
+import { StatusBadge } from '@/components/common/VerdictBadge'
+import TestSidebar, { type TestResultItem } from '@/components/testing/TestSidebar'
+import TestDetail, { type TestResultDetail } from '@/components/testing/TestDetail'
+import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
+import SessionControls from '@/components/testing/SessionControls'
+import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDialog'
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const [expandedResult, setExpandedResult] = useState<string | null>(null)
-  const [synopsisLoading, setSynopsisLoading] = useState(false)
+  const { user } = useAuth()
   const queryClient = useQueryClient()
 
-  const { data: run, isLoading } = useQuery({
+  const [selectedTestId, setSelectedTestId] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [scenarioDialogOpen, setScenarioDialogOpen] = useState(false)
+  const [isActioning, setIsActioning] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const { data: run, isLoading: runLoading } = useQuery({
     queryKey: ['test-run', id],
-    queryFn: () => testRunsApi.get(id!).then(r => r.data),
+    queryFn: () => testRunsApi.get(id!).then((r) => r.data),
     enabled: !!id,
-    refetchInterval: (data: any) => data?.status === 'running' ? 3000 : false,
+    refetchInterval: (query) => {
+      const d = query.state.data as any
+      return d?.status === 'running' || d?.status === 'discovering' ? 3000 : false
+    },
   })
 
-  const { data: results } = useQuery({
+  const { data: results = [], isLoading: resultsLoading } = useQuery({
     queryKey: ['test-results', id],
-    queryFn: () => testResultsApi.list({ test_run_id: id }).then(r => r.data),
+    queryFn: () => testResultsApi.list({ test_run_id: id }).then((r) => r.data),
     enabled: !!id,
+    refetchInterval: (query) => {
+      return run?.status === 'running' ? 5000 : false
+    },
   })
 
-  const generateSynopsis = async () => {
-    setSynopsisLoading(true)
-    try {
-      await synopsisApi.generate({ test_run_id: id })
+  const ws = useTestRunWebSocket(
+    run?.status === 'running' || run?.status === 'discovering' ? id : undefined
+  )
+
+  useEffect(() => {
+    if (!ws.lastProgress) return
+    const msg = ws.lastProgress
+
+    if (msg.type === 'test_complete' || msg.type === 'run_complete') {
+      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
-      toast.success('AI synopsis generated')
+    }
+
+    if (msg.type === 'test_start' && msg.data.test_number) {
+      const running = results.find((r: any) => r.test_number === msg.data.test_number)
+      if (running) {
+        setSelectedTestId(running.id)
+      }
+    }
+  }, [ws.lastProgress, id, queryClient, results])
+
+  const runningTestNumber = useMemo(() => {
+    if (!ws.lastProgress) return null
+    const msg = ws.lastProgress
+    if (msg.type === 'test_start') return msg.data.test_number || null
+    if (msg.type === 'test_progress' && msg.data.status === 'running')
+      return msg.data.test_number || null
+    return null
+  }, [ws.lastProgress])
+
+  const sidebarResults: TestResultItem[] = useMemo(
+    () =>
+      (results as any[]).map((r: any) => ({
+        id: r.id,
+        test_number: r.test_number || r.test_id || '',
+        test_name: r.test_name || '',
+        tier: r.tier || 'automatic',
+        verdict: r.verdict || null,
+        status: r.status,
+        tool_used: r.tool_used || r.tool || null,
+        essential_pass: r.essential_pass ?? false,
+      })),
+    [results]
+  )
+
+  const selectedResult: TestResultDetail | null = useMemo(() => {
+    if (!selectedTestId) return null
+    const r = (results as any[]).find((r: any) => r.id === selectedTestId)
+    if (!r) return null
+    return {
+      id: r.id,
+      test_number: r.test_number || r.test_id || '',
+      test_name: r.test_name || '',
+      tier: r.tier || 'automatic',
+      tool_used: r.tool_used || r.tool || null,
+      tool_command: r.tool_command || null,
+      raw_stdout: r.raw_stdout || null,
+      raw_stderr: r.raw_stderr || null,
+      parsed_findings: r.parsed_findings || r.findings || null,
+      verdict: r.verdict || null,
+      auto_comment: r.auto_comment || r.comment || null,
+      engineer_selection: r.engineer_selection || null,
+      engineer_notes: r.engineer_notes || null,
+      is_overridden: r.is_overridden ?? false,
+      override_reason: r.override_reason || null,
+      overridden_by: r.overridden_by || null,
+      script_flag: r.script_flag || 'No',
+      started_at: r.started_at || null,
+      completed_at: r.completed_at || null,
+      duration_seconds: r.duration_seconds,
+      essential_pass: r.essential_pass ?? false,
+      test_description: r.test_description || r.description || null,
+      pass_criteria: r.pass_criteria || null,
+    }
+  }, [selectedTestId, results])
+
+  useEffect(() => {
+    if (results.length > 0 && !selectedTestId) {
+      setSelectedTestId((results as any[])[0]?.id || null)
+    }
+  }, [results, selectedTestId])
+
+  const completedCount = useMemo(
+    () => (results as any[]).filter((r: any) => r.verdict && r.verdict !== 'pending').length,
+    [results]
+  )
+
+  const progressPct =
+    results.length > 0 ? Math.round((completedCount / results.length) * 100) : 0
+
+  const handleStartTests = () => {
+    setScenarioDialogOpen(true)
+  }
+
+  const handleConfirmStart = async (scenario: string) => {
+    setIsActioning(true)
+    try {
+      if (scenario !== 'direct_cable') {
+        await testRunsApi.update(id!, { connection_scenario: scenario })
+      }
+      await testRunsApi.start(id!)
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      setScenarioDialogOpen(false)
+      toast.success('Automated tests started')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Synopsis generation failed')
+      toast.error(err.response?.data?.detail || 'Failed to start tests')
     } finally {
-      setSynopsisLoading(false)
+      setIsActioning(false)
     }
   }
 
-  const generateReport = async (type: 'excel' | 'word') => {
+  const handlePause = async () => {
+    setIsActioning(true)
     try {
-      await reportsApi.generate({ test_run_id: id, report_type: type, include_synopsis: !!run?.synopsis })
-      toast.success(`${type.toUpperCase()} report generated`)
+      await testRunsApi.update(id!, { status: 'paused_manual' })
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      toast.success('Test run paused')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to pause')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  const handleResume = async () => {
+    setIsActioning(true)
+    try {
+      await testRunsApi.start(id!)
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      toast.success('Test run resumed')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to resume')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  const handleFlagCable = async () => {
+    try {
+      await testRunsApi.update(id!, { status: 'paused_cable' })
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      toast.success('Cable disconnect flagged')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to flag cable')
+    }
+  }
+
+  const handleGenerateReport = async () => {
+    try {
+      const resp = await reportsApi.generate({
+        test_run_id: id,
+        report_type: 'excel',
+        include_synopsis: !!run?.synopsis,
+      })
+      toast.success('Report generated successfully')
+      if (resp.data?.filename) {
+        const blob = await reportsApi.download(resp.data.filename)
+        const url = URL.createObjectURL(new Blob([blob.data]))
+        const a = document.createElement('a')
+        a.href = url
+        a.download = resp.data.filename
+        a.click()
+        URL.revokeObjectURL(url)
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Report generation failed')
     }
   }
 
-  if (isLoading) {
+  const handleApprove = async () => {
+    setIsActioning(true)
+    try {
+      await testRunsApi.complete(id!)
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      toast.success('Test run approved and completed')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to approve')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  const handleRequestReview = async () => {
+    setIsActioning(true)
+    try {
+      await testRunsApi.update(id!, { status: 'awaiting_review' })
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      toast.success('Submitted for review')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to submit for review')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  const findNextPendingManual = useCallback(
+    (afterId: string) => {
+      const manualTests = (results as any[]).filter(
+        (r: any) => r.tier === 'guided_manual'
+      )
+      const currentIdx = manualTests.findIndex((r: any) => r.id === afterId)
+      for (let i = currentIdx + 1; i < manualTests.length; i++) {
+        if (!manualTests[i].verdict || manualTests[i].verdict === 'pending') {
+          return manualTests[i].id
+        }
+      }
+      for (let i = 0; i < currentIdx; i++) {
+        if (!manualTests[i].verdict || manualTests[i].verdict === 'pending') {
+          return manualTests[i].id
+        }
+      }
+      return null
+    },
+    [results]
+  )
+
+  const handleSubmitManual = async (resultId: string, verdict: string, notes: string) => {
+    setIsSubmitting(true)
+    try {
+      await testResultsApi.update(resultId, {
+        verdict,
+        engineer_notes: notes,
+        engineer_selection: verdict,
+      })
+      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+
+      const nextId = findNextPendingManual(resultId)
+      if (nextId) {
+        setTimeout(() => setSelectedTestId(nextId), 600)
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to save result')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleOverride = async (resultId: string, verdict: string, reason: string) => {
+    try {
+      await testResultsApi.override(resultId, { verdict, override_reason: reason })
+      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+      toast.success('Verdict overridden')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Override failed')
+    }
+  }
+
+  const isOwner = user?.id === run?.user_id
+  const canSelfApprove =
+    user?.role === 'admin' || (isOwner && (user?.role === 'engineer' || user?.role === 'reviewer'))
+
+  if (runLoading) {
     return (
-      <div className="page-container flex items-center justify-center py-20">
-        <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+      <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+          <p className="text-sm text-zinc-500">Loading test session...</p>
+        </div>
       </div>
     )
   }
 
   if (!run) {
     return (
-      <div className="page-container text-center py-20">
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)] gap-3">
         <p className="text-zinc-500">Test run not found</p>
-        <Link to="/test-runs" className="text-brand-500 text-sm mt-2 inline-block">Back to test runs</Link>
+        <Link to="/test-runs" className="text-brand-500 text-sm hover:underline">
+          Back to test runs
+        </Link>
       </div>
     )
   }
 
-  const passRate = run.total_tests > 0 ? Math.round((run.passed_tests / run.total_tests) * 100) : 0
+  const liveOutput =
+    selectedResult && runningTestNumber === selectedResult.test_number
+      ? ws.terminalOutput[selectedResult.test_number] || ''
+      : ''
 
   return (
-    <div className="page-container">
-      <Link to="/test-runs" className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 mb-4">
-        <ArrowLeft className="w-4 h-4" /> Back to Test Runs
-      </Link>
-
-      <div className="card p-5 mb-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-xl font-bold text-zinc-900">Test Run {run.id.slice(0, 8)}</h1>
+    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      <div className="flex-shrink-0 bg-white border-b border-zinc-200 px-4 py-3">
+        <div className="flex items-center gap-3 mb-2">
+          <Link
+            to="/test-runs"
+            className="p-1 rounded-lg hover:bg-zinc-100 transition-colors flex-shrink-0"
+          >
+            <ArrowLeft className="w-4 h-4 text-zinc-500" />
+          </Link>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-sm font-semibold text-zinc-900 truncate">
+                {run.device_name || `Device ${run.device_id?.slice(0, 8)}`}
+              </h1>
               <StatusBadge status={run.status} />
+              {ws.isConnected && (
+                <span className="flex items-center gap-1 text-[10px] text-green-600">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  Live
+                </span>
+              )}
             </div>
-            <p className="text-sm text-zinc-500">
-              Device: {run.device_name || run.device_id?.slice(0, 8)} · Started: {run.started_at ? new Date(run.started_at).toLocaleString() : 'Not started'}
-            </p>
+            <div className="flex items-center gap-3 text-xs text-zinc-500 mt-0.5 flex-wrap">
+              {run.device_ip && (
+                <span className="flex items-center gap-1">
+                  <Monitor className="w-3 h-3" />
+                  {run.device_ip}
+                </span>
+              )}
+              {run.template_name && (
+                <span className="flex items-center gap-1">
+                  <FileText className="w-3 h-3" />
+                  {run.template_name}
+                </span>
+              )}
+              {run.connection_scenario && (
+                <span className="flex items-center gap-1">
+                  <Cpu className="w-3 h-3" />
+                  {run.connection_scenario.replace(/_/g, ' ')}
+                </span>
+              )}
+              {run.started_at && (
+                <span>Started {new Date(run.started_at).toLocaleString()}</span>
+              )}
+            </div>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={generateSynopsis} disabled={synopsisLoading} className="btn-secondary text-sm">
-              {synopsisLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              AI Synopsis
-            </button>
-            <button onClick={() => generateReport('excel')} className="btn-secondary text-sm">
-              <Download className="w-4 h-4" /> Excel
-            </button>
-            <button onClick={() => generateReport('word')} className="btn-secondary text-sm">
-              <FileText className="w-4 h-4" /> Word
-            </button>
-          </div>
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 transition-colors flex-shrink-0"
+          >
+            {sidebarOpen ? <X className="w-5 h-5 text-zinc-600" /> : <Menu className="w-5 h-5 text-zinc-600" />}
+          </button>
         </div>
 
-        {run.status === 'running' && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-sm mb-1.5">
-              <span className="text-zinc-500">Progress</span>
-              <span className="text-zinc-700 font-semibold">{Math.round(run.progress_pct || 0)}%</span>
-            </div>
-            <div className="w-full h-2 bg-zinc-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-brand-500 rounded-full transition-all duration-500"
-                style={{ width: `${run.progress_pct || 0}%` }}
-              />
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-brand-500 rounded-full transition-all duration-700 ease-out"
+              style={{ width: `${run.progress_pct ?? progressPct}%` }}
+            />
           </div>
+          <span className="text-xs font-mono text-zinc-500 flex-shrink-0">
+            {run.progress_pct ?? progressPct}% ({completedCount}/{results.length})
+          </span>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {ws.cableStatus !== 'connected' && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="flex-shrink-0 px-4 pt-2 overflow-hidden"
+          >
+            <WobblyCableAlert status={ws.cableStatus} />
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
-        {[
-          { label: 'Total', value: run.total_tests, color: 'text-zinc-900' },
-          { label: 'Passed', value: run.passed_tests, color: 'text-green-600' },
-          { label: 'Failed', value: run.failed_tests, color: 'text-red-600' },
-          { label: 'Advisory', value: run.advisory_tests, color: 'text-amber-600' },
-          { label: 'N/A', value: run.na_tests, color: 'text-zinc-500' },
-        ].map(s => (
-          <div key={s.label} className="card p-3 text-center">
-            <p className={`text-xl font-bold ${s.color}`}>{s.value ?? 0}</p>
-            <p className="text-xs text-zinc-500">{s.label}</p>
-          </div>
-        ))}
-      </div>
+      <div className="flex-1 flex min-h-0 relative">
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/30 z-30 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+        <div
+          className={`absolute lg:relative z-40 lg:z-auto h-full w-[280px] flex-shrink-0
+            transition-transform duration-200
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+        >
+          <TestSidebar
+            results={sidebarResults}
+            selectedTestId={selectedTestId}
+            runningTestNumber={runningTestNumber}
+            onSelectTest={(testId) => {
+              setSelectedTestId(testId)
+              setSidebarOpen(false)
+            }}
+            className="h-full"
+          />
+        </div>
 
-      {run.overall_verdict && (
-        <div className={`card p-4 mb-5 border-l-4 ${
-          run.overall_verdict === 'pass' ? 'border-l-green-500 bg-green-50' :
-          run.overall_verdict === 'fail' ? 'border-l-red-500 bg-red-50' :
-          'border-l-amber-500 bg-amber-50'
-        }`}>
-          <div className="flex items-center gap-3">
-            {run.overall_verdict === 'pass' ? <CheckCircle2 className="w-6 h-6 text-green-600" /> :
-             run.overall_verdict === 'fail' ? <XCircle className="w-6 h-6 text-red-600" /> :
-             <AlertTriangle className="w-6 h-6 text-amber-600" />}
-            <div>
-              <p className="font-semibold text-zinc-900">
-                Overall Verdict: <span className="uppercase">{run.overall_verdict}</span>
-              </p>
-              <p className="text-sm text-zinc-600">
-                Pass rate: {passRate}% ({run.passed_tests}/{run.total_tests})
-              </p>
+        <div className="flex-1 min-w-0 bg-white">
+          {selectedResult ? (
+            <TestDetail
+              key={selectedResult.id}
+              result={selectedResult}
+              liveOutput={liveOutput}
+              isRunning={runningTestNumber === selectedResult.test_number}
+              userRole={user?.role || 'engineer'}
+              userId={user?.id || ''}
+              onSubmitManual={handleSubmitManual}
+              onOverride={handleOverride}
+              isSubmitting={isSubmitting}
+            />
+          ) : resultsLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
             </div>
-          </div>
-        </div>
-      )}
-
-      {run.synopsis && (
-        <div className="card p-5 mb-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="w-4 h-4 text-purple-500" />
-            <h2 className="font-semibold text-zinc-900">Synopsis</h2>
-            <span className={`badge text-[10px] ${
-              run.synopsis_status === 'human_approved' ? 'badge-pass' : 'badge-pending'
-            }`}>
-              {run.synopsis_status === 'human_approved' ? 'Approved' : 'AI Draft'}
-            </span>
-          </div>
-          <p className="text-sm text-zinc-700 leading-relaxed whitespace-pre-wrap">
-            {run.synopsis.replace('[AI-DRAFTED] ', '')}
-          </p>
-        </div>
-      )}
-
-      <div className="card">
-        <div className="p-4 border-b border-zinc-100">
-          <h2 className="font-semibold text-zinc-900">Test Results</h2>
-        </div>
-        <div className="divide-y divide-zinc-100">
-          {results?.map((result: any) => (
-            <div key={result.id}>
-              <button
-                onClick={() => setExpandedResult(expandedResult === result.id ? null : result.id)}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 transition-colors text-left"
-              >
-                <VerdictDot verdict={result.verdict} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-zinc-400">{result.test_id || result.test_number}</span>
-                    <span className="text-sm font-medium text-zinc-900">{result.test_name}</span>
-                    {result.tier && (
-                      <span className="badge text-[9px] bg-zinc-100 text-zinc-500 capitalize">{result.tier.replace(/_/g, ' ')}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {result.tool && <span className="text-xs text-zinc-400">{result.tool}</span>}
-                  </div>
-                </div>
-                <VerdictBadge verdict={result.verdict || 'pending'} />
-                {expandedResult === result.id ? (
-                  <ChevronUp className="w-4 h-4 text-zinc-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-zinc-400" />
-                )}
-              </button>
-
-              <AnimatePresence>
-                {expandedResult === result.id && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-4 pb-4 pl-12 space-y-2">
-                      {(result.comment || result.auto_comment || result.engineer_notes) && (
-                        <div>
-                          <p className="text-xs font-medium text-zinc-500 mb-0.5">Comment</p>
-                          <p className="text-sm text-zinc-700">{result.comment_override || result.auto_comment || result.comment || result.engineer_notes}</p>
-                        </div>
-                      )}
-                      {result.findings && result.findings.length > 0 && (
-                        <div>
-                          <p className="text-xs font-medium text-zinc-500 mb-1">Findings</p>
-                          <ul className="space-y-1">
-                            {result.findings.map((f: any, i: number) => (
-                              <li key={i} className="text-sm text-zinc-700 flex items-start gap-1.5">
-                                <span className="text-zinc-400 mt-0.5">&bull;</span>
-                                {typeof f === 'string' ? f : JSON.stringify(f)}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {result.raw_stdout && (
-                        <div>
-                          <p className="text-xs font-medium text-zinc-500 mb-1">Raw Output</p>
-                          <pre className="text-xs font-mono bg-zinc-50 border border-zinc-200 rounded p-3 overflow-x-auto max-h-48 text-zinc-700">
-                            {result.raw_stdout}
-                          </pre>
-                        </div>
-                      )}
-                      {result.duration_seconds && (
-                        <p className="text-xs text-zinc-400">Duration: {result.duration_seconds.toFixed(1)}s</p>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+          ) : results.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
+              <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center">
+                <FileText className="w-6 h-6 text-zinc-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-700">No tests loaded yet</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Start automated tests to begin the qualification process.
+                </p>
+              </div>
             </div>
-          ))}
-          {(!results || results.length === 0) && (
-            <div className="p-8 text-center text-sm text-zinc-500">No test results yet</div>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-sm text-zinc-500">Select a test from the sidebar</p>
+            </div>
           )}
         </div>
       </div>
+
+      <div className="flex-shrink-0">
+        <SessionControls
+          runStatus={run.status}
+          canSelfApprove={canSelfApprove}
+          isOwner={isOwner}
+          onStart={handleStartTests}
+          onPause={handlePause}
+          onResume={handleResume}
+          onFlagCable={handleFlagCable}
+          onGenerateReport={handleGenerateReport}
+          onApprove={handleApprove}
+          onRequestReview={handleRequestReview}
+          isActioning={isActioning}
+        />
+      </div>
+
+      <ConnectionScenarioDialog
+        open={scenarioDialogOpen}
+        onOpenChange={setScenarioDialogOpen}
+        onConfirm={handleConfirmStart}
+        isLoading={isActioning}
+      />
     </div>
   )
-}
-
-function VerdictDot({ verdict }: { verdict: string }) {
-  const colors: Record<string, string> = {
-    pass: 'bg-green-500', fail: 'bg-red-500', advisory: 'bg-amber-500',
-    na: 'bg-zinc-400', 'n/a': 'bg-zinc-400', pending: 'bg-blue-400', info: 'bg-cyan-500',
-  }
-  return <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${colors[verdict?.toLowerCase()] || colors.pending}`} />
 }
