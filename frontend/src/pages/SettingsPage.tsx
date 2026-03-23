@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { authApi } from '@/lib/api'
-import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2 } from 'lucide-react'
+import { authApi, healthApi } from '@/lib/api'
+import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type Theme = 'light' | 'dark' | 'system'
@@ -33,6 +33,7 @@ export default function SettingsPage() {
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'appearance', label: 'Appearance', icon: Sun },
+    { id: 'system', label: 'System Status', icon: Server },
   ]
 
   return (
@@ -64,6 +65,7 @@ export default function SettingsPage() {
           {activeTab === 'profile' && <ProfileSettings user={user} />}
           {activeTab === 'security' && <SecuritySettings />}
           {activeTab === 'appearance' && <AppearanceSettings />}
+          {activeTab === 'system' && <SystemStatus />}
         </div>
       </div>
     </div>
@@ -209,6 +211,78 @@ function AppearanceSettings() {
         ))}
       </div>
       <p className="text-xs text-zinc-400 mt-3">Theme preference is saved locally.</p>
+    </div>
+  )
+}
+
+function SystemStatus() {
+  const [versions, setVersions] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null)
+
+  const fetchVersions = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await healthApi.toolVersions()
+      setVersions(res.data.tools || {})
+      setCheckedAt(new Date())
+    } catch (err: any) {
+      setError('Failed to connect to tools sidecar')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchVersions() }, [])
+
+  const toolLabels: Record<string, string> = {
+    nmap: 'Nmap',
+    testssl: 'testssl.sh',
+    ssh_audit: 'ssh-audit',
+    hydra: 'Hydra',
+    nikto: 'Nikto',
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-semibold text-zinc-900">System Status</h2>
+        <button onClick={fetchVersions} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
+          Refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="py-6 text-center">
+          <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mx-auto" />
+        </div>
+      ) : error ? (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{error}</div>
+      ) : (
+        <div className="space-y-2">
+          {Object.entries(toolLabels).map(([key, label]) => {
+            const version = versions[key]
+            const available = version && version !== 'unavailable'
+            return (
+              <div key={key} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-zinc-50">
+                <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${available ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                <span className="text-sm font-medium text-zinc-700 w-24">{label}</span>
+                <span className="text-xs text-zinc-500 flex-1 truncate font-mono">
+                  {available ? version : 'Not available'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {checkedAt && (
+        <p className="text-[11px] text-zinc-400 mt-3">
+          Last checked: {checkedAt.toLocaleTimeString()}
+        </p>
+      )}
     </div>
   )
 }

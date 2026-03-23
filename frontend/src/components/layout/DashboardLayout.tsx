@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   LayoutDashboard, Monitor, Play, FileText, Shield, ClipboardList,
   ListChecks, Settings, LogOut, Menu, X, ChevronDown, User,
-  Bell, Search, Users, Eye, Network
+  Bell, Search, Users, Eye, Network, Wifi
 } from 'lucide-react'
 
 const navSections = [
@@ -21,6 +21,7 @@ const navSections = [
     label: 'Tools',
     items: [
       { name: 'Templates', href: '/templates', icon: FileText },
+      { name: 'Test Plans', href: '/test-plans', icon: ListChecks },
       { name: 'Whitelists', href: '/whitelists', icon: Shield },
       { name: 'Reports', href: '/reports', icon: ClipboardList },
     ],

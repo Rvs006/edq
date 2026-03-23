@@ -99,6 +99,13 @@ class ToolsClient:
             timeout=timeout,
         )
 
+    async def versions(self) -> Dict[str, Any]:
+        """Get installed tool versions from the sidecar."""
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(f"{self.base_url}/versions")
+            resp.raise_for_status()
+            return resp.json()
+
     async def ping(
         self,
         target: str,

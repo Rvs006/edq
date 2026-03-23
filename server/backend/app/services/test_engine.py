@@ -38,12 +38,30 @@ _TESTSSL_CACHE: dict[str, dict[str, Any]] = {}
 class TestEngine:
     """Orchestrates the full test execution lifecycle for a test run."""
 
-    async def run(self, test_run_id: str) -> None:
+    async def run(self, test_run_id: str, test_plan_id: str | None = None) -> None:
         """Execute all tests for a test run, streaming progress via WebSocket.
 
         Runs as a background asyncio task. Creates its own DB sessions.
+        If test_plan_id is provided, filters/overrides tests per the plan.
         """
         logger.info("Starting test engine for run %s", test_run_id)
+
+        plan_configs: dict[str, dict] = {}
+        if test_plan_id:
+            from app.models.test_plan import TestPlan
+            async with async_session() as db:
+                plan_result = await db.execute(select(TestPlan).where(TestPlan.id == test_plan_id))
+                plan = plan_result.scalar_one_or_none()
+                if plan and plan.test_configs:
+                    for cfg in plan.test_configs:
+                        plan_configs[cfg["test_id"]] = cfg
+
+        tool_versions: dict[str, str] = {}
+        try:
+            ver_result = await tools_client.versions()
+            tool_versions = ver_result.get("versions", {})
+        except Exception:
+            pass
 
         async with async_session() as db:
             run = await self._load_run(db, test_run_id)
@@ -67,6 +85,10 @@ class TestEngine:
 
             run.status = TestRunStatus.RUNNING
             run.started_at = datetime.now(timezone.utc)
+            existing_meta = run.run_metadata or {}
+            if isinstance(existing_meta, dict):
+                existing_meta["tool_versions"] = tool_versions
+            run.run_metadata = existing_meta
             await db.commit()
 
         await manager.broadcast(f"test-run:{test_run_id}", {
@@ -98,7 +120,18 @@ class TestEngine:
                 if test_def is None:
                     continue
 
+                if plan_configs:
+                    cfg = plan_configs.get(test_result.test_id)
+                    if cfg is not None and not cfg.get("enabled", True):
+                        continue
+
                 await self._wait_while_paused(test_run_id)
+
+                effective_tier = test_def["tier"]
+                if plan_configs:
+                    cfg = plan_configs.get(test_result.test_id)
+                    if cfg and cfg.get("tier_override"):
+                        effective_tier = cfg["tier_override"]
 
                 await manager.broadcast(f"test-run:{test_run_id}", {
                     "type": "test_start",
@@ -109,7 +142,7 @@ class TestEngine:
                     },
                 })
 
-                if test_def["tier"] == "guided_manual":
+                if effective_tier == "guided_manual":
                     async with async_session() as db:
                         result_row = await db.get(TestResult, test_result.id)
                         if result_row and result_row.verdict == TestVerdict.PENDING:
@@ -450,25 +483,36 @@ class TestEngine:
         return {"redirects_to_https": redirects_to_https, "http_open": http_open}
 
     async def _test_rtsp_auth(self, device_ip: str) -> dict[str, Any]:
-        """Check if RTSP streams require authentication."""
-        import httpx
-
+        """Check if RTSP streams require authentication using raw TCP."""
         rtsp_open = False
         auth_required = False
 
         try:
-            async with httpx.AsyncClient(timeout=10, verify=False) as client:
-                resp = await client.request(
-                    "DESCRIBE",
-                    f"rtsp://{device_ip}:554/",
-                    headers={"CSeq": "1", "Accept": "application/sdp"},
-                )
-                rtsp_open = True
-                if resp.status_code == 401:
-                    auth_required = True
-                elif resp.status_code == 200:
-                    auth_required = False
-        except httpx.ConnectError:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(device_ip, 554), timeout=10
+            )
+            rtsp_open = True
+
+            request = (
+                f"DESCRIBE rtsp://{device_ip}:554/ RTSP/1.0\r\n"
+                f"CSeq: 1\r\n"
+                f"Accept: application/sdp\r\n"
+                f"\r\n"
+            )
+            writer.write(request.encode())
+            await writer.drain()
+
+            response = await asyncio.wait_for(reader.read(4096), timeout=10)
+            response_str = response.decode(errors='replace')
+
+            if '401' in response_str:
+                auth_required = True
+            elif '200' in response_str:
+                auth_required = False
+
+            writer.close()
+            await writer.wait_closed()
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             rtsp_open = False
         except Exception:
             pass

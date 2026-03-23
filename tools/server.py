@@ -253,5 +253,26 @@ def scan_ping() -> Union[Response, Tuple[Response, int]]:
     return jsonify(result)
 
 
+@app.route("/versions", methods=["GET"])
+def tool_versions() -> Response:
+    """Return installed tool versions."""
+    version_cmds = {
+        "nmap": ["nmap", "--version"],
+        "testssl": ["testssl.sh", "--version"],
+        "ssh_audit": ["ssh-audit", "--help"],
+        "hydra": ["hydra", "-h"],
+        "nikto": ["nikto", "-Version"],
+    }
+    versions = {}
+    for tool, cmd in version_cmds.items():
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            output = (result.stdout.strip() or result.stderr.strip())
+            versions[tool] = output.split("\n")[0][:100] if output else "installed"
+        except Exception:
+            versions[tool] = "unavailable"
+    return jsonify({"versions": versions})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8001, debug=False)

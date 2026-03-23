@@ -127,3 +127,25 @@ export const synopsisApi = {
   generate: (data: any) => api.post('/synopsis/generate', data),
   approve: (data: any) => api.post('/synopsis/approve', data),
 }
+
+export const networkScanApi = {
+  list: (params?: any) => api.get('/network-scan/', { params }),
+  discover: (data: any) => api.post('/network-scan/discover', data),
+  start: (data: any) => api.post('/network-scan/start', data),
+  get: (id: string) => api.get(`/network-scan/${id}`),
+  results: (id: string) => api.get(`/network-scan/${id}/results`),
+}
+
+export const testPlansApi = {
+  list: (params?: any) => api.get('/test-plans/', { params }),
+  get: (id: string) => api.get(`/test-plans/${id}`),
+  create: (data: any) => api.post('/test-plans/', data),
+  update: (id: string, data: any) => api.put(`/test-plans/${id}`, data),
+  delete: (id: string) => api.delete(`/test-plans/${id}`),
+  clone: (id: string) => api.post(`/test-plans/${id}/clone`),
+}
+
+export const healthApi = {
+  check: () => api.get('/health'),
+  toolVersions: () => api.get('/health/tools/versions'),
+}
