@@ -80,7 +80,7 @@ export default function ReportsPage() {
         <p className="section-subtitle">Generate Excel, Word, and PDF qualification reports from test results</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div data-tour="report-form" className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 card p-5">
           <h2 className="font-semibold text-zinc-900 mb-4">Generate Report</h2>
 

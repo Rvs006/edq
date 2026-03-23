@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useNavigate } from 'react-router-dom'
 import { authApi, healthApi } from '@/lib/api'
-import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server } from 'lucide-react'
+import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type Theme = 'light' | 'dark' | 'system'
@@ -25,7 +26,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-export default function SettingsPage() {
+export default function SettingsPage({ tourState }: { tourState?: any }) {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
 
@@ -61,11 +62,12 @@ export default function SettingsPage() {
           ))}
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1" data-tour="settings-section">
           {activeTab === 'profile' && <ProfileSettings user={user} />}
           {activeTab === 'security' && <SecuritySettings />}
           {activeTab === 'appearance' && <AppearanceSettings />}
           {activeTab === 'system' && <SystemStatus />}
+          <HelpSection tourState={tourState} />
         </div>
       </div>
     </div>
@@ -283,6 +285,44 @@ function SystemStatus() {
           Last checked: {checkedAt.toLocaleTimeString()}
         </p>
       )}
+    </div>
+  )
+}
+
+function HelpSection({ tourState }: { tourState?: any }) {
+  const navigate = useNavigate()
+
+  return (
+    <div className="card p-5 mt-5">
+      <h2 className="font-semibold text-zinc-900 mb-4">Help</h2>
+      <div className="space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+            <RotateCcw className="w-4 h-4 text-brand-500" />
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-zinc-900 mb-0.5">Guided Tour</h3>
+            <p className="text-xs text-zinc-500 mb-2">
+              Restart the interactive walkthrough to learn about EDQ features.
+            </p>
+            <button
+              onClick={() => {
+                if (tourState?.restartTour) {
+                  tourState.restartTour()
+                } else {
+                  localStorage.removeItem('edq_tour_completed')
+                  localStorage.removeItem('edq_tour_dismissed')
+                  navigate('/')
+                }
+              }}
+              className="btn-secondary text-sm py-1.5 px-3"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Restart Guided Tour
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

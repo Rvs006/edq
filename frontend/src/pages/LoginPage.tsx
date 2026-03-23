@@ -18,7 +18,7 @@ export default function LoginPage() {
     try {
       await login(username, password)
       toast.success('Welcome back!')
-      navigate('/')
+      navigate('/', { replace: true })
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Invalid credentials')
     } finally {

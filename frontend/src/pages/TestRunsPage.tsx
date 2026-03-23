@@ -20,7 +20,7 @@ export default function TestRunsPage() {
 
   return (
     <div className="page-container">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+      <div data-tour="test-runs-table" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div>
           <h1 className="section-title">Test Runs</h1>
           <p className="section-subtitle">Monitor and manage device qualification test runs</p>

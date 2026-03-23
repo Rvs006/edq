@@ -21,7 +21,7 @@ export default function DevicesPage() {
 
   return (
     <div className="page-container">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+      <div data-tour="devices-toolbar" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div>
           <h1 className="section-title">Devices</h1>
           <p className="section-subtitle">Manage network devices for qualification testing</p>
