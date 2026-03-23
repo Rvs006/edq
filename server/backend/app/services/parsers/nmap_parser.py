@@ -125,7 +125,7 @@ class NmapParser:
         stdout = raw_output.get("stdout", "")
         exit_code = raw_output.get("exit_code", 1)
 
-        reachable = exit_code == 0 and ("1 host up" in stdout or "Host is up" in stdout)
+        reachable = exit_code == 0 or " 0% packet loss" in stdout or "1 received" in stdout
         return {"reachable": reachable, "raw": stdout}
 
     def parse_ipv6(self, raw_output: dict[str, Any]) -> dict[str, Any]:

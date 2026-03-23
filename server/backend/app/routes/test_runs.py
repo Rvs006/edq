@@ -365,9 +365,10 @@ async def list_nessus_findings(
     findings_result = await db.execute(query)
     findings = findings_result.scalars().all()
 
-    count_result = await db.execute(
-        select(func.count(NessusFinding.id)).where(NessusFinding.run_id == run_id)
-    )
+    count_query = select(func.count(NessusFinding.id)).where(NessusFinding.run_id == run_id)
+    if severity:
+        count_query = count_query.where(NessusFinding.severity == severity)
+    count_result = await db.execute(count_query)
     total = count_result.scalar() or 0
 
     return {

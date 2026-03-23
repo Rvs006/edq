@@ -227,7 +227,7 @@ class TestEngine:
             return (parsed, raw.get("stdout"))
 
         if test_id == "U02":
-            raw = await tools_client.nmap(device_ip, ["-sn"], timeout=60)
+            raw = await tools_client.nmap(device_ip, ["-sn", "-oX", "-"], timeout=60)
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             return (parsed, raw.get("stdout"))
 
