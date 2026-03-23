@@ -111,6 +111,7 @@ export const reportsApi = {
   generate: (data: any) => api.post('/reports/generate', data),
   download: (filename: string) => api.get(`/reports/download/${filename}`, { responseType: 'blob' }),
   configs: () => api.get('/reports/configs'),
+  templates: () => api.get('/reports/templates'),
 }
 
 // --- Agents ---

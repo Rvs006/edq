@@ -1,18 +1,30 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { reportsApi, testRunsApi, devicesApi } from '@/lib/api'
-import { ClipboardList, Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
+import { reportsApi, testRunsApi } from '@/lib/api'
+import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+const TEMPLATE_OPTIONS = [
+  { key: 'generic', label: 'Generic IP Device (C00)', category: 'generic' },
+  { key: 'pelco_camera', label: 'Pelco Camera (Rev 2)', category: 'camera' },
+  { key: 'easyio_controller', label: 'EasyIO Controller (FW08)', category: 'controller' },
+]
 
 export default function ReportsPage() {
   const [selectedRun, setSelectedRun] = useState('')
   const [reportType, setReportType] = useState<'excel' | 'word'>('excel')
+  const [templateKey, setTemplateKey] = useState('generic')
   const [includeSynopsis, setIncludeSynopsis] = useState(true)
   const [generating, setGenerating] = useState(false)
 
   const { data: runs } = useQuery({
     queryKey: ['completed-runs'],
     queryFn: () => testRunsApi.list({ status: 'completed' }).then(r => r.data),
+  })
+
+  const { data: templates } = useQuery({
+    queryKey: ['report-templates'],
+    queryFn: () => reportsApi.templates().then(r => r.data),
   })
 
   const handleGenerate = async () => {
@@ -23,9 +35,9 @@ export default function ReportsPage() {
         test_run_id: selectedRun,
         report_type: reportType,
         include_synopsis: includeSynopsis,
+        template_key: reportType === 'excel' ? templateKey : undefined,
       })
       toast.success(`Report generated: ${data.filename}`)
-      // Trigger download
       if (data.download_url) {
         window.open(data.download_url, '_blank')
       }
@@ -35,6 +47,8 @@ export default function ReportsPage() {
       setGenerating(false)
     }
   }
+
+  const availableTemplates = templates || TEMPLATE_OPTIONS
 
   return (
     <div className="page-container">
@@ -97,6 +111,30 @@ export default function ReportsPage() {
               </div>
             </div>
 
+            {reportType === 'excel' && (
+              <div>
+                <label className="label flex items-center gap-2">
+                  <LayoutTemplate className="w-4 h-4 text-slate-400" />
+                  Report Template
+                </label>
+                <select
+                  value={templateKey}
+                  onChange={(e) => setTemplateKey(e.target.value)}
+                  className="input"
+                >
+                  {availableTemplates.map((t: any) => (
+                    <option key={t.key} value={t.key}>
+                      {t.name || t.label}
+                      {t.device_category ? ` (${t.device_category})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  Select the Electracom template matching the device type. The report will use the original template formatting.
+                </p>
+              </div>
+            )}
+
             <div className="flex items-center gap-3">
               <input
                 type="checkbox"
@@ -147,6 +185,25 @@ export default function ReportsPage() {
                 Recommendations and remediation steps
               </li>
             </ul>
+          </div>
+
+          <div className="card p-4">
+            <h3 className="font-semibold text-slate-900 mb-3">Template Formats</h3>
+            <div className="space-y-2">
+              {[
+                { name: 'Generic C00', desc: 'Universal IP device template (43 tests)' },
+                { name: 'Pelco Camera', desc: 'Camera qualification Rev 2 (31 tests)' },
+                { name: 'EasyIO FW08', desc: 'Controller testing plan v1.1 (46 tests)' },
+              ].map(fw => (
+                <div key={fw.name} className="flex items-center gap-2 py-1">
+                  <div className="w-2 h-2 rounded-full bg-brand-500" />
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{fw.name}</p>
+                    <p className="text-xs text-slate-500">{fw.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="card p-4">

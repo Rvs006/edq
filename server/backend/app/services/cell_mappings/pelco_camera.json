@@ -1,0 +1,28 @@
+{
+  "template_name": "pelco_camera_rev2",
+  "synopsis_sheet": "TEST SYNOPSIS",
+  "testplan_sheet": "TESTPLAN",
+  "additional_sheet": "ADDITIONAL INFO",
+  "metadata_cells": {
+    "test_attempt": "G7",
+    "date_range": "G8",
+    "system": "G9",
+    "manufacturer": "G11",
+    "model": "G12",
+    "firmware": "G13",
+    "serial": "G14",
+    "tester_name": "G15",
+    "overall_result": "G16",
+    "synopsis_text": "B19"
+  },
+  "testplan_start_row": 13,
+  "testplan_columns": {
+    "test_number": "B",
+    "brief_description": "C",
+    "test_description": "D",
+    "essential_pass": "E",
+    "test_result": "F",
+    "test_comments": "G",
+    "script_flag": "H"
+  }
+}
