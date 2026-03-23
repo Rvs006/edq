@@ -13,7 +13,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
+from app.logging_config import configure_logging
 
+configure_logging()
 logger = logging.getLogger("edq.main")
 from app.models.database import init_db
 from app.security.auth import CSRF_COOKIE, SESSION_COOKIE
@@ -89,6 +91,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if settings.COOKIE_SECURE:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
@@ -126,11 +130,19 @@ def _seed_on_startup() -> None:
 
 
 def create_app() -> FastAPI:
+    # Disable Swagger/ReDoc docs in production (enable with DEBUG=true)
+    docs_url = "/docs" if settings.DEBUG else None
+    redoc_url = "/redoc" if settings.DEBUG else None
+    openapi_url = "/openapi.json" if settings.DEBUG else None
+
     app = FastAPI(
         title="EDQ — Electracom Device Qualifier",
         description="Automated network security testing platform for smart building IP devices",
         version="1.0.0",
         lifespan=lifespan,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
     )
 
     app.add_middleware(

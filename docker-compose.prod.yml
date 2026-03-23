@@ -1,0 +1,40 @@
+# EDQ Production Override — HTTPS via Let's Encrypt / Certbot
+# Usage:
+#   1. Set DOMAIN in your .env (e.g. DOMAIN=edq.example.com)
+#   2. Obtain certificates:
+#      docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot \
+#        certonly --webroot -w /var/www/certbot -d $DOMAIN --agree-tos -m your@email.com
+#   3. Start with HTTPS:
+#      docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   4. Set COOKIE_SECURE=true in .env
+#
+# Certificate renewal (add to crontab):
+#   0 3 * * * cd /path/to/edq && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot renew && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec frontend nginx -s reload
+
+services:
+  frontend:
+    volumes:
+      - ./nginx-ssl.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-www:/var/www/certbot:ro
+      - certbot-certs:/etc/letsencrypt:ro
+    ports:
+      - "80:80"
+      - "443:443"
+
+  backend:
+    environment:
+      - COOKIE_SECURE=true
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certbot-certs:/etc/letsencrypt
+    depends_on:
+      - frontend
+
+volumes:
+  certbot-www:
+    driver: local
+  certbot-certs:
+    driver: local

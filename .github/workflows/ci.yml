@@ -59,6 +59,14 @@ jobs:
             npm install
           fi
 
+      - name: Run tests
+        run: |
+          if command -v pnpm >/dev/null 2>&1 && [ -f pnpm-lock.yaml ]; then
+            pnpm run test
+          else
+            npm run test
+          fi
+
       - name: Build
         run: |
           if command -v pnpm >/dev/null 2>&1 && [ -f pnpm-lock.yaml ]; then
