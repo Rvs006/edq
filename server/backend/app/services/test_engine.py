@@ -6,6 +6,7 @@ Streams progress via WebSocket and integrates the Wobbly Cable Handler.
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -134,7 +135,10 @@ class TestEngine:
                 async with async_session() as db:
                     result_row = await db.get(TestResult, test_result.id)
                     if result_row:
-                        result_row.verdict = TestVerdict(verdict) if verdict in TestVerdict.__members__.values() else TestVerdict.PENDING
+                        try:
+                            result_row.verdict = TestVerdict(verdict)
+                        except ValueError:
+                            result_row.verdict = TestVerdict.PENDING
                         result_row.comment = comment
                         result_row.parsed_data = parsed
                         result_row.raw_output = raw_out[:50000] if raw_out else None
@@ -197,17 +201,17 @@ class TestEngine:
     ) -> tuple[str, str, dict | None, str | None, float | None]:
         """Execute a single automatic test. Returns (verdict, comment, parsed, raw_output, duration)."""
         test_id = test_def["test_id"]
-        start = asyncio.get_event_loop().time()
+        start = time.monotonic()
 
         try:
             parsed, raw_out = await self._dispatch_test(test_id, device_ip, run_id)
             verdict, comment = evaluate_result(test_id, parsed, whitelist_entries)
         except Exception as exc:
             logger.warning("Test %s failed for run %s: %s", test_id, run_id, exc)
-            elapsed = asyncio.get_event_loop().time() - start
+            elapsed = time.monotonic() - start
             return ("error", f"Test execution error: {exc}", None, None, round(elapsed, 2))
 
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = time.monotonic() - start
         return (verdict, comment, parsed, raw_out, round(elapsed, 2))
 
     async def _dispatch_test(
@@ -515,3 +519,22 @@ class TestEngine:
 
 
 test_engine = TestEngine()
+
+
+async def recover_orphaned_runs() -> None:
+    """On startup, reset any runs left in 'running' state from a crash/restart."""
+    async with async_session() as db:
+        result = await db.execute(
+            select(TestRun).where(TestRun.status == TestRunStatus.RUNNING)
+        )
+        orphans = result.scalars().all()
+        for run in orphans:
+            run.status = TestRunStatus.FAILED
+            run.completed_at = datetime.now(timezone.utc)
+            run.synopsis = (
+                (run.synopsis or "")
+                + "\n[Auto-reset: server restarted during execution]"
+            ).lstrip("\n")
+        if orphans:
+            await db.commit()
+            logger.info("Reset %d orphaned running test run(s) to failed", len(orphans))
