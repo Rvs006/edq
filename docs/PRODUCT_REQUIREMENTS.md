@@ -3783,21 +3783,21 @@ All identified operational gaps and their resolution status:
 
 | # | Gap | Source | Section | Status |
 |---|---|---|---|---|
-| 1 | Privilege escalation (admin/root required) | Verdant V1 | 17.1 | ✅ Integrated |
-| 2 | Device safety profiles (fragile devices crash under scan) | Verdant V1 | 4.3, 8.2 | ✅ Integrated |
-| 3 | TLS tooling (testssl.sh bash dependency on Windows) | Verdant V1 | 3.2, 3.3 | ✅ Integrated |
-| 4 | Agent version enforcement | Verdant V1 | 5.2 | ✅ Integrated |
-| 5 | Network crash recovery (stuck static IP) | Verdant V1 | 17.2 | ✅ Integrated |
-| 6 | Hardcoded static IP devices (no DHCP) | Verdant V2 | 7.3 | ✅ Integrated |
-| 7 | AI privacy / NDA violation (client data to API) | Verdant V2 | 16.2, 16.3 | ✅ Integrated |
-| 8 | Offline DB decryption key desync | Verdant V2 | 18.3 | ✅ Integrated |
-| 9 | PDF generation deadlocks in Docker | Verdant V2 | 15.3, 23.1 | ✅ Integrated |
+| 1 | Privilege escalation (admin/root required) | Internal review | 17.1 | ✅ Integrated |
+| 2 | Device safety profiles (fragile devices crash under scan) | Internal review | 4.3, 8.2 | ✅ Integrated |
+| 3 | TLS tooling (testssl.sh bash dependency on Windows) | Internal review | 3.2, 3.3 | ✅ Integrated |
+| 4 | Agent version enforcement | Internal review | 5.2 | ✅ Integrated |
+| 5 | Network crash recovery (stuck static IP) | Internal review | 17.2 | ✅ Integrated |
+| 6 | Hardcoded static IP devices (no DHCP) | Internal review | 7.3 | ✅ Integrated |
+| 7 | AI privacy / NDA violation (client data to API) | Internal review | 16.2, 16.3 | ✅ Integrated |
+| 8 | Offline DB decryption key desync | Internal review | 18.3 | ✅ Integrated |
+| 9 | PDF generation deadlocks in Docker | Internal review | 15.3, 23.1 | ✅ Integrated |
 | 10 | Interface selection (which ethernet to scan) | Internal review | 7.2 | ✅ Integrated |
 | 11 | Unknown IP scanning (device IP not known) | Internal review | 7.3 | ✅ Integrated |
-| 12 | DHCP server (active IP assignment) | Verdant V3 | 7.3 | ✅ Integrated |
-| 13 | APIPA 169.254.x.x fallback | Verdant V3 | 7.3 | ✅ Integrated |
-| 14 | Linux iproute2 (ifconfig deprecated) | Verdant V3 | 17.2 | ✅ Integrated |
-| 15 | OUI database sync | Verdant V3 | 19.1 | ✅ Integrated |
+| 12 | DHCP server (active IP assignment) | Internal review | 7.3 | ✅ Integrated |
+| 13 | APIPA 169.254.x.x fallback | Internal review | 7.3 | ✅ Integrated |
+| 14 | Linux iproute2 (ifconfig deprecated) | Internal review | 17.2 | ✅ Integrated |
+| 15 | OUI database sync | Internal review | 19.1 | ✅ Integrated |
 | 16 | Full U04–U25 test definitions | Internal scoring gap | 9 | ✅ Integrated |
 | 17 | sslyze parser specification | Internal scoring gap | 9.1 | ✅ Integrated |
 | 18 | Sync conflict merge algorithm | Internal scoring gap | 19.3 | ✅ Integrated |
