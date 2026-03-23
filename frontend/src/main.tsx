@@ -7,6 +7,13 @@ import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import './index.css'
 
+const storedTheme = (localStorage.getItem('edq_theme') as 'light' | 'dark' | 'system') || 'light'
+if (storedTheme === 'dark') {
+  document.documentElement.classList.add('dark')
+} else if (storedTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  document.documentElement.classList.add('dark')
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -28,10 +35,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             toastOptions={{
               duration: 4000,
               style: {
-                background: '#1E293B',
-                color: '#F8FAFC',
-                borderRadius: '10px',
+                background: '#18181b',
+                color: '#fafafa',
+                borderRadius: '8px',
                 fontSize: '14px',
+                border: '1px solid #27272a',
               },
             }}
           />

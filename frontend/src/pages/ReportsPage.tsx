@@ -58,9 +58,8 @@ export default function ReportsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Report Generator */}
         <div className="lg:col-span-2 card p-5">
-          <h2 className="font-semibold text-slate-900 mb-4">Generate Report</h2>
+          <h2 className="font-semibold text-zinc-900 mb-4">Generate Report</h2>
 
           <div className="space-y-4">
             <div>
@@ -69,7 +68,7 @@ export default function ReportsPage() {
                 <option value="">Select a completed test run...</option>
                 {runs?.map((run: any) => (
                   <option key={run.id} value={run.id}>
-                    Run {run.id.slice(0, 8)} — {run.passed_tests}/{run.total_tests} passed — {new Date(run.created_at).toLocaleDateString()}
+                    Run {run.id.slice(0, 8)} &mdash; {run.passed_tests}/{run.total_tests} passed &mdash; {new Date(run.created_at).toLocaleDateString()}
                   </option>
                 ))}
               </select>
@@ -81,31 +80,31 @@ export default function ReportsPage() {
                 <button
                   type="button"
                   onClick={() => setReportType('excel')}
-                  className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-colors ${
+                  className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
                     reportType === 'excel'
                       ? 'border-brand-500 bg-brand-50'
-                      : 'border-slate-200 hover:border-slate-300'
+                      : 'border-zinc-200 hover:border-zinc-300'
                   }`}
                 >
-                  <FileSpreadsheet className={`w-6 h-6 ${reportType === 'excel' ? 'text-brand-500' : 'text-slate-400'}`} />
+                  <FileSpreadsheet className={`w-6 h-6 ${reportType === 'excel' ? 'text-brand-500' : 'text-zinc-400'}`} />
                   <div className="text-left">
-                    <p className="text-sm font-semibold text-slate-900">Excel</p>
-                    <p className="text-xs text-slate-500">.xlsx format</p>
+                    <p className="text-sm font-semibold text-zinc-900">Excel</p>
+                    <p className="text-xs text-zinc-500">.xlsx format</p>
                   </div>
                 </button>
                 <button
                   type="button"
                   onClick={() => setReportType('word')}
-                  className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-colors ${
+                  className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
                     reportType === 'word'
                       ? 'border-brand-500 bg-brand-50'
-                      : 'border-slate-200 hover:border-slate-300'
+                      : 'border-zinc-200 hover:border-zinc-300'
                   }`}
                 >
-                  <FileText className={`w-6 h-6 ${reportType === 'word' ? 'text-brand-500' : 'text-slate-400'}`} />
+                  <FileText className={`w-6 h-6 ${reportType === 'word' ? 'text-brand-500' : 'text-zinc-400'}`} />
                   <div className="text-left">
-                    <p className="text-sm font-semibold text-slate-900">Word</p>
-                    <p className="text-xs text-slate-500">.docx format</p>
+                    <p className="text-sm font-semibold text-zinc-900">Word</p>
+                    <p className="text-xs text-zinc-500">.docx format</p>
                   </div>
                 </button>
               </div>
@@ -114,14 +113,10 @@ export default function ReportsPage() {
             {reportType === 'excel' && (
               <div>
                 <label className="label flex items-center gap-2">
-                  <LayoutTemplate className="w-4 h-4 text-slate-400" />
+                  <LayoutTemplate className="w-4 h-4 text-zinc-400" />
                   Report Template
                 </label>
-                <select
-                  value={templateKey}
-                  onChange={(e) => setTemplateKey(e.target.value)}
-                  className="input"
-                >
+                <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} className="input">
                   {availableTemplates.map((t: any) => (
                     <option key={t.key} value={t.key}>
                       {t.name || t.label}
@@ -129,8 +124,8 @@ export default function ReportsPage() {
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-slate-500 mt-1">
-                  Select the Electracom template matching the device type. The report will use the original template formatting.
+                <p className="text-xs text-zinc-500 mt-1">
+                  Select the Electracom template matching the device type.
                 </p>
               </div>
             )}
@@ -141,9 +136,9 @@ export default function ReportsPage() {
                 id="synopsis"
                 checked={includeSynopsis}
                 onChange={(e) => setIncludeSynopsis(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500"
+                className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500"
               />
-              <label htmlFor="synopsis" className="text-sm text-slate-700">
+              <label htmlFor="synopsis" className="text-sm text-zinc-700">
                 Include AI-generated synopsis (if available)
               </label>
             </div>
@@ -155,40 +150,9 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Report Info */}
         <div className="space-y-4">
           <div className="card p-4">
-            <h3 className="font-semibold text-slate-900 mb-3">Report Contents</h3>
-            <ul className="space-y-2 text-sm text-slate-600">
-              <li className="flex items-start gap-2">
-                <span className="text-brand-500 mt-0.5">•</span>
-                Executive summary with overall verdict
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-brand-500 mt-0.5">•</span>
-                Device information and network details
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-brand-500 mt-0.5">•</span>
-                Individual test results with findings
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-brand-500 mt-0.5">•</span>
-                Compliance mapping (ISO 27001, CE, SOC2)
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-brand-500 mt-0.5">•</span>
-                AI-generated narrative synopsis
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-brand-500 mt-0.5">•</span>
-                Recommendations and remediation steps
-              </li>
-            </ul>
-          </div>
-
-          <div className="card p-4">
-            <h3 className="font-semibold text-slate-900 mb-3">Template Formats</h3>
+            <h3 className="font-semibold text-zinc-900 mb-3">Template Formats</h3>
             <div className="space-y-2">
               {[
                 { name: 'Generic C00', desc: 'Universal IP device template (43 tests)' },
@@ -198,8 +162,8 @@ export default function ReportsPage() {
                 <div key={fw.name} className="flex items-center gap-2 py-1">
                   <div className="w-2 h-2 rounded-full bg-brand-500" />
                   <div>
-                    <p className="text-sm font-medium text-slate-900">{fw.name}</p>
-                    <p className="text-xs text-slate-500">{fw.desc}</p>
+                    <p className="text-sm font-medium text-zinc-900">{fw.name}</p>
+                    <p className="text-xs text-zinc-500">{fw.desc}</p>
                   </div>
                 </div>
               ))}
@@ -207,22 +171,22 @@ export default function ReportsPage() {
           </div>
 
           <div className="card p-4">
-            <h3 className="font-semibold text-slate-900 mb-3">Compliance Frameworks</h3>
-            <div className="space-y-2">
+            <h3 className="font-semibold text-zinc-900 mb-3">Report Contents</h3>
+            <ul className="space-y-2 text-sm text-zinc-600">
               {[
-                { name: 'ISO 27001', desc: 'Information security management' },
-                { name: 'Cyber Essentials', desc: 'UK government security standard' },
-                { name: 'SOC2', desc: 'Service organisation controls' },
-              ].map(fw => (
-                <div key={fw.name} className="flex items-center gap-2 py-1">
-                  <div className="w-2 h-2 rounded-full bg-brand-500" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">{fw.name}</p>
-                    <p className="text-xs text-slate-500">{fw.desc}</p>
-                  </div>
-                </div>
+                'Executive summary with overall verdict',
+                'Device information and network details',
+                'Individual test results with findings',
+                'Compliance mapping (ISO 27001, CE, SOC2)',
+                'AI-generated narrative synopsis',
+                'Recommendations and remediation steps',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <span className="text-brand-500 mt-0.5">&bull;</span>
+                  {item}
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         </div>
       </div>

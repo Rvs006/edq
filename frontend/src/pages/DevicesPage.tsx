@@ -1,13 +1,11 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { devicesApi } from '@/lib/api'
-import {
-  Monitor, Plus, Search, Filter, MoreVertical, Wifi, WifiOff,
-  ChevronRight, Loader2, X
-} from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { Monitor, Plus, Search, Loader2, X } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
+import VerdictBadge from '@/components/common/VerdictBadge'
 
 const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown']
 
@@ -15,24 +13,14 @@ export default function DevicesPage() {
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
-  const queryClient = useQueryClient()
 
   const { data: devices, isLoading } = useQuery({
     queryKey: ['devices', search, categoryFilter],
     queryFn: () => devicesApi.list({ search: search || undefined, category: categoryFilter || undefined }).then(r => r.data),
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => devicesApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['devices'] })
-      toast.success('Device deleted')
-    },
-  })
-
   return (
     <div className="page-container">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div>
           <h1 className="section-title">Devices</h1>
@@ -43,10 +31,9 @@ export default function DevicesPage() {
         </button>
       </div>
 
-      {/* Search & Filter bar */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
           <input
             type="text"
             value={search}
@@ -67,75 +54,64 @@ export default function DevicesPage() {
         </select>
       </div>
 
-      {/* Device list */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
         </div>
       ) : devices && devices.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          {devices.map((device: any, i: number) => (
-            <motion.div
-              key={device.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.03 }}
-            >
-              <Link to={`/devices/${device.id}`} className="card-hover block p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-                      device.status === 'online' ? 'bg-emerald-100' : 'bg-slate-100'
-                    }`}>
-                      {device.status === 'online' ? (
-                        <Wifi className="w-4.5 h-4.5 text-emerald-600" />
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50/50">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Name</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">IP Address</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Manufacturer</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Model</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden lg:table-cell">Firmware</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Category</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden lg:table-cell">Last Tested</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Verdict</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {devices.map((device: any) => (
+                  <tr key={device.id} className="hover:bg-zinc-50 transition-colors">
+                    <td className="py-3 px-4">
+                      <Link to={`/devices/${device.id}`} className="font-medium text-zinc-900 hover:text-brand-500">
+                        {device.hostname || device.name || device.ip_address}
+                      </Link>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-zinc-600">{device.ip_address}</td>
+                    <td className="py-3 px-4 text-zinc-600 hidden md:table-cell">{device.manufacturer || '—'}</td>
+                    <td className="py-3 px-4 text-zinc-600 hidden md:table-cell">{device.model || '—'}</td>
+                    <td className="py-3 px-4 text-zinc-500 text-xs hidden lg:table-cell">{device.firmware_version || '—'}</td>
+                    <td className="py-3 px-4">
+                      <span className="badge text-[10px] bg-zinc-100 text-zinc-600 capitalize">
+                        {device.category?.replace(/_/g, ' ') || 'Unknown'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
+                      {device.last_tested ? new Date(device.last_tested).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="py-3 px-4 hidden sm:table-cell">
+                      {device.last_verdict ? (
+                        <VerdictBadge verdict={device.last_verdict} />
                       ) : (
-                        <Monitor className="w-4.5 h-4.5 text-slate-500" />
+                        <span className="text-xs text-zinc-400">&mdash;</span>
                       )}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{device.ip_address}</p>
-                      <p className="text-xs text-slate-500">{device.hostname || 'No hostname'}</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
-                </div>
-
-                <div className="space-y-1.5">
-                  {device.manufacturer && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-500">Manufacturer</span>
-                      <span className="text-slate-700 font-medium">{device.manufacturer}</span>
-                    </div>
-                  )}
-                  {device.model && (
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-500">Model</span>
-                      <span className="text-slate-700 font-medium">{device.model}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-500">Category</span>
-                    <span className="badge text-[10px] bg-slate-100 text-slate-600 capitalize">
-                      {device.category?.replace('_', ' ') || 'Unknown'}
-                    </span>
-                  </div>
-                </div>
-
-                {device.mac_address && (
-                  <p className="text-[11px] text-slate-400 font-mono mt-2 pt-2 border-t border-slate-100">
-                    MAC: {device.mac_address}
-                  </p>
-                )}
-              </Link>
-            </motion.div>
-          ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="card p-12 text-center">
-          <Monitor className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-slate-700 mb-1">No devices found</h3>
-          <p className="text-sm text-slate-500 mb-4">
+          <Monitor className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-zinc-700 mb-1">No devices found</h3>
+          <p className="text-sm text-zinc-500 mb-4">
             {search || categoryFilter ? 'Try adjusting your search or filters' : 'Add your first device to get started'}
           </p>
           {!search && !categoryFilter && (
@@ -146,11 +122,8 @@ export default function DevicesPage() {
         </div>
       )}
 
-      {/* Add Device Modal */}
       <AnimatePresence>
-        {showAddModal && (
-          <AddDeviceModal onClose={() => setShowAddModal(false)} />
-        )}
+        {showAddModal && <AddDeviceModal onClose={() => setShowAddModal(false)} />}
       </AnimatePresence>
     </div>
   )
@@ -187,13 +160,13 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
       />
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 
-                   sm:w-full sm:max-w-lg bg-white rounded-xl shadow-2xl z-50 overflow-y-auto max-h-[90vh]"
+        className="fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
+                   sm:w-full sm:max-w-lg bg-white rounded-lg shadow-2xl z-50 overflow-y-auto max-h-[90vh]"
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Add New Device</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <X className="w-5 h-5 text-slate-500" />
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200">
+          <h2 className="text-lg font-semibold text-zinc-900">Add New Device</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100">
+            <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
@@ -223,7 +196,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
               <select value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
                 className="input">
-                {['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown'].map(c => (
+                {CATEGORIES.map(c => (
                   <option key={c} value={c}>{c.replace('_', ' ')}</option>
                 ))}
               </select>

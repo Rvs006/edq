@@ -1,0 +1,168 @@
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { adminApi } from '@/lib/api'
+import { Users, Server, Loader2 } from 'lucide-react'
+
+export default function AdminPage() {
+  const [activeTab, setActiveTab] = useState('users')
+
+  const tabs = [
+    { id: 'users', label: 'Users', icon: Users },
+    { id: 'system', label: 'System', icon: Server },
+  ]
+
+  return (
+    <div className="page-container">
+      <div className="mb-5">
+        <h1 className="section-title">Administration</h1>
+        <p className="section-subtitle">Manage users and system configuration</p>
+      </div>
+
+      <div className="flex gap-2 mb-5 border-b border-zinc-200">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === tab.id
+                ? 'border-brand-500 text-brand-500'
+                : 'border-transparent text-zinc-500 hover:text-zinc-700'
+            }`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'users' && <UsersTab />}
+      {activeTab === 'system' && <SystemTab />}
+    </div>
+  )
+}
+
+function UsersTab() {
+  const { data: users, isLoading } = useQuery({
+    queryKey: ['admin-users'],
+    queryFn: () => adminApi.users().then(r => r.data),
+  })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+      </div>
+    )
+  }
+
+  const userList = Array.isArray(users) ? users : []
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-zinc-200 bg-zinc-50/50">
+              <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">User</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Email</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Role</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Status</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Last Login</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100">
+            {userList.length > 0 ? userList.map((u: any) => (
+              <tr key={u.id} className="hover:bg-zinc-50 transition-colors">
+                <td className="py-3 px-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center">
+                      <span className="text-xs font-semibold text-white">
+                        {u.full_name?.[0] || u.username?.[0] || 'U'}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="font-medium text-zinc-900">{u.full_name || u.username}</p>
+                      <p className="text-xs text-zinc-500">@{u.username}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="py-3 px-4 text-zinc-600 text-xs">{u.email}</td>
+                <td className="py-3 px-4">
+                  <span className="badge text-[10px] bg-zinc-100 text-zinc-600 capitalize">{u.role}</span>
+                </td>
+                <td className="py-3 px-4 hidden sm:table-cell">
+                  <span className={`badge text-[10px] ${u.is_active ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                    {u.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </td>
+                <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
+                  {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
+                </td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={5} className="py-8 text-center text-sm text-zinc-500">No users found</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function SystemTab() {
+  const { data: info, isLoading } = useQuery({
+    queryKey: ['system-info'],
+    queryFn: () => adminApi.systemInfo().then(r => r.data),
+  })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+      </div>
+    )
+  }
+
+  const systemInfo = info || {}
+  const tools = systemInfo.tools || {}
+  const sections = [
+    {
+      title: 'Application',
+      items: [
+        ['Version', systemInfo.version || '1.0.0'],
+        ['Database', systemInfo.database || 'SQLite'],
+        ['API Status', systemInfo.api_status || 'Connected'],
+      ],
+    },
+    {
+      title: 'Security Tools',
+      items: [
+        ['nmap', tools.nmap ? 'Available' : 'Not Found'],
+        ['testssl.sh', tools.testssl ? 'Available' : 'Not Found'],
+        ['ssh-audit', tools.ssh_audit ? 'Available' : 'Not Found'],
+        ['hydra', tools.hydra ? 'Available' : 'Not Found'],
+        ['nikto', tools.nikto ? 'Available' : 'Not Found'],
+      ],
+    },
+  ]
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      {sections.map(section => (
+        <div key={section.title} className="card p-5">
+          <h3 className="font-semibold text-zinc-900 mb-4">{section.title}</h3>
+          <dl className="space-y-3">
+            {section.items.map(([label, value]) => (
+              <div key={label} className="flex justify-between text-sm">
+                <dt className="text-zinc-500">{label}</dt>
+                <dd className="text-zinc-900 font-medium">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+    </div>
+  )
+}
