@@ -1,6 +1,6 @@
-"""Universal Test Library — 30 tests that apply to every IP device.
+"""Universal Test Library — 43 tests that apply to every IP device.
 
-Based on EDQ PRD v1.3 Section 9. Tests U01–U30.
+Based on EDQ PRD v1.3 Section 9. Tests U01–U43.
 """
 
 UNIVERSAL_TESTS = [
@@ -153,6 +153,71 @@ UNIVERSAL_TESTS = [
         "test_id": "U30", "name": "Password Policy Assessment", "tier": "guided_manual", "tool": None,
         "is_essential": False, "description": "Assess password complexity requirements and management capabilities.",
         "compliance_map": ["ISO 27001 A.9.4.3", "Cyber Essentials", "SOC2 CC6.1"]
+    },
+    {
+        "test_id": "U31", "name": "SNMP Version Check", "tier": "automatic", "tool": "nmap",
+        "is_essential": False, "description": "Detect SNMP services and verify only SNMPv3 is enabled (v1/v2c are insecure).",
+        "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials"]
+    },
+    {
+        "test_id": "U32", "name": "UPnP/SSDP Exposure", "tier": "automatic", "tool": "nmap",
+        "is_essential": False, "description": "Check for UPnP/SSDP services on port 1900 which may expose device to network attacks.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U33", "name": "mDNS/Bonjour Exposure", "tier": "automatic", "tool": "nmap",
+        "is_essential": False, "description": "Detect mDNS/Bonjour services on port 5353 which may leak device information.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U34", "name": "Telnet/Insecure Protocol Detection", "tier": "automatic", "tool": "nmap",
+        "is_essential": True, "description": "Detect Telnet (port 23), FTP (port 21), and other insecure cleartext protocols.",
+        "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials", "SOC2 CC6.1"]
+    },
+    {
+        "test_id": "U35", "name": "Web Server Vulnerability Scan", "tier": "automatic", "tool": "nikto",
+        "is_essential": False, "description": "Run nikto web vulnerability scanner against HTTP/HTTPS services.",
+        "compliance_map": ["ISO 27001 A.14.1.2"]
+    },
+    {
+        "test_id": "U36", "name": "Banner Grabbing / Information Leakage", "tier": "automatic", "tool": "nmap",
+        "is_essential": False, "description": "Check service banners for sensitive information disclosure (versions, internal IPs).",
+        "compliance_map": ["ISO 27001 A.12.6.1"]
+    },
+    {
+        "test_id": "U37", "name": "RTSP Stream Authentication", "tier": "automatic", "tool": "custom",
+        "is_essential": False, "description": "Check if RTSP video streams (port 554) require authentication.",
+        "compliance_map": ["ISO 27001 A.9.4.3"]
+    },
+    {
+        "test_id": "U38", "name": "MQTT Support & Security", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Check MQTT broker support, TLS enforcement, and authentication requirements.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U39", "name": "VLAN Tagging Support", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify device supports 802.1Q VLAN tagging for network segmentation.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U40", "name": "API Authentication Check", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify all API endpoints require authentication. Test with and without credentials.",
+        "compliance_map": ["ISO 27001 A.9.4.3", "SOC2 CC6.1"]
+    },
+    {
+        "test_id": "U41", "name": "Audit/Log Review", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Review device logs for security events. Check if logging is enabled and adequate.",
+        "compliance_map": ["ISO 27001 A.12.4.1"]
+    },
+    {
+        "test_id": "U42", "name": "Data-at-Rest Encryption", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Check if device encrypts stored data (recordings, configs, credentials).",
+        "compliance_map": ["ISO 27001 A.10.1.1"]
+    },
+    {
+        "test_id": "U43", "name": "End-of-Life / Vendor Support", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify device is not end-of-life and manufacturer provides active security patches.",
+        "compliance_map": ["ISO 27001 A.14.2.5"]
     },
 ]
 

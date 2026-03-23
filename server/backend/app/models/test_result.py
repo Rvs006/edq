@@ -13,10 +13,12 @@ class TestVerdict(str, enum.Enum):
     PASS = "pass"
     FAIL = "fail"
     ADVISORY = "advisory"
+    INFO = "info"
     NA = "na"
     ERROR = "error"
     PENDING = "pending"
     RUNNING = "running"
+    SKIPPED_SAFE_MODE = "skipped_safe_mode"
 
 
 class TestTier(str, enum.Enum):
@@ -38,6 +40,7 @@ class TestResult(Base):
     is_essential = Column(String(3), default="no")  # "yes" or "no"
     comment = Column(Text, nullable=True)  # Auto-generated or manual comment
     comment_override = Column(Text, nullable=True)  # Engineer override
+    engineer_notes = Column(Text, nullable=True)  # Free-text notes from engineer
     raw_output = Column(Text, nullable=True)  # Raw tool output
     parsed_data = Column(JSON, nullable=True)  # Structured parsed results
     findings = Column(JSON, nullable=True)  # Detailed findings array

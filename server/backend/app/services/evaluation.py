@@ -290,6 +290,103 @@ def _eval_u29(data: dict, _wl: list) -> tuple[str, str]:
     return ("info", "DNS port 53 not detected — device may use external DNS")
 
 
+def _eval_u31(data: dict, _wl: list) -> tuple[str, str]:
+    """SNMP Version Check."""
+    open_ports = data.get("open_ports", [])
+    snmp_ports = [p for p in open_ports if p.get("port") in (161, 162)]
+    if not snmp_ports:
+        return ("pass", "No SNMP services detected")
+    stdout = data.get("raw", data.get("stdout", ""))
+    stdout_lower = (stdout or "").lower()
+    if "snmpv1" in stdout_lower or "snmpv2" in stdout_lower or "v2c" in stdout_lower:
+        return ("fail", "Insecure SNMP version detected (v1/v2c). Only SNMPv3 is acceptable.")
+    if "snmpv3" in stdout_lower:
+        return ("pass", "SNMPv3 detected — secure SNMP version in use")
+    return ("advisory", "SNMP port open but version could not be determined — verify manually")
+
+
+def _eval_u32(data: dict, _wl: list) -> tuple[str, str]:
+    """UPnP/SSDP Exposure."""
+    open_ports = data.get("open_ports", [])
+    upnp_ports = [p for p in open_ports if p.get("port") == 1900]
+    if upnp_ports:
+        return ("advisory", "UPnP/SSDP service detected on port 1900 — may expose device to network attacks")
+    return ("pass", "No UPnP/SSDP service detected")
+
+
+def _eval_u33(data: dict, _wl: list) -> tuple[str, str]:
+    """mDNS/Bonjour Exposure."""
+    open_ports = data.get("open_ports", [])
+    mdns_ports = [p for p in open_ports if p.get("port") == 5353]
+    if mdns_ports:
+        return ("advisory", "mDNS/Bonjour service detected on port 5353 — may leak device information")
+    return ("pass", "No mDNS/Bonjour service detected")
+
+
+def _eval_u34(data: dict, _wl: list) -> tuple[str, str]:
+    """Telnet/Insecure Protocol Detection."""
+    telnet_open = data.get("telnet_open", False)
+    ftp_open = data.get("ftp_open", False)
+    insecure = data.get("insecure_ports", [])
+    if telnet_open or ftp_open:
+        parts = []
+        if telnet_open:
+            parts.append("Telnet (23)")
+        if ftp_open:
+            parts.append("FTP (21)")
+        other = [p for p in insecure if p not in (21, 23)]
+        if other:
+            parts.append(f"ports {other}")
+        return ("fail", f"Insecure cleartext protocols detected: {', '.join(parts)}")
+    if insecure:
+        return ("fail", f"Insecure cleartext protocol ports open: {insecure}")
+    return ("pass", "No insecure cleartext protocols (Telnet, FTP) detected")
+
+
+def _eval_u35(data: dict, _wl: list) -> tuple[str, str]:
+    """Web Server Vulnerability Scan (nikto)."""
+    stdout = data.get("raw", data.get("stdout", ""))
+    if not stdout:
+        return ("na", "No HTTP service detected or nikto could not connect")
+    stdout_lower = stdout.lower()
+    vuln_count = stdout_lower.count("+ osvdb-")
+    if vuln_count > 10:
+        return ("fail", f"Nikto found {vuln_count} potential vulnerabilities — critical review needed")
+    if vuln_count > 3:
+        return ("advisory", f"Nikto found {vuln_count} potential issue(s) — review recommended")
+    if vuln_count > 0:
+        return ("advisory", f"Nikto found {vuln_count} minor issue(s)")
+    return ("pass", "No significant web server vulnerabilities found")
+
+
+def _eval_u36(data: dict, _wl: list) -> tuple[str, str]:
+    """Banner Grabbing / Information Leakage."""
+    open_ports = data.get("open_ports", [])
+    if not open_ports:
+        return ("info", "No services detected for banner analysis")
+    leaky = []
+    for p in open_ports:
+        version = p.get("version", "") or ""
+        service = p.get("service", "") or ""
+        banner = f"{service} {version}".lower()
+        if any(kw in banner for kw in ["10.0.", "192.168.", "172.16.", "internal", "debug"]):
+            leaky.append(f"port {p['port']}: {service} {version}".strip())
+    if leaky:
+        return ("advisory", f"Potential information leakage in banners: {'; '.join(leaky[:5])}")
+    return ("pass", "No sensitive information disclosed in service banners")
+
+
+def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
+    """RTSP Stream Authentication."""
+    rtsp_open = data.get("rtsp_open", False)
+    auth_required = data.get("auth_required", False)
+    if not rtsp_open:
+        return ("na", "No RTSP service detected on port 554")
+    if auth_required:
+        return ("pass", "RTSP streams require authentication")
+    return ("fail", "RTSP streams accessible without authentication")
+
+
 _EVALUATORS: dict[str, Any] = {
     "U01": _eval_u01,
     "U02": _eval_u02,
@@ -313,4 +410,11 @@ _EVALUATORS: dict[str, Any] = {
     "U26": _eval_u26,
     "U28": _eval_u28,
     "U29": _eval_u29,
+    "U31": _eval_u31,
+    "U32": _eval_u32,
+    "U33": _eval_u33,
+    "U34": _eval_u34,
+    "U35": _eval_u35,
+    "U36": _eval_u36,
+    "U37": _eval_u37,
 }

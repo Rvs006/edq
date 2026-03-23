@@ -342,6 +342,57 @@ class TestEngine:
                 return ({"dns_open": dns}, None)
             return ({"dns_open": False}, None)
 
+        if test_id == "U31":
+            raw = await tools_client.nmap(
+                device_ip, ["-sU", "-p", "161,162", "-sV", "--script", "snmp-info", "-oX", "-"], timeout=120
+            )
+            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            return (parsed, raw.get("stdout"))
+
+        if test_id == "U32":
+            raw = await tools_client.nmap(
+                device_ip, ["-sU", "-p", "1900", "-sV", "--script", "upnp-info", "-oX", "-"], timeout=120
+            )
+            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            return (parsed, raw.get("stdout"))
+
+        if test_id == "U33":
+            raw = await tools_client.nmap(
+                device_ip, ["-sU", "-p", "5353", "-sV", "-oX", "-"], timeout=120
+            )
+            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            return (parsed, raw.get("stdout"))
+
+        if test_id == "U34":
+            cached = _PORT_SCAN_CACHE.get(run_id)
+            if cached:
+                open_ports = {p["port"] for p in cached.get("open_ports", [])}
+                telnet_open = 23 in open_ports
+                ftp_open = 21 in open_ports
+                return ({"telnet_open": telnet_open, "ftp_open": ftp_open, "insecure_ports": sorted(open_ports & {21, 23, 69, 110, 143})}, None)
+            raw = await tools_client.nmap(
+                device_ip, ["-sS", "-p", "21,23,69,110,143", "--open", "-oX", "-"], timeout=60
+            )
+            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            open_ports = {p["port"] for p in parsed.get("open_ports", [])}
+            return ({"telnet_open": 23 in open_ports, "ftp_open": 21 in open_ports, "insecure_ports": sorted(open_ports)}, raw.get("stdout"))
+
+        if test_id == "U35":
+            raw = await tools_client.nikto(device_ip, ["-host", device_ip], timeout=300)
+            parsed = {"raw": raw.get("stdout", ""), "stdout": raw.get("stdout", "")}
+            return (parsed, raw.get("stdout"))
+
+        if test_id == "U36":
+            raw = await tools_client.nmap(
+                device_ip, ["-sV", "--script", "banner", "--open", "-oX", "-"], timeout=180
+            )
+            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            return (parsed, raw.get("stdout"))
+
+        if test_id == "U37":
+            parsed = await self._test_rtsp_auth(device_ip)
+            return (parsed, None)
+
         return ({}, None)
 
     async def _test_brute_force_protection(self, device_ip: str) -> dict[str, Any]:
@@ -398,6 +449,32 @@ class TestEngine:
 
         return {"redirects_to_https": redirects_to_https, "http_open": http_open}
 
+    async def _test_rtsp_auth(self, device_ip: str) -> dict[str, Any]:
+        """Check if RTSP streams require authentication."""
+        import httpx
+
+        rtsp_open = False
+        auth_required = False
+
+        try:
+            async with httpx.AsyncClient(timeout=10, verify=False) as client:
+                resp = await client.request(
+                    "DESCRIBE",
+                    f"rtsp://{device_ip}:554/",
+                    headers={"CSeq": "1", "Accept": "application/sdp"},
+                )
+                rtsp_open = True
+                if resp.status_code == 401:
+                    auth_required = True
+                elif resp.status_code == 200:
+                    auth_required = False
+        except httpx.ConnectError:
+            rtsp_open = False
+        except Exception:
+            pass
+
+        return {"rtsp_open": rtsp_open, "auth_required": auth_required}
+
     async def _wait_while_paused(self, run_id: str) -> None:
         """Block while the test run is paused (e.g. by wobbly cable)."""
         while True:
@@ -451,7 +528,7 @@ class TestEngine:
                 elif failed > 0:
                     run.overall_verdict = "fail"
                 elif advisory > 0:
-                    run.overall_verdict = "advisory"
+                    run.overall_verdict = "qualified_pass"
                 else:
                     run.overall_verdict = "pass"
 

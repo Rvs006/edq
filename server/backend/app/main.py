@@ -1,15 +1,17 @@
 """EDQ — Electracom Device Qualifier: FastAPI Application Factory."""
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
 
 from app.config import settings
 from app.models.database import init_db
+from app.security.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.routes import (
     auth,
     users,
@@ -30,16 +32,63 @@ from app.routes import (
 )
 
 
-# Path to built frontend — resolve from this file's location
-_THIS_DIR = Path(__file__).resolve().parent  # app/
-_BACKEND_DIR = _THIS_DIR.parent  # server/backend/
-_PROJECT_ROOT = _BACKEND_DIR.parent.parent  # edq/
+_THIS_DIR = Path(__file__).resolve().parent
+_BACKEND_DIR = _THIS_DIR.parent
+_PROJECT_ROOT = _BACKEND_DIR.parent.parent
 FRONTEND_DIR = str(_PROJECT_ROOT / "frontend" / "dist")
+
+CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+CSRF_EXEMPT_PATHS = {"/api/auth/login", "/api/auth/register", "/api/health", "/api/health/"}
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method in CSRF_SAFE_METHODS:
+            return await call_next(request)
+
+        path = request.url.path.rstrip("/")
+        if path in {p.rstrip("/") for p in CSRF_EXEMPT_PATHS}:
+            return await call_next(request)
+
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+
+        session_cookie = request.cookies.get(SESSION_COOKIE)
+        if not session_cookie:
+            return await call_next(request)
+
+        csrf_cookie = request.cookies.get(CSRF_COOKIE)
+        csrf_header = request.headers.get("X-CSRF-Token")
+
+        if not csrf_cookie or not csrf_header:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF token missing"},
+            )
+
+        if csrf_cookie != csrf_header:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF token mismatch"},
+            )
+
+        return await call_next(request)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup/shutdown lifecycle."""
     print(f"[EDQ] Frontend directory: {FRONTEND_DIR} (exists: {os.path.isdir(FRONTEND_DIR)})")
     await init_db()
     from app.services.test_engine import recover_orphaned_runs
@@ -55,16 +104,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=["http://localhost:5173", "http://localhost:80", "http://localhost"],
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
+        allow_headers=["*", "X-CSRF-Token"],
+        expose_headers=["X-CSRF-Token"],
     )
 
-    # API Routes
+    app.add_middleware(CSRFMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
+
     app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
     app.include_router(users.router, prefix="/api/users", tags=["Users"])
     app.include_router(devices.router, prefix="/api/devices", tags=["Devices"])
@@ -82,24 +133,18 @@ def create_app() -> FastAPI:
     app.include_router(websocket_routes.router, prefix="/api/ws", tags=["WebSocket"])
     app.include_router(health.router, prefix="/api/health", tags=["Health"])
 
-    # Serve built frontend static files
     if os.path.isdir(FRONTEND_DIR):
-        # Mount assets directory for JS/CSS/images
         assets_dir = os.path.join(FRONTEND_DIR, "assets")
         if os.path.isdir(assets_dir):
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-        # SPA fallback: serve index.html for all non-API routes
         @app.get("/{full_path:path}")
         async def serve_spa(request: Request, full_path: str):
-            # Don't serve index.html for API or docs routes
             if full_path.startswith("api/") or full_path in ("docs", "redoc", "openapi.json"):
                 return {"detail": "Not Found"}
-            # Check if a static file exists
             file_path = os.path.join(FRONTEND_DIR, full_path)
             if full_path and os.path.isfile(file_path):
                 return FileResponse(file_path)
-            # Fallback to index.html for SPA routing
             return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
     return app

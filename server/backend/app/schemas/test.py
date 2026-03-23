@@ -54,6 +54,7 @@ class TestRunCreate(BaseModel):
     device_id: str
     template_id: str
     agent_id: Optional[str] = None
+    connection_scenario: str = "direct"
     metadata: Optional[Any] = None
 
 
@@ -76,6 +77,7 @@ class TestRunResponse(BaseModel):
     template_id: str
     engineer_id: str
     agent_id: Optional[str] = None
+    connection_scenario: str = "direct"
     status: str
     overall_verdict: Optional[str] = None
     progress_pct: float
@@ -118,6 +120,7 @@ class TestResultUpdate(BaseModel):
     verdict: Optional[str] = None
     comment: Optional[str] = None
     comment_override: Optional[str] = None
+    engineer_notes: Optional[str] = None
     raw_output: Optional[str] = None
     parsed_data: Optional[Any] = None
     findings: Optional[List[Any]] = None
@@ -136,6 +139,7 @@ class TestResultResponse(BaseModel):
     is_essential: str
     comment: Optional[str] = None
     comment_override: Optional[str] = None
+    engineer_notes: Optional[str] = None
     parsed_data: Optional[Any] = None
     findings: Optional[List[Any]] = None
     evidence_files: Optional[List[str]] = None

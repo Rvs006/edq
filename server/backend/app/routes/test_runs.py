@@ -91,6 +91,7 @@ async def create_test_run(
         template_id=data.template_id,
         engineer_id=user.id,
         agent_id=data.agent_id,
+        connection_scenario=data.connection_scenario,
         total_tests=len(template.test_ids),
         status=TestRunStatus.PENDING,
         metadata=data.metadata,
@@ -262,7 +263,7 @@ async def complete_test_run(
     elif failed > 0:
         run.overall_verdict = "fail"
     elif advisory > 0:
-        run.overall_verdict = "advisory"
+        run.overall_verdict = "qualified_pass"
     else:
         run.overall_verdict = "pass"
 
