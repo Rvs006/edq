@@ -199,18 +199,15 @@ async def initiate_discovery(
         try:
             raw = await tools_client.nmap(
                 data.ip_address,
-                ["-sV", "-O", "-p-", "--max-rate", "300"],
+                ["-sV", "-O", "-p-", "--max-rate", "300", "-oX", "-"],
                 timeout=300,
             )
         except Exception as exc:
             logger.exception("Nmap service scan failed for %s: %s", data.ip_address, exc)
             raise HTTPException(status_code=502, detail=f"Tools sidecar error: {exc}")
 
-        xml_data = _decode_output_file(raw)
-        parsed = nmap_parser.parse_xml(xml_data) if xml_data else {}
-
-        if not parsed.get("hosts") and raw.get("stdout"):
-            parsed = nmap_parser.parse_xml(raw["stdout"])
+        xml_out = raw.get("stdout", "")
+        parsed = nmap_parser.parse_xml(xml_out) if xml_out else {}
 
         open_ports = parsed.get("open_ports", [])
         os_fp = parsed.get("os_fingerprint")
