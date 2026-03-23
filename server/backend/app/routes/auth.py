@@ -16,11 +16,9 @@ from app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
-    TokenResponse,
 )
 from app.schemas.user import UserResponse
 from app.security.auth import (
-    SESSION_COOKIE,
     clear_auth_cookies,
     create_access_token,
     create_refresh_token,

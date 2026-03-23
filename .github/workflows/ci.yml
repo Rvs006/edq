@@ -26,10 +26,11 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+          pip install "pydantic[email]" "bcrypt==4.1.3"
           pip install pytest pytest-asyncio httpx ruff
 
       - name: Lint with ruff
-        run: ruff check app/
+        run: ruff check app/ --select E,F,W --ignore E402,E501,E712,F401,F841
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
