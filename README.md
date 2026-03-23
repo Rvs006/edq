@@ -440,6 +440,23 @@ Proprietary — Copyright 2025–2026 Electracom Projects Ltd, a Sauter Group Co
 
 ---
 
+## Testing
+
+**Quick smoke test** — verifies services are up and basic auth works (~10 seconds):
+```bash
+./scripts/verify-app.sh
+```
+
+**Full E2E test suite** — comprehensive CRUD, lifecycle, error handling, and cleanup (~60 seconds):
+```bash
+./scripts/e2e-test.sh              # default: http://localhost
+./scripts/e2e-test.sh http://host:port   # custom target
+```
+
+The E2E suite covers: infrastructure health, authentication flow, device CRUD, test templates & library, test run lifecycle (create → execute → complete), protocol whitelists, device profiles, report generation, admin endpoints, network scans, test plans, discovery, agents, and error handling. All test data is cleaned up automatically.
+
+---
+
 ## Author
 
 Developed by **Rajesh Shinde** for **Electracom Projects Ltd**.

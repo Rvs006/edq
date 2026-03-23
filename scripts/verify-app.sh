@@ -1,6 +1,10 @@
 #!/bin/bash
-# EDQ Integration Verification Script
+# EDQ Integration Verification Script (Quick Smoke Test)
 # Run after docker compose up
+#
+# For the comprehensive E2E test suite, use: ./scripts/e2e-test.sh
+# This script is the fast sanity check; e2e-test.sh covers full CRUD,
+# lifecycle, error handling, and cleanup.
 
 set -euo pipefail
 
