@@ -5,30 +5,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#EFF6FF',
-          100: '#DBEAFE',
-          200: '#BFDBFE',
-          300: '#93C5FD',
-          400: '#60A5FA',
-          500: '#1E40AF',
-          600: '#1E3A8A',
-          700: '#1E3370',
-          800: '#172554',
-          900: '#0F172A',
+        surface: {
+          DEFAULT: '#fafafa',
+          card: '#ffffff',
+          sidebar: '#18181b',
+          hover: '#f4f4f5',
+          border: '#e4e4e7',
+          muted: '#71717a',
         },
-        accent: {
-          teal: '#0D9488',
-          emerald: '#059669',
-          amber: '#D97706',
-          rose: '#E11D48',
+        brand: {
+          50: '#eff6ff',
+          100: '#dbeafe',
+          500: '#1e40af',
+          600: '#1e3a8a',
+          700: '#1e3370',
         },
         verdict: {
-          pass: '#059669',
-          fail: '#DC2626',
-          advisory: '#D97706',
-          na: '#6B7280',
-          pending: '#3B82F6',
+          pass: '#16a34a',
+          fail: '#dc2626',
+          advisory: '#d97706',
+          qualified: '#ca8a04',
+          na: '#71717a',
+          pending: '#2563eb',
+          info: '#0891b2',
         },
       },
       fontFamily: {

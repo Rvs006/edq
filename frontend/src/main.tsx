@@ -28,10 +28,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             toastOptions={{
               duration: 4000,
               style: {
-                background: '#1E293B',
-                color: '#F8FAFC',
-                borderRadius: '10px',
+                background: '#18181b',
+                color: '#fafafa',
+                borderRadius: '8px',
                 fontSize: '14px',
+                border: '1px solid #27272a',
               },
             }}
           />

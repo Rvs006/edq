@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { templatesApi } from '@/lib/api'
 import { FileText, Plus, Loader2, X, Check, ChevronDown, ChevronUp } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 
 export default function TemplatesPage() {
@@ -31,20 +31,19 @@ export default function TemplatesPage() {
         </button>
       </div>
 
-      {/* Test Library reference */}
       <div className="card mb-5">
         <button
           onClick={() => setExpanded(expanded === 'library' ? null : 'library')}
-          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-colors"
+          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 transition-colors"
         >
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-brand-500" />
-            <span className="font-semibold text-slate-900">Universal Test Library</span>
-            <span className="badge text-[10px] bg-brand-50 text-brand-600 border border-brand-200">
+            <span className="font-semibold text-zinc-900">Universal Test Library</span>
+            <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">
               {library?.length || 30} tests
             </span>
           </div>
-          {expanded === 'library' ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+          {expanded === 'library' ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
         </button>
         <AnimatePresence>
           {expanded === 'library' && library && (
@@ -53,27 +52,23 @@ export default function TemplatesPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-slate-200">
-                        <th className="text-left py-2 px-2 text-xs font-medium text-slate-500">ID</th>
-                        <th className="text-left py-2 px-2 text-xs font-medium text-slate-500">Name</th>
-                        <th className="text-left py-2 px-2 text-xs font-medium text-slate-500 hidden sm:table-cell">Tier</th>
-                        <th className="text-left py-2 px-2 text-xs font-medium text-slate-500 hidden sm:table-cell">Tool</th>
-                        <th className="text-left py-2 px-2 text-xs font-medium text-slate-500">Essential</th>
+                      <tr className="border-b border-zinc-200">
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500">ID</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500">Name</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 hidden sm:table-cell">Tier</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 hidden sm:table-cell">Tool</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500">Essential</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-zinc-100">
                       {library.map((test: any) => (
-                        <tr key={test.test_id} className="hover:bg-slate-50">
-                          <td className="py-2 px-2 font-mono text-xs text-slate-500">{test.test_id}</td>
-                          <td className="py-2 px-2 text-slate-900">{test.name}</td>
-                          <td className="py-2 px-2 text-slate-600 capitalize hidden sm:table-cell">{test.tier.replace('_', ' ')}</td>
-                          <td className="py-2 px-2 text-slate-500 hidden sm:table-cell">{test.tool || '—'}</td>
+                        <tr key={test.test_id} className="hover:bg-zinc-50">
+                          <td className="py-2 px-2 font-mono text-xs text-zinc-500">{test.test_id}</td>
+                          <td className="py-2 px-2 text-zinc-900">{test.name}</td>
+                          <td className="py-2 px-2 text-zinc-600 capitalize hidden sm:table-cell">{test.tier?.replace(/_/g, ' ')}</td>
+                          <td className="py-2 px-2 text-zinc-500 hidden sm:table-cell">{test.tool || '—'}</td>
                           <td className="py-2 px-2">
-                            {test.is_essential ? (
-                              <Check className="w-4 h-4 text-red-500" />
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            )}
+                            {test.is_essential ? <Check className="w-4 h-4 text-red-500" /> : <span className="text-zinc-300">—</span>}
                           </td>
                         </tr>
                       ))}
@@ -86,47 +81,46 @@ export default function TemplatesPage() {
         </AnimatePresence>
       </div>
 
-      {/* Templates list */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
         </div>
       ) : templates && templates.length > 0 ? (
-        <div className="space-y-3">
-          {templates.map((t: any) => (
-            <div key={t.id} className="card-hover p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900">{t.name}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">{t.description || 'No description'}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="badge text-[10px] bg-slate-100 text-slate-600">
-                    {t.test_ids?.length || 0} tests
-                  </span>
-                  {t.is_default && (
-                    <span className="badge text-[10px] bg-brand-50 text-brand-600 border border-brand-200">Default</span>
-                  )}
-                </div>
-              </div>
-              {t.test_ids && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {t.test_ids.slice(0, 10).map((id: string) => (
-                    <span key={id} className="text-[10px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{id}</span>
-                  ))}
-                  {t.test_ids.length > 10 && (
-                    <span className="text-[10px] text-slate-400">+{t.test_ids.length - 10} more</span>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50/50">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Name</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Description</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Tests</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Category</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {templates.map((t: any) => (
+                  <tr key={t.id} className="hover:bg-zinc-50 transition-colors">
+                    <td className="py-3 px-4 font-medium text-zinc-900">{t.name}</td>
+                    <td className="py-3 px-4 text-zinc-500 text-xs hidden sm:table-cell">{t.description || '—'}</td>
+                    <td className="py-3 px-4">
+                      <span className="badge text-[10px] bg-zinc-100 text-zinc-600">{t.test_ids?.length || 0} tests</span>
+                    </td>
+                    <td className="py-3 px-4 text-zinc-500 capitalize hidden md:table-cell">{t.device_category || '—'}</td>
+                    <td className="py-3 px-4">
+                      {t.is_default && <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">Default</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="card p-12 text-center">
-          <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-slate-700 mb-1">No templates yet</h3>
-          <p className="text-sm text-slate-500 mb-4">Create a test template to define which tests to run</p>
+          <FileText className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-zinc-700 mb-1">No templates yet</h3>
+          <p className="text-sm text-zinc-500 mb-4">Create a test template to define which tests to run</p>
           <button onClick={() => setShowCreate(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Template
           </button>
@@ -177,12 +171,12 @@ function CreateTemplateModal({ library, onClose }: { library: any[]; onClose: ()
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
         className="fixed inset-2 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:w-full sm:max-w-2xl bg-white rounded-xl shadow-2xl z-50 flex flex-col max-h-[90vh]"
+                   sm:w-full sm:max-w-2xl bg-white rounded-lg shadow-2xl z-50 flex flex-col max-h-[90vh]"
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">New Test Template</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <X className="w-5 h-5 text-slate-500" />
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200">
+          <h2 className="text-lg font-semibold text-zinc-900">New Test Template</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100">
+            <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
@@ -198,13 +192,13 @@ function CreateTemplateModal({ library, onClose }: { library: any[]; onClose: ()
                 className="input" placeholder="Complete 30-test qualification suite" />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-700">
+              <span className="text-sm font-medium text-zinc-700">
                 Select Tests ({selectedTests.length}/{library.length})
               </span>
               <div className="flex gap-2">
                 <button type="button" onClick={selectAll} className="text-xs text-brand-500 hover:text-brand-600">All</button>
                 <button type="button" onClick={selectEssential} className="text-xs text-red-500 hover:text-red-600">Essential</button>
-                <button type="button" onClick={() => setSelectedTests([])} className="text-xs text-slate-500 hover:text-slate-600">None</button>
+                <button type="button" onClick={() => setSelectedTests([])} className="text-xs text-zinc-500 hover:text-zinc-600">None</button>
               </div>
             </div>
           </div>
@@ -213,19 +207,19 @@ function CreateTemplateModal({ library, onClose }: { library: any[]; onClose: ()
               {library.map((test: any) => (
                 <label key={test.test_id}
                   className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                    selectedTests.includes(test.test_id) ? 'bg-brand-50' : 'hover:bg-slate-50'
+                    selectedTests.includes(test.test_id) ? 'bg-brand-50' : 'hover:bg-zinc-50'
                   }`}>
                   <input type="checkbox" checked={selectedTests.includes(test.test_id)}
                     onChange={() => toggleTest(test.test_id)}
-                    className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500" />
-                  <span className="text-xs font-mono text-slate-400 w-8">{test.test_id}</span>
-                  <span className="text-sm text-slate-900 flex-1">{test.name}</span>
+                    className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500" />
+                  <span className="text-xs font-mono text-zinc-400 w-8">{test.test_id}</span>
+                  <span className="text-sm text-zinc-900 flex-1">{test.name}</span>
                   {test.is_essential && <span className="badge text-[9px] bg-red-50 text-red-600 border border-red-200">Essential</span>}
                 </label>
               ))}
             </div>
           </div>
-          <div className="flex justify-end gap-3 p-4 border-t border-slate-200">
+          <div className="flex justify-end gap-3 p-4 border-t border-zinc-200">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button type="submit" disabled={loading} className="btn-primary">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}

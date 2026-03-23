@@ -1,13 +1,11 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { testRunsApi, devicesApi, templatesApi } from '@/lib/api'
-import {
-  Play, CheckCircle2, XCircle, AlertTriangle, Clock, Plus,
-  Filter, Loader2, X, ChevronRight
-} from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { Play, Plus, Loader2, X } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
+import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 
 export default function TestRunsPage() {
   const [searchParams] = useSearchParams()
@@ -32,86 +30,87 @@ export default function TestRunsPage() {
         </button>
       </div>
 
-      {/* Filters */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-        {['', 'pending', 'running', 'completed', 'failed'].map(s => (
+        {['', 'pending', 'running', 'paused_manual', 'awaiting_review', 'completed', 'complete', 'failed'].map(s => (
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
             className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
               statusFilter === s
                 ? 'bg-brand-500 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
             }`}
           >
-            {s || 'All'}
+            {s ? s.replace(/_/g, ' ') : 'All'}
           </button>
         ))}
       </div>
 
-      {/* Runs list */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
         </div>
       ) : runs && runs.length > 0 ? (
-        <div className="space-y-3">
-          {runs.map((run: any, i: number) => (
-            <motion.div
-              key={run.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.03 }}
-            >
-              <Link to={`/test-runs/${run.id}`} className="card-hover block p-4">
-                <div className="flex items-center gap-3">
-                  <VerdictIcon verdict={run.overall_verdict} status={run.status} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold text-slate-900">Run {run.id.slice(0, 8)}</p>
-                      <StatusBadge status={run.status} />
-                    </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Device: {run.device_id.slice(0, 8)} · Template: {run.template_id.slice(0, 8)}
-                    </p>
-                  </div>
-                  <div className="hidden sm:block text-right">
-                    <div className="flex items-center gap-3 text-xs">
-                      <span className="text-emerald-600">{run.passed_tests} pass</span>
-                      <span className="text-red-600">{run.failed_tests} fail</span>
-                      <span className="text-amber-600">{run.advisory_tests} adv</span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {new Date(run.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                </div>
-
-                {/* Progress bar */}
-                {run.status === 'running' && (
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="text-slate-500">Progress</span>
-                      <span className="text-slate-700 font-medium">{Math.round(run.progress_pct)}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-brand-500 rounded-full transition-all duration-500"
-                        style={{ width: `${run.progress_pct}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </Link>
-            </motion.div>
-          ))}
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50/50">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Device</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">IP</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Template</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Status</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Progress</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Verdict</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden lg:table-cell">Started</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {runs.map((run: any) => (
+                  <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
+                    <td className="py-3 px-4">
+                      <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 hover:text-brand-500">
+                        {run.device_name || `Run ${run.id.slice(0, 8)}`}
+                      </Link>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-zinc-500 hidden sm:table-cell">
+                      {run.device_ip || run.device_id?.slice(0, 8)}
+                    </td>
+                    <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
+                      {run.template_name || run.template_id?.slice(0, 8)}
+                    </td>
+                    <td className="py-3 px-4"><StatusBadge status={run.status} /></td>
+                    <td className="py-3 px-4 hidden sm:table-cell">
+                      {run.status === 'running' ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-16 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-brand-500 rounded-full" style={{ width: `${run.progress_pct || 0}%` }} />
+                          </div>
+                          <span className="text-xs text-zinc-500">{Math.round(run.progress_pct || 0)}%</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-400">
+                          {run.total_tests ? `${run.passed_tests || 0}/${run.total_tests}` : '—'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {run.overall_verdict ? <VerdictBadge verdict={run.overall_verdict} /> : <span className="text-xs text-zinc-400">&mdash;</span>}
+                    </td>
+                    <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
+                      {run.started_at ? new Date(run.started_at).toLocaleString() : new Date(run.created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="card p-12 text-center">
-          <Play className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-slate-700 mb-1">No test runs</h3>
-          <p className="text-sm text-slate-500 mb-4">Create a test run to start qualifying devices</p>
+          <Play className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-zinc-700 mb-1">No test runs</h3>
+          <p className="text-sm text-zinc-500 mb-4">Create a test run to start qualifying devices</p>
           <button onClick={() => setShowCreateModal(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Test Run
           </button>
@@ -162,12 +161,12 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
         className="fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:w-full sm:max-w-md bg-white rounded-xl shadow-2xl z-50"
+                   sm:w-full sm:max-w-md bg-white rounded-lg shadow-2xl z-50"
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">New Test Run</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <X className="w-5 h-5 text-slate-500" />
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200">
+          <h2 className="text-lg font-semibold text-zinc-900">New Test Run</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100">
+            <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
@@ -200,23 +199,4 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
       </motion.div>
     </>
   )
-}
-
-function VerdictIcon({ verdict, status }: { verdict: string | null; status: string }) {
-  if (status === 'running') return <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-  if (verdict === 'pass') return <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-  if (verdict === 'fail') return <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-  if (verdict === 'advisory') return <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
-  return <Clock className="w-5 h-5 text-blue-400 flex-shrink-0" />
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    pending: 'badge-pending',
-    running: 'bg-blue-100 text-blue-700 border border-blue-200',
-    completed: 'badge-pass',
-    failed: 'badge-fail',
-    cancelled: 'badge-na',
-  }
-  return <span className={`badge text-[10px] ${styles[status] || 'badge-na'}`}>{status}</span>
 }

@@ -1,8 +1,29 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { authApi } from '@/lib/api'
-import { Settings, User, Lock, Bell, Shield, Loader2 } from 'lucide-react'
+import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+type Theme = 'light' | 'dark' | 'system'
+
+function getStoredTheme(): Theme {
+  return (localStorage.getItem('edq_theme') as Theme) || 'light'
+}
+
+function applyTheme(theme: Theme) {
+  const root = document.documentElement
+  if (theme === 'dark') {
+    root.classList.add('dark')
+  } else if (theme === 'system') {
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      root.classList.add('dark')
+    } else {
+      root.classList.remove('dark')
+    }
+  } else {
+    root.classList.remove('dark')
+  }
+}
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -11,7 +32,7 @@ export default function SettingsPage() {
   const tabs = [
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'security', label: 'Security', icon: Lock },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'appearance', label: 'Appearance', icon: Sun },
   ]
 
   return (
@@ -22,7 +43,6 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-5">
-        {/* Tabs */}
         <div className="sm:w-48 flex sm:flex-col gap-1 overflow-x-auto pb-1 sm:pb-0">
           {tabs.map(tab => (
             <button
@@ -30,8 +50,8 @@ export default function SettingsPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
                 activeTab === tab.id
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  ? 'bg-brand-50 text-brand-500'
+                  : 'text-zinc-600 hover:bg-zinc-100'
               }`}
             >
               <tab.icon className="w-4 h-4" />
@@ -40,11 +60,10 @@ export default function SettingsPage() {
           ))}
         </div>
 
-        {/* Content */}
         <div className="flex-1">
           {activeTab === 'profile' && <ProfileSettings user={user} />}
           {activeTab === 'security' && <SecuritySettings />}
-          {activeTab === 'notifications' && <NotificationSettings />}
+          {activeTab === 'appearance' && <AppearanceSettings />}
         </div>
       </div>
     </div>
@@ -54,7 +73,7 @@ export default function SettingsPage() {
 function ProfileSettings({ user }: { user: any }) {
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-slate-900 mb-4">Profile Information</h2>
+      <h2 className="font-semibold text-zinc-900 mb-4">Profile Information</h2>
       <div className="space-y-4">
         <div className="flex items-center gap-4 mb-6">
           <div className="w-16 h-16 rounded-full bg-brand-500 flex items-center justify-center">
@@ -63,9 +82,9 @@ function ProfileSettings({ user }: { user: any }) {
             </span>
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">{user?.full_name || user?.username}</h3>
-            <p className="text-sm text-slate-500">{user?.email}</p>
-            <span className="badge text-[10px] bg-brand-50 text-brand-600 border border-brand-200 capitalize mt-1">
+            <h3 className="text-lg font-semibold text-zinc-900">{user?.full_name || user?.username}</h3>
+            <p className="text-sm text-zinc-500">{user?.email}</p>
+            <span className="badge text-[10px] bg-brand-50 text-brand-500 border border-brand-100 capitalize mt-1">
               {user?.role}
             </span>
           </div>
@@ -74,23 +93,23 @@ function ProfileSettings({ user }: { user: any }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Username</label>
-            <input type="text" value={user?.username || ''} className="input" disabled />
+            <input type="text" value={user?.username || ''} className="input bg-zinc-50" disabled />
           </div>
           <div>
             <label className="label">Email</label>
-            <input type="email" value={user?.email || ''} className="input" disabled />
+            <input type="email" value={user?.email || ''} className="input bg-zinc-50" disabled />
           </div>
           <div>
             <label className="label">Full Name</label>
-            <input type="text" value={user?.full_name || ''} className="input" disabled />
+            <input type="text" value={user?.full_name || ''} className="input bg-zinc-50" disabled />
           </div>
           <div>
             <label className="label">Role</label>
-            <input type="text" value={user?.role || ''} className="input capitalize" disabled />
+            <input type="text" value={user?.role || ''} className="input bg-zinc-50 capitalize" disabled />
           </div>
         </div>
 
-        <p className="text-xs text-slate-400">Contact an administrator to update your profile information.</p>
+        <p className="text-xs text-zinc-400">Contact an administrator to update your profile information.</p>
       </div>
     </div>
   )
@@ -127,7 +146,7 @@ function SecuritySettings() {
 
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-slate-900 mb-4">Change Password</h2>
+      <h2 className="font-semibold text-zinc-900 mb-4">Change Password</h2>
       <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
         <div>
           <label className="label">Current Password</label>
@@ -156,43 +175,40 @@ function SecuritySettings() {
   )
 }
 
-function NotificationSettings() {
-  const [settings, setSettings] = useState({
-    critical_failures: true,
-    test_complete: true,
-    device_discovered: true,
-    report_ready: false,
-  })
+function AppearanceSettings() {
+  const [theme, setTheme] = useState<Theme>(getStoredTheme)
+
+  useEffect(() => {
+    localStorage.setItem('edq_theme', theme)
+    applyTheme(theme)
+  }, [theme])
+
+  const options: { value: Theme; label: string; icon: React.ElementType }[] = [
+    { value: 'light', label: 'Light', icon: Sun },
+    { value: 'dark', label: 'Dark', icon: Moon },
+    { value: 'system', label: 'System', icon: MonitorIcon },
+  ]
 
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-slate-900 mb-4">Notification Preferences</h2>
-      <div className="space-y-4">
-        {[
-          { key: 'critical_failures', label: 'Critical Test Failures', desc: 'Get notified when essential tests fail' },
-          { key: 'test_complete', label: 'Test Run Complete', desc: 'Notification when a test run finishes' },
-          { key: 'device_discovered', label: 'New Device Discovered', desc: 'Alert when a new device is found on the network' },
-          { key: 'report_ready', label: 'Report Ready', desc: 'Notification when a report is generated' },
-        ].map(item => (
-          <div key={item.key} className="flex items-center justify-between py-2">
-            <div>
-              <p className="text-sm font-medium text-slate-900">{item.label}</p>
-              <p className="text-xs text-slate-500">{item.desc}</p>
-            </div>
-            <button
-              onClick={() => setSettings(s => ({ ...s, [item.key]: !s[item.key as keyof typeof s] }))}
-              className={`w-10 h-6 rounded-full transition-colors relative ${
-                settings[item.key as keyof typeof settings] ? 'bg-brand-500' : 'bg-slate-200'
-              }`}
-            >
-              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                settings[item.key as keyof typeof settings] ? 'translate-x-4.5' : 'translate-x-0.5'
-              }`} />
-            </button>
-          </div>
+      <h2 className="font-semibold text-zinc-900 mb-4">Theme</h2>
+      <div className="grid grid-cols-3 gap-3 max-w-md">
+        {options.map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => setTheme(opt.value)}
+            className={`flex flex-col items-center gap-2 p-4 rounded-lg border transition-colors ${
+              theme === opt.value
+                ? 'border-brand-500 bg-brand-50'
+                : 'border-zinc-200 hover:border-zinc-300'
+            }`}
+          >
+            <opt.icon className={`w-5 h-5 ${theme === opt.value ? 'text-brand-500' : 'text-zinc-400'}`} />
+            <span className="text-sm font-medium text-zinc-700">{opt.label}</span>
+          </button>
         ))}
       </div>
-      <p className="text-xs text-slate-400 mt-4">Notification preferences are stored locally. Server-side notifications are always sent for critical events.</p>
+      <p className="text-xs text-zinc-400 mt-3">Theme preference is saved locally.</p>
     </div>
   )
 }
