@@ -1,30 +1,35 @@
 """WebSocket routes for real-time test progress streaming."""
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, Set
 import json
+import logging
+from typing import Dict, Optional, Set
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from jose import JWTError, jwt
+
+from app.config import settings
+from app.security.auth import SESSION_COOKIE
+
+logger = logging.getLogger("edq.routes.websocket")
 
 router = APIRouter()
 
-# Active WebSocket connections
-connections: Dict[str, Set[WebSocket]] = {}
-
 
 class ConnectionManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: Dict[str, Set[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket, channel: str):
+    async def connect(self, websocket: WebSocket, channel: str) -> None:
         await websocket.accept()
         if channel not in self.active_connections:
             self.active_connections[channel] = set()
         self.active_connections[channel].add(websocket)
 
-    def disconnect(self, websocket: WebSocket, channel: str):
+    def disconnect(self, websocket: WebSocket, channel: str) -> None:
         if channel in self.active_connections:
             self.active_connections[channel].discard(websocket)
 
-    async def broadcast(self, channel: str, message: dict):
+    async def broadcast(self, channel: str, message: dict) -> None:
         if channel in self.active_connections:
             for connection in self.active_connections[channel].copy():
                 try:
@@ -36,16 +41,36 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
+    """Validate JWT from cookie or query param. Return payload or None."""
+    token = websocket.cookies.get(SESSION_COOKIE)
+    if not token:
+        token = websocket.query_params.get("token")
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
 @router.websocket("/test-run/{run_id}")
 async def test_run_ws(websocket: WebSocket, run_id: str):
     """WebSocket endpoint for real-time test run progress."""
+    payload = _authenticate_ws(websocket)
+    if not payload:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
+        return
+
     channel = f"test-run:{run_id}"
     await manager.connect(websocket, channel)
     try:
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
-            # Broadcast updates to all watchers of this test run
             await manager.broadcast(channel, message)
     except WebSocketDisconnect:
         manager.disconnect(websocket, channel)
@@ -54,6 +79,11 @@ async def test_run_ws(websocket: WebSocket, run_id: str):
 @router.websocket("/discovery/{task_id}")
 async def discovery_ws(websocket: WebSocket, task_id: str):
     """WebSocket endpoint for real-time discovery progress."""
+    payload = _authenticate_ws(websocket)
+    if not payload:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
+        return
+
     channel = f"discovery:{task_id}"
     await manager.connect(websocket, channel)
     try:

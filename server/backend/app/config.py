@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     # JWT
     JWT_SECRET: str = "change-me-jwt-secret-use-openssl-rand-hex-64"
+    JWT_REFRESH_SECRET: str = "change-me-refresh-secret-use-openssl-rand-hex-64"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8 hours
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -46,8 +47,14 @@ class Settings(BaseSettings):
     # Tools Sidecar
     TOOLS_SIDECAR_URL: str = "http://localhost:8001"
 
+    # Security
+    COOKIE_SECURE: bool = False  # Set True when serving over HTTPS
+
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
+    LOGIN_RATE_LIMIT_PER_MINUTE: int = 5
+    ACCOUNT_LOCKOUT_ATTEMPTS: int = 5
+    ACCOUNT_LOCKOUT_MINUTES: int = 15
 
     # Logging
     LOG_LEVEL: str = "INFO"

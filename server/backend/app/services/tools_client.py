@@ -1,10 +1,18 @@
 """Async HTTP client for the EDQ tools sidecar container."""
 
+import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from app.config import settings
+
+logger = logging.getLogger("edq.services.tools_client")
+
+_RETRYABLE_STATUS = {502, 503, 504}
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 2  # seconds, doubled each retry
 
 
 class ToolsClient:
@@ -19,13 +27,28 @@ class ToolsClient:
         payload: Dict[str, Any],
         timeout: int = 300,
     ) -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=timeout + 10) as client:
-            resp = await client.post(
-                f"{self.base_url}{path}",
-                json=payload,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        last_exc: Optional[Exception] = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=timeout + 10) as client:
+                    resp = await client.post(
+                        f"{self.base_url}{path}",
+                        json=payload,
+                    )
+                    if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
+                        logger.warning("Retryable %d from %s (attempt %d)", resp.status_code, path, attempt + 1)
+                        await asyncio.sleep(_RETRY_BACKOFF * (2 ** attempt))
+                        continue
+                    resp.raise_for_status()
+                    return resp.json()
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES - 1:
+                    logger.warning("Connection error to sidecar (attempt %d): %s", attempt + 1, exc)
+                    await asyncio.sleep(_RETRY_BACKOFF * (2 ** attempt))
+                    continue
+                raise
+        raise last_exc or RuntimeError("Unexpected retry exhaustion")
 
     async def health(self) -> Dict[str, Any]:
         """Check sidecar health and tool availability."""

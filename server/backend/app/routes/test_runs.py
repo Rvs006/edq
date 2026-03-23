@@ -341,7 +341,6 @@ async def upload_nessus(
         "findings_imported": created,
         "previously_existing": existing_count,
         "severity_breakdown": severity_counts,
-        "file_path": file_path,
     }
 
 

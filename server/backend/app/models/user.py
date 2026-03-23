@@ -1,6 +1,6 @@
 """User model — Test Engineers, Reviewers, Admins."""
 
-from sqlalchemy import Column, String, DateTime, Boolean, Enum as SAEnum
+from sqlalchemy import Column, String, DateTime, Boolean, Integer, Enum as SAEnum
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import enum
@@ -25,6 +25,8 @@ class User(Base):
     full_name = Column(String(128), nullable=True)
     role = Column(SAEnum(UserRole), nullable=False, default=UserRole.ENGINEER)
     is_active = Column(Boolean, default=True, nullable=False)
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
