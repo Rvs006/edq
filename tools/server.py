@@ -8,7 +8,9 @@ import subprocess
 import tempfile
 import time
 
-from flask import Flask, jsonify, request
+from typing import Tuple, Union
+
+from flask import Flask, Response, jsonify, request
 
 app = Flask(__name__)
 
@@ -126,25 +128,29 @@ def _parse_scan_request():
     except ValueError as e:
         return None, None, None, (str(e), 400)
 
-    timeout = min(int(data.get("timeout", 300)), 600)
+    try:
+        timeout = min(int(data.get("timeout", 300)), 600)
+    except (TypeError, ValueError):
+        return None, None, None, ("'timeout' must be an integer", 400)
 
     return target, args, timeout, None
 
 
+ESSENTIAL_TOOLS = {"nmap", "ssh_audit"}
+
+
 @app.route("/health", methods=["GET"])
-def health():
+def health() -> Response:
     tools_status = {}
     for key, binary in ALLOWED_TOOLS.items():
-        if _tool_available(binary):
-            tools_status[key] = _check_tool_version(binary)
-        else:
-            tools_status[key] = False
+        tools_status[key] = _tool_available(binary)
 
-    return jsonify({"status": "healthy", "tools": tools_status})
+    overall = "healthy" if all(tools_status.get(k) for k in ESSENTIAL_TOOLS) else "degraded"
+    return jsonify({"status": overall, "tools": tools_status})
 
 
 @app.route("/scan/nmap", methods=["POST"])
-def scan_nmap():
+def scan_nmap() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request()
     if err:
         return jsonify({"error": err[0]}), err[1]
@@ -158,7 +164,7 @@ def scan_nmap():
 
 
 @app.route("/scan/testssl", methods=["POST"])
-def scan_testssl():
+def scan_testssl() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request()
     if err:
         return jsonify({"error": err[0]}), err[1]
@@ -184,7 +190,7 @@ def scan_testssl():
 
 
 @app.route("/scan/ssh-audit", methods=["POST"])
-def scan_ssh_audit():
+def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request()
     if err:
         return jsonify({"error": err[0]}), err[1]
@@ -198,7 +204,7 @@ def scan_ssh_audit():
 
 
 @app.route("/scan/hydra", methods=["POST"])
-def scan_hydra():
+def scan_hydra() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request()
     if err:
         return jsonify({"error": err[0]}), err[1]
@@ -212,7 +218,7 @@ def scan_hydra():
 
 
 @app.route("/scan/nikto", methods=["POST"])
-def scan_nikto():
+def scan_nikto() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request()
     if err:
         return jsonify({"error": err[0]}), err[1]
@@ -226,7 +232,7 @@ def scan_nikto():
 
 
 @app.route("/scan/ping", methods=["POST"])
-def scan_ping():
+def scan_ping() -> Union[Response, Tuple[Response, int]]:
     data = request.get_json(force=True, silent=True)
     if not data or not data.get("target"):
         return jsonify({"error": "Missing 'target' field"}), 400
@@ -236,8 +242,11 @@ def scan_ping():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    count = min(int(data.get("count", 3)), 10)
-    timeout = min(int(data.get("timeout", 30)), 60)
+    try:
+        count = min(int(data.get("count", 3)), 10)
+        timeout = min(int(data.get("timeout", 30)), 60)
+    except (TypeError, ValueError):
+        return jsonify({"error": "'count' and 'timeout' must be integers"}), 400
 
     cmd = ["ping", "-c", str(count), "-W", "2", target]
     result = _run_tool(cmd, timeout)
