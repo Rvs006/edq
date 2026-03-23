@@ -32,6 +32,11 @@ from app.security.auth import (
 
 logger = logging.getLogger("edq.routes.auth")
 
+
+def _utcnow() -> datetime:
+    """Return current UTC time as a naive datetime (matches SQLite storage)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 router = APIRouter()
 
 
@@ -67,8 +72,8 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Check account lockout before password verification to avoid leaking credential validity
-    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
-        remaining = int((user.locked_until - datetime.now(timezone.utc)).total_seconds() / 60) + 1
+    if user.locked_until and user.locked_until > _utcnow():
+        remaining = int((user.locked_until - _utcnow()).total_seconds() / 60) + 1
         raise HTTPException(
             status_code=403,
             detail=f"Account is temporarily locked. Try again in {remaining} minute(s).",
@@ -78,7 +83,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         # Track failed attempts for account lockout and commit before raising
         user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
         if user.failed_login_attempts >= settings.ACCOUNT_LOCKOUT_ATTEMPTS:
-            user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
+            user.locked_until = _utcnow() + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
             logger.warning("Account locked for user %s after %d failed attempts", data.username, user.failed_login_attempts)
         await db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -89,7 +94,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     # Reset failed attempts on successful login
     user.failed_login_attempts = 0
     user.locked_until = None
-    user.last_login = datetime.now(timezone.utc)
+    user.last_login = _utcnow()
 
     access_token = create_access_token({"sub": user.id, "role": user.role.value})
     refresh_token = create_refresh_token({"sub": user.id})
