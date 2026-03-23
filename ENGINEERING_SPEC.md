@@ -1,11 +1,11 @@
-# CLAUDE.md — Electracom Device Qualifier (EDQ)
+# EDQ Engineering Specification
 
 ## CRITICAL: READ THIS ENTIRE FILE BEFORE WRITING ANY CODE
 
-This is the master instruction file for all AI development agents (Verdent Decks, Claude Code, Antigravity). It is the single source of truth for the EDQ project. If any other document contradicts this file, THIS FILE WINS.
+This is the master technical specification for the EDQ project. It serves as the single source of truth for architecture, database schema, API design, and implementation details. If any other document contradicts this file, THIS FILE WINS.
 
-**Last Updated:** 25 February 2026
-**Status:** Production Build — Gap Closure Phase
+**Last Updated:** March 2026
+**Status:** Production — V1.0
 **Company:** Electracom Projects Ltd (a Sauter Group Company)
 
 ---
@@ -931,148 +931,7 @@ def seed_database():
 
 ---
 
-## 14. VERDENT DECK PROMPTS (Copy-Paste Ready)
-
-### WAVE 1 — Foundation (Run These 3 in Parallel)
-
-**Deck A — Database + Auth + API Shell**
-```
-Read CLAUDE.md thoroughly before writing any code.
-
-Build the EDQ backend foundation:
-1. Create all 11 SQLAlchemy models from CLAUDE.md Section 3
-2. Create Alembic migration for initial schema
-3. Implement auth routes with httpOnly cookie JWT + CSRF
-4. Create Pydantic schemas for all models
-5. Scaffold all API route files with correct endpoints
-6. Create seed_data.py with all seed data from CLAUDE.md Section 12
-7. Create requirements.txt with all dependencies
-8. Ensure backend starts with: uvicorn app.main:app --reload
-
-Do NOT create the tools sidecar or frontend. Focus only on backend Python code.
-Use async/await throughout. Type hints on every function.
-```
-
-**Deck B — Docker + nginx + Tools Sidecar**
-```
-Read CLAUDE.md thoroughly before writing any code.
-
-Build the Docker infrastructure:
-1. Create docker-compose.yml with 3 services (api, frontend, tools) per CLAUDE.md Section 2
-2. Create backend/Dockerfile (python:3.12-slim, install requirements, run uvicorn)
-3. Create frontend/Dockerfile (node:18 build stage → nginx:alpine serve)
-4. Create tools/Dockerfile (ubuntu:22.04, install nmap, testssl.sh, ssh-audit, hydra, nikto)
-5. Create tools/server.py — Flask/FastAPI app on port 8001 with endpoints from Section 2.2
-6. Create nginx.conf: serve frontend on /, proxy /api/* to backend:8000, proxy /ws/* for WebSocket
-7. Add security headers in nginx
-8. Create .env.example with all required env vars
-9. Create setup.bat AND setup.sh scripts
-
-Test: docker compose up --build should start all 3 services.
-Tools health check at http://localhost:8001/health should show all tools available.
-```
-
-**Deck C — React Frontend Shell**
-```
-Read CLAUDE.md thoroughly before writing any code.
-
-Build the React frontend structure:
-1. Create Vite + React 18 project with Tailwind CSS
-2. Set up dark theme from CLAUDE.md Section 8.4
-3. Create all 8 pages as outlined in Section 8.2
-4. Create AppLayout with sidebar navigation
-5. Create AuthContext with httpOnly cookie auth (axios interceptors for CSRF)
-6. Create API client layer (api/*.js files)
-7. Create all common components (StatusBadge, VerdictBadge, DataTable)
-8. Set up React Router with ProtectedRoute
-9. Create WebSocket hook for real-time updates
-10. Install all frontend dependencies from Section 3.4
-
-Each page should have working UI layout with mock/placeholder data.
-Use Tailwind utility classes. Dark theme throughout.
-```
-
-### WAVE 2 — Features (Run After Wave 1 Merge)
-
-**Deck D — Test Engine + Tool Parsers**
-```
-Read CLAUDE.md thoroughly before writing any code.
-
-Build the test execution engine:
-1. Create test_engine.py — orchestrator that sequences tests for a run
-2. Create tool runners: call tools sidecar REST API, handle timeouts
-3. Create parsers for each tool output:
-   - nmap XML → structured port/service/OS data
-   - testssl.sh JSON → TLS versions, ciphers, certificate info
-   - ssh-audit JSON → SSH algorithms, recommendations
-   - hydra stdout → credential test results
-4. Create evaluation_engine.py — apply pass/fail rules from CLAUDE.md Section 5
-5. Create WobblyCableHandler from CLAUDE.md Section 10
-6. Wire test execution to WebSocket progress updates
-7. Create Nessus parser from CLAUDE.md Section 11
-
-Each parser should have test fixtures (sample tool outputs) and unit tests.
-```
-
-**Deck E — Report Generator**
-```
-Read CLAUDE.md thoroughly before writing any code.
-
-Build the report generation engine:
-1. Copy the 3 template .xlsx files from templates/ into backend/templates/excel/
-2. Create cell_mappings/ JSON files for all 3 templates per CLAUDE.md Section 4.4
-3. Create ExcelReportGenerator per CLAUDE.md Section 9
-4. Implement report generation for ALL 3 template formats
-5. Handle all differences between Pelco/EasyIO/Generic (Section 9.2)
-6. Create the report API endpoints (POST /api/runs/{id}/report/excel etc.)
-7. Test: generate a report using the Pelco template, open in Excel, verify all cells filled correctly
-
-CRITICAL: Use openpyxl load_workbook on the ACTUAL template file. Do NOT create Excel from scratch.
-Preserve ALL formatting, merged cells, borders, colours, logos.
-```
-
-**Deck F — Frontend Wiring**
-```
-Read CLAUDE.md thoroughly before writing any code.
-
-Connect the React frontend to the live backend:
-1. Replace all mock data with real API calls
-2. Wire LoginPage to POST /api/auth/login (cookie-based)
-3. Wire DashboardPage to GET /api/admin/stats
-4. Wire DevicesPage to GET /api/devices
-5. Wire TestSessionPage to:
-   - GET /api/runs/{id} for run detail
-   - POST /api/runs/{id}/start to begin testing
-   - WebSocket /ws/test-run/{id} for live progress
-   - PUT /api/runs/{id}/results/{test_id} for manual test entry
-6. Wire ReportsPage to POST /api/runs/{id}/report/excel (download)
-7. Wire AdminPage to user management + template endpoints
-8. Handle loading states, error states, empty states on every page
-9. Test the complete flow: login → create device → start test run → view progress → download report
-```
-
-### WAVE 3 — Integration (Run After Wave 2 Merge)
-
-**Deck G — Integration + Testing**
-```
-Read CLAUDE.md thoroughly before writing any code.
-
-Final integration and testing:
-1. Run docker compose up --build and fix ALL startup errors
-2. Test complete user flow: login → create device → start test → complete manual tests → generate report
-3. Fix any API mismatches between frontend and backend
-4. Ensure WebSocket connection works through nginx proxy
-5. Verify Excel report opens correctly in Microsoft Excel
-6. Verify all 3 template formats generate correct reports
-7. Run seed_data.py and verify all data loads
-8. Test all CRUD operations on every resource
-9. Check security: CSRF tokens present, cookies httpOnly, no sensitive data in responses
-10. Add error handling for common failures (tools sidecar down, database locked, file not found)
-```
-
----
-
-## 15. CRITICAL GOTCHAS
+## 14. CRITICAL GOTCHAS
 
 1. **Windows line endings:** Docker builds fail with \r\n. Use `.gitattributes`: `* text=auto eol=lf`
 2. **SQLite concurrent writes:** Use WAL mode: `PRAGMA journal_mode=WAL;`
@@ -1087,7 +946,7 @@ Final integration and testing:
 
 ---
 
-## 16. DEFINITION OF DONE
+## 15. DEFINITION OF DONE
 
 EDQ V1.0 is complete when:
 
@@ -1109,4 +968,4 @@ EDQ V1.0 is complete when:
 
 ---
 
-*END OF CLAUDE.md — Electracom Device Qualifier*
+*END OF EDQ ENGINEERING SPECIFICATION*

@@ -124,7 +124,7 @@ EDQ reduces qualification to 1–2 hours per device through: zero-input auto-dis
 
 ```
 edq/
-├── CLAUDE.md                          # This PRD document
+├── ENGINEERING_SPEC.md                # Technical specification
 ├── README.md                          # Quick start guide
 ├── .env.example                       # Environment variable template
 ├── .gitignore
@@ -485,7 +485,7 @@ edq/
 | XML Parsing | defusedxml | 0.7+ | Safe Nessus XML parsing |
 | Password Hashing | bcrypt | 4.1+ | User credential storage |
 | HTTP Client | httpx | 0.27+ | Async HTTP for agent comms |
-| AI API | anthropic | 0.40+ | Claude API for synopsis drafting |
+| AI API | httpx | 0.27+ | LLM API client for synopsis drafting |
 
 ### 3.2 Agent
 
@@ -2710,8 +2710,8 @@ class SynopsisService:
         if report_config and not report_config.ai_synopsis_enabled:
             return False, "AI synopsis is disabled for this client due to data handling policy."
 
-        if not self.config.anthropic_api_key:
-            return False, "Anthropic API key not configured."
+        if not self.config.ai_api_key:
+            return False, "AI API key not configured."
 
         return True, ""
 ```
@@ -2805,8 +2805,8 @@ class SynopsisGenerator:
         anonymised_data, token_map = anonymiser.anonymise(run)
         prompt = self._build_prompt(anonymised_data)
 
-        response = await self.anthropic_client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+        response = await self.llm_client.messages.create(
+            model="llm-provider-model",
             max_tokens=1024,
             system=self.SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}]
@@ -3585,7 +3585,7 @@ services:
       - DATABASE_URL=sqlite:////data/edq.db
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AI_API_KEY=${AI_API_KEY}
       - ALLOWED_ORIGINS=https://edq.electracom.co.uk
       - MIN_AGENT_VERSION=1.0.0
       - AI_SYNOPSIS_GLOBAL=true
@@ -3663,7 +3663,7 @@ CMD ["python", "worker.py"]
 
 ```bash
 SECRET_KEY=<random-64-char-hex>
-ANTHROPIC_API_KEY=sk-ant-...          # Optional — AI synopsis
+AI_API_KEY=<your-api-key>             # Optional — AI synopsis
 DATABASE_URL=sqlite:////data/edq.db
 REDIS_URL=redis://redis:6379/0
 ALLOWED_ORIGINS=https://edq.electracom.co.uk
@@ -3807,7 +3807,7 @@ All identified operational gaps and their resolution status:
 
 # Section 26 — Integration Testing & Real Device Validation Protocol
 
-> **Purpose**: This section provides the AI development agent (Verdent, Claude Code, or equivalent) with a complete playbook for guiding the user through real-device integration testing. The agent MUST walk the user through these steps interactively when the user indicates they are ready to test against a physical device. This section is device-agnostic — the same protocol applies regardless of manufacturer, model, or device category.
+> **Purpose**: This section provides the test protocol for real-device integration testing. Engineers MUST follow these steps when testing against a physical device. This section is device-agnostic — the same protocol applies regardless of manufacturer, model, or device category.
 
 ---
 
@@ -4149,7 +4149,7 @@ This is the core of the device-agnostic design — the app is useful from the ve
 
 ## 26.5 Agent Behaviour Requirements
 
-The following instructions are for the AI development agent specifically. They define how the agent should behave during integration testing.
+The following instructions define the expected workflow during integration testing.
 
 ### 26.5.1 When the User Says "I'm ready to test" or "I've connected a device"
 
@@ -4167,7 +4167,7 @@ The following instructions are for the AI development agent specifically. They d
 2. **Always check raw tool output** — read the actual file in `/data/tool_output/`
 3. **Never assume the device is broken** — the code is more likely wrong than the device
 4. **Show the user what you found** — don't just say "I fixed it", explain what was wrong
-5. **If you can't diagnose within 3 attempts**, tell the user: "I'm stuck on this issue. Here's what I've tried: [list]. The raw output looks like: [snippet]. This might need manual investigation or help from the Claude project chat."
+5. **If you can't diagnose within 3 attempts**, escalate the issue with documentation of what was tried, raw output snippets, and a recommendation for manual investigation.
 
 ### 26.5.3 When Generating Reports
 
@@ -4185,7 +4185,7 @@ If the agent encounters any of these situations, it should inform the user that 
 - Docker networking issue that persists after 3 fix attempts — may be Windows/WSL2 specific
 - Report template has complex formatting that openpyxl can't replicate — may need manual Excel adjustment
 
-In these cases, the agent should say: "This is beyond what I can fix automatically. I recommend opening your Claude project chat with the EDQ context and describing [specific issue]. The full project history there will help diagnose this."
+In these cases, escalate to the team lead with full context of the issue and what was attempted. These scenarios may require manual intervention or custom tool development.
 
 ---
 

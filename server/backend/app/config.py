@@ -37,10 +37,10 @@ class Settings(BaseSettings):
     AGENT_API_KEY_LENGTH: int = 64
     AGENT_HEARTBEAT_TIMEOUT: int = 300  # 5 minutes
 
-    # AI Synopsis (optional — V2 feature)
+    # AI Synopsis (optional — configure with your preferred LLM provider)
     AI_API_KEY: str = ""
-    AI_API_URL: str = "https://api.anthropic.com/v1/messages"
-    AI_MODEL: str = "claude-sonnet-4-20250514"
+    AI_API_URL: str = ""
+    AI_MODEL: str = "gpt-4o"
     AI_MAX_SYNOPSIS_PER_HOUR: int = 10
 
     # Tools Sidecar
