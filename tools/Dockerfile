@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin testssl.sh to a stable release tag
-RUN git clone --depth 1 --branch v3.2 https://github.com/drwetter/testssl.sh.git /opt/testssl && \
+RUN git clone --depth 1 --branch v3.2.3 https://github.com/drwetter/testssl.sh.git /opt/testssl && \
     chmod +x /opt/testssl/testssl.sh && \
     ln -s /opt/testssl/testssl.sh /usr/local/bin/testssl.sh
 
