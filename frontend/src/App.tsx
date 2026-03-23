@@ -15,6 +15,7 @@ import SettingsPage from './pages/SettingsPage'
 import ReviewQueuePage from './pages/ReviewQueuePage'
 import AdminPage from './pages/AdminPage'
 import NetworkScanPage from './pages/NetworkScanPage'
+import TestPlansPage from './pages/TestPlansPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
@@ -55,6 +56,7 @@ export default function App() {
                 <Route path="/audit-log" element={<AuditLogPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/network-scan" element={<NetworkScanPage />} />
+                <Route path="/test-plans" element={<TestPlansPage />} />
               </Routes>
             </DashboardLayout>
           </ProtectedRoute>

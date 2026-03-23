@@ -29,6 +29,8 @@ from app.routes import (
     synopsis,
     websocket_routes,
     health,
+    network_scan,
+    test_plans,
 )
 
 
@@ -132,6 +134,8 @@ def create_app() -> FastAPI:
     app.include_router(synopsis.router, prefix="/api/synopsis", tags=["AI Synopsis"])
     app.include_router(websocket_routes.router, prefix="/api/ws", tags=["WebSocket"])
     app.include_router(health.router, prefix="/api/health", tags=["Health"])
+    app.include_router(network_scan.router, prefix="/api/network-scan", tags=["Network Scan"])
+    app.include_router(test_plans.router, prefix="/api/test-plans", tags=["Test Plans"])
 
     if os.path.isdir(FRONTEND_DIR):
         assets_dir = os.path.join(FRONTEND_DIR, "assets")

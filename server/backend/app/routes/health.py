@@ -34,3 +34,14 @@ async def health_check():
         "database": db_status,
         "tools_sidecar": tools_status,
     }
+
+
+@router.get("/tools/versions")
+async def tool_versions():
+    """Return installed tool versions from the sidecar."""
+    from app.services.tools_client import tools_client
+    try:
+        result = await tools_client.versions()
+        return {"tools": result.get("versions", {}), "status": "ok"}
+    except Exception as e:
+        return {"tools": {}, "error": str(e), "status": "error"}
