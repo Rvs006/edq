@@ -1,0 +1,36 @@
+{
+  "template_name": "easyio_fw08",
+  "synopsis_sheet": "Synopsis",
+  "testplan_sheet": "01 Test - Questions",
+  "whitelist_sheet": "Protocol Whitelist",
+  "nessus_sheet": "01 Test - Nessus",
+  "metadata_cells": {
+    "manufacturer": "E13",
+    "model": "E14",
+    "serial": "E15",
+    "firmware": "E16",
+    "tester_name": "E19",
+    "start_date": "E20",
+    "end_date": "E21",
+    "overall_result": "E24",
+    "synopsis_text": "B28"
+  },
+  "testplan_start_row": 14,
+  "testplan_row_count": 46,
+  "testplan_columns": {
+    "test_number": "B",
+    "test_description": "C",
+    "essential_pass": "D",
+    "test_result": "E",
+    "test_comments": "F",
+    "script_flag": "G"
+  },
+  "verdict_map": {
+    "pass": "PASS",
+    "qualified_pass": "QUALIFIED PASS",
+    "fail": "FAIL",
+    "advisory": "INFO",
+    "info": "INFO",
+    "na": "N/A"
+  }
+}

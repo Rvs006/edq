@@ -1,0 +1,58 @@
+"""Device model — IP devices under test."""
+
+from sqlalchemy import Column, String, DateTime, Text, JSON, ForeignKey, Enum as SAEnum
+from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+import enum
+import uuid
+
+from app.models.database import Base
+
+
+class DeviceCategory(str, enum.Enum):
+    CAMERA = "camera"
+    CONTROLLER = "controller"
+    INTERCOM = "intercom"
+    ACCESS_PANEL = "access_panel"
+    LIGHTING = "lighting"
+    HVAC = "hvac"
+    IOT_SENSOR = "iot_sensor"
+    METER = "meter"
+    UNKNOWN = "unknown"
+
+
+class DeviceStatus(str, enum.Enum):
+    DISCOVERED = "discovered"
+    IDENTIFIED = "identified"
+    TESTING = "testing"
+    TESTED = "tested"
+    QUALIFIED = "qualified"
+    FAILED = "failed"
+
+
+class Device(Base):
+    __tablename__ = "devices"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ip_address = Column(String(45), nullable=False, index=True)
+    mac_address = Column(String(17), nullable=True)
+    hostname = Column(String(255), nullable=True)
+    manufacturer = Column(String(128), nullable=True)
+    model = Column(String(128), nullable=True)
+    firmware_version = Column(String(64), nullable=True)
+    category = Column(SAEnum(DeviceCategory), default=DeviceCategory.UNKNOWN)
+    status = Column(SAEnum(DeviceStatus), default=DeviceStatus.DISCOVERED)
+    oui_vendor = Column(String(128), nullable=True)  # IEEE OUI lookup result
+    os_fingerprint = Column(String(256), nullable=True)
+    open_ports = Column(JSON, nullable=True)  # [{port, protocol, service, version}]
+    discovery_data = Column(JSON, nullable=True)  # Full discovery fingerprint
+    notes = Column(Text, nullable=True)
+    profile_id = Column(String(36), ForeignKey("device_profiles.id"), nullable=True)
+    discovered_by = Column(String(36), ForeignKey("agents.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    profile = relationship("DeviceProfile", back_populates="devices")
+    test_runs = relationship("TestRun", back_populates="device")
+    agent = relationship("Agent", back_populates="devices")
