@@ -208,12 +208,12 @@ export default function ScanSchedulesPage() {
 
   const { data: devices } = useQuery({
     queryKey: ['devices-for-schedules'],
-    queryFn: () => devicesApi.list({ limit: 500 }).then((r) => r.data),
+    queryFn: () => devicesApi.list({ limit: 200 }).then((r) => r.data),
   })
 
   const { data: templates } = useQuery({
     queryKey: ['templates-for-schedules'],
-    queryFn: () => templatesApi.list({ limit: 500 }).then((r) => r.data),
+    queryFn: () => templatesApi.list({ limit: 200 }).then((r) => r.data),
   })
 
   const toggleMutation = useMutation({
