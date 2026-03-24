@@ -306,7 +306,7 @@ function BrandingSettings() {
         primary_color: d.primary_color || '#2563eb',
         footer_text: d.footer_text || '',
       })
-      if (d.logo_path) setLogoPreview(d.logo_path)
+      if (d.logo_path) setLogoPreview('/api/settings/branding/logo')
     }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 

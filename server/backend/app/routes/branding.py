@@ -2,10 +2,10 @@
 
 import logging
 import os
-import shutil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,7 +96,8 @@ async def upload_branding_logo(
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image (PNG, JPEG, SVG)")
 
-    if file.size and file.size > 5 * 1024 * 1024:
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Logo file must be under 5MB")
 
     upload_dir = os.path.join(settings.UPLOAD_DIR, "branding")
@@ -107,7 +108,7 @@ async def upload_branding_logo(
     logo_path = os.path.join(upload_dir, logo_filename)
 
     with open(logo_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        f.write(contents)
 
     result = await db.execute(select(BrandingSettings).limit(1))
     branding = result.scalar_one_or_none()
@@ -120,3 +121,18 @@ async def upload_branding_logo(
     await db.flush()
     await db.refresh(branding)
     return branding
+
+
+@router.get("/branding/logo")
+async def get_branding_logo(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    """Serve the uploaded company logo file."""
+    result = await db.execute(select(BrandingSettings).limit(1))
+    branding = result.scalar_one_or_none()
+    if not branding or not branding.logo_path:
+        raise HTTPException(status_code=404, detail="No logo uploaded")
+    if not os.path.isfile(branding.logo_path):
+        raise HTTPException(status_code=404, detail="Logo file not found on disk")
+    return FileResponse(branding.logo_path)

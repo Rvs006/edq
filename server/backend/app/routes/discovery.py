@@ -148,7 +148,7 @@ def _guess_category(os_fp: Optional[str], services: List[Dict[str, Any]]) -> Dev
 
     if any(kw in service_names for kw in ("rtsp", "onvif", "axis", "hikvision", "dahua", "pelco", "hanwha", "vivotek")):
         return DeviceCategory.CAMERA
-    if any(kw in service_names for kw in ("bacnet", "easyio", "sauter", "modbus", "hvac", "lonworks", "knx")):
+    if any(kw in service_names for kw in ("bacnet", "easyio", "sauter", "hvac", "lonworks", "knx")):
         return DeviceCategory.CONTROLLER
     if any(kw in service_names for kw in ("sip", "intercom", "2n")):
         return DeviceCategory.INTERCOM
