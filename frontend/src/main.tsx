@@ -5,14 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import './index.css'
-
-const storedTheme = (localStorage.getItem('edq_theme') as 'light' | 'dark' | 'system') || 'light'
-if (storedTheme === 'dark') {
-  document.documentElement.classList.add('dark')
-} else if (storedTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-  document.documentElement.classList.add('dark')
-}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,6 +22,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <ThemeProvider>
         <AuthProvider>
           <App />
           <Toaster
@@ -44,6 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             }}
           />
         </AuthProvider>
+        </ThemeProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>,

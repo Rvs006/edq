@@ -73,6 +73,7 @@ function CreateScheduleDialog({
       setError('Please select a device and template')
       return
     }
+    setError('')
     createMutation.mutate({
       device_id: deviceId,
       template_id: templateId,
@@ -207,12 +208,12 @@ export default function ScanSchedulesPage() {
 
   const { data: devices } = useQuery({
     queryKey: ['devices-for-schedules'],
-    queryFn: () => devicesApi.list().then((r) => r.data),
+    queryFn: () => devicesApi.list({ limit: 500 }).then((r) => r.data),
   })
 
   const { data: templates } = useQuery({
     queryKey: ['templates-for-schedules'],
-    queryFn: () => templatesApi.list().then((r) => r.data),
+    queryFn: () => templatesApi.list({ limit: 500 }).then((r) => r.data),
   })
 
   const toggleMutation = useMutation({

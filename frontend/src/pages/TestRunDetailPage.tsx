@@ -12,6 +12,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import SegmentedProgressBar from '@/components/common/SegmentedProgressBar'
+import SmartPrompt from '@/components/common/SmartPrompt'
+import CsvExportButton from '@/components/common/CsvExportButton'
 import TestSidebar, { type TestResultItem } from '@/components/testing/TestSidebar'
 import TestDetail, { type TestResultDetail } from '@/components/testing/TestDetail'
 import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
@@ -323,6 +325,19 @@ export default function TestRunDetailPage() {
   const canSelfApprove =
     user?.role === 'admin' || (isOwner && (user?.role === 'engineer' || user?.role === 'reviewer'))
 
+  const pendingManualCount = useMemo(() => {
+    return (results as any[]).filter(
+      (r: any) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
+    ).length
+  }, [results])
+
+  const firstPendingManualId = useMemo(() => {
+    const found = (results as any[]).find(
+      (r: any) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
+    )
+    return found?.id || null
+  }, [results])
+
   if (runLoading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
@@ -412,11 +427,35 @@ export default function TestRunDetailPage() {
               segments={progressSegments}
             />
           </div>
+          <CsvExportButton
+            results={sidebarResults}
+            deviceName={run.device_name || `device-${run.device_id?.slice(0, 8)}`}
+          />
           <span className="text-xs font-mono text-zinc-500 flex-shrink-0">
             {run.progress_pct ?? progressPct}% ({completedCount}/{results.length})
           </span>
         </div>
       </div>
+
+      {pendingManualCount > 0 && run.status !== 'pending' && run.status !== 'error' && (
+        <div className="flex-shrink-0 px-4 pt-3">
+          <SmartPrompt
+            variant="warning"
+            action={
+              firstPendingManualId
+                ? {
+                    label: 'Go to first',
+                    onClick: () => setSelectedTestId(firstPendingManualId),
+                  }
+                : undefined
+            }
+          >
+            <strong>{pendingManualCount} manual test{pendingManualCount > 1 ? 's' : ''} remaining.</strong>{' '}
+            These require you to physically interact with the device. Click on them in the sidebar
+            to see step-by-step instructions.
+          </SmartPrompt>
+        </div>
+      )}
 
       <AnimatePresence>
         {ws.cableStatus !== 'connected' && (

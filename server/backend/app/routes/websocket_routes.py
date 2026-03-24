@@ -93,3 +93,26 @@ async def discovery_ws(websocket: WebSocket, task_id: str):
             await manager.broadcast(channel, message)
     except WebSocketDisconnect:
         manager.disconnect(websocket, channel)
+
+
+@router.websocket("/agents")
+async def agents_ws(websocket: WebSocket):
+    """WebSocket endpoint for real-time agent status updates.
+
+    Broadcasts heartbeat events to all connected clients when agents
+    report status changes via the heartbeat REST endpoint.
+    """
+    payload = _authenticate_ws(websocket)
+    if not payload:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
+        return
+
+    channel = "agents"
+    await manager.connect(websocket, channel)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            await manager.broadcast(channel, message)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, channel)
