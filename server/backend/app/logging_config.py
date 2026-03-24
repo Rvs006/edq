@@ -2,7 +2,6 @@
 
 import logging
 import logging.config
-import sys
 from typing import Any
 
 from app.config import settings
