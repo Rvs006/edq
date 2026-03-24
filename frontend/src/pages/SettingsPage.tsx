@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import { authApi, healthApi, brandingApi } from '@/lib/api'
 import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw, Save, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 
+// Theme types kept for backward compatibility but actual management is in ThemeContext
 type Theme = 'light' | 'dark' | 'system'
 
 function getStoredTheme(): Theme {
-  return (localStorage.getItem('edq_theme') as Theme) || 'light'
+  return (localStorage.getItem('edq-theme') as Theme) || 'system'
 }
 
 function applyTheme(theme: Theme) {
@@ -235,12 +237,7 @@ function SecuritySettings() {
 }
 
 function AppearanceSettings() {
-  const [theme, setTheme] = useState<Theme>(getStoredTheme)
-
-  useEffect(() => {
-    localStorage.setItem('edq_theme', theme)
-    applyTheme(theme)
-  }, [theme])
+  const { mode, setMode } = useTheme()
 
   const options: { value: Theme; label: string; icon: React.ElementType }[] = [
     { value: 'light', label: 'Light', icon: Sun },
@@ -250,20 +247,20 @@ function AppearanceSettings() {
 
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-zinc-900 mb-4">Theme</h2>
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Theme</h2>
       <div className="grid grid-cols-3 gap-3 max-w-md">
         {options.map(opt => (
           <button
             key={opt.value}
-            onClick={() => setTheme(opt.value)}
+            onClick={() => setMode(opt.value)}
             className={`flex flex-col items-center gap-2 p-4 rounded-lg border transition-colors ${
-              theme === opt.value
-                ? 'border-brand-500 bg-brand-50'
-                : 'border-zinc-200 hover:border-zinc-300'
+              mode === opt.value
+                ? 'border-brand-500 bg-brand-50 dark:bg-brand-950/30'
+                : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
             }`}
           >
-            <opt.icon className={`w-5 h-5 ${theme === opt.value ? 'text-brand-500' : 'text-zinc-400'}`} />
-            <span className="text-sm font-medium text-zinc-700">{opt.label}</span>
+            <opt.icon className={`w-5 h-5 ${mode === opt.value ? 'text-brand-500' : 'text-zinc-400'}`} />
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{opt.label}</span>
           </button>
         ))}
       </div>

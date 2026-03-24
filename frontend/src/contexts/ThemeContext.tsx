@@ -51,6 +51,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (mode !== 'system') return
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const handler = () => {
+      // Trigger a re-render so isDark recalculates
+      setModeState('system')
       const root = document.documentElement
       if (mq.matches) {
         root.classList.add('dark')
