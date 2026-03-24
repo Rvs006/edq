@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { reportsApi, testRunsApi } from '@/lib/api'
+import type { TestRun, ReportTemplate } from '@/lib/types'
 import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -58,8 +59,9 @@ export default function ReportsPage() {
           window.open(data.download_url, '_blank')
         }
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Report generation failed')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Report generation failed')
     } finally {
       setGenerating(false)
     }
@@ -82,14 +84,14 @@ export default function ReportsPage() {
 
       <div data-tour="report-form" className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 card p-5">
-          <h2 className="font-semibold text-zinc-900 mb-4">Generate Report</h2>
+          <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Generate Report</h2>
 
           <div className="space-y-4">
             <div>
               <label className="label">Test Run</label>
               <select value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)} className="input">
                 <option value="">Select a completed test run...</option>
-                {runs?.map((run: any) => (
+                {runs?.map((run: TestRun) => (
                   <option key={run.id} value={run.id}>
                     Run {run.id.slice(0, 8)} &mdash; {run.passed_tests}/{run.total_tests} passed &mdash; {new Date(run.created_at).toLocaleDateString()}
                   </option>
@@ -108,12 +110,12 @@ export default function ReportsPage() {
                     className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
                       reportType === key
                         ? 'border-brand-500 bg-brand-50'
-                        : 'border-zinc-200 hover:border-zinc-300'
+                        : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
                     }`}
                   >
                     <Icon className={`w-6 h-6 ${reportType === key ? 'text-brand-500' : 'text-zinc-400'}`} />
                     <div className="text-left">
-                      <p className="text-sm font-semibold text-zinc-900">{label}</p>
+                      <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{label}</p>
                       <p className="text-xs text-zinc-500">{ext} format</p>
                     </div>
                   </button>
@@ -128,7 +130,7 @@ export default function ReportsPage() {
                   Report Template
                 </label>
                 <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} className="input">
-                  {availableTemplates.map((t: any) => (
+                  {availableTemplates.map((t: ReportTemplate) => (
                     <option key={t.key} value={t.key}>
                       {t.name || t.label}
                       {t.device_category ? ` (${t.device_category})` : ''}
@@ -149,7 +151,7 @@ export default function ReportsPage() {
                 onChange={(e) => setIncludeSynopsis(e.target.checked)}
                 className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500"
               />
-              <label htmlFor="synopsis" className="text-sm text-zinc-700">
+              <label htmlFor="synopsis" className="text-sm text-zinc-700 dark:text-zinc-300">
                 Include AI-generated synopsis (if available)
               </label>
             </div>
@@ -163,7 +165,7 @@ export default function ReportsPage() {
 
         <div className="space-y-4">
           <div className="card p-4">
-            <h3 className="font-semibold text-zinc-900 mb-3">Template Formats</h3>
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Template Formats</h3>
             <div className="space-y-2">
               {[
                 { name: 'Generic C00', desc: 'Universal IP device template (43 tests)' },
@@ -173,7 +175,7 @@ export default function ReportsPage() {
                 <div key={fw.name} className="flex items-center gap-2 py-1">
                   <div className="w-2 h-2 rounded-full bg-brand-500" />
                   <div>
-                    <p className="text-sm font-medium text-zinc-900">{fw.name}</p>
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{fw.name}</p>
                     <p className="text-xs text-zinc-500">{fw.desc}</p>
                   </div>
                 </div>
@@ -182,8 +184,8 @@ export default function ReportsPage() {
           </div>
 
           <div className="card p-4">
-            <h3 className="font-semibold text-zinc-900 mb-3">Report Contents</h3>
-            <ul className="space-y-2 text-sm text-zinc-600">
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Report Contents</h3>
+            <ul className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
               {[
                 'Executive summary with overall verdict',
                 'Device information and network details',
@@ -202,7 +204,7 @@ export default function ReportsPage() {
           </div>
 
           <div className="card p-4">
-            <h3 className="font-semibold text-zinc-900 mb-3">Verdict Legend</h3>
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Verdict Legend</h3>
             <div className="space-y-1.5">
               {[
                 { label: 'PASS', color: 'bg-green-500', desc: 'All tests passed' },
@@ -211,7 +213,7 @@ export default function ReportsPage() {
               ].map(v => (
                 <div key={v.label} className="flex items-center gap-2">
                   <div className={`w-2.5 h-2.5 rounded-full ${v.color}`} />
-                  <span className="text-xs font-medium text-zinc-900 w-28">{v.label}</span>
+                  <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 w-28">{v.label}</span>
                   <span className="text-xs text-zinc-500">{v.desc}</span>
                 </div>
               ))}

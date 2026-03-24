@@ -1,32 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import { authApi, healthApi, brandingApi } from '@/lib/api'
+import type { TourState } from '@/lib/types'
 import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw, Save, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-type Theme = 'light' | 'dark' | 'system'
-
-function getStoredTheme(): Theme {
-  return (localStorage.getItem('edq_theme') as Theme) || 'light'
-}
-
-function applyTheme(theme: Theme) {
-  const root = document.documentElement
-  if (theme === 'dark') {
-    root.classList.add('dark')
-  } else if (theme === 'system') {
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
-    }
-  } else {
-    root.classList.remove('dark')
-  }
-}
-
-export default function SettingsPage({ tourState }: { tourState?: any }) {
+export default function SettingsPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
 
@@ -54,7 +35,7 @@ export default function SettingsPage({ tourState }: { tourState?: any }) {
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
                 activeTab === tab.id
                   ? 'bg-brand-50 text-brand-500'
-                  : 'text-zinc-600 hover:bg-zinc-100'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
               }`}
             >
               <tab.icon className="w-4 h-4" />
@@ -76,7 +57,7 @@ export default function SettingsPage({ tourState }: { tourState?: any }) {
   )
 }
 
-function ProfileSettings({ user }: { user: Record<string, string | boolean | null | undefined> }) {
+function ProfileSettings({ user }: { user: { full_name?: string | null; username?: string; email?: string; role?: string; id?: string } | null }) {
   const { refreshUser } = useAuth()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -103,7 +84,7 @@ function ProfileSettings({ user }: { user: Record<string, string | boolean | nul
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-zinc-900">Profile Information</h2>
+        <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">Profile Information</h2>
         {!editing ? (
           <button onClick={() => setEditing(true)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
             Edit Profile
@@ -124,11 +105,11 @@ function ProfileSettings({ user }: { user: Record<string, string | boolean | nul
         <div className="flex items-center gap-4 mb-6">
           <div className="w-16 h-16 rounded-full bg-brand-500 flex items-center justify-center">
             <span className="text-xl font-bold text-white">
-              {user?.full_name?.[0] || user?.username?.[0] || 'U'}
+              {(user?.full_name ?? '')[0] || (user?.username ?? '')[0] || 'U'}
             </span>
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-zinc-900">{user?.full_name || user?.username}</h3>
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{user?.full_name || user?.username}</h3>
             <p className="text-sm text-zinc-500">{user?.email}</p>
             <span className="badge text-[10px] bg-brand-50 text-brand-500 border border-brand-100 capitalize mt-1">
               {user?.role}
@@ -205,7 +186,7 @@ function SecuritySettings() {
 
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-zinc-900 mb-4">Change Password</h2>
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Change Password</h2>
       <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
         <div>
           <label className="label">Current Password</label>
@@ -235,12 +216,7 @@ function SecuritySettings() {
 }
 
 function AppearanceSettings() {
-  const [theme, setTheme] = useState<Theme>(getStoredTheme)
-
-  useEffect(() => {
-    localStorage.setItem('edq_theme', theme)
-    applyTheme(theme)
-  }, [theme])
+  const { mode, setMode } = useTheme()
 
   const options: { value: Theme; label: string; icon: React.ElementType }[] = [
     { value: 'light', label: 'Light', icon: Sun },
@@ -250,20 +226,20 @@ function AppearanceSettings() {
 
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-zinc-900 mb-4">Theme</h2>
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Theme</h2>
       <div className="grid grid-cols-3 gap-3 max-w-md">
         {options.map(opt => (
           <button
             key={opt.value}
-            onClick={() => setTheme(opt.value)}
+            onClick={() => setMode(opt.value)}
             className={`flex flex-col items-center gap-2 p-4 rounded-lg border transition-colors ${
-              theme === opt.value
-                ? 'border-brand-500 bg-brand-50'
-                : 'border-zinc-200 hover:border-zinc-300'
+              mode === opt.value
+                ? 'border-brand-500 bg-brand-50 dark:bg-brand-950/30'
+                : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
             }`}
           >
-            <opt.icon className={`w-5 h-5 ${theme === opt.value ? 'text-brand-500' : 'text-zinc-400'}`} />
-            <span className="text-sm font-medium text-zinc-700">{opt.label}</span>
+            <opt.icon className={`w-5 h-5 ${mode === opt.value ? 'text-brand-500' : 'text-zinc-400'}`} />
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{opt.label}</span>
           </button>
         ))}
       </div>
@@ -305,7 +281,7 @@ function SystemStatus() {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-zinc-900">System Status</h2>
+        <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">System Status</h2>
         <button onClick={fetchVersions} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
           Refresh
         </button>
@@ -323,9 +299,9 @@ function SystemStatus() {
             const version = versions[key]
             const available = version && version !== 'unavailable'
             return (
-              <div key={key} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-zinc-50">
+              <div key={key} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-800">
                 <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${available ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                <span className="text-sm font-medium text-zinc-700 w-24">{label}</span>
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 w-24">{label}</span>
                 <span className="text-xs text-zinc-500 flex-1 truncate font-mono">
                   {available ? version : 'Not available'}
                 </span>
@@ -372,8 +348,9 @@ function BrandingSettings() {
         await brandingApi.uploadLogo(logoFile)
       }
       toast.success('Branding settings saved')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to save branding')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to save branding')
     } finally {
       setSaving(false)
     }
@@ -399,7 +376,7 @@ function BrandingSettings() {
 
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-zinc-900 mb-1">Report Branding</h2>
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-1">Report Branding</h2>
       <p className="text-xs text-zinc-500 mb-4">Customize the look of generated qualification reports.</p>
 
       <form onSubmit={handleSave} className="space-y-4 max-w-md">
@@ -467,7 +444,7 @@ function BrandingSettings() {
   )
 }
 
-function HelpSection({ tourState }: { tourState?: any }) {
+function HelpSection({ tourState }: { tourState?: TourState }) {
   const navigate = useNavigate()
 
   return (

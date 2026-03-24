@@ -8,7 +8,7 @@ Falls back to a local keyword-based lookup for offline/air-gapped environments.
 import asyncio
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import httpx
 

@@ -1,6 +1,6 @@
 """Test Template model — reusable test suites with protocol whitelists."""
 
-from sqlalchemy import Column, String, DateTime, Text, JSON, Boolean, Integer, ForeignKey
+from sqlalchemy import Column, String, DateTime, Text, JSON, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import uuid

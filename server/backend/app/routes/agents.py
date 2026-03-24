@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Optional
+from typing import List
 from datetime import datetime, timezone
 
 from app.models.database import get_db
@@ -11,6 +11,7 @@ from app.models.agent import Agent
 from app.models.user import User
 from app.schemas.agent import AgentRegister, AgentResponse, AgentRegisterResponse, AgentHeartbeat
 from app.security.auth import get_current_active_user, require_role, generate_api_key, hash_api_key
+from app.routes.websocket_routes import manager
 
 router = APIRouter()
 
@@ -77,6 +78,14 @@ async def agent_heartbeat(
         agent.agent_version = data.agent_version
     if data.capabilities:
         agent.capabilities = data.capabilities
+
+    # Broadcast heartbeat update to connected WebSocket clients
+    await manager.broadcast("agents", {
+        "type": "heartbeat",
+        "agent_id": agent.id,
+        "status": agent.status,
+        "timestamp": agent.last_heartbeat.isoformat(),
+    })
 
     return {"status": "ok", "agent_id": agent.id}
 

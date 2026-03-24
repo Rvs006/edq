@@ -12,11 +12,14 @@ import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import SegmentedProgressBar from '@/components/common/SegmentedProgressBar'
+import SmartPrompt from '@/components/common/SmartPrompt'
+import CsvExportButton from '@/components/common/CsvExportButton'
 import TestSidebar, { type TestResultItem } from '@/components/testing/TestSidebar'
 import TestDetail, { type TestResultDetail } from '@/components/testing/TestDetail'
 import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
 import SessionControls from '@/components/testing/SessionControls'
 import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDialog'
+import type { TestResult } from '@/lib/types'
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -34,7 +37,7 @@ export default function TestRunDetailPage() {
     queryFn: () => testRunsApi.get(id!).then((r) => r.data),
     enabled: !!id,
     refetchInterval: (query) => {
-      const d = query.state.data as any
+      const d = query.state.data as Record<string, unknown> | undefined
       return d?.status === 'running' || d?.status === 'discovering' ? 3000 : false
     },
   })
@@ -62,7 +65,7 @@ export default function TestRunDetailPage() {
     }
 
     if (msg.type === 'test_start' && msg.data.test_number) {
-      const running = results.find((r: any) => r.test_number === msg.data.test_number)
+      const running = (results as TestResult[]).find((r) => r.test_number === msg.data.test_number)
       if (running) {
         setSelectedTestId(running.id)
       }
@@ -80,14 +83,14 @@ export default function TestRunDetailPage() {
 
   const sidebarResults: TestResultItem[] = useMemo(
     () =>
-      (results as any[]).map((r: any) => ({
+      (results as TestResult[]).map((r) => ({
         id: r.id,
         test_number: r.test_number || r.test_id || '',
         test_name: r.test_name || '',
-        tier: r.tier || 'automatic',
+        tier: (r.tier || 'automatic') as 'automatic' | 'guided_manual' | 'auto_na',
         verdict: r.verdict || null,
-        status: r.status,
-        tool_used: r.tool_used || r.tool || null,
+        status: r.status ?? undefined,
+        tool_used: r.tool_used || null,
         essential_pass: r.essential_pass ?? false,
       })),
     [results]
@@ -95,18 +98,18 @@ export default function TestRunDetailPage() {
 
   const selectedResult: TestResultDetail | null = useMemo(() => {
     if (!selectedTestId) return null
-    const r = (results as any[]).find((r: any) => r.id === selectedTestId)
+    const r = (results as TestResult[]).find((r) => r.id === selectedTestId)
     if (!r) return null
     return {
       id: r.id,
       test_number: r.test_number || r.test_id || '',
       test_name: r.test_name || '',
-      tier: r.tier || 'automatic',
-      tool_used: r.tool_used || r.tool || null,
+      tier: (r.tier || 'automatic') as 'automatic' | 'guided_manual' | 'auto_na',
+      tool_used: r.tool_used || null,
       tool_command: r.tool_command || null,
       raw_stdout: r.raw_stdout || null,
       raw_stderr: r.raw_stderr || null,
-      parsed_findings: r.parsed_findings || r.findings || null,
+      parsed_findings: r.parsed_findings || null,
       verdict: r.verdict || null,
       auto_comment: r.auto_comment || r.comment || null,
       engineer_selection: r.engineer_selection || null,
@@ -117,21 +120,21 @@ export default function TestRunDetailPage() {
       script_flag: r.script_flag || 'No',
       started_at: r.started_at || null,
       completed_at: r.completed_at || null,
-      duration_seconds: r.duration_seconds,
+      duration_seconds: r.duration_seconds ?? undefined,
       essential_pass: r.essential_pass ?? false,
-      test_description: r.test_description || r.description || null,
-      pass_criteria: r.pass_criteria || null,
+      test_description: r.test_description ?? undefined,
+      pass_criteria: r.pass_criteria ?? undefined,
     }
   }, [selectedTestId, results])
 
   useEffect(() => {
     if (results.length > 0 && !selectedTestId) {
-      setSelectedTestId((results as any[])[0]?.id || null)
+      setSelectedTestId((results as TestResult[])[0]?.id || null)
     }
   }, [results, selectedTestId])
 
   const completedCount = useMemo(
-    () => (results as any[]).filter((r: any) => r.verdict && r.verdict !== 'pending').length,
+    () => (results as TestResult[]).filter((r) => r.verdict && r.verdict !== 'pending').length,
     [results]
   )
 
@@ -140,7 +143,7 @@ export default function TestRunDetailPage() {
 
   const progressSegments = useMemo(() => {
     const segs = { pass: 0, fail: 0, advisory: 0, pending: 0, running: 0 }
-    for (const r of results as any[]) {
+    for (const r of results as TestResult[]) {
       const v = r.verdict?.toLowerCase()
       if (v === 'pass' || v === 'qualified_pass') segs.pass++
       else if (v === 'fail') segs.fail++
@@ -165,8 +168,9 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       setScenarioDialogOpen(false)
       toast.success('Automated tests started')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to start tests')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to start tests')
     } finally {
       setIsActioning(false)
     }
@@ -178,8 +182,9 @@ export default function TestRunDetailPage() {
       await testRunsApi.update(id!, { status: 'paused_manual' })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run paused')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to pause')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to pause')
     } finally {
       setIsActioning(false)
     }
@@ -191,8 +196,9 @@ export default function TestRunDetailPage() {
       await testRunsApi.start(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run resumed')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to resume')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to resume')
     } finally {
       setIsActioning(false)
     }
@@ -203,15 +209,16 @@ export default function TestRunDetailPage() {
       await testRunsApi.update(id!, { status: 'paused_cable' })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Cable disconnect flagged')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to flag cable')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to flag cable')
     }
   }
 
   const handleGenerateReport = async () => {
     try {
       const resp = await reportsApi.generate({
-        test_run_id: id,
+        test_run_id: id!,
         report_type: 'excel',
         include_synopsis: !!run?.synopsis,
       })
@@ -225,8 +232,9 @@ export default function TestRunDetailPage() {
         a.click()
         URL.revokeObjectURL(url)
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Report generation failed')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Report generation failed')
     }
   }
 
@@ -236,8 +244,9 @@ export default function TestRunDetailPage() {
       await testRunsApi.complete(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run approved and completed')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to approve')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to approve')
     } finally {
       setIsActioning(false)
     }
@@ -249,8 +258,9 @@ export default function TestRunDetailPage() {
       await testRunsApi.update(id!, { status: 'awaiting_review' })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Submitted for review')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to submit for review')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to submit for review')
     } finally {
       setIsActioning(false)
     }
@@ -258,10 +268,10 @@ export default function TestRunDetailPage() {
 
   const findNextPendingManual = useCallback(
     (afterId: string) => {
-      const manualTests = (results as any[]).filter(
-        (r: any) => r.tier === 'guided_manual'
+      const manualTests = (results as TestResult[]).filter(
+        (r) => r.tier === 'guided_manual'
       )
-      const currentIdx = manualTests.findIndex((r: any) => r.id === afterId)
+      const currentIdx = manualTests.findIndex((r) => r.id === afterId)
       for (let i = currentIdx + 1; i < manualTests.length; i++) {
         if (!manualTests[i].verdict || manualTests[i].verdict === 'pending') {
           return manualTests[i].id
@@ -292,8 +302,9 @@ export default function TestRunDetailPage() {
       if (nextId) {
         setTimeout(() => setSelectedTestId(nextId), 600)
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to save result')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to save result')
     } finally {
       setIsSubmitting(false)
     }
@@ -304,14 +315,28 @@ export default function TestRunDetailPage() {
       await testResultsApi.override(resultId, { verdict, override_reason: reason })
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
       toast.success('Verdict overridden')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Override failed')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Override failed')
     }
   }
 
   const isOwner = user?.id === run?.user_id
   const canSelfApprove =
     user?.role === 'admin' || (isOwner && (user?.role === 'engineer' || user?.role === 'reviewer'))
+
+  const pendingManualCount = useMemo(() => {
+    return (results as any[]).filter(
+      (r: any) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
+    ).length
+  }, [results])
+
+  const firstPendingManualId = useMemo(() => {
+    const found = (results as any[]).find(
+      (r: any) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
+    )
+    return found?.id || null
+  }, [results])
 
   if (runLoading) {
     return (
@@ -342,17 +367,17 @@ export default function TestRunDetailPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
-      <div className="flex-shrink-0 bg-white border-b border-zinc-200 px-4 py-3">
+      <div className="flex-shrink-0 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-4 py-3">
         <div className="flex items-center gap-3 mb-2">
           <Link
             to="/test-runs"
-            className="p-1 rounded-lg hover:bg-zinc-100 transition-colors flex-shrink-0"
+            className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
           >
             <ArrowLeft className="w-4 h-4 text-zinc-500" />
           </Link>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-sm font-semibold text-zinc-900 truncate">
+              <h1 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
                 {run.device_name || `Device ${run.device_id?.slice(0, 8)}`}
               </h1>
               <StatusBadge status={run.status} />
@@ -389,7 +414,7 @@ export default function TestRunDetailPage() {
           </div>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 transition-colors flex-shrink-0"
+            className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
           >
             {sidebarOpen ? <X className="w-5 h-5 text-zinc-600" /> : <Menu className="w-5 h-5 text-zinc-600" />}
           </button>
@@ -402,11 +427,35 @@ export default function TestRunDetailPage() {
               segments={progressSegments}
             />
           </div>
+          <CsvExportButton
+            results={sidebarResults}
+            deviceName={run.device_name || `device-${run.device_id?.slice(0, 8)}`}
+          />
           <span className="text-xs font-mono text-zinc-500 flex-shrink-0">
             {run.progress_pct ?? progressPct}% ({completedCount}/{results.length})
           </span>
         </div>
       </div>
+
+      {pendingManualCount > 0 && run.status !== 'pending' && run.status !== 'error' && (
+        <div className="flex-shrink-0 px-4 pt-3">
+          <SmartPrompt
+            variant="warning"
+            action={
+              firstPendingManualId
+                ? {
+                    label: 'Go to first',
+                    onClick: () => setSelectedTestId(firstPendingManualId),
+                  }
+                : undefined
+            }
+          >
+            <strong>{pendingManualCount} manual test{pendingManualCount > 1 ? 's' : ''} remaining.</strong>{' '}
+            These require you to physically interact with the device. Click on them in the sidebar
+            to see step-by-step instructions.
+          </SmartPrompt>
+        </div>
+      )}
 
       <AnimatePresence>
         {ws.cableStatus !== 'connected' && (
@@ -445,7 +494,7 @@ export default function TestRunDetailPage() {
           />
         </div>
 
-        <div className="flex-1 min-w-0 bg-white">
+        <div className="flex-1 min-w-0 bg-white dark:bg-zinc-900">
           {selectedResult ? (
             <TestDetail
               key={selectedResult.id}
@@ -464,11 +513,11 @@ export default function TestRunDetailPage() {
             </div>
           ) : results.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
-              <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
                 <FileText className="w-6 h-6 text-zinc-400" />
               </div>
               <div>
-                <p className="text-sm font-medium text-zinc-700">No tests loaded yet</p>
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">No tests loaded yet</p>
                 <p className="text-xs text-zinc-500 mt-0.5">
                   Start automated tests to begin the qualification process.
                 </p>

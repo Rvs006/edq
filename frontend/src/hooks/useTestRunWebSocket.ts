@@ -8,7 +8,7 @@ export interface TestProgressData {
   progress_pct?: number
   stdout_line?: string
   elapsed_seconds?: number
-  parsed_findings?: any
+  parsed_findings?: Record<string, unknown> | unknown[]
   auto_comment?: string
   error?: string
 }

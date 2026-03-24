@@ -69,7 +69,7 @@ export const profilesApi = {
 }
 
 export const templatesApi = {
-  list: () => api.get<TestTemplate[]>('/test-templates/'),
+  list: (params?: { limit?: number }) => api.get<TestTemplate[]>('/test-templates/', { params }),
   get: (id: string) => api.get<TestTemplate>(`/test-templates/${id}`),
   create: (data: { name: string; description?: string; test_ids: string[]; device_category?: string }) => api.post<TestTemplate>('/test-templates/', data),
   update: (id: string, data: { name?: string; description?: string; test_ids?: string[]; device_category?: string; is_default?: boolean }) => api.patch<TestTemplate>(`/test-templates/${id}`, data),
@@ -84,19 +84,19 @@ export const testRunsApi = {
   update: (id: string, data: Partial<TestRun>) => api.patch<TestRun>(`/test-runs/${id}`, data),
   start: (id: string) => api.post(`/test-runs/${id}/start`),
   complete: (id: string) => api.post(`/test-runs/${id}/complete`),
-  stats: () => api.get<{ total: number; by_status: Record<string, number> }>('/test-runs/stats'),
+  stats: () => api.get<{ total: number; by_status: Record<string, number>; by_verdict?: Record<string, number>; completed_this_week?: number }>('/test-runs/stats'),
 }
 
 export const testResultsApi = {
   list: (params?: { test_run_id?: string; skip?: number; limit?: number }) => api.get<TestResult[]>('/test-results/', { params }),
   get: (id: string) => api.get<TestResult>(`/test-results/${id}`),
-  update: (id: string, data: { verdict?: string; comment?: string; findings?: string; raw_output?: string; tier?: string }) => api.patch<TestResult>(`/test-results/${id}`, data),
-  override: (id: string, data: { verdict: string; comment: string }) => api.post(`/test-results/${id}/override`, data),
+  update: (id: string, data: { verdict?: string; comment?: string; findings?: string; raw_output?: string; tier?: string; engineer_notes?: string; engineer_selection?: string }) => api.patch<TestResult>(`/test-results/${id}`, data),
+  override: (id: string, data: { verdict: string; comment?: string; override_reason?: string }) => api.post(`/test-results/${id}/override`, data),
   batch: (data: { id: string; verdict?: string; comment?: string }[]) => api.post('/test-results/batch', data),
 }
 
 export const reportsApi = {
-  generate: (data: { test_run_id: string; format?: string; template_id?: string }) => api.post('/reports/generate', data),
+  generate: (data: { test_run_id: string; report_type?: string; format?: string; template_id?: string; template_key?: string; include_synopsis?: boolean }) => api.post('/reports/generate', data),
   download: (filename: string) => api.get(`/reports/download/${filename}`, { responseType: 'blob' }),
   configs: () => api.get('/reports/configs'),
   templates: () => api.get('/reports/templates'),
@@ -159,6 +159,23 @@ export const healthApi = {
 export const cveApi = {
   lookup: (data: { keyword?: string; device_id?: string; max_results?: number }) =>
     api.post('/cve/lookup', data),
+}
+
+export const agentsApi = {
+  list: () => api.get('/agents/'),
+  get: (id: string) => api.get(`/agents/${id}`),
+}
+
+export const scanSchedulesApi = {
+  list: (params?: { device_id?: string; is_active?: boolean; skip?: number; limit?: number }) =>
+    api.get('/scan-schedules/', { params }),
+  get: (id: string) => api.get(`/scan-schedules/${id}`),
+  create: (data: { device_id: string; template_id: string; frequency: string; max_runs?: number }) =>
+    api.post('/scan-schedules/', data),
+  update: (id: string, data: { frequency?: string; is_active?: boolean; max_runs?: number }) =>
+    api.patch(`/scan-schedules/${id}`, data),
+  delete: (id: string) => api.delete(`/scan-schedules/${id}`),
+  diff: (id: string) => api.get(`/scan-schedules/${id}/diff`),
 }
 
 export const brandingApi = {

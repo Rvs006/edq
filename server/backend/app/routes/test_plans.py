@@ -1,9 +1,8 @@
 """Test Plan management routes — custom test configurations."""
 
 import logging
-import uuid
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field

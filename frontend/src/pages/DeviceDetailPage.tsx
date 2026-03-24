@@ -1,11 +1,34 @@
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { devicesApi, testRunsApi } from '@/lib/api'
-import { ArrowLeft, Monitor, Play, Loader2 } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { devicesApi, testRunsApi, cveApi, discoveryApi } from '@/lib/api'
+import type { TestRun, CVELookupResponse } from '@/lib/types'
+import {
+  ArrowLeft, Monitor, Play, Loader2, Shield, Search,
+  ExternalLink, AlertTriangle, Radar, RefreshCw,
+} from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
+
+function SeverityBadge({ severity }: { severity: string }) {
+  const colors: Record<string, string> = {
+    CRITICAL: 'bg-red-100 text-red-800',
+    HIGH: 'bg-orange-100 text-orange-800',
+    MEDIUM: 'bg-yellow-100 text-yellow-800',
+    LOW: 'bg-green-100 text-green-800',
+    UNKNOWN: 'bg-zinc-100 text-zinc-600',
+  }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${colors[severity] || colors.UNKNOWN}`}>
+      {severity}
+    </span>
+  )
+}
 
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const queryClient = useQueryClient()
+  const [cveData, setCveData] = useState<CVELookupResponse | null>(null)
+
   const { data: device, isLoading } = useQuery({
     queryKey: ['device', id],
     queryFn: () => devicesApi.get(id!).then(r => r.data),
@@ -16,6 +39,25 @@ export default function DeviceDetailPage() {
     queryFn: () => testRunsApi.list({ device_id: id }).then(r => r.data),
     enabled: !!id,
   })
+
+  const cveMutation = useMutation({
+    mutationFn: () => cveApi.lookup({ device_id: id!, max_results: 5 }),
+    onSuccess: (res) => setCveData(res.data as CVELookupResponse),
+  })
+
+  const autoDetectMutation = useMutation({
+    mutationFn: () => discoveryApi.scan({ ip_address: device!.ip_address }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['device', id] })
+    },
+  })
+
+  useEffect(() => {
+    setCveData(null)
+    cveMutation.reset()
+    autoDetectMutation.reset()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   if (isLoading) {
     return (
@@ -65,24 +107,142 @@ export default function DeviceDetailPage() {
             </div>
           </div>
           <div className="flex gap-2">
+            <button
+              onClick={() => autoDetectMutation.mutate()}
+              disabled={autoDetectMutation.isPending}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-zinc-300 text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50"
+              title="Re-scan device to auto-detect manufacturer, model, and open ports"
+            >
+              {autoDetectMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Radar className="w-4 h-4" />
+              )}
+              Auto-Detect
+            </button>
             <Link to={`/test-runs?device_id=${device.id}`} className="btn-primary text-sm">
               <Play className="w-4 h-4" /> Start New Test Run
             </Link>
           </div>
         </div>
+        {autoDetectMutation.isSuccess && (
+          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Device re-scanned successfully. Information updated.
+          </div>
+        )}
+        {autoDetectMutation.isError && (
+          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            Auto-detect failed. Make sure the tools sidecar is running and the device is reachable.
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-1 card p-5">
-          <h2 className="font-semibold text-zinc-900 mb-4">Device Information</h2>
-          <dl className="space-y-3">
-            {infoFields.map(([label, value]) => (
-              <div key={label} className="flex justify-between text-sm">
-                <dt className="text-zinc-500">{label}</dt>
-                <dd className="text-zinc-900 font-medium capitalize">{value || '—'}</dd>
+        <div className="lg:col-span-1 space-y-5">
+          <div className="card p-5">
+            <h2 className="font-semibold text-zinc-900 mb-4">Device Information</h2>
+            <dl className="space-y-3">
+              {infoFields.map(([label, value]) => (
+                <div key={label} className="flex justify-between text-sm">
+                  <dt className="text-zinc-500">{label}</dt>
+                  <dd className="text-zinc-900 font-medium capitalize">{value || '—'}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          {/* CVE Vulnerability Lookup */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-zinc-900 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-red-500" />
+                CVE Vulnerabilities
+              </h2>
+              <button
+                onClick={() => cveMutation.mutate()}
+                disabled={cveMutation.isPending}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 transition-colors disabled:opacity-50"
+              >
+                {cveMutation.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Search className="w-3 h-3" />
+                )}
+                Scan NVD
+              </button>
+            </div>
+
+            {cveMutation.isPending && (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-brand-500" />
+                <span className="ml-2 text-sm text-zinc-500">Querying NVD database...</span>
               </div>
-            ))}
-          </dl>
+            )}
+
+            {cveMutation.isError && (
+              <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">
+                Failed to query NVD. The device may not have open ports scanned yet.
+              </div>
+            )}
+
+            {cveData && !cveMutation.isPending && !cveMutation.isError && (
+              <>
+                {cveData.total_cves === 0 ? (
+                  <div className="text-center py-4">
+                    <Shield className="w-8 h-8 text-green-400 mx-auto mb-2" />
+                    <p className="text-sm text-zinc-500">No known CVEs found</p>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      {device.open_ports?.length
+                        ? `Checked ${device.open_ports.length} service(s)`
+                        : 'No open ports detected \u2014 run a scan first'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-zinc-500">
+                      Found {cveData.total_cves} CVE(s) across {cveData.results.length} service(s)
+                    </p>
+                    {cveData.results.map((svc) => (
+                      <div key={`${svc.port}-${svc.service}`} className="border border-zinc-100 rounded-lg p-3">
+                        <p className="text-xs font-medium text-zinc-700 mb-2">
+                          Port {svc.port} \u2014 {svc.service} ({svc.version})
+                        </p>
+                        <div className="space-y-2">
+                          {svc.cves.map((cve) => (
+                            <div key={cve.id} className="flex items-start gap-2">
+                              <SeverityBadge severity={cve.severity} />
+                              <div className="flex-1 min-w-0">
+                                <a
+                                  href={cve.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-mono text-brand-600 hover:underline flex items-center gap-1"
+                                >
+                                  {cve.id} <ExternalLink className="w-3 h-3" />
+                                </a>
+                                <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">{cve.description}</p>
+                                {cve.cvss_score !== null && (
+                                  <p className="text-xs text-zinc-400 mt-0.5">CVSS: {cve.cvss_score}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {!cveData && !cveMutation.isPending && !cveMutation.isError && (
+              <p className="text-sm text-zinc-400 text-center py-4">
+                Click &ldquo;Scan NVD&rdquo; to check for known vulnerabilities
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="lg:col-span-2 card">
@@ -102,7 +262,7 @@ export default function DeviceDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-50">
-                  {runs.map((run: any) => (
+                  {runs.map((run: TestRun) => (
                     <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
                       <td className="py-2.5 px-4">
                         <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 hover:text-brand-500">
