@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { whitelistsApi } from '@/lib/api'
-import { Shield, Plus, Copy, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react'
+import type { Whitelist, WhitelistEntry } from '@/lib/types'
+import { Shield, Plus, Copy, Pencil, Trash2, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 
 export default function WhitelistsPage() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [editingWhitelist, setEditingWhitelist] = useState<Whitelist | null>(null)
   const queryClient = useQueryClient()
 
   const { data: whitelists, isLoading } = useQuery({
@@ -22,6 +24,17 @@ export default function WhitelistsPage() {
       toast.success('Whitelist duplicated')
     },
   })
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm('Delete whitelist "' + name + '"?')) return
+    try {
+      await whitelistsApi.delete(id)
+      queryClient.invalidateQueries({ queryKey: ['whitelists'] })
+      toast.success('Whitelist deleted')
+    } catch {
+      toast.error('Failed to delete whitelist')
+    }
+  }
 
   return (
     <div className="page-container">
@@ -41,7 +54,7 @@ export default function WhitelistsPage() {
         </div>
       ) : whitelists && whitelists.length > 0 ? (
         <div className="space-y-3">
-          {whitelists.map((wl: any) => (
+          {whitelists.map((wl: Whitelist) => (
             <div key={wl.id} className="card">
               <button
                 onClick={() => setExpanded(expanded === wl.id ? null : wl.id)}
@@ -56,9 +69,17 @@ export default function WhitelistsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {wl.is_default && <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">Default</span>}
+                  <button onClick={(e) => { e.stopPropagation(); setEditingWhitelist(wl) }}
+                    className="p-1.5 rounded-lg hover:bg-zinc-100" title="Edit">
+                    <Pencil className="w-4 h-4 text-zinc-400" />
+                  </button>
                   <button onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(wl.id) }}
                     className="p-1.5 rounded-lg hover:bg-zinc-100" title="Duplicate">
                     <Copy className="w-4 h-4 text-zinc-400" />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); handleDelete(wl.id, wl.name) }}
+                    className="p-1.5 rounded-lg hover:bg-red-50" title="Delete">
+                    <Trash2 className="w-4 h-4 text-red-400" />
                   </button>
                   {expanded === wl.id ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
                 </div>
@@ -78,12 +99,12 @@ export default function WhitelistsPage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-zinc-100">
-                            {wl.entries?.map((entry: any, i: number) => (
+                            {wl.entries?.map((entry: WhitelistEntry, i: number) => (
                               <tr key={i} className="hover:bg-zinc-50">
                                 <td className="py-2 px-2 font-mono text-xs text-zinc-700">{entry.port}</td>
                                 <td className="py-2 px-2 text-zinc-600">{entry.protocol}</td>
                                 <td className="py-2 px-2 text-zinc-900">{entry.service}</td>
-                                <td className="py-2 px-2 text-zinc-500 hidden sm:table-cell">{entry.required_version || '—'}</td>
+                                <td className="py-2 px-2 text-zinc-500 hidden sm:table-cell">{entry.required_version || '\u2014'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -108,16 +129,21 @@ export default function WhitelistsPage() {
       )}
 
       <AnimatePresence>
-        {showCreate && <CreateWhitelistModal onClose={() => setShowCreate(false)} />}
+        {showCreate && <WhitelistModal onClose={() => setShowCreate(false)} />}
+        {editingWhitelist && <WhitelistModal whitelist={editingWhitelist} onClose={() => setEditingWhitelist(null)} />}
       </AnimatePresence>
     </div>
   )
 }
 
-function CreateWhitelistModal({ onClose }: { onClose: () => void }) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [entries, setEntries] = useState([{ port: '', protocol: 'TCP', service: '', required_version: '' }])
+function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose: () => void }) {
+  const isEdit = !!whitelist
+  const [name, setName] = useState(whitelist?.name || '')
+  const [description, setDescription] = useState(whitelist?.description || '')
+  const [entries, setEntries] = useState<{ port: string; protocol: string; service: string; required_version: string }[]>(
+    whitelist?.entries?.map(e => ({ port: String(e.port), protocol: e.protocol, service: e.service, required_version: e.required_version || '' }))
+    || [{ port: '', protocol: 'TCP', service: '', required_version: '' }]
+  )
   const [loading, setLoading] = useState(false)
   const queryClient = useQueryClient()
 
@@ -131,12 +157,18 @@ function CreateWhitelistModal({ onClose }: { onClose: () => void }) {
       const validEntries = entries.filter(e => e.port && e.service).map(e => ({
         ...e, port: parseInt(e.port)
       }))
-      await whitelistsApi.create({ name, description, entries: validEntries })
+      if (isEdit && whitelist) {
+        await whitelistsApi.update(whitelist.id, { name, description, entries: validEntries })
+        toast.success('Whitelist updated')
+      } else {
+        await whitelistsApi.create({ name, description, entries: validEntries })
+        toast.success('Whitelist created')
+      }
       queryClient.invalidateQueries({ queryKey: ['whitelists'] })
-      toast.success('Whitelist created')
       onClose()
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to create whitelist')
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } }
+      toast.error(error.response?.data?.detail || 'Failed to save whitelist')
     } finally {
       setLoading(false)
     }
@@ -152,7 +184,7 @@ function CreateWhitelistModal({ onClose }: { onClose: () => void }) {
                    sm:w-full sm:max-w-2xl bg-white rounded-lg shadow-2xl z-50 flex flex-col max-h-[90vh]"
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200">
-          <h2 className="text-lg font-semibold text-zinc-900">New Protocol Whitelist</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">{isEdit ? 'Edit' : 'New'} Protocol Whitelist</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
@@ -207,8 +239,8 @@ function CreateWhitelistModal({ onClose }: { onClose: () => void }) {
           <div className="flex justify-end gap-3 p-4 border-t border-zinc-200">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button type="submit" disabled={loading} className="btn-primary">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Create Whitelist
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : isEdit ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              {isEdit ? 'Save Changes' : 'Create Whitelist'}
             </button>
           </div>
         </form>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { authApi, healthApi, brandingApi } from '@/lib/api'
-import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw, Palette, Upload } from 'lucide-react'
+import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw, Save, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type Theme = 'light' | 'dark' | 'system'
@@ -76,10 +76,50 @@ export default function SettingsPage({ tourState }: { tourState?: any }) {
   )
 }
 
-function ProfileSettings({ user }: { user: any }) {
+function ProfileSettings({ user }: { user: Record<string, string | boolean | null | undefined> }) {
+  const { refreshUser } = useAuth()
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    full_name: (user?.full_name as string) || '',
+    email: (user?.email as string) || '',
+  })
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await authApi.updateProfile(form)
+      toast.success('Profile updated')
+      setEditing(false)
+      if (refreshUser) refreshUser()
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } }
+      toast.error(error.response?.data?.detail || 'Failed to update profile')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-zinc-900 mb-4">Profile Information</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-semibold text-zinc-900">Profile Information</h2>
+        {!editing ? (
+          <button onClick={() => setEditing(true)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
+            Edit Profile
+          </button>
+        ) : (
+          <div className="flex gap-2">
+            <button onClick={() => { setEditing(false); setForm({ full_name: (user?.full_name as string) || '', email: (user?.email as string) || '' }) }} className="text-xs text-zinc-500 hover:text-zinc-600 font-medium">
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={saving} className="btn-primary text-xs py-1 px-3">
+              {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+              Save
+            </button>
+          </div>
+        )}
+      </div>
       <div className="space-y-4">
         <div className="flex items-center gap-4 mb-6">
           <div className="w-16 h-16 rounded-full bg-brand-500 flex items-center justify-center">
@@ -99,23 +139,23 @@ function ProfileSettings({ user }: { user: any }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Username</label>
-            <input type="text" value={user?.username || ''} className="input bg-zinc-50" disabled />
+            <input type="text" value={(user?.username as string) || ''} className="input bg-zinc-50" disabled />
           </div>
           <div>
             <label className="label">Email</label>
-            <input type="email" value={user?.email || ''} className="input bg-zinc-50" disabled />
+            <input type="email" value={editing ? form.email : ((user?.email as string) || '')} onChange={e => setForm({ ...form, email: e.target.value })} className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
           </div>
           <div>
             <label className="label">Full Name</label>
-            <input type="text" value={user?.full_name || ''} className="input bg-zinc-50" disabled />
+            <input type="text" value={editing ? form.full_name : ((user?.full_name as string) || '')} onChange={e => setForm({ ...form, full_name: e.target.value })} className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
           </div>
           <div>
             <label className="label">Role</label>
-            <input type="text" value={user?.role || ''} className="input bg-zinc-50 capitalize" disabled />
+            <input type="text" value={(user?.role as string) || ''} className="input bg-zinc-50 capitalize" disabled />
           </div>
         </div>
 
-        <p className="text-xs text-zinc-400">Contact an administrator to update your profile information.</p>
+        {!editing && <p className="text-xs text-zinc-400">Click "Edit Profile" to update your name or email.</p>}
       </div>
     </div>
   )
@@ -135,6 +175,18 @@ function SecuritySettings() {
       toast.error('Password must be at least 8 characters')
       return
     }
+    if (!/[A-Z]/.test(form.new_password)) {
+      toast.error('Password must contain at least one uppercase letter')
+      return
+    }
+    if (!/[a-z]/.test(form.new_password)) {
+      toast.error('Password must contain at least one lowercase letter')
+      return
+    }
+    if (!/[0-9]/.test(form.new_password)) {
+      toast.error('Password must contain at least one digit')
+      return
+    }
     setLoading(true)
     try {
       await authApi.changePassword({
@@ -143,8 +195,9 @@ function SecuritySettings() {
       })
       toast.success('Password changed successfully')
       setForm({ current_password: '', new_password: '', confirm_password: '' })
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to change password')
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } }
+      toast.error(error.response?.data?.detail || 'Failed to change password')
     } finally {
       setLoading(false)
     }
@@ -164,7 +217,7 @@ function SecuritySettings() {
           <label className="label">New Password</label>
           <input type="password" value={form.new_password}
             onChange={(e) => setForm({ ...form, new_password: e.target.value })}
-            className="input" placeholder="Minimum 8 characters" required />
+            className="input" placeholder="Min 8 chars, uppercase, lowercase, digit" required />
         </div>
         <div>
           <label className="label">Confirm New Password</label>
@@ -232,7 +285,7 @@ function SystemStatus() {
       const res = await healthApi.toolVersions()
       setVersions(res.data.tools || {})
       setCheckedAt(new Date())
-    } catch (err: any) {
+    } catch {
       setError('Failed to connect to tools sidecar')
     } finally {
       setLoading(false)

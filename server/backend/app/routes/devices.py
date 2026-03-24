@@ -67,6 +67,15 @@ async def create_device(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
+    # Check for duplicate IP address
+    existing = await db.execute(
+        select(Device).where(Device.ip_address == data.ip_address)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail=f"A device with IP address {data.ip_address} already exists",
+        )
     device = Device(**data.model_dump())
     db.add(device)
     await db.flush()
@@ -98,8 +107,31 @@ async def update_device(
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(device, field, value)
+    updates = data.model_dump(exclude_unset=True)
+    if "ip_address" in updates:
+        device.ip_address = updates["ip_address"]
+    if "mac_address" in updates:
+        device.mac_address = updates["mac_address"]
+    if "hostname" in updates:
+        device.hostname = updates["hostname"]
+    if "manufacturer" in updates:
+        device.manufacturer = updates["manufacturer"]
+    if "model" in updates:
+        device.model = updates["model"]
+    if "firmware_version" in updates:
+        device.firmware_version = updates["firmware_version"]
+    if "category" in updates:
+        device.category = updates["category"]
+    if "status" in updates:
+        device.status = updates["status"]
+    if "notes" in updates:
+        device.notes = updates["notes"]
+    if "profile_id" in updates:
+        device.profile_id = updates["profile_id"]
+    if "open_ports" in updates:
+        device.open_ports = updates["open_ports"]
+    if "discovery_data" in updates:
+        device.discovery_data = updates["discovery_data"]
     await db.flush()
     await db.refresh(device)
     return device

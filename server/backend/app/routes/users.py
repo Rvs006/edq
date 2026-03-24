@@ -47,8 +47,15 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(user, field, value)
+    updates = data.model_dump(exclude_unset=True)
+    if "full_name" in updates:
+        user.full_name = updates["full_name"]
+    if "email" in updates:
+        user.email = updates["email"]
+    if "role" in updates:
+        user.role = updates["role"]
+    if "is_active" in updates:
+        user.is_active = updates["is_active"]
     await db.flush()
     await db.refresh(user)
     return user

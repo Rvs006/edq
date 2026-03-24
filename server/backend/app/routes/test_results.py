@@ -57,8 +57,25 @@ async def update_result(
     test_result = result.scalar_one_or_none()
     if not test_result:
         raise HTTPException(status_code=404, detail="Test result not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(test_result, field, value)
+    updates = data.model_dump(exclude_unset=True)
+    if "verdict" in updates:
+        test_result.verdict = updates["verdict"]
+    if "comment" in updates:
+        test_result.comment = updates["comment"]
+    if "comment_override" in updates:
+        test_result.comment_override = updates["comment_override"]
+    if "engineer_notes" in updates:
+        test_result.engineer_notes = updates["engineer_notes"]
+    if "raw_output" in updates:
+        test_result.raw_output = updates["raw_output"]
+    if "parsed_data" in updates:
+        test_result.parsed_data = updates["parsed_data"]
+    if "findings" in updates:
+        test_result.findings = updates["findings"]
+    if "evidence_files" in updates:
+        test_result.evidence_files = updates["evidence_files"]
+    if "duration_seconds" in updates:
+        test_result.duration_seconds = updates["duration_seconds"]
     await db.flush()
     await db.refresh(test_result)
     return test_result
