@@ -180,7 +180,7 @@ export default function NetworkScanPage() {
         <ConfigureStep
           cidr={cidr} setCidr={setCidr} cidrValid={cidrValid} hostCount={hostCount}
           scenario={scenario} setScenario={setScenario}
-          selectedTests={selectedTests} toggleTest={toggleTest} toggleCategory={toggleCategory}
+          selectedTests={selectedTests} setSelectedTests={setSelectedTests} toggleTest={toggleTest} toggleCategory={toggleCategory}
           expandedCategories={expandedCategories} setExpandedCategories={setExpandedCategories}
           discovering={discovering} onDiscover={handleDiscover}
         />
@@ -239,13 +239,13 @@ function StepIndicator({ current }: { current: Step }) {
 function ConfigureStep({
   cidr, setCidr, cidrValid, hostCount,
   scenario, setScenario,
-  selectedTests, toggleTest, toggleCategory,
+  selectedTests, setSelectedTests, toggleTest, toggleCategory,
   expandedCategories, setExpandedCategories,
   discovering, onDiscover,
 }: {
   cidr: string; setCidr: (v: string) => void; cidrValid: boolean; hostCount: number
   scenario: string; setScenario: (v: string) => void
-  selectedTests: Set<string>; toggleTest: (id: string) => void; toggleCategory: (cat: string) => void
+  selectedTests: Set<string>; setSelectedTests: (v: Set<string>) => void; toggleTest: (id: string) => void; toggleCategory: (cat: string) => void
   expandedCategories: Set<string>; setExpandedCategories: (v: Set<string>) => void
   discovering: boolean; onDiscover: () => void
 }) {
@@ -307,16 +307,11 @@ function ConfigureStep({
           <div className="flex items-center gap-2">
             <span className="text-xs text-zinc-500">{selectedTests.size}/{UNIVERSAL_TESTS.length} selected</span>
             <button
-              onClick={() => {
-                const all = new Set(UNIVERSAL_TESTS.map(t => t.id))
-                UNIVERSAL_TESTS.forEach(t => toggleTest(t.id))
-              }}
+              onClick={() => setSelectedTests(new Set(UNIVERSAL_TESTS.map(t => t.id)))}
               className="text-xs text-brand-500 hover:text-brand-600 font-medium"
             >Select All</button>
             <button
-              onClick={() => {
-                selectedTests.forEach(id => toggleTest(id))
-              }}
+              onClick={() => setSelectedTests(new Set())}
               className="text-xs text-zinc-500 hover:text-zinc-600 font-medium"
             >Clear</button>
           </div>

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 interface ErrorBoundaryProps {
@@ -63,8 +64,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
 /** Page-level error boundary with full-height centering */
 export function PageErrorBoundary({ children }: { children: ReactNode }) {
+  const location = useLocation()
   return (
     <ErrorBoundary
+      key={location.pathname}
       fallback={
         <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center">
           <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-4">

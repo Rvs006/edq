@@ -117,10 +117,18 @@ async def _get_previous_results(db: AsyncSession, device_id: str, template_id: s
     ]
 
 
-async def _execute_scheduled_scan(schedule: ScanSchedule) -> None:
+async def _execute_scheduled_scan(schedule_id: str) -> None:
     """Execute a single scheduled scan and compute diff with previous results."""
     async with async_session() as db:
         try:
+            # Re-query the schedule in this session so changes are tracked
+            result = await db.execute(
+                select(ScanSchedule).where(ScanSchedule.id == schedule_id)
+            )
+            schedule = result.scalar_one_or_none()
+            if not schedule or not schedule.is_active:
+                return
+
             # Get previous results for diff comparison
             prev_results = await _get_previous_results(
                 db, schedule.device_id, schedule.template_id
@@ -146,6 +154,12 @@ async def _execute_scheduled_scan(schedule: ScanSchedule) -> None:
             if schedule.max_runs and schedule.run_count >= schedule.max_runs:
                 schedule.is_active = False
 
+            if prev_results:
+                schedule.diff_summary = {
+                    "status": "pending",
+                    "previous_result_count": len(prev_results),
+                }
+
             await db.commit()
 
             logger.info(
@@ -153,21 +167,8 @@ async def _execute_scheduled_scan(schedule: ScanSchedule) -> None:
                 schedule.id, schedule.device_id, new_run.id,
             )
 
-            # Note: The actual scan execution is handled by the test engine
-            # when it picks up the PENDING test run. The diff will be computed
-            # after the run completes via the scan_diff endpoint.
-
-            if prev_results:
-                # Store a placeholder diff summary — will be updated when run completes
-                schedule.diff_summary = {
-                    "status": "pending",
-                    "previous_result_count": len(prev_results),
-                    "triggered_run_id": new_run.id,
-                }
-                await db.commit()
-
         except Exception:
-            logger.exception("Failed to execute scheduled scan %s", schedule.id)
+            logger.exception("Failed to execute scheduled scan %s", schedule_id)
             await db.rollback()
 
 
@@ -185,7 +186,7 @@ async def _check_due_schedules() -> None:
         due_schedules = result.scalars().all()
 
         for schedule in due_schedules:
-            await _execute_scheduled_scan(schedule)
+            await _execute_scheduled_scan(schedule.id)
 
 
 async def _scheduler_loop() -> None:
