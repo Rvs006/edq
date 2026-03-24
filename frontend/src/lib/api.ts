@@ -155,3 +155,21 @@ export const healthApi = {
   check: () => api.get('/health'),
   toolVersions: () => api.get<{ tools: Record<string, string> }>('/health/tools/versions'),
 }
+
+export const cveApi = {
+  lookup: (data: { keyword?: string; device_id?: string; max_results?: number }) =>
+    api.post('/cve/lookup', data),
+}
+
+export const brandingApi = {
+  get: () => api.get('/settings/branding'),
+  update: (data: { company_name?: string; primary_color?: string; footer_text?: string }) =>
+    api.put('/settings/branding', data),
+  uploadLogo: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/settings/branding/logo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+}

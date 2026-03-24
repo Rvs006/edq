@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { devicesApi } from '@/lib/api'
-import { Monitor, Plus, Search, Loader2, X } from 'lucide-react'
+import { devicesApi, discoveryApi } from '@/lib/api'
+import { Monitor, Plus, Search, Loader2, X, Radar } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge from '@/components/common/VerdictBadge'
+import CategoryBadge from '@/components/common/CategoryBadge'
+import Callout from '@/components/common/Callout'
 
 const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown']
 
@@ -13,6 +15,7 @@ export default function DevicesPage() {
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showDiscoverModal, setShowDiscoverModal] = useState(false)
 
   const { data: devices, isLoading } = useQuery({
     queryKey: ['devices', search, categoryFilter],
@@ -26,9 +29,14 @@ export default function DevicesPage() {
           <h1 className="section-title">Devices</h1>
           <p className="section-subtitle">Manage network devices for qualification testing</p>
         </div>
-        <button onClick={() => setShowAddModal(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> Add Device
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
+            <Radar className="w-4 h-4" /> Discover
+          </button>
+          <button onClick={() => setShowAddModal(true)} className="btn-primary">
+            <Plus className="w-4 h-4" /> Add Device
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -87,9 +95,7 @@ export default function DevicesPage() {
                     <td className="py-3 px-4 text-zinc-600 hidden md:table-cell">{device.model || '—'}</td>
                     <td className="py-3 px-4 text-zinc-500 text-xs hidden lg:table-cell">{device.firmware_version || '—'}</td>
                     <td className="py-3 px-4">
-                      <span className="badge text-[10px] bg-zinc-100 text-zinc-600 capitalize">
-                        {device.category?.replace(/_/g, ' ') || 'Unknown'}
-                      </span>
+                      <CategoryBadge category={device.category || 'unknown'} />
                     </td>
                     <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
                       {device.last_tested ? new Date(device.last_tested).toLocaleDateString() : '—'}
@@ -115,17 +121,149 @@ export default function DevicesPage() {
             {search || categoryFilter ? 'Try adjusting your search or filters' : 'Add your first device to get started'}
           </p>
           {!search && !categoryFilter && (
-            <button onClick={() => setShowAddModal(true)} className="btn-primary">
-              <Plus className="w-4 h-4" /> Add Device
-            </button>
+            <div className="flex gap-2 justify-center">
+              <button onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
+                <Radar className="w-4 h-4" /> Discover Devices
+              </button>
+              <button onClick={() => setShowAddModal(true)} className="btn-primary">
+                <Plus className="w-4 h-4" /> Add Device
+              </button>
+            </div>
           )}
         </div>
       )}
 
       <AnimatePresence>
         {showAddModal && <AddDeviceModal onClose={() => setShowAddModal(false)} />}
+        {showDiscoverModal && <DiscoverModal onClose={() => setShowDiscoverModal(false)} />}
       </AnimatePresence>
     </div>
+  )
+}
+
+function DiscoverModal({ onClose }: { onClose: () => void }) {
+  const [target, setTarget] = useState('')
+  const [mode, setMode] = useState<'ip' | 'subnet'>('ip')
+  const [loading, setLoading] = useState(false)
+  const [results, setResults] = useState<any[] | null>(null)
+  const queryClient = useQueryClient()
+
+  const handleDiscover = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setResults(null)
+    try {
+      const payload = mode === 'ip' ? { ip_address: target } : { subnet: target }
+      const resp = await discoveryApi.scan(payload)
+      setResults(resp.data.devices || [])
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
+      toast.success(`Found ${resp.data.devices_found} device(s)`)
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Discovery failed — is the tools sidecar running?')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/40 z-50" onClick={onClose}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+        className="fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
+                   sm:w-full sm:max-w-lg bg-white rounded-lg shadow-2xl z-50 overflow-y-auto max-h-[90vh]"
+      >
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200">
+          <h2 className="text-lg font-semibold text-zinc-900">Discover Devices</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100">
+            <X className="w-5 h-5 text-zinc-500" />
+          </button>
+        </div>
+        <form onSubmit={handleDiscover} className="p-4 space-y-4">
+          <Callout variant="info">
+            Auto-discover devices on your network using nmap. Single IP performs full service detection; subnet performs a ping sweep.
+          </Callout>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('ip')}
+              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
+                mode === 'ip' ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-zinc-200 text-zinc-600 hover:border-zinc-300'
+              }`}
+            >
+              Single IP
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('subnet')}
+              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
+                mode === 'subnet' ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-zinc-200 text-zinc-600 hover:border-zinc-300'
+              }`}
+            >
+              Subnet Scan
+            </button>
+          </div>
+
+          <div>
+            <label className="label">{mode === 'ip' ? 'IP Address' : 'Subnet (CIDR)'}</label>
+            <input
+              type="text"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              className="input"
+              placeholder={mode === 'ip' ? '192.168.1.100' : '192.168.1.0/24'}
+              required
+            />
+          </div>
+
+          <button type="submit" disabled={loading} className="btn-primary w-full">
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Scanning...
+              </>
+            ) : (
+              <>
+                <Radar className="w-4 h-4" />
+                Start Discovery
+              </>
+            )}
+          </button>
+
+          {results && results.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-zinc-700">Discovered Devices</h3>
+              {results.map((dev: any, idx: number) => (
+                <div key={idx} className="flex items-center gap-3 p-2.5 bg-zinc-50 rounded-lg border border-zinc-100">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${dev.is_new ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-zinc-800 truncate">
+                      {dev.hostname || dev.ip_address}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {dev.ip_address} {dev.manufacturer ? `· ${dev.manufacturer}` : ''} · {dev.category}
+                    </p>
+                  </div>
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                    dev.is_new ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                  }`}>
+                    {dev.is_new ? 'New' : 'Updated'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {results && results.length === 0 && (
+            <Callout variant="warning">No devices found at this address. Check the IP and ensure the device is powered on.</Callout>
+          )}
+        </form>
+      </motion.div>
+    </>
   )
 }
 
