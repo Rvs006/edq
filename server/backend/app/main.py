@@ -38,6 +38,8 @@ from app.routes import (
     health,
     network_scan,
     test_plans,
+    cve,
+    branding,
 )
 
 
@@ -196,6 +198,8 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api/health", tags=["Health"])
     app.include_router(network_scan.router, prefix="/api/network-scan", tags=["Network Scan"])
     app.include_router(test_plans.router, prefix="/api/test-plans", tags=["Test Plans"])
+    app.include_router(cve.router, prefix="/api/cve", tags=["CVE Lookup"])
+    app.include_router(branding.router, prefix="/api/settings", tags=["Settings"])
 
     if os.path.isdir(FRONTEND_DIR):
         assets_dir = os.path.join(FRONTEND_DIR, "assets")
