@@ -53,12 +53,12 @@ const PROFILES: DeviceProfile[] = [
   },
 ]
 
-const colorMap: Record<string, { bg: string; border: string; text: string; badge: string; iconBg: string }> = {
-  blue: { bg: 'bg-blue-50 dark:bg-blue-950/30', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-700 dark:text-blue-300', badge: 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300', iconBg: 'bg-blue-100 dark:bg-blue-900' },
-  purple: { bg: 'bg-purple-50 dark:bg-purple-950/30', border: 'border-purple-200 dark:border-purple-800', text: 'text-purple-700 dark:text-purple-300', badge: 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300', iconBg: 'bg-purple-100 dark:bg-purple-900' },
-  green: { bg: 'bg-green-50 dark:bg-green-950/30', border: 'border-green-200 dark:border-green-800', text: 'text-green-700 dark:text-green-300', badge: 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300', iconBg: 'bg-green-100 dark:bg-green-900' },
-  amber: { bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-300', badge: 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300', iconBg: 'bg-amber-100 dark:bg-amber-900' },
-  zinc: { bg: 'bg-zinc-50 dark:bg-zinc-800/50', border: 'border-zinc-200 dark:border-zinc-700', text: 'text-zinc-700 dark:text-zinc-300', badge: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300', iconBg: 'bg-zinc-100 dark:bg-zinc-800' },
+const colorMap: Record<string, { bg: string; border: string; text: string; badge: string; iconBg: string; ring: string }> = {
+  blue: { bg: 'bg-blue-50 dark:bg-blue-950/30', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-700 dark:text-blue-300', badge: 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300', iconBg: 'bg-blue-100 dark:bg-blue-900', ring: 'ring-blue-400/30' },
+  purple: { bg: 'bg-purple-50 dark:bg-purple-950/30', border: 'border-purple-200 dark:border-purple-800', text: 'text-purple-700 dark:text-purple-300', badge: 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300', iconBg: 'bg-purple-100 dark:bg-purple-900', ring: 'ring-purple-400/30' },
+  green: { bg: 'bg-green-50 dark:bg-green-950/30', border: 'border-green-200 dark:border-green-800', text: 'text-green-700 dark:text-green-300', badge: 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300', iconBg: 'bg-green-100 dark:bg-green-900', ring: 'ring-green-400/30' },
+  amber: { bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-300', badge: 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300', iconBg: 'bg-amber-100 dark:bg-amber-900', ring: 'ring-amber-400/30' },
+  zinc: { bg: 'bg-zinc-50 dark:bg-zinc-800/50', border: 'border-zinc-200 dark:border-zinc-700', text: 'text-zinc-700 dark:text-zinc-300', badge: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300', iconBg: 'bg-zinc-100 dark:bg-zinc-800', ring: 'ring-zinc-400/30' },
 }
 
 export default function DeviceProfilesPage() {
@@ -86,7 +86,7 @@ export default function DeviceProfilesPage() {
               onClick={() => setSelectedProfile(isSelected ? null : profile.id)}
               className={`text-left p-4 rounded-xl border-2 transition-all duration-200 ${
                 isSelected
-                  ? `${c.bg} ${c.border} ring-2 ring-offset-1 ring-${profile.color}-400/30`
+                  ? `${c.bg} ${c.border} ring-2 ring-offset-1 ${c.ring}`
                   : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 bg-white dark:bg-zinc-900'
               }`}
             >

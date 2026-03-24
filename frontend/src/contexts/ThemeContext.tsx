@@ -28,8 +28,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
     return 'system'
   })
+  // Separate state to track the resolved system preference so isDark stays fresh
+  const [systemDark, setSystemDark] = useState(getSystemDark)
 
-  const isDark = mode === 'dark' || (mode === 'system' && getSystemDark())
+  const isDark = mode === 'dark' || (mode === 'system' && systemDark)
 
   const setMode = (newMode: ThemeMode) => {
     setModeState(newMode)
@@ -46,23 +48,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isDark])
 
-  // Listen for system preference changes when in 'system' mode
+  // Listen for system preference changes — update systemDark state to trigger re-render
   useEffect(() => {
-    if (mode !== 'system') return
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => {
-      // Trigger a re-render so isDark recalculates
-      setModeState('system')
-      const root = document.documentElement
-      if (mq.matches) {
-        root.classList.add('dark')
-      } else {
-        root.classList.remove('dark')
-      }
-    }
+    const handler = () => setSystemDark(mq.matches)
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
-  }, [mode])
+  }, [])
 
   return (
     <ThemeContext.Provider value={{ mode, setMode, isDark }}>
