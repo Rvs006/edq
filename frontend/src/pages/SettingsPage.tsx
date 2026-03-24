@@ -7,28 +7,6 @@ import type { TourState } from '@/lib/types'
 import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw, Save, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-// Theme types kept for backward compatibility but actual management is in ThemeContext
-type Theme = 'light' | 'dark' | 'system'
-
-function getStoredTheme(): Theme {
-  return (localStorage.getItem('edq-theme') as Theme) || 'system'
-}
-
-function applyTheme(theme: Theme) {
-  const root = document.documentElement
-  if (theme === 'dark') {
-    root.classList.add('dark')
-  } else if (theme === 'system') {
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
-    }
-  } else {
-    root.classList.remove('dark')
-  }
-}
-
 export default function SettingsPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
@@ -57,7 +35,7 @@ export default function SettingsPage({ tourState }: { tourState?: TourState }) {
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
                 activeTab === tab.id
                   ? 'bg-brand-50 text-brand-500'
-                  : 'text-zinc-600 hover:bg-zinc-100'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
               }`}
             >
               <tab.icon className="w-4 h-4" />
@@ -106,7 +84,7 @@ function ProfileSettings({ user }: { user: { full_name?: string | null; username
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-zinc-900">Profile Information</h2>
+        <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">Profile Information</h2>
         {!editing ? (
           <button onClick={() => setEditing(true)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
             Edit Profile
@@ -131,7 +109,7 @@ function ProfileSettings({ user }: { user: { full_name?: string | null; username
             </span>
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-zinc-900">{user?.full_name || user?.username}</h3>
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{user?.full_name || user?.username}</h3>
             <p className="text-sm text-zinc-500">{user?.email}</p>
             <span className="badge text-[10px] bg-brand-50 text-brand-500 border border-brand-100 capitalize mt-1">
               {user?.role}
@@ -208,7 +186,7 @@ function SecuritySettings() {
 
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-zinc-900 mb-4">Change Password</h2>
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Change Password</h2>
       <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
         <div>
           <label className="label">Current Password</label>
@@ -303,7 +281,7 @@ function SystemStatus() {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-zinc-900">System Status</h2>
+        <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">System Status</h2>
         <button onClick={fetchVersions} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
           Refresh
         </button>
@@ -321,9 +299,9 @@ function SystemStatus() {
             const version = versions[key]
             const available = version && version !== 'unavailable'
             return (
-              <div key={key} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-zinc-50">
+              <div key={key} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-800">
                 <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${available ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                <span className="text-sm font-medium text-zinc-700 w-24">{label}</span>
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 w-24">{label}</span>
                 <span className="text-xs text-zinc-500 flex-1 truncate font-mono">
                   {available ? version : 'Not available'}
                 </span>
@@ -398,7 +376,7 @@ function BrandingSettings() {
 
   return (
     <div className="card p-5">
-      <h2 className="font-semibold text-zinc-900 mb-1">Report Branding</h2>
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-1">Report Branding</h2>
       <p className="text-xs text-zinc-500 mb-4">Customize the look of generated qualification reports.</p>
 
       <form onSubmit={handleSave} className="space-y-4 max-w-md">

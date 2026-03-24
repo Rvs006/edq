@@ -53,31 +53,31 @@ export default function ReviewQueuePage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50/50">
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">
-                    <button onClick={() => toggleSort('device_name')} className="flex items-center gap-1 hover:text-zinc-700">
+                <tr className="border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    <button onClick={() => toggleSort('device_name')} className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-300">
                       Device <ArrowUpDown className="w-3 h-3" />
                     </button>
                   </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Engineer</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Status</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Verdict</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">
-                    <button onClick={() => toggleSort('created_at')} className="flex items-center gap-1 hover:text-zinc-700">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">Engineer</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Status</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Verdict</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden md:table-cell">
+                    <button onClick={() => toggleSort('created_at')} className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-300">
                       Date <ArrowUpDown className="w-3 h-3" />
                     </button>
                   </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Actions</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {sortedRuns.map((run: TestRun) => (
-                  <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
+                  <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                     <td className="py-3 px-4">
-                      <p className="font-medium text-zinc-900">{run.device_name || `Run ${run.id.slice(0, 8)}`}</p>
+                      <p className="font-medium text-zinc-900 dark:text-zinc-100">{run.device_name || `Run ${run.id.slice(0, 8)}`}</p>
                       <p className="text-xs text-zinc-500 font-mono">{run.device_ip || run.device_id?.slice(0, 8)}</p>
                     </td>
-                    <td className="py-3 px-4 text-zinc-600 text-xs hidden sm:table-cell">
+                    <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 text-xs hidden sm:table-cell">
                       {run.user_name || (run.user_id ? run.user_id.slice(0, 8) : '\u2014')}
                     </td>
                     <td className="py-3 px-4"><StatusBadge status={run.status} /></td>
@@ -104,7 +104,7 @@ export default function ReviewQueuePage() {
       ) : (
         <div className="card p-12 text-center">
           <ClipboardCheck className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-zinc-700 mb-1">No runs awaiting review</h3>
+          <h3 className="text-base font-semibold text-zinc-700 dark:text-zinc-300 mb-1">No runs awaiting review</h3>
           <p className="text-sm text-zinc-500">Test runs submitted for review will appear here</p>
         </div>
       )}

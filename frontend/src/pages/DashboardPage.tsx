@@ -94,10 +94,10 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
       )}
 
       <div className="mb-6">
-        <h1 className="text-xl font-semibold text-zinc-900">
+        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
           Welcome back, {user?.full_name || user?.username}
         </h1>
-        <p className="text-sm text-zinc-500 mt-0.5">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
           Device qualification overview
         </p>
       </div>
@@ -110,8 +110,8 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
                 <stat.icon className={`w-5 h-5 ${stat.iconColor}`} />
               </div>
               <div>
-                <p className="text-2xl font-bold text-zinc-900">{stat.value}</p>
-                <p className="text-xs text-zinc-500">{stat.label}</p>
+                  <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{stat.value}</p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">{stat.label}</p>
               </div>
             </div>
           </div>
@@ -120,8 +120,8 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         <div className="lg:col-span-2 card">
-          <div className="flex items-center justify-between p-4 border-b border-zinc-100">
-            <h2 className="font-semibold text-zinc-900">Recent Test Sessions</h2>
+          <div className="flex items-center justify-between p-4 border-b border-zinc-100 dark:border-zinc-800">
+            <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">Recent Test Sessions</h2>
             <Link to="/test-runs" className="text-sm text-brand-500 hover:text-brand-600 flex items-center gap-1">
               View all <ArrowRight className="w-3.5 h-3.5" />
             </Link>
@@ -130,19 +130,19 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
             {recentRuns && recentRuns.length > 0 ? (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-zinc-100">
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500">Device</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">IP</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500">Status</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500">Verdict</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Date</th>
+                  <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Device</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">IP</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Status</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Verdict</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden md:table-cell">Date</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-50">
+                <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
                   {recentRuns.map((run: TestRun) => (
-                    <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
+                    <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                       <td className="py-2.5 px-4">
-                        <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 hover:text-brand-500">
+                        <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-zinc-100 hover:text-brand-500">
                           {run.device_name || `Run ${run.id.slice(0, 8)}`}
                         </Link>
                       </td>
@@ -180,37 +180,37 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
 
         <div className="space-y-4" data-tour="quick-actions">
           <div className="card p-4">
-            <h3 className="font-semibold text-zinc-900 mb-3">Quick Actions</h3>
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <Link to="/test-runs" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 transition-colors">
+              <Link to="/test-runs" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                 <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
                   <Plus className="w-4 h-4 text-blue-600" />
                 </div>
-                <span className="text-sm font-medium text-zinc-700">New Test Run</span>
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">New Test Run</span>
               </Link>
-              <Link to="/devices" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 transition-colors">
+              <Link to="/devices" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                 <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
                   <Monitor className="w-4 h-4 text-green-600" />
                 </div>
-                <span className="text-sm font-medium text-zinc-700">Add Device</span>
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Add Device</span>
               </Link>
-              <Link to="/reports" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 transition-colors">
+              <Link to="/reports" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                 <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
                   <FileText className="w-4 h-4 text-purple-600" />
                 </div>
-                <span className="text-sm font-medium text-zinc-700">Generate Report</span>
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Generate Report</span>
               </Link>
             </div>
           </div>
 
           <div className="card p-4">
-            <h3 className="font-semibold text-zinc-900 mb-3">Device Categories</h3>
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Device Categories</h3>
             {deviceStats?.by_category && Object.keys(deviceStats.by_category).length > 0 ? (
               <div className="space-y-2">
                 {Object.entries(deviceStats.by_category).map(([cat, count]) => (
                   <div key={cat} className="flex items-center justify-between py-1.5">
-                    <span className="text-sm text-zinc-600 capitalize">{cat.replace(/_/g, ' ')}</span>
-                    <span className="text-sm font-semibold text-zinc-900">{String(count)}</span>
+                    <span className="text-sm text-zinc-600 dark:text-zinc-400 capitalize">{cat.replace(/_/g, ' ')}</span>
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{String(count)}</span>
                   </div>
                 ))}
               </div>

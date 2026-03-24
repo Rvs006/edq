@@ -367,17 +367,17 @@ export default function TestRunDetailPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
-      <div className="flex-shrink-0 bg-white border-b border-zinc-200 px-4 py-3">
+      <div className="flex-shrink-0 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-4 py-3">
         <div className="flex items-center gap-3 mb-2">
           <Link
             to="/test-runs"
-            className="p-1 rounded-lg hover:bg-zinc-100 transition-colors flex-shrink-0"
+            className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
           >
             <ArrowLeft className="w-4 h-4 text-zinc-500" />
           </Link>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-sm font-semibold text-zinc-900 truncate">
+              <h1 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
                 {run.device_name || `Device ${run.device_id?.slice(0, 8)}`}
               </h1>
               <StatusBadge status={run.status} />
@@ -414,7 +414,7 @@ export default function TestRunDetailPage() {
           </div>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 transition-colors flex-shrink-0"
+            className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
           >
             {sidebarOpen ? <X className="w-5 h-5 text-zinc-600" /> : <Menu className="w-5 h-5 text-zinc-600" />}
           </button>
@@ -494,7 +494,7 @@ export default function TestRunDetailPage() {
           />
         </div>
 
-        <div className="flex-1 min-w-0 bg-white">
+        <div className="flex-1 min-w-0 bg-white dark:bg-zinc-900">
           {selectedResult ? (
             <TestDetail
               key={selectedResult.id}
@@ -513,11 +513,11 @@ export default function TestRunDetailPage() {
             </div>
           ) : results.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
-              <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
                 <FileText className="w-6 h-6 text-zinc-400" />
               </div>
               <div>
-                <p className="text-sm font-medium text-zinc-700">No tests loaded yet</p>
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">No tests loaded yet</p>
                 <p className="text-xs text-zinc-500 mt-0.5">
                   Start automated tests to begin the qualification process.
                 </p>

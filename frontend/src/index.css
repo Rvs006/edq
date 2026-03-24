@@ -133,11 +133,11 @@
   }
 
   .section-title {
-    @apply text-lg sm:text-xl font-semibold text-zinc-900;
+    @apply text-lg sm:text-xl font-semibold text-zinc-900 dark:text-zinc-100;
   }
 
   .section-subtitle {
-    @apply text-sm text-zinc-500 mt-0.5;
+    @apply text-sm text-zinc-500 dark:text-zinc-400 mt-0.5;
   }
 }
 
