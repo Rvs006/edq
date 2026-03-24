@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { devicesApi, testRunsApi, cveApi, discoveryApi } from '@/lib/api'
@@ -51,6 +51,13 @@ export default function DeviceDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['device', id] })
     },
   })
+
+  useEffect(() => {
+    setCveData(null)
+    cveMutation.reset()
+    autoDetectMutation.reset()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   if (isLoading) {
     return (

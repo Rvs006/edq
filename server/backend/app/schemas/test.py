@@ -1,8 +1,9 @@
 """Test-related schemas: templates, runs, results."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
+import json
 
 
 # --- Test Template ---
@@ -44,6 +45,13 @@ class TestTemplateResponse(BaseModel):
     created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("test_ids", mode="before")
+    @classmethod
+    def parse_test_ids(cls, v: object) -> list[str]:
+        if isinstance(v, str):
+            return json.loads(v)
+        return v  # type: ignore[return-value]
 
     class Config:
         from_attributes = True
