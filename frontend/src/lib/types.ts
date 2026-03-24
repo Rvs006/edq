@@ -187,6 +187,45 @@ export interface UserProfile {
   created_at: string
 }
 
+export interface ScanSchedule {
+  id: string
+  device_id: string
+  template_id: string
+  created_by: string
+  frequency: 'daily' | 'weekly' | 'monthly'
+  is_active: boolean
+  last_run_at: string | null
+  next_run_at: string
+  run_count: number
+  max_runs: number | null
+  diff_summary: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CVEResult {
+  id: string
+  description: string
+  severity: string
+  cvss_score: number | null
+  url: string
+}
+
+export interface ServiceCVEResult {
+  port: number
+  service: string
+  version: string
+  cves: CVEResult[]
+}
+
+export interface CVELookupResponse {
+  status: string
+  query: string
+  total_cves: number
+  results: ServiceCVEResult[]
+  keyword_results: CVEResult[]
+}
+
 export interface DiscoveredDevice {
   ip_address: string
   hostname: string | null

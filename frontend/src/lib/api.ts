@@ -69,7 +69,7 @@ export const profilesApi = {
 }
 
 export const templatesApi = {
-  list: () => api.get<TestTemplate[]>('/test-templates/'),
+  list: (params?: { limit?: number }) => api.get<TestTemplate[]>('/test-templates/', { params }),
   get: (id: string) => api.get<TestTemplate>(`/test-templates/${id}`),
   create: (data: { name: string; description?: string; test_ids: string[]; device_category?: string }) => api.post<TestTemplate>('/test-templates/', data),
   update: (id: string, data: { name?: string; description?: string; test_ids?: string[]; device_category?: string; is_default?: boolean }) => api.patch<TestTemplate>(`/test-templates/${id}`, data),
