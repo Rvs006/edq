@@ -14,7 +14,7 @@ from app.models.database import get_db
 from app.models.test_plan import TestPlan
 from app.models.test_template import TestTemplate
 from app.models.user import User
-from app.security.auth import get_current_active_user
+from app.security.auth import get_current_active_user, require_role
 
 logger = logging.getLogger("edq.routes.test_plans")
 
@@ -73,7 +73,7 @@ async def list_test_plans(
 async def create_test_plan(
     data: TestPlanCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_role(["admin", "engineer"])),
 ):
     if data.base_template_id:
         t_result = await db.execute(
@@ -113,7 +113,7 @@ async def update_test_plan(
     plan_id: str,
     data: TestPlanUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    _: User = Depends(require_role(["admin", "engineer"])),
 ):
     result = await db.execute(select(TestPlan).where(TestPlan.id == plan_id))
     plan = result.scalar_one_or_none()
@@ -138,7 +138,7 @@ async def update_test_plan(
 async def delete_test_plan(
     plan_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    _: User = Depends(require_role(["admin"])),
 ):
     result = await db.execute(select(TestPlan).where(TestPlan.id == plan_id))
     plan = result.scalar_one_or_none()

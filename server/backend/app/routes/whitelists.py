@@ -64,8 +64,15 @@ async def update_whitelist(
     whitelist = result.scalar_one_or_none()
     if not whitelist:
         raise HTTPException(status_code=404, detail="Whitelist not found")
-    for field, value in data.model_dump(exclude_unset=True, mode="json").items():
-        setattr(whitelist, field, value)
+    updates = data.model_dump(exclude_unset=True, mode="json")
+    if "name" in updates:
+        whitelist.name = updates["name"]
+    if "description" in updates:
+        whitelist.description = updates["description"]
+    if "is_default" in updates:
+        whitelist.is_default = updates["is_default"]
+    if "entries" in updates:
+        whitelist.entries = updates["entries"]
     await db.flush()
     await db.refresh(whitelist)
     return whitelist

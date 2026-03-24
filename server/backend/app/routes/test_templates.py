@@ -69,8 +69,17 @@ async def update_template(
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(template, field, value)
+    updates = data.model_dump(exclude_unset=True)
+    if "name" in updates:
+        template.name = updates["name"]
+    if "description" in updates:
+        template.description = updates["description"]
+    if "test_ids" in updates:
+        template.test_ids = updates["test_ids"]
+    if "device_category" in updates:
+        template.device_category = updates["device_category"]
+    if "is_default" in updates:
+        template.is_default = updates["is_default"]
     await db.flush()
     await db.refresh(template)
     return template

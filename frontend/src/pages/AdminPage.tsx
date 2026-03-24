@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '@/lib/api'
+import type { UserProfile } from '@/lib/types'
 import { Users, Server, Loader2 } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('users')
@@ -42,10 +44,31 @@ export default function AdminPage() {
 }
 
 function UsersTab() {
+  const queryClient = useQueryClient()
   const { data: users, isLoading } = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => adminApi.users().then(r => r.data),
   })
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    try {
+      await adminApi.updateUser(userId, { role: newRole })
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      toast.success('Role updated')
+    } catch {
+      toast.error('Failed to update role')
+    }
+  }
+
+  const handleToggleActive = async (userId: string, currentlyActive: boolean) => {
+    try {
+      await adminApi.updateUser(userId, { is_active: !currentlyActive })
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+      toast.success(currentlyActive ? 'User deactivated' : 'User activated')
+    } catch {
+      toast.error('Failed to update user status')
+    }
+  }
 
   if (isLoading) {
     return (
@@ -55,7 +78,7 @@ function UsersTab() {
     )
   }
 
-  const userList = Array.isArray(users) ? users : []
+  const userList: UserProfile[] = Array.isArray(users) ? users : []
 
   return (
     <div className="card overflow-hidden">
@@ -68,10 +91,11 @@ function UsersTab() {
               <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Role</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Status</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Last Login</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            {userList.length > 0 ? userList.map((u: any) => (
+            {userList.length > 0 ? userList.map((u: UserProfile) => (
               <tr key={u.id} className="hover:bg-zinc-50 transition-colors">
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-3">
@@ -88,7 +112,15 @@ function UsersTab() {
                 </td>
                 <td className="py-3 px-4 text-zinc-600 text-xs">{u.email}</td>
                 <td className="py-3 px-4">
-                  <span className="badge text-[10px] bg-zinc-100 text-zinc-600 capitalize">{u.role}</span>
+                  <select
+                    value={u.role}
+                    onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                    className="text-xs border border-zinc-200 rounded px-2 py-1 bg-white capitalize"
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="engineer">Engineer</option>
+                    <option value="reviewer">Reviewer</option>
+                  </select>
                 </td>
                 <td className="py-3 px-4 hidden sm:table-cell">
                   <span className={`badge text-[10px] ${u.is_active ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
@@ -98,10 +130,18 @@ function UsersTab() {
                 <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
                   {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
                 </td>
+                <td className="py-3 px-4">
+                  <button
+                    onClick={() => handleToggleActive(u.id, u.is_active)}
+                    className={`text-xs font-medium px-2 py-1 rounded ${u.is_active ? 'text-red-600 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
+                  >
+                    {u.is_active ? 'Deactivate' : 'Activate'}
+                  </button>
+                </td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-sm text-zinc-500">No users found</td>
+                <td colSpan={6} className="py-8 text-center text-sm text-zinc-500">No users found</td>
               </tr>
             )}
           </tbody>

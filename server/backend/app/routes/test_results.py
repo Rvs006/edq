@@ -57,8 +57,17 @@ async def update_result(
     test_result = result.scalar_one_or_none()
     if not test_result:
         raise HTTPException(status_code=404, detail="Test result not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(test_result, field, value)
+    updates = data.model_dump(exclude_unset=True)
+    if "verdict" in updates:
+        test_result.verdict = updates["verdict"]
+    if "comment" in updates:
+        test_result.comment = updates["comment"]
+    if "findings" in updates:
+        test_result.findings = updates["findings"]
+    if "raw_output" in updates:
+        test_result.raw_output = updates["raw_output"]
+    if "tier" in updates:
+        test_result.tier = updates["tier"]
     await db.flush()
     await db.refresh(test_result)
     return test_result

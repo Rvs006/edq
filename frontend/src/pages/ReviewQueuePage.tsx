@@ -1,13 +1,40 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { testRunsApi } from '@/lib/api'
-import { Eye, Loader2, ClipboardCheck } from 'lucide-react'
+import type { TestRun } from '@/lib/types'
+import { Eye, Loader2, ClipboardCheck, ArrowUpDown } from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 
+type SortField = 'created_at' | 'device_name'
+type SortDir = 'asc' | 'desc'
+
 export default function ReviewQueuePage() {
+  const [sortField, setSortField] = useState<SortField>('created_at')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
   const { data: runs, isLoading } = useQuery({
     queryKey: ['review-queue'],
     queryFn: () => testRunsApi.list({ status: 'awaiting_review' }).then(r => r.data),
+  })
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('desc')
+    }
+  }
+
+  const sortedRuns = [...(runs || [])].sort((a: TestRun, b: TestRun) => {
+    let cmp = 0
+    if (sortField === 'created_at') {
+      cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    } else if (sortField === 'device_name') {
+      cmp = (a.device_name || '').localeCompare(b.device_name || '')
+    }
+    return sortDir === 'asc' ? cmp : -cmp
   })
 
   return (
@@ -21,29 +48,37 @@ export default function ReviewQueuePage() {
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
         </div>
-      ) : runs && runs.length > 0 ? (
+      ) : sortedRuns.length > 0 ? (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 bg-zinc-50/50">
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Device</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">
+                    <button onClick={() => toggleSort('device_name')} className="flex items-center gap-1 hover:text-zinc-700">
+                      Device <ArrowUpDown className="w-3 h-3" />
+                    </button>
+                  </th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Engineer</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Status</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Verdict</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Date</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">
+                    <button onClick={() => toggleSort('created_at')} className="flex items-center gap-1 hover:text-zinc-700">
+                      Date <ArrowUpDown className="w-3 h-3" />
+                    </button>
+                  </th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {runs.map((run: any) => (
+                {sortedRuns.map((run: TestRun) => (
                   <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
                     <td className="py-3 px-4">
                       <p className="font-medium text-zinc-900">{run.device_name || `Run ${run.id.slice(0, 8)}`}</p>
                       <p className="text-xs text-zinc-500 font-mono">{run.device_ip || run.device_id?.slice(0, 8)}</p>
                     </td>
                     <td className="py-3 px-4 text-zinc-600 text-xs hidden sm:table-cell">
-                      {run.user_name || run.user_id?.slice(0, 8) || '—'}
+                      {run.user_name || (run.user_id ? run.user_id.slice(0, 8) : '\u2014')}
                     </td>
                     <td className="py-3 px-4"><StatusBadge status={run.status} /></td>
                     <td className="py-3 px-4">

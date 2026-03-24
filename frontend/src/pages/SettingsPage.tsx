@@ -133,6 +133,18 @@ function SecuritySettings() {
       toast.error('Password must be at least 8 characters')
       return
     }
+    if (!/[A-Z]/.test(form.new_password)) {
+      toast.error('Password must contain at least one uppercase letter')
+      return
+    }
+    if (!/[a-z]/.test(form.new_password)) {
+      toast.error('Password must contain at least one lowercase letter')
+      return
+    }
+    if (!/[0-9]/.test(form.new_password)) {
+      toast.error('Password must contain at least one digit')
+      return
+    }
     setLoading(true)
     try {
       await authApi.changePassword({
@@ -162,7 +174,7 @@ function SecuritySettings() {
           <label className="label">New Password</label>
           <input type="password" value={form.new_password}
             onChange={(e) => setForm({ ...form, new_password: e.target.value })}
-            className="input" placeholder="Minimum 8 characters" required />
+            className="input" placeholder="Min 8 chars, uppercase, lowercase, digit" required />
         </div>
         <div>
           <label className="label">Confirm New Password</label>
