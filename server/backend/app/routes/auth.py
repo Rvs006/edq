@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -159,8 +159,8 @@ async def get_me(user: User = Depends(get_current_active_user)):
 
 
 class ProfileUpdate(BaseModel):
-    full_name: str | None = None
-    email: str | None = None
+    full_name: str | None = Field(None, max_length=128)
+    email: EmailStr | None = None
 
 
 @router.patch("/me", response_model=UserResponse)

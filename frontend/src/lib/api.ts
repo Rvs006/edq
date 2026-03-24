@@ -125,8 +125,8 @@ export const auditApi = {
 export const adminApi = {
   dashboard: () => api.get('/admin/dashboard'),
   systemInfo: () => api.get('/admin/system-info'),
-  users: (params?: { skip?: number; limit?: number }) => api.get<UserProfile[]>('/admin/users', { params }),
-  updateUser: (id: string, data: { role?: string; is_active?: boolean; full_name?: string; email?: string }) => api.put(`/admin/users/${id}`, data),
+  users: (params?: { skip?: number; limit?: number }) => api.get<UserProfile[]>('/users/', { params }),
+  updateUser: (id: string, data: { role?: string; is_active?: boolean; full_name?: string; email?: string }) => api.patch(`/users/${id}`, data),
 }
 
 export const synopsisApi = {

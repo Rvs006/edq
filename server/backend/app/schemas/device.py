@@ -42,6 +42,20 @@ class DeviceCreate(BaseModel):
 class DeviceUpdate(BaseModel):
     ip_address: Optional[str] = Field(None, max_length=45)
     mac_address: Optional[str] = Field(None, max_length=17)
+
+    @field_validator("ip_address")
+    @classmethod
+    def validate_ip(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _IP_RE.match(v):
+            raise ValueError("Invalid IPv4 address")
+        return v
+
+    @field_validator("mac_address")
+    @classmethod
+    def validate_mac(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _MAC_RE.match(v):
+            raise ValueError("Invalid MAC address format (expected AA:BB:CC:DD:EE:FF)")
+        return v
     hostname: Optional[str] = Field(None, max_length=255)
     manufacturer: Optional[str] = Field(None, max_length=128)
     model: Optional[str] = Field(None, max_length=128)
