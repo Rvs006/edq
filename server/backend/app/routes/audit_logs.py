@@ -112,7 +112,7 @@ async def export_audit_logs(
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
+    _: User = Depends(require_role(["admin", "reviewer"])),
 ):
     """Export audit logs as CSV."""
     query = _build_audit_query(action, resource_type, user_id, date_from, date_to)
