@@ -30,6 +30,7 @@ from app.models.protocol_whitelist import ProtocolWhitelist
 from app.models.nessus_finding import NessusFinding
 from app.models.network_scan import NetworkScan
 from app.models.test_plan import TestPlan
+from app.models.branding import BrandingSettings
 
 config = context.config
 
