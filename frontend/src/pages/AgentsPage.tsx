@@ -171,7 +171,7 @@ export default function AgentsPage() {
                 a.id === data.agent_id
                   ? {
                       ...a,
-                      status: data.status || a.status,
+                      status: (['online', 'busy', 'offline'].includes(data.status) ? data.status : a.status) as Agent['status'],
                       lastHeartbeat: data.timestamp || new Date().toISOString(),
                     }
                   : a
