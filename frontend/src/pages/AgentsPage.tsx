@@ -1,6 +1,23 @@
-import { useState, useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { RefreshCw, Loader2, AlertCircle } from 'lucide-react'
 import Callout from '@/components/common/Callout'
+import { agentsApi } from '@/lib/api'
+
+interface AgentFromApi {
+  id: string
+  name: string
+  hostname: string | null
+  api_key_prefix: string
+  platform: string | null
+  agent_version: string | null
+  ip_address: string | null
+  status: string
+  last_heartbeat: string | null
+  capabilities: unknown
+  current_task: string | null
+  is_active: boolean
+  created_at: string
+}
 
 interface Agent {
   id: string
@@ -14,7 +31,7 @@ interface Agent {
   totalTests: number
 }
 
-/** Demo agents — in production these would come from a WebSocket or polling API. */
+/** Demo agents — used as fallback when no agents are registered in the backend. */
 const DEMO_AGENTS: Agent[] = [
   {
     id: '1',
@@ -78,11 +95,112 @@ const statusConfig = {
   offline: { label: 'Offline', dot: 'bg-zinc-400', text: 'text-zinc-500' },
 } as const
 
-export default function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[]>(DEMO_AGENTS)
+function mapApiAgent(a: AgentFromApi): Agent {
+  const platformMap: Record<string, string> = {
+    macos: 'macOS',
+    windows: 'Windows',
+    linux: 'Linux',
+  }
+  return {
+    id: a.id,
+    name: a.name || a.hostname || 'Unknown',
+    engineer: a.hostname || a.api_key_prefix,
+    os: a.platform ? platformMap[a.platform] || a.platform : 'Unknown',
+    version: a.agent_version || 'N/A',
+    status: (['online', 'busy', 'offline'].includes(a.status) ? a.status : 'offline') as Agent['status'],
+    lastHeartbeat: a.last_heartbeat || a.created_at,
+    syncedTests: 0,
+    totalTests: 0,
+  }
+}
 
-  // Simulate heartbeat updates every 5 seconds
+export default function AgentsPage() {
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [usingDemo, setUsingDemo] = useState(false)
+  const wsRef = useRef<WebSocket | null>(null)
+
+  // Fetch agents from API on mount
   useEffect(() => {
+    let cancelled = false
+    async function fetchAgents() {
+      try {
+        const res = await agentsApi.list()
+        if (cancelled) return
+        const apiAgents: AgentFromApi[] = res.data
+        if (apiAgents.length > 0) {
+          setAgents(apiAgents.map(mapApiAgent))
+          setUsingDemo(false)
+        } else {
+          setAgents(DEMO_AGENTS)
+          setUsingDemo(true)
+        }
+        setError(null)
+      } catch {
+        if (cancelled) return
+        // Fallback to demo data on error
+        setAgents(DEMO_AGENTS)
+        setUsingDemo(true)
+        setError(null)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    fetchAgents()
+    return () => { cancelled = true }
+  }, [])
+
+  // WebSocket for real-time heartbeat updates (only when using real API data)
+  useEffect(() => {
+    if (usingDemo || agents.length === 0) return
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/agents`
+
+    try {
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === 'heartbeat' && data.agent_id) {
+            setAgents((prev) =>
+              prev.map((a) =>
+                a.id === data.agent_id
+                  ? {
+                      ...a,
+                      status: data.status || a.status,
+                      lastHeartbeat: data.timestamp || new Date().toISOString(),
+                    }
+                  : a
+              )
+            )
+          }
+        } catch {
+          // Ignore malformed messages
+        }
+      }
+
+      ws.onerror = () => {
+        // WebSocket not available — fall back to polling
+      }
+    } catch {
+      // WebSocket connection failed — not critical
+    }
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
+    }
+  }, [usingDemo, agents.length])
+
+  // Simulate heartbeat updates every 5 seconds (demo mode or as fallback)
+  useEffect(() => {
+    if (!usingDemo && agents.length > 0) return
     const interval = setInterval(() => {
       setAgents((prev) =>
         prev.map((a) => ({
@@ -95,7 +213,7 @@ export default function AgentsPage() {
       )
     }, 5_000)
     return () => clearInterval(interval)
-  }, [])
+  }, [usingDemo, agents.length])
 
   const onlineCount = agents.filter((a) => a.status === 'online').length
   const busyCount = agents.filter((a) => a.status === 'busy').length
@@ -106,6 +224,47 @@ export default function AgentsPage() {
     { label: 'Busy (Scanning)', value: busyCount, color: 'text-amber-600' },
     { label: 'Offline', value: offlineCount, color: 'text-zinc-500' },
   ]
+
+  if (loading) {
+    return (
+      <div className="p-4 sm:p-6 max-w-6xl">
+        <h1 className="text-lg font-semibold text-zinc-900 mb-4">Agent Fleet</h1>
+        <div className="flex items-center gap-2 text-sm text-zinc-500">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Loading agents...
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 sm:p-6 max-w-6xl">
+        <h1 className="text-lg font-semibold text-zinc-900 mb-4">Agent Fleet</h1>
+        <Callout variant="error">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            <span>Failed to load agents. {error}</span>
+          </div>
+        </Callout>
+      </div>
+    )
+  }
+
+  if (agents.length === 0) {
+    return (
+      <div className="p-4 sm:p-6 max-w-6xl">
+        <h1 className="text-lg font-semibold text-zinc-900 mb-4">Agent Fleet</h1>
+        <div className="bg-white rounded-xl border border-zinc-200 p-12 text-center">
+          <RefreshCw className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
+          <p className="text-sm font-medium text-zinc-600">No agents registered</p>
+          <p className="text-xs text-zinc-400 mt-1">
+            Register an agent using the API to see it here.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl">
@@ -137,7 +296,9 @@ export default function AgentsPage() {
         {stats.map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-zinc-200 p-5">
             <div className="text-[13px] text-zinc-500">{s.label}</div>
-            <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+            <div className={`text-2xl font-bold ${s.color}`} data-testid="stat-value">
+              {s.value}
+            </div>
           </div>
         ))}
       </div>
@@ -174,7 +335,7 @@ export default function AgentsPage() {
             <tbody className="divide-y divide-zinc-100">
               {agents.map((agent) => {
                 const sc = statusConfig[agent.status]
-                const outdated = agent.version !== CURRENT_VERSION
+                const outdated = agent.version !== CURRENT_VERSION && agent.version !== 'N/A'
                 return (
                   <tr key={agent.id} className="hover:bg-zinc-50/60 transition-colors">
                     <td className="px-4 py-3">

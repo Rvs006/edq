@@ -13,6 +13,7 @@ import toast from 'react-hot-toast'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import SegmentedProgressBar from '@/components/common/SegmentedProgressBar'
 import SmartPrompt from '@/components/common/SmartPrompt'
+import CsvExportButton from '@/components/common/CsvExportButton'
 import TestSidebar, { type TestResultItem } from '@/components/testing/TestSidebar'
 import TestDetail, { type TestResultDetail } from '@/components/testing/TestDetail'
 import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
@@ -416,6 +417,10 @@ export default function TestRunDetailPage() {
               segments={progressSegments}
             />
           </div>
+          <CsvExportButton
+            results={sidebarResults}
+            deviceName={run.device_name || `device-${run.device_id?.slice(0, 8)}`}
+          />
           <span className="text-xs font-mono text-zinc-500 flex-shrink-0">
             {run.progress_pct ?? progressPct}% ({completedCount}/{results.length})
           </span>

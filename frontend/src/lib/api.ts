@@ -161,6 +161,11 @@ export const cveApi = {
     api.post('/cve/lookup', data),
 }
 
+export const agentsApi = {
+  list: () => api.get('/agents/'),
+  get: (id: string) => api.get(`/agents/${id}`),
+}
+
 export const brandingApi = {
   get: () => api.get('/settings/branding'),
   update: (data: { company_name?: string; primary_color?: string; footer_text?: string }) =>

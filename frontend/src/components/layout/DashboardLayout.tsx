@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
+import ThemeToggle from '@/components/common/ThemeToggle'
 import {
   LayoutDashboard, Monitor, Play, FileText, Shield, ClipboardList,
   ListChecks, Settings, LogOut, Menu, X, ChevronDown, User,
-  Bell, Search, Users, Eye, Network, Wifi, Activity
+  Bell, Search, Users, Eye, Network, Wifi, Activity, Cpu
 } from 'lucide-react'
 
 const navSections = [
@@ -14,6 +15,7 @@ const navSections = [
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Devices', href: '/devices', icon: Monitor },
+      { name: 'Device Profiles', href: '/device-profiles', icon: Cpu },
       { name: 'Test Runs', href: '/test-runs', icon: Play },
       { name: 'Network Scan', href: '/network-scan', icon: Network },
     ],
@@ -103,7 +105,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   })()
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-surface dark:bg-zinc-950">
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-40 lg:hidden"
@@ -124,25 +126,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       <div className="lg:pl-64 flex flex-col min-h-screen">
-        <header className="sticky top-0 z-20 bg-white border-b border-zinc-200">
+        <header className="sticky top-0 z-20 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700">
           <div className="flex items-center justify-between h-14 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 transition-colors"
+                className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
               >
-                <Menu className="w-5 h-5 text-zinc-600" />
+                <Menu className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
               </button>
-              <h1 className="text-base font-semibold text-zinc-900">{pageTitle}</h1>
+              <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{pageTitle}</h1>
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden sm:flex items-center gap-2 bg-zinc-100 rounded-lg px-3 py-1.5 w-56">
+              <div className="hidden sm:flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg px-3 py-1.5 w-56">
                 <Search className="w-4 h-4 text-zinc-400" />
                 <input
                   type="text"
                   placeholder="Search..."
-                  className="bg-transparent text-sm text-zinc-700 placeholder-zinc-400 outline-none w-full"
+                  className="bg-transparent text-sm text-zinc-700 dark:text-zinc-200 placeholder-zinc-400 outline-none w-full"
                 />
               </div>
 
@@ -163,18 +165,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </button>
                 {statusTooltipOpen && (
                   <>
-                    <div className="absolute right-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-zinc-200 p-3 z-50">
+                    <div className="absolute right-0 mt-1 w-56 bg-white dark:bg-zinc-800 rounded-lg shadow-lg border border-zinc-200 dark:border-zinc-700 p-3 z-50">
                       <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">System Status</p>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-zinc-700">Backend API</span>
+                          <span className="text-sm text-zinc-700 dark:text-zinc-300">Backend API</span>
                           <span className={`flex items-center gap-1.5 text-xs font-medium ${backendHealthy ? 'text-green-600' : 'text-red-600'}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${backendHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
                             {backendHealthy ? 'Healthy' : 'Unavailable'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-zinc-700">Tools Sidecar</span>
+                          <span className="text-sm text-zinc-700 dark:text-zinc-300">Tools Sidecar</span>
                           <span className={`flex items-center gap-1.5 text-xs font-medium ${toolsHealthy ? 'text-green-600' : 'text-red-600'}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${toolsHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
                             {toolsHealthy ? 'Healthy' : 'Unavailable'}
@@ -196,21 +198,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </div>
 
-              <button className="p-2 rounded-lg hover:bg-zinc-100 transition-colors relative">
+              <button className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors relative">
                 <Bell className="w-5 h-5 text-zinc-500" />
               </button>
 
               <div className="relative" ref={userMenuRef}>
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-100 transition-colors"
+                  className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                 >
                   <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center">
                     <span className="text-xs font-semibold text-white">
                       {user?.full_name?.[0] || user?.username?.[0] || 'U'}
                     </span>
                   </div>
-                  <span className="hidden sm:block text-sm font-medium text-zinc-700">
+                  <span className="hidden sm:block text-sm font-medium text-zinc-700 dark:text-zinc-200">
                     {user?.full_name || user?.username}
                   </span>
                   <ChevronDown className="w-4 h-4 text-zinc-400 hidden sm:block" />
@@ -218,14 +220,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 {userMenuOpen && (
                   <>
-                    <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-zinc-200 py-1 z-50">
-                      <div className="px-3 py-2 border-b border-zinc-100">
-                        <p className="text-sm font-medium text-zinc-900">{user?.username}</p>
+                    <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-zinc-800 rounded-lg shadow-lg border border-zinc-200 dark:border-zinc-700 py-1 z-50">
+                      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-700">
+                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{user?.username}</p>
                         <p className="text-xs text-zinc-500 capitalize">{user?.role}</p>
                       </div>
                       <Link
                         to="/settings"
-                        className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+                        className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700"
                         onClick={() => setUserMenuOpen(false)}
                       >
                         <Settings className="w-4 h-4" /> Settings
@@ -312,7 +314,10 @@ function SidebarContent({
         ))}
       </nav>
 
-      <div className="px-3 py-3 border-t border-zinc-800">
+      <div className="px-3 py-3 border-t border-zinc-800 space-y-3">
+        <div className="px-3">
+          <ThemeToggle />
+        </div>
         <div className="flex items-center gap-3 px-3 py-2">
           <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center">
             <User className="w-4 h-4 text-zinc-300" />
