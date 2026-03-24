@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import DashboardLayout from './components/layout/DashboardLayout'
+import { ErrorBoundary, PageErrorBoundary } from './components/common/ErrorBoundary'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -52,22 +53,24 @@ function AppShell() {
   return (
     <>
       <DashboardLayout>
-        <Routes>
-          <Route path="/" element={<DashboardPage tourState={tour} />} />
-          <Route path="/devices" element={<DevicesPage />} />
-          <Route path="/devices/:id" element={<DeviceDetailPage />} />
-          <Route path="/test-runs" element={<TestRunsPage />} />
-          <Route path="/test-runs/:id" element={<TestRunDetailPage />} />
-          <Route path="/templates" element={<TemplatesPage />} />
-          <Route path="/whitelists" element={<WhitelistsPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/review" element={<ReviewQueuePage />} />
-          <Route path="/admin" element={<AdminPage />} />
-          <Route path="/audit-log" element={<AuditLogPage />} />
-          <Route path="/settings" element={<SettingsPage tourState={tour} />} />
-          <Route path="/network-scan" element={<NetworkScanPage />} />
-          <Route path="/test-plans" element={<TestPlansPage />} />
-        </Routes>
+        <PageErrorBoundary>
+          <Routes>
+            <Route path="/" element={<DashboardPage tourState={tour} />} />
+            <Route path="/devices" element={<DevicesPage />} />
+            <Route path="/devices/:id" element={<DeviceDetailPage />} />
+            <Route path="/test-runs" element={<TestRunsPage />} />
+            <Route path="/test-runs/:id" element={<TestRunDetailPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
+            <Route path="/whitelists" element={<WhitelistsPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/review" element={<ReviewQueuePage />} />
+            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/audit-log" element={<AuditLogPage />} />
+            <Route path="/settings" element={<SettingsPage tourState={tour} />} />
+            <Route path="/network-scan" element={<NetworkScanPage />} />
+            <Route path="/test-plans" element={<TestPlansPage />} />
+          </Routes>
+        </PageErrorBoundary>
       </DashboardLayout>
       <GuidedTour
         isActive={tour.tourActive}
@@ -83,9 +86,11 @@ function AppShell() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginGate />} />
-      <Route path="/*" element={<AppShell />} />
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/login" element={<LoginGate />} />
+        <Route path="/*" element={<AppShell />} />
+      </Routes>
+    </ErrorBoundary>
   )
 }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { authApi, healthApi, brandingApi } from '@/lib/api'
+import type { TourState } from '@/lib/types'
 import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw, Save, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -26,7 +27,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-export default function SettingsPage({ tourState }: { tourState?: any }) {
+export default function SettingsPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
 
@@ -76,7 +77,7 @@ export default function SettingsPage({ tourState }: { tourState?: any }) {
   )
 }
 
-function ProfileSettings({ user }: { user: Record<string, string | boolean | null | undefined> }) {
+function ProfileSettings({ user }: { user: { full_name?: string | null; username?: string; email?: string; role?: string; id?: string } | null }) {
   const { refreshUser } = useAuth()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -124,7 +125,7 @@ function ProfileSettings({ user }: { user: Record<string, string | boolean | nul
         <div className="flex items-center gap-4 mb-6">
           <div className="w-16 h-16 rounded-full bg-brand-500 flex items-center justify-center">
             <span className="text-xl font-bold text-white">
-              {user?.full_name?.[0] || user?.username?.[0] || 'U'}
+              {(user?.full_name ?? '')[0] || (user?.username ?? '')[0] || 'U'}
             </span>
           </div>
           <div>
@@ -372,8 +373,9 @@ function BrandingSettings() {
         await brandingApi.uploadLogo(logoFile)
       }
       toast.success('Branding settings saved')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to save branding')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to save branding')
     } finally {
       setSaving(false)
     }
@@ -467,7 +469,7 @@ function BrandingSettings() {
   )
 }
 
-function HelpSection({ tourState }: { tourState?: any }) {
+function HelpSection({ tourState }: { tourState?: TourState }) {
   const navigate = useNavigate()
 
   return (
