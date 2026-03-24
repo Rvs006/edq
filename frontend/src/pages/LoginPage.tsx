@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
-import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
@@ -31,11 +31,11 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-surface px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-lg bg-brand-500 flex items-center justify-center mb-4">
-            <Shield className="w-6 h-6 text-white" />
+          <div className="w-14 h-14 flex items-center justify-center mb-3">
+            <img src="/icon.png" alt="Electracom" className="w-12 h-12" />
           </div>
-          <h1 className="text-xl font-bold text-zinc-900">EDQ</h1>
-          <p className="text-sm text-zinc-500 mt-0.5">Electracom Device Qualifier</p>
+          <h1 className="text-lg font-bold text-zinc-900 tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</h1>
+          <p className="text-sm text-zinc-500 mt-0.5">Device Qualifier</p>
         </div>
 
         <div className="card p-6">

@@ -55,11 +55,8 @@ Also verify Settings Appearance tab and sidebar footer toggle stay in sync.
 - Some sidebar items are small and close together. If clicking doesn't navigate to the right page, use the URL bar directly (e.g., `localhost:5175/test-runs`, `localhost:5175/review-queue`)
 - The sidebar scrolls if the window is short — scroll down to find the theme toggle
 
-## Devin Secrets Needed
-No additional secrets required beyond the default seeded credentials (printed in backend startup logs).
-
 ## Known Limitations
 - Discovery scan requires nmap/tools sidecar (not available locally)
 - SmartPrompt only shows when test run data with guided_manual tests exists
 - Windows .ico icon verification requires Electron build
-- Agent heartbeat uses demo data when backend WebSocket agents endpoint has no real agents
+- Agent heartbeat uses demo data when no real agents are connected

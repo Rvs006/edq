@@ -1,10 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6366f1"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
+    <linearGradient id="scan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0099ff"/>
+      <stop offset="100%" stop-color="#1e40af"/>
     </linearGradient>
   </defs>
-  <path d="M32 4L8 16v16c0 14.4 10.2 27.8 24 32 13.8-4.2 24-17.6 24-32V16L32 4z" fill="url(#g)"/>
-  <text x="32" y="42" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-weight="700" font-size="18" fill="white">EDQ</text>
+  <!-- C icon shape -->
+  <rect x="8" y="4" width="48" height="56" rx="12" ry="12" fill="none" stroke="#27272a" stroke-width="6" stroke-linecap="round"/>
+  <!-- Opening gap on right side of C -->
+  <rect x="38" y="28" width="26" height="28" fill="white"/>
+  <!-- Horizontal bar inside C -->
+  <rect x="20" y="22" width="16" height="6" rx="3" fill="#27272a"/>
+  <!-- Blue scan line -->
+  <line x1="12" y1="52" x2="40" y2="52" stroke="url(#scan)" stroke-width="3" stroke-linecap="round" opacity="0.9">
+    <animate attributeName="y1" values="52;12;52" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="y2" values="52;12;52" dur="2s" repeatCount="indefinite"/>
+  </line>
 </svg>
