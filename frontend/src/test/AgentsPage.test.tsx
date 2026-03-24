@@ -82,14 +82,20 @@ describe('AgentsPage', () => {
   it('renders the page heading and subtitle', async () => {
     renderAgentsPage()
 
-    expect(screen.getByText('Agent Fleet')).toBeInTheDocument()
+    // Wait for agents to load first, then heading and subtitle appear
+    await waitFor(() => {
+      expect(screen.getByText('Agent Fleet')).toBeInTheDocument()
+    })
     expect(screen.getByText(/Monitor connected EDQ agents/)).toBeInTheDocument()
   })
 
   it('displays the info callout explaining the page', async () => {
     renderAgentsPage()
 
-    expect(screen.getByText(/What is this page/)).toBeInTheDocument()
+    // Callout only appears after agents are loaded
+    await waitFor(() => {
+      expect(screen.getByText(/What is this page/)).toBeInTheDocument()
+    })
     expect(screen.getByText(/fleet tracker/)).toBeInTheDocument()
   })
 
@@ -101,12 +107,13 @@ describe('AgentsPage', () => {
     expect(screen.getByText(/Loading agents/)).toBeInTheDocument()
   })
 
-  it('shows error state when API fails', async () => {
+  it('falls back to demo data when API fails', async () => {
     mockAgentsList.mockRejectedValue(new Error('Network error'))
     renderAgentsPage()
 
+    // Should fall back to demo data rather than showing error
     await waitFor(() => {
-      expect(screen.getByText(/Failed to load agents/)).toBeInTheDocument()
+      expect(screen.getByText('Dylan-MBP')).toBeInTheDocument()
     })
   })
 
@@ -143,17 +150,20 @@ describe('AgentsPage', () => {
       expect(screen.getByText('Dylan-MBP')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Online')).toBeInTheDocument()
-    expect(screen.getByText('Scanning')).toBeInTheDocument()
-    expect(screen.getByText('Offline')).toBeInTheDocument()
+    // Status labels appear in both stat cards and table rows;
+    // just verify at least one of each exists
+    expect(screen.getAllByText('Online').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Scanning').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Offline').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('renders empty state when no agents are registered', async () => {
+  it('falls back to demo data when API returns empty array', async () => {
     mockAgentsList.mockResolvedValue({ data: [] })
     renderAgentsPage()
 
+    // Empty API response falls back to demo data
     await waitFor(() => {
-      expect(screen.getByText(/No agents registered/)).toBeInTheDocument()
+      expect(screen.getByText('Dylan-MBP')).toBeInTheDocument()
     })
   })
 
