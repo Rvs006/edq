@@ -17,6 +17,7 @@ import ReviewQueuePage from './pages/ReviewQueuePage'
 import AdminPage from './pages/AdminPage'
 import NetworkScanPage from './pages/NetworkScanPage'
 import TestPlansPage from './pages/TestPlansPage'
+import AgentsPage from './pages/AgentsPage'
 import GuidedTour, { useTourState } from './components/tour/GuidedTour'
 
 function LoadingScreen() {
@@ -67,6 +68,7 @@ function AppShell() {
           <Route path="/settings" element={<SettingsPage tourState={tour} />} />
           <Route path="/network-scan" element={<NetworkScanPage />} />
           <Route path="/test-plans" element={<TestPlansPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
         </Routes>
       </DashboardLayout>
       <GuidedTour

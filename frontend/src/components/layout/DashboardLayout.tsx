@@ -28,6 +28,12 @@ const navSections = [
     ],
   },
   {
+    label: 'System',
+    items: [
+      { name: 'Agents', href: '/agents', icon: Wifi },
+    ],
+  },
+  {
     label: 'Admin',
     items: [
       { name: 'Review Queue', href: '/review', icon: Eye },
