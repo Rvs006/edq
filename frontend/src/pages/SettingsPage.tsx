@@ -218,7 +218,7 @@ function SecuritySettings() {
 function AppearanceSettings() {
   const { mode, setMode } = useTheme()
 
-  const options: { value: Theme; label: string; icon: React.ElementType }[] = [
+  const options: { value: 'light' | 'dark' | 'system'; label: string; icon: React.ElementType }[] = [
     { value: 'light', label: 'Light', icon: Sun },
     { value: 'dark', label: 'Dark', icon: Moon },
     { value: 'system', label: 'System', icon: MonitorIcon },

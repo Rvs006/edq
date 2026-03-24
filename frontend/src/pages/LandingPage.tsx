@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Shield, Zap, FileSpreadsheet, Wifi, WifiOff, ArrowRight, Cpu, ScanLine, ClipboardCheck, FileDown } from 'lucide-react'
+import { Zap, FileSpreadsheet, Wifi, WifiOff, ArrowRight, Cpu, ScanLine, ClipboardCheck, FileDown, Shield } from 'lucide-react'
 
 const stats = [
   { value: '43', label: 'Security Tests', icon: Shield, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -43,10 +43,18 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col">
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-zinc-200">
+        {/* Rainbow accent bar */}
+        <div className="flex h-1 w-full">
+          <div className="flex-1 bg-[#0099cc]" />
+          <div className="flex-1 bg-[#f5a623]" />
+          <div className="flex-1 bg-[#34a853]" />
+          <div className="flex-1 bg-[#9b59b6]" />
+          <div className="flex-1 bg-[#e53935]" />
+        </div>
         <div className="max-w-6xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
           <div className="flex items-center gap-2.5">
-            <img src="/electracom-logo.png" alt="Electracom" className="h-8" />
-            <span className="text-base font-bold text-zinc-900 tracking-tight">EDQ</span>
+            <img src="/icon.png" alt="" className="h-7 w-7" />
+            <span className="text-sm font-bold text-zinc-900 tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</span>
           </div>
           <Link
             to="/login"
@@ -178,8 +186,8 @@ export default function LandingPage() {
       <footer className="bg-white border-t border-zinc-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <img src="/electracom-logo.png" alt="Electracom" className="h-6" />
-            <span className="text-sm font-semibold text-zinc-700">EDQ</span>
+            <img src="/icon.png" alt="" className="h-5 w-5" />
+            <span className="text-xs font-bold text-zinc-700 tracking-widest uppercase" style={{ letterSpacing: '0.12em' }}>Electracom</span>
           </div>
           <p className="text-xs text-zinc-400">
             Electracom Projects Ltd &mdash; A Sauter Group Company

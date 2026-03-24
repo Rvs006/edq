@@ -142,4 +142,4 @@ Also verify Settings Appearance tab and sidebar footer toggle stay in sync.
 - Discovery scan requires nmap/tools sidecar (not available locally without Docker)
 - SmartPrompt only shows when test run data with guided_manual tests exists
 - Windows .ico icon verification requires Electron build
-- Agent heartbeat uses demo data when backend WebSocket agents endpoint has no real agents
+- Agent heartbeat uses demo data when no real agents are connected
