@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
-import uuid
 
 from app.models.database import get_db
 from app.models.protocol_whitelist import ProtocolWhitelist

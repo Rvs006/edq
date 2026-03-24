@@ -3,12 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { devicesApi, discoveryApi } from '@/lib/api'
 import type { Device, DiscoveredDevice } from '@/lib/types'
-import { Monitor, Plus, Search, Loader2, X, Radar } from 'lucide-react'
+import { Monitor, Plus, Search, Loader2, X, Radar, LayoutGrid, Network } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge from '@/components/common/VerdictBadge'
 import CategoryBadge from '@/components/common/CategoryBadge'
 import Callout from '@/components/common/Callout'
+import NetworkTopology from '@/components/common/NetworkTopology'
 
 const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown']
 
@@ -17,6 +18,7 @@ export default function DevicesPage() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [showDiscoverModal, setShowDiscoverModal] = useState(false)
+  const [viewMode, setViewMode] = useState<'table' | 'topology'>('table')
 
   const { data: devices, isLoading } = useQuery({
     queryKey: ['devices', search, categoryFilter],
@@ -31,6 +33,22 @@ export default function DevicesPage() {
           <p className="section-subtitle">Manage network devices for qualification testing</p>
         </div>
         <div className="flex gap-2">
+          <div className="flex border border-zinc-200 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`p-2 ${viewMode === 'table' ? 'bg-brand-50 text-brand-600' : 'text-zinc-400 hover:text-zinc-600'}`}
+              title="Table view"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('topology')}
+              className={`p-2 ${viewMode === 'topology' ? 'bg-brand-50 text-brand-600' : 'text-zinc-400 hover:text-zinc-600'}`}
+              title="Topology view"
+            >
+              <Network className="w-4 h-4" />
+            </button>
+          </div>
           <button onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
             <Radar className="w-4 h-4" /> Discover
           </button>
@@ -66,6 +84,13 @@ export default function DevicesPage() {
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+        </div>
+      ) : devices && devices.length > 0 && viewMode === 'topology' ? (
+        <div className="card p-4">
+          <NetworkTopology
+            devices={devices}
+            onDeviceClick={(d) => window.location.href = `/devices/${d.id}`}
+          />
         </div>
       ) : devices && devices.length > 0 ? (
         <div className="card overflow-hidden">

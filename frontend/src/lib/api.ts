@@ -161,6 +161,18 @@ export const cveApi = {
     api.post('/cve/lookup', data),
 }
 
+export const scanSchedulesApi = {
+  list: (params?: { device_id?: string; is_active?: boolean; skip?: number; limit?: number }) =>
+    api.get('/scan-schedules/', { params }),
+  get: (id: string) => api.get(`/scan-schedules/${id}`),
+  create: (data: { device_id: string; template_id: string; frequency: string; max_runs?: number }) =>
+    api.post('/scan-schedules/', data),
+  update: (id: string, data: { frequency?: string; is_active?: boolean; max_runs?: number }) =>
+    api.patch(`/scan-schedules/${id}`, data),
+  delete: (id: string) => api.delete(`/scan-schedules/${id}`),
+  diff: (id: string) => api.get(`/scan-schedules/${id}/diff`),
+}
+
 export const brandingApi = {
   get: () => api.get('/settings/branding'),
   update: (data: { company_name?: string; primary_color?: string; footer_text?: string }) =>

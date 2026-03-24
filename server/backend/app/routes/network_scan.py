@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import re
-import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
