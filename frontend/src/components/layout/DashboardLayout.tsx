@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
@@ -42,10 +42,45 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [statusTooltipOpen, setStatusTooltipOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const statusRef = useRef<HTMLDivElement>(null)
   const { user, logout } = useAuth()
   const location = useLocation()
   const { backendHealthy, toolsHealthy } = useOnlineStatus()
   const systemOk = backendHealthy && toolsHealthy
+
+  // Close all dropdowns on route change
+  useEffect(() => {
+    setUserMenuOpen(false)
+    setStatusTooltipOpen(false)
+    setSidebarOpen(false)
+  }, [location.pathname])
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
+        setStatusTooltipOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Close dropdowns on Escape key
+  useEffect(() => {
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setUserMenuOpen(false)
+        setStatusTooltipOpen(false)
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [])
 
   const isActive = (href: string) => {
     if (href === '/') return location.pathname === '/'
@@ -105,7 +140,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 />
               </div>
 
-              <div className="relative">
+              <div className="relative" ref={statusRef}>
                 <button
                   onClick={() => setStatusTooltipOpen(!statusTooltipOpen)}
                   className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
@@ -122,7 +157,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </button>
                 {statusTooltipOpen && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setStatusTooltipOpen(false)} />
                     <div className="absolute right-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-zinc-200 p-3 z-50">
                       <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">System Status</p>
                       <div className="space-y-2">
@@ -160,7 +194,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Bell className="w-5 h-5 text-zinc-500" />
               </button>
 
-              <div className="relative">
+              <div className="relative" ref={userMenuRef}>
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
                   className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-100 transition-colors"
@@ -178,7 +212,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 {userMenuOpen && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
                     <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-zinc-200 py-1 z-50">
                       <div className="px-3 py-2 border-b border-zinc-100">
                         <p className="text-sm font-medium text-zinc-900">{user?.username}</p>

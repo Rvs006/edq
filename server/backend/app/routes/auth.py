@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -154,6 +155,32 @@ async def refresh(data: RefreshRequest, response: Response, db: AsyncSession = D
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_active_user)):
+    return user
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str | None = None
+    email: str | None = None
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_profile(
+    data: ProfileUpdate,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    updates = data.model_dump(exclude_unset=True)
+    if "full_name" in updates:
+        user.full_name = updates["full_name"]
+    if "email" in updates:
+        # Check email uniqueness
+        if updates["email"] != user.email:
+            existing = await db.execute(select(User).where(User.email == updates["email"]))
+            if existing.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Email already in use")
+        user.email = updates["email"]
+    await db.flush()
+    await db.refresh(user)
     return user
 
 
