@@ -5,7 +5,7 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import {
   LayoutDashboard, Monitor, Play, FileText, Shield, ClipboardList,
   ListChecks, Settings, LogOut, Menu, X, ChevronDown, User,
-  Bell, Search, Users, Eye, Network, Wifi, Activity
+  Bell, Search, Users, Eye, Network, Wifi, Activity, CalendarClock
 } from 'lucide-react'
 
 const navSections = [
@@ -23,6 +23,7 @@ const navSections = [
     items: [
       { name: 'Templates', href: '/templates', icon: FileText },
       { name: 'Test Plans', href: '/test-plans', icon: ListChecks },
+      { name: 'Scan Schedules', href: '/scan-schedules', icon: CalendarClock },
       { name: 'Whitelists', href: '/whitelists', icon: Shield },
       { name: 'Reports', href: '/reports', icon: ClipboardList },
     ],
