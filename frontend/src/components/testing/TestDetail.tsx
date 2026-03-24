@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, Terminal, FileSearch, Pencil, ShieldAlert, Info } from 'lucide-react'
+import { ChevronDown, ChevronUp, Terminal, FileSearch, Pencil, ShieldAlert } from 'lucide-react'
 import LiveTerminal from './LiveTerminal'
 import ManualTestForm from './ManualTestForm'
 import VerdictBadge from '@/components/common/VerdictBadge'
@@ -52,7 +52,6 @@ export default function TestDetail({
   onOverride,
   isSubmitting,
 }: TestDetailProps) {
-  const [explainerOpen, setExplainerOpen] = useState(false)
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [overrideVerdict, setOverrideVerdict] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
