@@ -19,6 +19,7 @@ import TestDetail, { type TestResultDetail } from '@/components/testing/TestDeta
 import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
 import SessionControls from '@/components/testing/SessionControls'
 import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDialog'
+import type { TestResult } from '@/lib/types'
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -36,7 +37,7 @@ export default function TestRunDetailPage() {
     queryFn: () => testRunsApi.get(id!).then((r) => r.data),
     enabled: !!id,
     refetchInterval: (query) => {
-      const d = query.state.data as any
+      const d = query.state.data as Record<string, unknown> | undefined
       return d?.status === 'running' || d?.status === 'discovering' ? 3000 : false
     },
   })
@@ -64,7 +65,7 @@ export default function TestRunDetailPage() {
     }
 
     if (msg.type === 'test_start' && msg.data.test_number) {
-      const running = results.find((r: any) => r.test_number === msg.data.test_number)
+      const running = (results as TestResult[]).find((r) => r.test_number === msg.data.test_number)
       if (running) {
         setSelectedTestId(running.id)
       }
@@ -82,14 +83,14 @@ export default function TestRunDetailPage() {
 
   const sidebarResults: TestResultItem[] = useMemo(
     () =>
-      (results as any[]).map((r: any) => ({
+      (results as TestResult[]).map((r) => ({
         id: r.id,
         test_number: r.test_number || r.test_id || '',
         test_name: r.test_name || '',
-        tier: r.tier || 'automatic',
+        tier: (r.tier || 'automatic') as 'automatic' | 'guided_manual' | 'auto_na',
         verdict: r.verdict || null,
-        status: r.status,
-        tool_used: r.tool_used || r.tool || null,
+        status: r.status ?? undefined,
+        tool_used: r.tool_used || null,
         essential_pass: r.essential_pass ?? false,
       })),
     [results]
@@ -97,18 +98,18 @@ export default function TestRunDetailPage() {
 
   const selectedResult: TestResultDetail | null = useMemo(() => {
     if (!selectedTestId) return null
-    const r = (results as any[]).find((r: any) => r.id === selectedTestId)
+    const r = (results as TestResult[]).find((r) => r.id === selectedTestId)
     if (!r) return null
     return {
       id: r.id,
       test_number: r.test_number || r.test_id || '',
       test_name: r.test_name || '',
-      tier: r.tier || 'automatic',
-      tool_used: r.tool_used || r.tool || null,
+      tier: (r.tier || 'automatic') as 'automatic' | 'guided_manual' | 'auto_na',
+      tool_used: r.tool_used || null,
       tool_command: r.tool_command || null,
       raw_stdout: r.raw_stdout || null,
       raw_stderr: r.raw_stderr || null,
-      parsed_findings: r.parsed_findings || r.findings || null,
+      parsed_findings: r.parsed_findings || null,
       verdict: r.verdict || null,
       auto_comment: r.auto_comment || r.comment || null,
       engineer_selection: r.engineer_selection || null,
@@ -119,21 +120,21 @@ export default function TestRunDetailPage() {
       script_flag: r.script_flag || 'No',
       started_at: r.started_at || null,
       completed_at: r.completed_at || null,
-      duration_seconds: r.duration_seconds,
+      duration_seconds: r.duration_seconds ?? undefined,
       essential_pass: r.essential_pass ?? false,
-      test_description: r.test_description || r.description || null,
-      pass_criteria: r.pass_criteria || null,
+      test_description: r.test_description ?? undefined,
+      pass_criteria: r.pass_criteria ?? undefined,
     }
   }, [selectedTestId, results])
 
   useEffect(() => {
     if (results.length > 0 && !selectedTestId) {
-      setSelectedTestId((results as any[])[0]?.id || null)
+      setSelectedTestId((results as TestResult[])[0]?.id || null)
     }
   }, [results, selectedTestId])
 
   const completedCount = useMemo(
-    () => (results as any[]).filter((r: any) => r.verdict && r.verdict !== 'pending').length,
+    () => (results as TestResult[]).filter((r) => r.verdict && r.verdict !== 'pending').length,
     [results]
   )
 
@@ -142,7 +143,7 @@ export default function TestRunDetailPage() {
 
   const progressSegments = useMemo(() => {
     const segs = { pass: 0, fail: 0, advisory: 0, pending: 0, running: 0 }
-    for (const r of results as any[]) {
+    for (const r of results as TestResult[]) {
       const v = r.verdict?.toLowerCase()
       if (v === 'pass' || v === 'qualified_pass') segs.pass++
       else if (v === 'fail') segs.fail++
@@ -167,8 +168,9 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       setScenarioDialogOpen(false)
       toast.success('Automated tests started')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to start tests')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to start tests')
     } finally {
       setIsActioning(false)
     }
@@ -180,8 +182,9 @@ export default function TestRunDetailPage() {
       await testRunsApi.update(id!, { status: 'paused_manual' })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run paused')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to pause')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to pause')
     } finally {
       setIsActioning(false)
     }
@@ -193,8 +196,9 @@ export default function TestRunDetailPage() {
       await testRunsApi.start(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run resumed')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to resume')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to resume')
     } finally {
       setIsActioning(false)
     }
@@ -205,15 +209,16 @@ export default function TestRunDetailPage() {
       await testRunsApi.update(id!, { status: 'paused_cable' })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Cable disconnect flagged')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to flag cable')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to flag cable')
     }
   }
 
   const handleGenerateReport = async () => {
     try {
       const resp = await reportsApi.generate({
-        test_run_id: id,
+        test_run_id: id!,
         report_type: 'excel',
         include_synopsis: !!run?.synopsis,
       })
@@ -227,8 +232,9 @@ export default function TestRunDetailPage() {
         a.click()
         URL.revokeObjectURL(url)
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Report generation failed')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Report generation failed')
     }
   }
 
@@ -238,8 +244,9 @@ export default function TestRunDetailPage() {
       await testRunsApi.complete(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run approved and completed')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to approve')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to approve')
     } finally {
       setIsActioning(false)
     }
@@ -251,8 +258,9 @@ export default function TestRunDetailPage() {
       await testRunsApi.update(id!, { status: 'awaiting_review' })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Submitted for review')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to submit for review')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to submit for review')
     } finally {
       setIsActioning(false)
     }
@@ -260,10 +268,10 @@ export default function TestRunDetailPage() {
 
   const findNextPendingManual = useCallback(
     (afterId: string) => {
-      const manualTests = (results as any[]).filter(
-        (r: any) => r.tier === 'guided_manual'
+      const manualTests = (results as TestResult[]).filter(
+        (r) => r.tier === 'guided_manual'
       )
-      const currentIdx = manualTests.findIndex((r: any) => r.id === afterId)
+      const currentIdx = manualTests.findIndex((r) => r.id === afterId)
       for (let i = currentIdx + 1; i < manualTests.length; i++) {
         if (!manualTests[i].verdict || manualTests[i].verdict === 'pending') {
           return manualTests[i].id
@@ -294,8 +302,9 @@ export default function TestRunDetailPage() {
       if (nextId) {
         setTimeout(() => setSelectedTestId(nextId), 600)
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to save result')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to save result')
     } finally {
       setIsSubmitting(false)
     }
@@ -306,8 +315,9 @@ export default function TestRunDetailPage() {
       await testResultsApi.override(resultId, { verdict, override_reason: reason })
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
       toast.success('Verdict overridden')
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Override failed')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Override failed')
     }
   }
 

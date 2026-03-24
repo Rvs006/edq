@@ -1,6 +1,6 @@
 """Device Profile management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -11,6 +11,8 @@ from app.models.database import get_db
 from app.models.device_profile import DeviceProfile
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
+from app.utils.sanitize import sanitize_dict
+from app.utils.audit import log_action
 
 router = APIRouter()
 
@@ -63,6 +65,8 @@ class ProfileResponse(BaseModel):
 async def list_profiles(
     manufacturer: Optional[str] = None,
     category: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
@@ -71,20 +75,23 @@ async def list_profiles(
         query = query.where(DeviceProfile.manufacturer.contains(manufacturer))
     if category:
         query = query.where(DeviceProfile.category == category)
-    result = await db.execute(query.order_by(DeviceProfile.name))
+    result = await db.execute(query.order_by(DeviceProfile.name).offset(skip).limit(limit))
     return result.scalars().all()
 
 
 @router.post("/", response_model=ProfileResponse, status_code=201)
 async def create_profile(
     data: ProfileCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["admin"])),
 ):
-    profile = DeviceProfile(**data.model_dump(), created_by=user.id)
+    clean = sanitize_dict(data.model_dump(), ["name", "manufacturer", "description"])
+    profile = DeviceProfile(**clean, created_by=user.id)
     db.add(profile)
     await db.flush()
     await db.refresh(profile)
+    await log_action(db, user, "create", "device_profile", profile.id, {"name": profile.name}, request)
     return profile
 
 
@@ -105,28 +112,51 @@ async def get_profile(
 async def update_profile(
     profile_id: str,
     data: ProfileUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
+    user: User = Depends(require_role(["admin"])),
 ):
     result = await db.execute(select(DeviceProfile).where(DeviceProfile.id == profile_id))
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(profile, field, value)
+    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["name", "manufacturer", "description"])
+    if "name" in updates:
+        profile.name = updates["name"]
+    if "manufacturer" in updates:
+        profile.manufacturer = updates["manufacturer"]
+    if "model_pattern" in updates:
+        profile.model_pattern = updates["model_pattern"]
+    if "category" in updates:
+        profile.category = updates["category"]
+    if "description" in updates:
+        profile.description = updates["description"]
+    if "default_whitelist_id" in updates:
+        profile.default_whitelist_id = updates["default_whitelist_id"]
+    if "additional_tests" in updates:
+        profile.additional_tests = updates["additional_tests"]
+    if "safe_mode" in updates:
+        profile.safe_mode = updates["safe_mode"]
+    if "fingerprint_rules" in updates:
+        profile.fingerprint_rules = updates["fingerprint_rules"]
+    if "is_active" in updates:
+        profile.is_active = updates["is_active"]
     await db.flush()
     await db.refresh(profile)
+    await log_action(db, user, "update", "device_profile", profile_id, {"fields": list(updates.keys())}, request)
     return profile
 
 
 @router.delete("/{profile_id}", status_code=204)
 async def delete_profile(
     profile_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
+    user: User = Depends(require_role(["admin"])),
 ):
     result = await db.execute(select(DeviceProfile).where(DeviceProfile.id == profile_id))
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     profile.is_active = False
+    await log_action(db, user, "delete", "device_profile", profile_id, {"name": profile.name}, request)

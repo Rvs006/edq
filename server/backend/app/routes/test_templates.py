@@ -1,6 +1,6 @@
 """Test Template management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -11,6 +11,8 @@ from app.models.user import User
 from app.schemas.test import TestTemplateCreate, TestTemplateUpdate, TestTemplateResponse
 from app.security.auth import get_current_active_user, require_role
 from app.services.test_library import UNIVERSAL_TESTS
+from app.utils.sanitize import sanitize_dict
+from app.utils.audit import log_action
 
 router = APIRouter()
 
@@ -23,11 +25,14 @@ async def get_test_library(_: User = Depends(get_current_active_user)):
 
 @router.get("/", response_model=List[TestTemplateResponse])
 async def list_templates(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
     result = await db.execute(
-        select(TestTemplate).where(TestTemplate.is_active == True).order_by(TestTemplate.name)
+        select(TestTemplate).where(TestTemplate.is_active == True)
+        .order_by(TestTemplate.name).offset(skip).limit(limit)
     )
     return result.scalars().all()
 
@@ -35,13 +40,16 @@ async def list_templates(
 @router.post("/", response_model=TestTemplateResponse, status_code=201)
 async def create_template(
     data: TestTemplateCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["admin"])),
 ):
-    template = TestTemplate(**data.model_dump(), created_by=user.id)
+    clean = sanitize_dict(data.model_dump(), ["name", "description"])
+    template = TestTemplate(**clean, created_by=user.id)
     db.add(template)
     await db.flush()
     await db.refresh(template)
+    await log_action(db, user, "create", "template", template.id, {"name": template.name}, request)
     return template
 
 
@@ -62,14 +70,15 @@ async def get_template(
 async def update_template(
     template_id: str,
     data: TestTemplateUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
+    user: User = Depends(require_role(["admin"])),
 ):
     result = await db.execute(select(TestTemplate).where(TestTemplate.id == template_id))
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-    updates = data.model_dump(exclude_unset=True)
+    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["name", "description"])
     if "name" in updates:
         template.name = updates["name"]
     if "description" in updates:
@@ -90,17 +99,20 @@ async def update_template(
         template.is_active = updates["is_active"]
     await db.flush()
     await db.refresh(template)
+    await log_action(db, user, "update", "template", template_id, {"fields": list(updates.keys())}, request)
     return template
 
 
 @router.delete("/{template_id}", status_code=204)
 async def delete_template(
     template_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
+    user: User = Depends(require_role(["admin"])),
 ):
     result = await db.execute(select(TestTemplate).where(TestTemplate.id == template_id))
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     template.is_active = False
+    await log_action(db, user, "delete", "template", template_id, {"name": template.name}, request)

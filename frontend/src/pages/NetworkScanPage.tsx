@@ -180,7 +180,7 @@ export default function NetworkScanPage() {
         <ConfigureStep
           cidr={cidr} setCidr={setCidr} cidrValid={cidrValid} hostCount={hostCount}
           scenario={scenario} setScenario={setScenario}
-          selectedTests={selectedTests} toggleTest={toggleTest} toggleCategory={toggleCategory}
+          selectedTests={selectedTests} setSelectedTests={setSelectedTests} toggleTest={toggleTest} toggleCategory={toggleCategory}
           expandedCategories={expandedCategories} setExpandedCategories={setExpandedCategories}
           discovering={discovering} onDiscover={handleDiscover}
         />
@@ -239,13 +239,13 @@ function StepIndicator({ current }: { current: Step }) {
 function ConfigureStep({
   cidr, setCidr, cidrValid, hostCount,
   scenario, setScenario,
-  selectedTests, toggleTest, toggleCategory,
+  selectedTests, setSelectedTests, toggleTest, toggleCategory,
   expandedCategories, setExpandedCategories,
   discovering, onDiscover,
 }: {
   cidr: string; setCidr: (v: string) => void; cidrValid: boolean; hostCount: number
   scenario: string; setScenario: (v: string) => void
-  selectedTests: Set<string>; toggleTest: (id: string) => void; toggleCategory: (cat: string) => void
+  selectedTests: Set<string>; setSelectedTests: (v: Set<string>) => void; toggleTest: (id: string) => void; toggleCategory: (cat: string) => void
   expandedCategories: Set<string>; setExpandedCategories: (v: Set<string>) => void
   discovering: boolean; onDiscover: () => void
 }) {

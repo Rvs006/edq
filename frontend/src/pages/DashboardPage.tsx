@@ -8,12 +8,7 @@ import {
 } from 'lucide-react'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import VerdictBadge from '@/components/common/VerdictBadge'
-
-interface TourState {
-  showWelcomeBanner: boolean
-  startTour: () => void
-  dismissTour: () => void
-}
+import type { TestRun, TourState } from '@/lib/types'
 
 export default function DashboardPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
@@ -144,7 +139,7 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-50">
-                  {recentRuns.map((run: any) => (
+                  {recentRuns.map((run: TestRun) => (
                     <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
                       <td className="py-2.5 px-4">
                         <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 hover:text-brand-500">
@@ -212,10 +207,10 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
             <h3 className="font-semibold text-zinc-900 mb-3">Device Categories</h3>
             {deviceStats?.by_category && Object.keys(deviceStats.by_category).length > 0 ? (
               <div className="space-y-2">
-                {Object.entries(deviceStats.by_category).map(([cat, count]: [string, any]) => (
+                {Object.entries(deviceStats.by_category).map(([cat, count]) => (
                   <div key={cat} className="flex items-center justify-between py-1.5">
                     <span className="text-sm text-zinc-600 capitalize">{cat.replace(/_/g, ' ')}</span>
-                    <span className="text-sm font-semibold text-zinc-900">{count}</span>
+                    <span className="text-sm font-semibold text-zinc-900">{String(count)}</span>
                   </div>
                 ))}
               </div>

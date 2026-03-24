@@ -20,7 +20,7 @@ import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from app.config import settings
 
@@ -449,7 +449,6 @@ def _set_cell_shading(cell, color_hex: str):
 
 def _add_styled_paragraph(doc, text: str, bold=False, size=11, color=None, alignment=None, space_after=None):
     from docx.shared import Pt, RGBColor
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
     p = doc.add_paragraph()
     run = p.add_run(text)
     run.font.name = "Calibri"
@@ -474,7 +473,7 @@ async def generate_word_report(
     whitelist_entries: Optional[list] = None,
 ) -> str:
     from docx import Document
-    from docx.shared import Pt, Inches, RGBColor, Cm
+    from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.enum.table import WD_TABLE_ALIGNMENT
 

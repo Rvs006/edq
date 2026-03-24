@@ -40,6 +40,7 @@ from app.routes import (
     test_plans,
     cve,
     branding,
+    scan_schedules,
 )
 
 
@@ -49,7 +50,10 @@ _PROJECT_ROOT = _BACKEND_DIR.parent.parent
 FRONTEND_DIR = str(_PROJECT_ROOT / "frontend" / "dist")
 
 CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-CSRF_EXEMPT_PATHS = {"/api/auth/login", "/api/auth/register", "/api/health", "/api/health/"}
+CSRF_EXEMPT_PATHS = {
+    "/api/auth/login", "/api/auth/register", "/api/health", "/api/health/",
+    "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/health", "/api/v1/health/",
+}
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):
@@ -61,7 +65,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if path in {p.rstrip("/") for p in CSRF_EXEMPT_PATHS}:
             return await call_next(request)
 
-        if not request.url.path.startswith("/api/"):
+        if not (request.url.path.startswith("/api/")):
             return await call_next(request)
 
         session_cookie = request.cookies.get(SESSION_COOKIE)
@@ -119,7 +123,13 @@ async def lifespan(app: FastAPI):
         await recover_orphaned_runs()
     except Exception as e:
         print(f"[EDQ] Warning: could not recover orphaned runs: {e}")
-    yield
+    # Start the background scan scheduler
+    from app.services.scan_scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
 
 
 def _seed_on_startup() -> None:
@@ -180,26 +190,35 @@ def create_app() -> FastAPI:
     app.add_middleware(CSRFMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
 
-    app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-    app.include_router(users.router, prefix="/api/users", tags=["Users"])
-    app.include_router(devices.router, prefix="/api/devices", tags=["Devices"])
-    app.include_router(device_profiles.router, prefix="/api/device-profiles", tags=["Device Profiles"])
-    app.include_router(test_templates.router, prefix="/api/test-templates", tags=["Test Templates"])
-    app.include_router(test_runs.router, prefix="/api/test-runs", tags=["Test Runs"])
-    app.include_router(test_results.router, prefix="/api/test-results", tags=["Test Results"])
-    app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
-    app.include_router(agents.router, prefix="/api/agents", tags=["Agents"])
-    app.include_router(whitelists.router, prefix="/api/whitelists", tags=["Protocol Whitelists"])
-    app.include_router(discovery.router, prefix="/api/discovery", tags=["Discovery"])
-    app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["Audit Logs"])
-    app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
-    app.include_router(synopsis.router, prefix="/api/synopsis", tags=["AI Synopsis"])
-    app.include_router(websocket_routes.router, prefix="/api/ws", tags=["WebSocket"])
-    app.include_router(health.router, prefix="/api/health", tags=["Health"])
-    app.include_router(network_scan.router, prefix="/api/network-scan", tags=["Network Scan"])
-    app.include_router(test_plans.router, prefix="/api/test-plans", tags=["Test Plans"])
-    app.include_router(cve.router, prefix="/api/cve", tags=["CVE Lookup"])
-    app.include_router(branding.router, prefix="/api/settings", tags=["Settings"])
+    # Build the list of (router, suffix, tag) tuples for all API routes
+    _api_routes = [
+        (auth.router, "/auth", "Authentication"),
+        (users.router, "/users", "Users"),
+        (devices.router, "/devices", "Devices"),
+        (device_profiles.router, "/device-profiles", "Device Profiles"),
+        (test_templates.router, "/test-templates", "Test Templates"),
+        (test_runs.router, "/test-runs", "Test Runs"),
+        (test_results.router, "/test-results", "Test Results"),
+        (reports.router, "/reports", "Reports"),
+        (agents.router, "/agents", "Agents"),
+        (whitelists.router, "/whitelists", "Protocol Whitelists"),
+        (discovery.router, "/discovery", "Discovery"),
+        (audit_logs.router, "/audit-logs", "Audit Logs"),
+        (admin.router, "/admin", "Admin"),
+        (synopsis.router, "/synopsis", "AI Synopsis"),
+        (websocket_routes.router, "/ws", "WebSocket"),
+        (health.router, "/health", "Health"),
+        (network_scan.router, "/network-scan", "Network Scan"),
+        (test_plans.router, "/test-plans", "Test Plans"),
+        (cve.router, "/cve", "CVE Lookup"),
+        (branding.router, "/settings", "Settings"),
+        (scan_schedules.router, "/scan-schedules", "Scan Schedules"),
+    ]
+
+    # Mount under both /api/ (legacy) and /api/v1/ (versioned) for backward compatibility
+    for rtr, suffix, tag in _api_routes:
+        app.include_router(rtr, prefix=f"/api{suffix}", tags=[tag])
+        app.include_router(rtr, prefix=f"/api/v1{suffix}", tags=[f"v1 - {tag}"])
 
     if os.path.isdir(FRONTEND_DIR):
         assets_dir = os.path.join(FRONTEND_DIR, "assets")

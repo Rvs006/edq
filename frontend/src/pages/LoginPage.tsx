@@ -19,8 +19,9 @@ export default function LoginPage() {
       await login(username, password)
       toast.success('Welcome back!')
       navigate('/', { replace: true })
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Invalid credentials')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Invalid credentials')
     } finally {
       setLoading(false)
     }

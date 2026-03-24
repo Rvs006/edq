@@ -6,14 +6,14 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List, Optional
+from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 
 from app.models.database import get_db
 from app.models.audit_log import AuditLog
 from app.models.user import User
-from app.security.auth import get_current_active_user, require_role
+from app.security.auth import require_role
 
 router = APIRouter()
 
