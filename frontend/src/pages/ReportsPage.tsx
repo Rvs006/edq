@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { reportsApi, testRunsApi } from '@/lib/api'
+import type { TestRun, ReportTemplate } from '@/lib/types'
 import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -58,8 +59,9 @@ export default function ReportsPage() {
           window.open(data.download_url, '_blank')
         }
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Report generation failed')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Report generation failed')
     } finally {
       setGenerating(false)
     }
@@ -89,7 +91,7 @@ export default function ReportsPage() {
               <label className="label">Test Run</label>
               <select value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)} className="input">
                 <option value="">Select a completed test run...</option>
-                {runs?.map((run: any) => (
+                {runs?.map((run: TestRun) => (
                   <option key={run.id} value={run.id}>
                     Run {run.id.slice(0, 8)} &mdash; {run.passed_tests}/{run.total_tests} passed &mdash; {new Date(run.created_at).toLocaleDateString()}
                   </option>
@@ -128,7 +130,7 @@ export default function ReportsPage() {
                   Report Template
                 </label>
                 <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} className="input">
-                  {availableTemplates.map((t: any) => (
+                  {availableTemplates.map((t: ReportTemplate) => (
                     <option key={t.key} value={t.key}>
                       {t.name || t.label}
                       {t.device_category ? ` (${t.device_category})` : ''}

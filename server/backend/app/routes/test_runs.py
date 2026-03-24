@@ -142,8 +142,27 @@ async def update_test_run(
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(run, field, value)
+    updates = data.model_dump(exclude_unset=True)
+    if "status" in updates:
+        run.status = updates["status"]
+    if "overall_verdict" in updates:
+        run.overall_verdict = updates["overall_verdict"]
+    if "progress_pct" in updates:
+        run.progress_pct = updates["progress_pct"]
+    if "completed_tests" in updates:
+        run.completed_tests = updates["completed_tests"]
+    if "passed_tests" in updates:
+        run.passed_tests = updates["passed_tests"]
+    if "failed_tests" in updates:
+        run.failed_tests = updates["failed_tests"]
+    if "advisory_tests" in updates:
+        run.advisory_tests = updates["advisory_tests"]
+    if "na_tests" in updates:
+        run.na_tests = updates["na_tests"]
+    if "synopsis" in updates:
+        run.synopsis = updates["synopsis"]
+    if "synopsis_status" in updates:
+        run.synopsis_status = updates["synopsis_status"]
     await db.flush()
     await db.refresh(run)
     return run

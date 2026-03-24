@@ -254,7 +254,7 @@ function SidebarContent({
 }: {
   isActive: (href: string) => boolean
   onClose?: () => void
-  user: any
+  user: { full_name?: string | null; username?: string; role?: string } | null
   logout: () => void
 }) {
   return (

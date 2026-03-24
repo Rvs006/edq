@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { devicesApi, discoveryApi } from '@/lib/api'
+import type { Device, DiscoveredDevice } from '@/lib/types'
 import { Monitor, Plus, Search, Loader2, X, Radar } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -83,7 +84,7 @@ export default function DevicesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {devices.map((device: any) => (
+                {devices.map((device: Device) => (
                   <tr key={device.id} className="hover:bg-zinc-50 transition-colors">
                     <td className="py-3 px-4">
                       <Link to={`/devices/${device.id}`} className="font-medium text-zinc-900 hover:text-brand-500">
@@ -145,7 +146,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
   const [target, setTarget] = useState('')
   const [mode, setMode] = useState<'ip' | 'subnet'>('ip')
   const [loading, setLoading] = useState(false)
-  const [results, setResults] = useState<any[] | null>(null)
+  const [results, setResults] = useState<DiscoveredDevice[] | null>(null)
   const queryClient = useQueryClient()
 
   const handleDiscover = async (e: React.FormEvent) => {
@@ -158,8 +159,9 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
       setResults(resp.data.devices || [])
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       toast.success(`Found ${resp.data.devices_found} device(s)`)
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Discovery failed — is the tools sidecar running?')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Discovery failed — is the tools sidecar running?')
     } finally {
       setLoading(false)
     }
@@ -237,7 +239,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
           {results && results.length > 0 && (
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-700">Discovered Devices</h3>
-              {results.map((dev: any, idx: number) => (
+              {results.map((dev, idx: number) => (
                 <div key={idx} className="flex items-center gap-3 p-2.5 bg-zinc-50 rounded-lg border border-zinc-100">
                   <div className={`w-2 h-2 rounded-full shrink-0 ${dev.is_new ? 'bg-emerald-500' : 'bg-blue-500'}`} />
                   <div className="flex-1 min-w-0">
@@ -283,8 +285,9 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       toast.success('Device added successfully')
       onClose()
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to add device')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to add device')
     } finally {
       setLoading(false)
     }

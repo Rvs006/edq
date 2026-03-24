@@ -84,19 +84,19 @@ export const testRunsApi = {
   update: (id: string, data: Partial<TestRun>) => api.patch<TestRun>(`/test-runs/${id}`, data),
   start: (id: string) => api.post(`/test-runs/${id}/start`),
   complete: (id: string) => api.post(`/test-runs/${id}/complete`),
-  stats: () => api.get<{ total: number; by_status: Record<string, number> }>('/test-runs/stats'),
+  stats: () => api.get<{ total: number; by_status: Record<string, number>; by_verdict?: Record<string, number>; completed_this_week?: number }>('/test-runs/stats'),
 }
 
 export const testResultsApi = {
   list: (params?: { test_run_id?: string; skip?: number; limit?: number }) => api.get<TestResult[]>('/test-results/', { params }),
   get: (id: string) => api.get<TestResult>(`/test-results/${id}`),
-  update: (id: string, data: { verdict?: string; comment?: string; findings?: string; raw_output?: string; tier?: string }) => api.patch<TestResult>(`/test-results/${id}`, data),
-  override: (id: string, data: { verdict: string; comment: string }) => api.post(`/test-results/${id}/override`, data),
+  update: (id: string, data: { verdict?: string; comment?: string; findings?: string; raw_output?: string; tier?: string; engineer_notes?: string; engineer_selection?: string }) => api.patch<TestResult>(`/test-results/${id}`, data),
+  override: (id: string, data: { verdict: string; comment?: string; override_reason?: string }) => api.post(`/test-results/${id}/override`, data),
   batch: (data: { id: string; verdict?: string; comment?: string }[]) => api.post('/test-results/batch', data),
 }
 
 export const reportsApi = {
-  generate: (data: { test_run_id: string; format?: string; template_id?: string }) => api.post('/reports/generate', data),
+  generate: (data: { test_run_id: string; report_type?: string; format?: string; template_id?: string; template_key?: string; include_synopsis?: boolean }) => api.post('/reports/generate', data),
   download: (filename: string) => api.get(`/reports/download/${filename}`, { responseType: 'blob' }),
   configs: () => api.get('/reports/configs'),
   templates: () => api.get('/reports/templates'),

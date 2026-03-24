@@ -307,11 +307,16 @@ function ConfigureStep({
           <div className="flex items-center gap-2">
             <span className="text-xs text-zinc-500">{selectedTests.size}/{UNIVERSAL_TESTS.length} selected</span>
             <button
-              onClick={() => setSelectedTests(new Set(UNIVERSAL_TESTS.map(t => t.id)))}
+              onClick={() => {
+                const all = new Set(UNIVERSAL_TESTS.map(t => t.id))
+                UNIVERSAL_TESTS.forEach(t => toggleTest(t.id))
+              }}
               className="text-xs text-brand-500 hover:text-brand-600 font-medium"
             >Select All</button>
             <button
-              onClick={() => setSelectedTests(new Set())}
+              onClick={() => {
+                selectedTests.forEach(id => toggleTest(id))
+              }}
               className="text-xs text-zinc-500 hover:text-zinc-600 font-medium"
             >Clear</button>
           </div>

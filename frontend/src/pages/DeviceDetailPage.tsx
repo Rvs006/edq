@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { devicesApi, testRunsApi } from '@/lib/api'
+import type { TestRun } from '@/lib/types'
 import { ArrowLeft, Monitor, Play, Loader2 } from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 
@@ -102,7 +103,7 @@ export default function DeviceDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-50">
-                  {runs.map((run: any) => (
+                  {runs.map((run: TestRun) => (
                     <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
                       <td className="py-2.5 px-4">
                         <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 hover:text-brand-500">

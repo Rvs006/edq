@@ -112,8 +112,27 @@ async def update_profile(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(profile, field, value)
+    updates = data.model_dump(exclude_unset=True)
+    if "name" in updates:
+        profile.name = updates["name"]
+    if "manufacturer" in updates:
+        profile.manufacturer = updates["manufacturer"]
+    if "model_pattern" in updates:
+        profile.model_pattern = updates["model_pattern"]
+    if "category" in updates:
+        profile.category = updates["category"]
+    if "description" in updates:
+        profile.description = updates["description"]
+    if "default_whitelist_id" in updates:
+        profile.default_whitelist_id = updates["default_whitelist_id"]
+    if "additional_tests" in updates:
+        profile.additional_tests = updates["additional_tests"]
+    if "safe_mode" in updates:
+        profile.safe_mode = updates["safe_mode"]
+    if "fingerprint_rules" in updates:
+        profile.fingerprint_rules = updates["fingerprint_rules"]
+    if "is_active" in updates:
+        profile.is_active = updates["is_active"]
     await db.flush()
     await db.refresh(profile)
     return profile

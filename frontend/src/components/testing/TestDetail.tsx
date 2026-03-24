@@ -14,7 +14,7 @@ export interface TestResultDetail {
   tool_command: string | null
   raw_stdout: string | null
   raw_stderr: string | null
-  parsed_findings: any
+  parsed_findings: Record<string, unknown> | unknown[] | null
   verdict: string | null
   auto_comment: string | null
   engineer_selection: string | null
@@ -270,7 +270,7 @@ export default function TestDetail({
   )
 }
 
-function FindingsDisplay({ findings }: { findings: any }) {
+function FindingsDisplay({ findings }: { findings: Record<string, unknown> | unknown[] | null }) {
   if (!findings) return null
 
   if (Array.isArray(findings)) {

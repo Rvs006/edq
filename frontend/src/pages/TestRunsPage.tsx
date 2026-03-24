@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { testRunsApi, devicesApi, templatesApi } from '@/lib/api'
+import type { TestRun, Device, TestTemplate } from '@/lib/types'
 import { Play, Plus, Loader2, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -66,7 +67,7 @@ export default function TestRunsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {runs.map((run: any) => (
+                {runs.map((run: TestRun) => (
                   <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
                     <td className="py-3 px-4">
                       <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 hover:text-brand-500">
@@ -147,8 +148,9 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
       queryClient.invalidateQueries({ queryKey: ['test-runs'] })
       toast.success('Test run created')
       onClose()
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to create test run')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to create test run')
     } finally {
       setLoading(false)
     }
@@ -174,7 +176,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
             <label className="label">Device</label>
             <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="input" required>
               <option value="">Select a device...</option>
-              {devices?.map((d: any) => (
+              {devices?.map((d: Device) => (
                 <option key={d.id} value={d.id}>{d.ip_address} — {d.hostname || d.manufacturer || 'Unknown'}</option>
               ))}
             </select>
@@ -183,7 +185,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
             <label className="label">Test Template</label>
             <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="input" required>
               <option value="">Select a template...</option>
-              {templates?.map((t: any) => (
+              {templates?.map((t: TestTemplate) => (
                 <option key={t.id} value={t.id}>{t.name} ({t.test_ids?.length || 0} tests)</option>
               ))}
             </select>
