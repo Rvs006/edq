@@ -118,6 +118,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
+        {/* Rainbow accent bar */}
+        <div className="flex h-1 w-full shrink-0">
+          <div className="flex-1 bg-[#0099cc]" />
+          <div className="flex-1 bg-[#f5a623]" />
+          <div className="flex-1 bg-[#34a853]" />
+          <div className="flex-1 bg-[#9b59b6]" />
+          <div className="flex-1 bg-[#e53935]" />
+        </div>
         <SidebarContent
           isActive={isActive}
           onClose={() => setSidebarOpen(false)}
@@ -270,11 +278,11 @@ function SidebarContent({
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between h-14 px-4 border-b border-zinc-800">
         <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
-          <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
-            <Shield className="w-4 h-4 text-white" />
+          <div className="w-8 h-8 flex items-center justify-center">
+            <img src="/icon-white.png" alt="" className="w-7 h-7" />
           </div>
           <div>
-            <span className="text-base font-bold text-white tracking-tight">EDQ</span>
+            <span className="text-sm font-bold text-white tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</span>
             <span className="text-[10px] text-zinc-400 block -mt-0.5 font-medium">Device Qualifier</span>
           </div>
         </Link>
