@@ -76,10 +76,18 @@ async def update_template(
         template.description = updates["description"]
     if "test_ids" in updates:
         template.test_ids = updates["test_ids"]
-    if "device_category" in updates:
-        template.device_category = updates["device_category"]
+    if "whitelist_id" in updates:
+        template.whitelist_id = updates["whitelist_id"]
+    if "cell_mappings" in updates:
+        template.cell_mappings = updates["cell_mappings"]
+    if "report_config" in updates:
+        template.report_config = updates["report_config"]
+    if "branding" in updates:
+        template.branding = updates["branding"]
     if "is_default" in updates:
         template.is_default = updates["is_default"]
+    if "is_active" in updates:
+        template.is_active = updates["is_active"]
     await db.flush()
     await db.refresh(template)
     return template
