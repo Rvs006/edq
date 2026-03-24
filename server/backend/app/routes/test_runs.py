@@ -49,8 +49,7 @@ async def list_test_runs(
     if status:
         query = query.where(TestRun.status == status)
     result = await db.execute(
-        query.options(selectinload(TestRun.results))
-        .order_by(TestRun.created_at.desc()).offset(skip).limit(limit)
+        query.order_by(TestRun.created_at.desc()).offset(skip).limit(limit)
     )
     return result.scalars().all()
 

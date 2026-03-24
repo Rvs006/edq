@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database import async_session
 from app.models.scan_schedule import ScanSchedule, ScheduleFrequency
 from app.models.test_run import TestRun, TestRunStatus
-from app.models.test_result import TestResult
+from app.models.test_result import TestResult, TestTier
+from app.models.test_template import TestTemplate
+from app.services.test_library import get_test_by_id
 
 logger = logging.getLogger("edq.scheduler")
 
@@ -134,15 +136,41 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 db, schedule.device_id, schedule.template_id
             )
 
-            # Create a new test run
+            # Load template to get test IDs
+            tmpl_result = await db.execute(
+                select(TestTemplate).where(TestTemplate.id == schedule.template_id)
+            )
+            template = tmpl_result.scalar_one_or_none()
+            if not template:
+                logger.warning("Template %s not found for schedule %s", schedule.template_id, schedule_id)
+                return
+
+            # Create a new test run with total_tests
             new_run = TestRun(
                 device_id=schedule.device_id,
                 template_id=schedule.template_id,
                 engineer_id=schedule.created_by,
                 status=TestRunStatus.PENDING,
                 connection_scenario="direct",
+                total_tests=len(template.test_ids),
             )
             db.add(new_run)
+            await db.flush()
+
+            # Create TestResult entries for each test in the template
+            for test_id in template.test_ids:
+                test_def = get_test_by_id(test_id)
+                if test_def:
+                    tr = TestResult(
+                        test_run_id=new_run.id,
+                        test_id=test_id,
+                        test_name=test_def["name"],
+                        tier=TestTier(test_def["tier"]),
+                        tool=test_def.get("tool"),
+                        is_essential="yes" if test_def["is_essential"] else "no",
+                        compliance_map=test_def.get("compliance_map", []),
+                    )
+                    db.add(tr)
 
             # Update schedule metadata
             now = datetime.now(timezone.utc)
