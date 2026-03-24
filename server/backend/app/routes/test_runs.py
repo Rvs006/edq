@@ -7,9 +7,10 @@ import uuid
 from typing import List, Optional
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 
 from app.models.database import get_db
 from app.models.test_run import TestRun, TestRunStatus
@@ -24,6 +25,7 @@ from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
+from app.utils.audit import log_action
 
 logger = logging.getLogger("edq.routes.test_runs")
 
@@ -46,7 +48,10 @@ async def list_test_runs(
         query = query.where(TestRun.device_id == device_id)
     if status:
         query = query.where(TestRun.status == status)
-    result = await db.execute(query.order_by(TestRun.created_at.desc()).offset(skip).limit(limit))
+    result = await db.execute(
+        query.options(selectinload(TestRun.results))
+        .order_by(TestRun.created_at.desc()).offset(skip).limit(limit)
+    )
     return result.scalars().all()
 
 
@@ -74,6 +79,7 @@ async def test_run_stats(
 @router.post("/", response_model=TestRunResponse, status_code=201)
 async def create_test_run(
     data: TestRunCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -115,6 +121,7 @@ async def create_test_run(
 
     await db.flush()
     await db.refresh(test_run)
+    await log_action(db, user, "create", "test_run", test_run.id, {"device_id": data.device_id}, request)
     return test_run
 
 
@@ -124,7 +131,10 @@ async def get_test_run(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+    result = await db.execute(
+        select(TestRun).where(TestRun.id == run_id)
+        .options(selectinload(TestRun.results))
+    )
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found")
@@ -305,6 +315,12 @@ async def upload_nessus(
 
     if not file.filename or not file.filename.endswith(".nessus"):
         raise HTTPException(status_code=400, detail="Only .nessus files are accepted")
+
+    # Validate content type
+    if file.content_type and file.content_type not in (
+        "text/xml", "application/xml", "application/octet-stream",
+    ):
+        raise HTTPException(status_code=400, detail=f"Invalid content type: {file.content_type}")
 
     content = await file.read()
     if len(content) > settings.MAX_FILE_SIZE:

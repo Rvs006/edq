@@ -1,6 +1,6 @@
 """Device management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
@@ -10,6 +10,8 @@ from app.models.device import Device
 from app.models.user import User
 from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse
 from app.security.auth import get_current_active_user, require_role
+from app.utils.sanitize import sanitize_dict
+from app.utils.audit import log_action
 
 router = APIRouter()
 
@@ -64,6 +66,7 @@ async def device_stats(
 @router.post("/", response_model=DeviceResponse, status_code=201)
 async def create_device(
     data: DeviceCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -76,10 +79,12 @@ async def create_device(
             status_code=409,
             detail=f"A device with IP address {data.ip_address} already exists",
         )
-    device = Device(**data.model_dump())
+    clean = sanitize_dict(data.model_dump(), ["hostname", "manufacturer", "model", "notes"])
+    device = Device(**clean)
     db.add(device)
     await db.flush()
     await db.refresh(device)
+    await log_action(db, user, "create", "device", device.id, {"ip": device.ip_address}, request)
     return device
 
 
@@ -100,14 +105,15 @@ async def get_device(
 async def update_device(
     device_id: str,
     data: DeviceUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
     result = await db.execute(select(Device).where(Device.id == device_id))
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    updates = data.model_dump(exclude_unset=True)
+    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["hostname", "manufacturer", "model", "notes"])
     if "ip_address" in updates:
         device.ip_address = updates["ip_address"]
     if "mac_address" in updates:
@@ -134,17 +140,20 @@ async def update_device(
         device.discovery_data = updates["discovery_data"]
     await db.flush()
     await db.refresh(device)
+    await log_action(db, user, "update", "device", device_id, {"fields": list(updates.keys())}, request)
     return device
 
 
 @router.delete("/{device_id}", status_code=204)
 async def delete_device(
     device_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
+    user: User = Depends(require_role(["admin"])),
 ):
     result = await db.execute(select(Device).where(Device.id == device_id))
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+    await log_action(db, user, "delete", "device", device_id, {"ip": device.ip_address}, request)
     await db.delete(device)
