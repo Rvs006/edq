@@ -180,7 +180,7 @@ export default function DeviceDetailPage() {
               </div>
             )}
 
-            {cveData && !cveMutation.isPending && (
+            {cveData && !cveMutation.isPending && !cveMutation.isError && (
               <>
                 {cveData.total_cves === 0 ? (
                   <div className="text-center py-4">

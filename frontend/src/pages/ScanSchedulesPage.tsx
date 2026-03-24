@@ -322,12 +322,14 @@ export default function ScanSchedulesPage() {
         </div>
       )}
 
-      <CreateScheduleDialog
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-        devices={devices || []}
-        templates={templates || []}
-      />
+      {showCreate && (
+        <CreateScheduleDialog
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+          devices={devices || []}
+          templates={templates || []}
+        />
+      )}
     </div>
   )
 }
