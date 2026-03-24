@@ -9,6 +9,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy import update
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-not-for-production")
@@ -19,6 +20,10 @@ os.environ.setdefault("TOOLS_SIDECAR_URL", "http://localhost:8001")
 from app.models.database import Base, get_db
 from app.main import create_app
 from app.middleware.rate_limit import rate_limiter
+from app.models.user import User, UserRole
+
+# Module-level ref so helpers can access the session factory
+_session_factory: async_sessionmaker | None = None
 
 
 @pytest.fixture(scope="session")
@@ -30,6 +35,7 @@ def event_loop():
 
 @pytest_asyncio.fixture
 async def db_engine():
+    global _session_factory
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         echo=False,
@@ -38,10 +44,12 @@ async def db_engine():
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    _session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     yield engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
+    _session_factory = None
 
 
 @pytest_asyncio.fixture
@@ -75,3 +83,37 @@ async def client(db_engine) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides.clear()
     # Clear rate limiter state between tests
     rate_limiter._buckets.clear()
+
+
+async def register_and_login(
+    client: AsyncClient,
+    suffix: str = "default",
+    role: str = "engineer",
+) -> dict:
+    """Register a user, optionally promote to admin/reviewer, return CSRF headers."""
+    email = f"{suffix}@example.com"
+    username = f"{suffix}user"
+    reg_resp = await client.post("/api/auth/register", json={
+        "email": email,
+        "username": username,
+        "password": "TestPass1",
+        "full_name": f"{suffix.title()} Tester",
+    })
+
+    # Promote role if needed via direct DB update
+    if role != "engineer" and _session_factory is not None:
+        user_id = reg_resp.json().get("id")
+        if user_id:
+            role_enum = UserRole.ADMIN if role == "admin" else UserRole.REVIEWER
+            async with _session_factory() as session:
+                await session.execute(
+                    update(User).where(User.id == user_id).values(role=role_enum)
+                )
+                await session.commit()
+
+    resp = await client.post("/api/auth/login", json={
+        "username": username,
+        "password": "TestPass1",
+    })
+    csrf = resp.json().get("csrf_token", "")
+    return {"X-CSRF-Token": csrf}
