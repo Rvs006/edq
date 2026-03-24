@@ -48,11 +48,11 @@ export default function TemplatesPage() {
       <div className="card mb-5">
         <button
           onClick={() => setExpanded(expanded === 'library' ? null : 'library')}
-          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 transition-colors"
+          className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
         >
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-brand-500" />
-            <span className="font-semibold text-zinc-900">Universal Test Library</span>
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">Universal Test Library</span>
             <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">
               {library?.length || 30} tests
             </span>
@@ -66,21 +66,21 @@ export default function TemplatesPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-zinc-200">
-                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500">ID</th>
-                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500">Name</th>
-                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 hidden sm:table-cell">Tier</th>
-                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 hidden sm:table-cell">Tool</th>
-                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500">Essential</th>
+                      <tr className="border-b border-zinc-200 dark:border-zinc-700">
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">ID</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Name</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">Tier</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">Tool</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Essential</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-zinc-100">
+                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                       {library.map((test: TestLibraryItem) => (
-                        <tr key={test.test_id} className="hover:bg-zinc-50">
-                          <td className="py-2 px-2 font-mono text-xs text-zinc-500">{test.test_id}</td>
-                          <td className="py-2 px-2 text-zinc-900">{test.name}</td>
-                          <td className="py-2 px-2 text-zinc-600 capitalize hidden sm:table-cell">{test.tier?.replace(/_/g, ' ')}</td>
-                          <td className="py-2 px-2 text-zinc-500 hidden sm:table-cell">{test.tool || '\u2014'}</td>
+                        <tr key={test.test_id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                          <td className="py-2 px-2 font-mono text-xs text-zinc-500 dark:text-zinc-400">{test.test_id}</td>
+                          <td className="py-2 px-2 text-zinc-900 dark:text-zinc-100">{test.name}</td>
+                          <td className="py-2 px-2 text-zinc-600 dark:text-zinc-400 capitalize hidden sm:table-cell">{test.tier?.replace(/_/g, ' ')}</td>
+                          <td className="py-2 px-2 text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">{test.tool || '\u2014'}</td>
                           <td className="py-2 px-2">
                             {test.is_essential ? <Check className="w-4 h-4 text-red-500" /> : <span className="text-zinc-300">{'\u2014'}</span>}
                           </td>
@@ -104,30 +104,30 @@ export default function TemplatesPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50/50">
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Name</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Description</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Tests</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 hidden md:table-cell">Category</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Status</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500">Actions</th>
+                <tr className="border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Name</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">Description</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Tests</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden md:table-cell">Category</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Status</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {templates.map((t: TestTemplate) => (
-                  <tr key={t.id} className="hover:bg-zinc-50 transition-colors">
-                    <td className="py-3 px-4 font-medium text-zinc-900">{t.name}</td>
-                    <td className="py-3 px-4 text-zinc-500 text-xs hidden sm:table-cell">{t.description || '\u2014'}</td>
+                  <tr key={t.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                    <td className="py-3 px-4 font-medium text-zinc-900 dark:text-zinc-100">{t.name}</td>
+                    <td className="py-3 px-4 text-zinc-500 dark:text-zinc-400 text-xs hidden sm:table-cell">{t.description || '\u2014'}</td>
                     <td className="py-3 px-4">
                       <span className="badge text-[10px] bg-zinc-100 text-zinc-600">{t.test_ids?.length || 0} tests</span>
                     </td>
-                    <td className="py-3 px-4 text-zinc-500 capitalize hidden md:table-cell">{t.device_category || '\u2014'}</td>
+                    <td className="py-3 px-4 text-zinc-500 dark:text-zinc-400 capitalize hidden md:table-cell">{t.device_category || '\u2014'}</td>
                     <td className="py-3 px-4">
                       {t.is_default && <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">Default</span>}
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100" title="Edit">
+                        <button onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Edit">
                           <Pencil className="w-3.5 h-3.5 text-zinc-500" />
                         </button>
                         <button onClick={() => handleDelete(t.id, t.name)} className="p-1.5 rounded hover:bg-red-50" title="Delete">
@@ -144,7 +144,7 @@ export default function TemplatesPage() {
       ) : (
         <div className="card p-12 text-center">
           <FileText className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-zinc-700 mb-1">No templates yet</h3>
+          <h3 className="text-base font-semibold text-zinc-700 dark:text-zinc-300 mb-1">No templates yet</h3>
           <p className="text-sm text-zinc-500 mb-4">Create a test template to define which tests to run</p>
           <button onClick={() => setShowCreate(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Template
@@ -219,7 +219,7 @@ function CreateTemplateModal({ library, onClose }: { library: TestLibraryItem[];
                 className="input" placeholder="Complete 30-test qualification suite" />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-zinc-700">
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Select Tests ({selectedTests.length}/{library.length})
               </span>
               <div className="flex gap-2">
@@ -234,19 +234,19 @@ function CreateTemplateModal({ library, onClose }: { library: TestLibraryItem[];
               {library.map((test: TestLibraryItem) => (
                 <label key={test.test_id}
                   className={'flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ' +
-                    (selectedTests.includes(test.test_id) ? 'bg-brand-50' : 'hover:bg-zinc-50')
+                    (selectedTests.includes(test.test_id) ? 'bg-brand-50' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800')
                   }>
                   <input type="checkbox" checked={selectedTests.includes(test.test_id)}
                     onChange={() => toggleTest(test.test_id)}
                     className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500" />
                   <span className="text-xs font-mono text-zinc-400 w-8">{test.test_id}</span>
-                  <span className="text-sm text-zinc-900 flex-1">{test.name}</span>
+                  <span className="text-sm text-zinc-900 dark:text-zinc-100 flex-1">{test.name}</span>
                   {test.is_essential && <span className="badge text-[9px] bg-red-50 text-red-600 border border-red-200">Essential</span>}
                 </label>
               ))}
             </div>
           </div>
-          <div className="flex justify-end gap-3 p-4 border-t border-zinc-200">
+          <div className="flex justify-end gap-3 p-4 border-t border-zinc-200 dark:border-zinc-700">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button type="submit" disabled={loading} className="btn-primary">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -315,7 +315,7 @@ function EditTemplateModal({ template, library, onClose }: { template: TestTempl
                 className="input" />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-zinc-700">
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Select Tests ({selectedTests.length}/{library.length})
               </span>
             </div>
@@ -325,19 +325,19 @@ function EditTemplateModal({ template, library, onClose }: { template: TestTempl
               {library.map((test: TestLibraryItem) => (
                 <label key={test.test_id}
                   className={'flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ' +
-                    (selectedTests.includes(test.test_id) ? 'bg-brand-50' : 'hover:bg-zinc-50')
+                    (selectedTests.includes(test.test_id) ? 'bg-brand-50' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800')
                   }>
                   <input type="checkbox" checked={selectedTests.includes(test.test_id)}
                     onChange={() => toggleTest(test.test_id)}
                     className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500" />
                   <span className="text-xs font-mono text-zinc-400 w-8">{test.test_id}</span>
-                  <span className="text-sm text-zinc-900 flex-1">{test.name}</span>
+                  <span className="text-sm text-zinc-900 dark:text-zinc-100 flex-1">{test.name}</span>
                   {test.is_essential && <span className="badge text-[9px] bg-red-50 text-red-600 border border-red-200">Essential</span>}
                 </label>
               ))}
             </div>
           </div>
-          <div className="flex justify-end gap-3 p-4 border-t border-zinc-200">
+          <div className="flex justify-end gap-3 p-4 border-t border-zinc-200 dark:border-zinc-700">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button type="submit" disabled={loading} className="btn-primary">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
