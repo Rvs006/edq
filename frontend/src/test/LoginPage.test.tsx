@@ -42,8 +42,8 @@ describe('LoginPage', () => {
   it('renders the login form with all required elements', () => {
     renderLoginPage()
 
-    expect(screen.getByText('EDQ')).toBeInTheDocument()
-    expect(screen.getByText('Electracom Device Qualifier')).toBeInTheDocument()
+    expect(screen.getByText('Electracom')).toBeInTheDocument()
+    expect(screen.getByText('Device Qualifier')).toBeInTheDocument()
     expect(screen.getByText('Sign in')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Enter your username')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument()
