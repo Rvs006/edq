@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.models.database import get_db
 from app.models.audit_log import AuditLog
@@ -52,7 +52,7 @@ def _build_audit_query(
     if date_from:
         query = query.where(AuditLog.created_at >= date_from)
     if date_to:
-        query = query.where(AuditLog.created_at <= date_to)
+        query = query.where(AuditLog.created_at < date_to + timedelta(days=1))
     return query
 
 
