@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Monitor, Info, Wifi, WifiOff, Loader2, RefreshCw } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { RefreshCw } from 'lucide-react'
 import Callout from '@/components/common/Callout'
 
 interface Agent {
@@ -80,7 +80,6 @@ const statusConfig = {
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>(DEMO_AGENTS)
-  const [lastRefresh, setLastRefresh] = useState(Date.now())
 
   // Simulate heartbeat updates every 5 seconds
   useEffect(() => {
@@ -94,7 +93,6 @@ export default function AgentsPage() {
               : a.lastHeartbeat,
         }))
       )
-      setLastRefresh(Date.now())
     }, 5_000)
     return () => clearInterval(interval)
   }, [])
