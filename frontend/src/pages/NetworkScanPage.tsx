@@ -432,8 +432,12 @@ function ReviewStep({
               </tr>
             </thead>
             <tbody>
-              {devices.map(d => (
-                <tr key={d.ip} className="border-b border-zinc-100 hover:bg-zinc-50">
+              {devices.map((d, i) => (
+                <tr
+                  key={d.ip}
+                  className="border-b border-zinc-100 hover:bg-zinc-50 animate-fade-in-row"
+                  style={{ animationDelay: `${i * 120}ms` }}
+                >
                   <td className="px-5 py-2">
                     <input
                       type="checkbox"

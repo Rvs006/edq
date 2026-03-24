@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Search, ChevronDown, ChevronRight, Loader2, Filter } from 'lucide-react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { Search, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 
 export interface TestResultItem {
   id: string
@@ -85,13 +85,40 @@ export default function TestSidebar({
 
   const filteredAuto = filterTests(autoTests)
   const filteredManual = filterTests(manualTests)
+  const allFiltered = useMemo(() => [...filteredAuto, ...filteredManual], [filteredAuto, filteredManual])
 
   const completedCount = results.filter(
     (r) => r.verdict && r.verdict !== 'pending'
   ).length
 
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const handleKeyNav = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key !== 'j' && e.key !== 'k') return
+      e.preventDefault()
+      const currentIdx = allFiltered.findIndex((t) => t.id === selectedTestId)
+      let nextIdx: number
+      if (e.key === 'j') {
+        nextIdx = currentIdx < allFiltered.length - 1 ? currentIdx + 1 : 0
+      } else {
+        nextIdx = currentIdx > 0 ? currentIdx - 1 : allFiltered.length - 1
+      }
+      if (allFiltered[nextIdx]) {
+        onSelectTest(allFiltered[nextIdx].id)
+      }
+    },
+    [allFiltered, selectedTestId, onSelectTest]
+  )
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyNav)
+    return () => document.removeEventListener('keydown', handleKeyNav)
+  }, [handleKeyNav])
+
   return (
-    <div className={`flex flex-col h-full bg-white border-r border-zinc-200 ${className}`}>
+    <div ref={containerRef} className={`flex flex-col h-full bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-700 ${className}`}>
       <div className="px-3 pt-3 pb-2 border-b border-zinc-100 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">

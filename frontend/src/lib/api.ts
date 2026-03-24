@@ -161,6 +161,11 @@ export const cveApi = {
     api.post('/cve/lookup', data),
 }
 
+export const agentsApi = {
+  list: () => api.get('/agents/'),
+  get: (id: string) => api.get(`/agents/${id}`),
+}
+
 export const scanSchedulesApi = {
   list: (params?: { device_id?: string; is_active?: boolean; skip?: number; limit?: number }) =>
     api.get('/scan-schedules/', { params }),
