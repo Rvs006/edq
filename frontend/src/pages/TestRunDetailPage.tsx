@@ -11,6 +11,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import { StatusBadge } from '@/components/common/VerdictBadge'
+import SegmentedProgressBar from '@/components/common/SegmentedProgressBar'
 import TestSidebar, { type TestResultItem } from '@/components/testing/TestSidebar'
 import TestDetail, { type TestResultDetail } from '@/components/testing/TestDetail'
 import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
@@ -136,6 +137,19 @@ export default function TestRunDetailPage() {
 
   const progressPct =
     results.length > 0 ? Math.round((completedCount / results.length) * 100) : 0
+
+  const progressSegments = useMemo(() => {
+    const segs = { pass: 0, fail: 0, advisory: 0, pending: 0, running: 0 }
+    for (const r of results as any[]) {
+      const v = r.verdict?.toLowerCase()
+      if (v === 'pass' || v === 'qualified_pass') segs.pass++
+      else if (v === 'fail') segs.fail++
+      else if (v === 'advisory') segs.advisory++
+      else if (runningTestNumber && r.test_number === runningTestNumber) segs.running++
+      else segs.pending++
+    }
+    return segs
+  }, [results, runningTestNumber])
 
   const handleStartTests = () => {
     setScenarioDialogOpen(true)
@@ -382,10 +396,10 @@ export default function TestRunDetailPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-brand-500 rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${run.progress_pct ?? progressPct}%` }}
+          <div className="flex-1">
+            <SegmentedProgressBar
+              total={results.length}
+              segments={progressSegments}
             />
           </div>
           <span className="text-xs font-mono text-zinc-500 flex-shrink-0">

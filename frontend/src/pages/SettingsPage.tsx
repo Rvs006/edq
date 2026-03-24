@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import { authApi, healthApi } from '@/lib/api'
-import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw } from 'lucide-react'
+import { authApi, healthApi, brandingApi } from '@/lib/api'
+import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 type Theme = 'light' | 'dark' | 'system'
@@ -34,6 +34,7 @@ export default function SettingsPage({ tourState }: { tourState?: any }) {
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'appearance', label: 'Appearance', icon: Sun },
+    { id: 'branding', label: 'Report Branding', icon: Palette },
     { id: 'system', label: 'System Status', icon: Server },
   ]
 
@@ -66,6 +67,7 @@ export default function SettingsPage({ tourState }: { tourState?: any }) {
           {activeTab === 'profile' && <ProfileSettings user={user} />}
           {activeTab === 'security' && <SecuritySettings />}
           {activeTab === 'appearance' && <AppearanceSettings />}
+          {activeTab === 'branding' && <BrandingSettings />}
           {activeTab === 'system' && <SystemStatus />}
           <HelpSection tourState={tourState} />
         </div>
@@ -285,6 +287,129 @@ function SystemStatus() {
           Last checked: {checkedAt.toLocaleTimeString()}
         </p>
       )}
+    </div>
+  )
+}
+
+function BrandingSettings() {
+  const [form, setForm] = useState({ company_name: '', primary_color: '#2563eb', footer_text: '' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+
+  useEffect(() => {
+    brandingApi.get().then(res => {
+      const d = res.data
+      setForm({
+        company_name: d.company_name || '',
+        primary_color: d.primary_color || '#2563eb',
+        footer_text: d.footer_text || '',
+      })
+      if (d.logo_path) setLogoPreview(d.logo_path)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      await brandingApi.update(form)
+      if (logoFile) {
+        await brandingApi.uploadLogo(logoFile)
+      }
+      toast.success('Branding settings saved')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to save branding')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setLogoFile(file)
+      setLogoPreview(URL.createObjectURL(file))
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="card p-5">
+        <div className="py-6 text-center">
+          <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mx-auto" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card p-5">
+      <h2 className="font-semibold text-zinc-900 mb-1">Report Branding</h2>
+      <p className="text-xs text-zinc-500 mb-4">Customize the look of generated qualification reports.</p>
+
+      <form onSubmit={handleSave} className="space-y-4 max-w-md">
+        <div>
+          <label className="label">Company Name</label>
+          <input
+            type="text"
+            value={form.company_name}
+            onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+            className="input"
+            placeholder="Electracom"
+          />
+        </div>
+
+        <div>
+          <label className="label">Company Logo</label>
+          <div className="flex items-center gap-3">
+            {logoPreview && (
+              <img src={logoPreview} alt="Logo preview" className="w-12 h-12 object-contain rounded border border-zinc-200 bg-zinc-50 p-1" />
+            )}
+            <label className="btn-secondary cursor-pointer text-sm py-1.5 px-3">
+              <Upload className="w-3.5 h-3.5" />
+              Upload Logo
+              <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+            </label>
+          </div>
+          <p className="text-[11px] text-zinc-400 mt-1">PNG or JPEG, max 5MB. Used in report headers.</p>
+        </div>
+
+        <div>
+          <label className="label">Brand Color</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={form.primary_color}
+              onChange={(e) => setForm({ ...form, primary_color: e.target.value })}
+              className="w-10 h-10 rounded border border-zinc-200 cursor-pointer"
+            />
+            <input
+              type="text"
+              value={form.primary_color}
+              onChange={(e) => setForm({ ...form, primary_color: e.target.value })}
+              className="input w-28 font-mono text-sm"
+              placeholder="#2563eb"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Report Footer Text</label>
+          <textarea
+            value={form.footer_text}
+            onChange={(e) => setForm({ ...form, footer_text: e.target.value })}
+            className="input min-h-[80px]"
+            placeholder="Confidential — for internal use only"
+          />
+        </div>
+
+        <button type="submit" disabled={saving} className="btn-primary">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}
+          Save Branding
+        </button>
+      </form>
     </div>
   )
 }

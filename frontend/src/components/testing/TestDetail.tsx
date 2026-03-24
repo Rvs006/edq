@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Terminal, FileSearch, Pencil, ShieldAlert, Info
 import LiveTerminal from './LiveTerminal'
 import ManualTestForm from './ManualTestForm'
 import VerdictBadge from '@/components/common/VerdictBadge'
+import TestExplainer from '@/components/common/TestExplainer'
 
 export interface TestResultDetail {
   id: string
@@ -120,29 +121,13 @@ export default function TestDetail({
           </div>
         </div>
 
-        {result.test_description && (
-          <div>
-            <button
-              onClick={() => setExplainerOpen(!explainerOpen)}
-              className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-700 transition-colors"
-            >
-              <Info className="w-3.5 h-3.5" />
-              <span>Test Details</span>
-              {explainerOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-            {explainerOpen && (
-              <div className="mt-2 p-3 bg-zinc-50 rounded-lg border border-zinc-100 text-sm text-zinc-600 space-y-2">
-                <p>{result.test_description}</p>
-                {result.pass_criteria && (
-                  <p className="text-xs">
-                    <span className="font-medium text-zinc-700">Pass criteria:</span>{' '}
-                    {result.pass_criteria}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        <TestExplainer
+          testNumber={result.test_number}
+          testName={result.test_name}
+          description={result.test_description}
+          passCriteria={result.pass_criteria}
+          toolUsed={result.tool_used}
+        />
       </div>
 
       <div className="flex-1 px-5 py-4 space-y-5">

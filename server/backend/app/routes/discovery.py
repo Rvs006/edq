@@ -2,6 +2,7 @@
 
 import base64
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -60,17 +61,107 @@ def _decode_output_file(raw: Dict[str, Any]) -> str:
 
 
 
+# Known manufacturer keywords found in nmap service banners / OUI vendor strings
+_MANUFACTURER_KEYWORDS: Dict[str, str] = {
+    "axis": "Axis Communications",
+    "hikvision": "Hikvision",
+    "dahua": "Dahua Technology",
+    "pelco": "Pelco (Motorola)",
+    "bosch": "Bosch Security",
+    "honeywell": "Honeywell",
+    "siemens": "Siemens",
+    "schneider": "Schneider Electric",
+    "2n": "2N Telekomunikace",
+    "sauter": "Sauter AG",
+    "easyio": "EasyIO",
+    "hanwha": "Hanwha Techwin",
+    "samsung": "Samsung",
+    "panasonic": "Panasonic",
+    "vivotek": "Vivotek",
+    "mobotix": "Mobotix",
+    "arecont": "Arecont Vision",
+    "geovision": "GeoVision",
+    "acti": "ACTi",
+    "ubiquiti": "Ubiquiti",
+    "mikrotik": "MikroTik",
+    "trendnet": "TRENDnet",
+    "dlink": "D-Link",
+    "d-link": "D-Link",
+    "tp-link": "TP-Link",
+    "ruckus": "Ruckus Networks",
+    "aruba": "Aruba Networks",
+    "cisco": "Cisco",
+    "johnson controls": "Johnson Controls",
+    "trane": "Trane Technologies",
+    "carrier": "Carrier Global",
+    "lutron": "Lutron Electronics",
+    "crestron": "Crestron Electronics",
+    "control4": "Control4",
+}
+
+
+def _guess_manufacturer(oui_vendor: Optional[str], services: List[Dict[str, Any]]) -> Optional[str]:
+    """Guess device manufacturer from OUI vendor string and service banners."""
+    search_text = (oui_vendor or "").lower()
+    for svc in services:
+        search_text += " " + (svc.get("version", "") + " " + svc.get("service", "")).lower()
+
+    for keyword, manufacturer in _MANUFACTURER_KEYWORDS.items():
+        if keyword in search_text:
+            return manufacturer
+    return None
+
+
+def _guess_model(services: List[Dict[str, Any]], os_fp: Optional[str]) -> Optional[str]:
+    """Attempt to extract a device model from service banners or OS fingerprint."""
+    # Check service product/version strings for model numbers
+    for svc in services:
+        version = svc.get("version", "")
+        if not version:
+            continue
+        # Match patterns like "IPC-HDW5", "P3245-V", "EY-RC504", "FW-08"
+        model_match = re.search(
+            r'\b([A-Z]{1,4}[\-]?[A-Z0-9]{2,}[\-][A-Z0-9]+)\b',
+            version,
+            re.IGNORECASE,
+        )
+        if model_match:
+            return model_match.group(1)
+
+    # Check OS fingerprint for model info
+    if os_fp:
+        model_match = re.search(
+            r'\b([A-Z]{1,4}[\-][A-Z0-9]{2,}[\-]?[A-Z0-9]*)\b',
+            os_fp,
+            re.IGNORECASE,
+        )
+        if model_match:
+            return model_match.group(1)
+
+    return None
+
+
 def _guess_category(os_fp: Optional[str], services: List[Dict[str, Any]]) -> DeviceCategory:
     """Heuristic: guess device category from OS fingerprint and service list."""
     service_names = " ".join(s.get("service", "") + " " + s.get("version", "") for s in services).lower()
     os_lower = (os_fp or "").lower()
 
-    if any(kw in service_names for kw in ("rtsp", "onvif", "axis", "hikvision", "dahua", "pelco")):
+    if any(kw in service_names for kw in ("rtsp", "onvif", "axis", "hikvision", "dahua", "pelco", "hanwha", "vivotek")):
         return DeviceCategory.CAMERA
-    if any(kw in service_names for kw in ("bacnet", "easyio", "sauter", "modbus", "hvac")):
+    if any(kw in service_names for kw in ("bacnet", "easyio", "sauter", "modbus", "hvac", "lonworks", "knx")):
         return DeviceCategory.CONTROLLER
     if any(kw in service_names for kw in ("sip", "intercom", "2n")):
         return DeviceCategory.INTERCOM
+    if any(kw in service_names for kw in ("access", "paxton", "gallagher", "hid")):
+        return DeviceCategory.ACCESS_PANEL
+    if any(kw in service_names for kw in ("lutron", "dali", "lighting", "dmx")):
+        return DeviceCategory.LIGHTING
+    if any(kw in service_names for kw in ("trane", "carrier", "thermostat", "chiller")):
+        return DeviceCategory.HVAC
+    if any(kw in service_names for kw in ("mqtt", "zigbee", "z-wave", "lorawan", "sensor")):
+        return DeviceCategory.IOT_SENSOR
+    if any(kw in service_names for kw in ("meter", "modbus", "iec")):
+        return DeviceCategory.METER
     if "camera" in os_lower or "video" in os_lower:
         return DeviceCategory.CAMERA
     if "controller" in os_lower or "plc" in os_lower:
@@ -94,6 +185,10 @@ async def _upsert_device(
     device = result.scalar_one_or_none()
     is_new = device is None
 
+    # Auto-detect manufacturer and model from scan data
+    auto_manufacturer = _guess_manufacturer(vendor, open_ports or [])
+    auto_model = _guess_model(open_ports or [], os_fp)
+
     if is_new:
         device = Device(
             ip_address=ip,
@@ -105,6 +200,8 @@ async def _upsert_device(
             discovery_data=discovery_data,
             category=category,
             status=DeviceStatus.DISCOVERED,
+            manufacturer=auto_manufacturer,
+            model=auto_model,
         )
         db.add(device)
     else:
@@ -120,6 +217,10 @@ async def _upsert_device(
             device.open_ports = open_ports
         if discovery_data is not None:
             device.discovery_data = discovery_data
+        if auto_manufacturer and not device.manufacturer:
+            device.manufacturer = auto_manufacturer
+        if auto_model and not device.model:
+            device.model = auto_model
         device.category = category
         device.status = DeviceStatus.IDENTIFIED
 
