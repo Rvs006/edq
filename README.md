@@ -459,6 +459,6 @@ The E2E suite covers: infrastructure health, authentication flow, device CRUD, t
 
 ## Author
 
-Developed by **Rajesh Shinde** for **Electracom Projects Ltd**.
+Developed by **Rajesh Shinde, Dhilen Patel & Jon Hubbard** for **Electracom Projects Ltd**.
 
 Electracom Projects Ltd is a Sauter Group company specialising in building management systems, security integration, and smart building solutions across the United Kingdom.
