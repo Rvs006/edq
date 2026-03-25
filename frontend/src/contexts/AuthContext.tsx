@@ -22,7 +22,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // TODO: Remove DEV_BYPASS_AUTH before production
-const DEV_BYPASS_AUTH = true
+const DEV_BYPASS_AUTH = false
 const MOCK_USER: User = {
   id: 'dev-mock-id',
   email: 'admin@electracom.co.uk',
