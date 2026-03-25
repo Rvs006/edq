@@ -198,11 +198,11 @@ function CreateTemplateModal({ library, onClose }: { library: TestLibraryItem[];
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
         className="fixed inset-2 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:w-full sm:max-w-2xl bg-white rounded-lg shadow-2xl z-50 flex flex-col max-h-[90vh]"
+                   sm:w-full sm:max-w-2xl bg-white dark:bg-zinc-900 rounded-lg shadow-2xl z-50 flex flex-col max-h-[90vh]"
       >
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200">
-          <h2 className="text-lg font-semibold text-zinc-900">New Test Template</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-700">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">New Test Template</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -294,11 +294,11 @@ function EditTemplateModal({ template, library, onClose }: { template: TestTempl
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
         className="fixed inset-2 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:w-full sm:max-w-2xl bg-white rounded-lg shadow-2xl z-50 flex flex-col max-h-[90vh]"
+                   sm:w-full sm:max-w-2xl bg-white dark:bg-zinc-900 rounded-lg shadow-2xl z-50 flex flex-col max-h-[90vh]"
       >
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200">
-          <h2 className="text-lg font-semibold text-zinc-900">Edit Template</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-700">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Edit Template</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>

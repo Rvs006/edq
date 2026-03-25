@@ -108,7 +108,7 @@ export default function TestPlansPage() {
           <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center mx-auto mb-3">
             <ListChecks className="w-6 h-6 text-zinc-400" />
           </div>
-          <p className="text-sm font-medium text-zinc-700 mb-1">No test plans yet</p>
+          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">No test plans yet</p>
           <p className="text-xs text-zinc-500 mb-4">Create a custom plan to select which tests run and override their tiers.</p>
           <button onClick={() => setCreating(true)} className="btn-primary mx-auto">
             <Plus className="w-4 h-4" /> Create Plan
@@ -118,7 +118,7 @@ export default function TestPlansPage() {
         <div className="card">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-zinc-500 border-b border-zinc-200 bg-zinc-50">
+              <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50">
                 <th className="px-5 py-2.5">Name</th>
                 <th className="px-3 py-2.5">Description</th>
                 <th className="px-3 py-2.5 text-center">Enabled</th>
@@ -132,27 +132,27 @@ export default function TestPlansPage() {
                 const enabled = (p.test_configs || []).filter(c => c.enabled).length
                 const custom = (p.test_configs || []).filter(c => c.custom).length
                 return (
-                  <tr key={p.id} className="border-b border-zinc-100 hover:bg-zinc-50">
+                  <tr key={p.id} className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800">
                     <td className="px-5 py-3">
-                      <span className="font-medium text-zinc-800">{p.name}</span>
+                      <span className="font-medium text-zinc-800 dark:text-zinc-100">{p.name}</span>
                     </td>
-                    <td className="px-3 py-3 text-zinc-500 text-xs max-w-xs truncate">{p.description || '—'}</td>
+                    <td className="px-3 py-3 text-zinc-500 dark:text-zinc-400 text-xs max-w-xs truncate">{p.description || '—'}</td>
                     <td className="px-3 py-3 text-center">
                       <span className="badge bg-brand-50 text-brand-600 border border-brand-100">{enabled}</span>
                     </td>
                     <td className="px-3 py-3 text-center">
                       {custom > 0 ? <span className="badge bg-purple-50 text-purple-600 border border-purple-100">{custom}</span> : <span className="text-zinc-400">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-xs text-zinc-400">{new Date(p.created_at).toLocaleDateString()}</td>
+                    <td className="px-3 py-3 text-xs text-zinc-400 dark:text-zinc-500">{new Date(p.created_at).toLocaleDateString()}</td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => setEditing(p)} className="p-1.5 rounded hover:bg-zinc-100" title="Edit">
+                        <button onClick={() => setEditing(p)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Edit">
                           <Pencil className="w-3.5 h-3.5 text-zinc-500" />
                         </button>
-                        <button onClick={() => handleClone(p.id)} className="p-1.5 rounded hover:bg-zinc-100" title="Clone">
+                        <button onClick={() => handleClone(p.id)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Clone">
                           <Copy className="w-3.5 h-3.5 text-zinc-500" />
                         </button>
-                        <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-red-50" title="Delete">
+                        <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">
                           <Trash2 className="w-3.5 h-3.5 text-red-500" />
                         </button>
                       </div>
@@ -283,7 +283,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
         <div className="card p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-zinc-900">Test Configuration</h3>
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Test Configuration</h3>
               <span className="badge bg-brand-50 text-brand-600 border border-brand-100">{enabledCount} enabled</span>
             </div>
             <div className="flex items-center gap-2">
@@ -298,23 +298,23 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
               if (cat === 'Custom') {
                 const customConfigs = configs.filter(c => c.custom)
                 return (
-                  <div key={cat} className="border border-zinc-200 rounded-lg overflow-hidden">
+                  <div key={cat} className="border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden">
                     <button
                       onClick={() => {
                         const next = new Set(expandedCats)
                         expanded ? next.delete(cat) : next.add(cat)
                         setExpandedCats(next)
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2 bg-purple-50 hover:bg-purple-100 transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-2 bg-purple-50 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-950/50 transition-colors"
                     >
                       {expanded ? <ChevronDown className="w-4 h-4 text-purple-400" /> : <ChevronRight className="w-4 h-4 text-purple-400" />}
-                      <span className="text-sm font-medium text-purple-700 flex-1 text-left">Custom Tests</span>
+                      <span className="text-sm font-medium text-purple-700 dark:text-purple-300 flex-1 text-left">Custom Tests</span>
                       <span className="text-xs text-purple-400">{customConfigs.length}</span>
                     </button>
                     {expanded && (
                       <div className="p-3 space-y-3">
                         {customConfigs.map(c => (
-                          <div key={c.test_id} className="border border-zinc-200 rounded-lg p-3">
+                          <div key={c.test_id} className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-xs font-mono text-zinc-400">{c.test_id}</span>
                               <button onClick={() => removeCustom(c.test_id)} className="p-1 rounded hover:bg-red-50">
@@ -349,7 +349,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                         ))}
                         <button
                           onClick={addCustomTest}
-                          className="w-full py-2 border border-dashed border-purple-300 rounded-lg text-sm text-purple-500 hover:bg-purple-50 transition-colors flex items-center justify-center gap-1"
+                          className="w-full py-2 border border-dashed border-purple-300 dark:border-purple-700 rounded-lg text-sm text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/30 transition-colors flex items-center justify-center gap-1"
                         >
                           <Plus className="w-4 h-4" /> Add Custom Manual Test
                         </button>
@@ -363,21 +363,21 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
               const catEnabled = items.filter(i => i.config?.enabled).length
 
               return (
-                <div key={cat} className="border border-zinc-200 rounded-lg overflow-hidden">
+                <div key={cat} className="border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden">
                   <button
                     onClick={() => {
                       const next = new Set(expandedCats)
                       expanded ? next.delete(cat) : next.add(cat)
                       setExpandedCats(next)
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 bg-zinc-50 hover:bg-zinc-100 transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                   >
                     {expanded ? <ChevronDown className="w-4 h-4 text-zinc-400" /> : <ChevronRight className="w-4 h-4 text-zinc-400" />}
-                    <span className="text-sm font-medium text-zinc-700 flex-1 text-left">{cat}</span>
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-200 flex-1 text-left">{cat}</span>
                     <span className="text-xs text-zinc-400">{catEnabled}/{items.length}</span>
                   </button>
                   {expanded && (
-                    <div className="divide-y divide-zinc-100">
+                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                       {items.map(({ test, config }) => {
                         const enabled = config?.enabled ?? true
                         const tierOverride = config?.tier_override || ''
@@ -389,11 +389,11 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                             <button onClick={() => toggleEnabled(test.id)} className="shrink-0">
                               {enabled
                                 ? <ToggleRight className="w-5 h-5 text-brand-500" />
-                                : <ToggleLeft className="w-5 h-5 text-zinc-300" />
+                                : <ToggleLeft className="w-5 h-5 text-zinc-300 dark:text-zinc-600" />
                               }
                             </button>
                             <span className="text-xs font-mono text-zinc-400 w-8 shrink-0">{test.id}</span>
-                            <span className={`text-sm flex-1 ${enabled ? 'text-zinc-700' : 'text-zinc-400 line-through'}`}>{test.name}</span>
+                            <span className={`text-sm flex-1 ${enabled ? 'text-zinc-700 dark:text-zinc-200' : 'text-zinc-400 dark:text-zinc-500 line-through'}`}>{test.name}</span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${
                               test.tier === 'automatic' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
                             }`}>{test.tier === 'automatic' ? 'Auto' : 'Manual'}</span>
@@ -402,7 +402,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                               value={tierOverride}
                               onChange={e => setTierOverride(test.id, e.target.value)}
                               disabled={!enabled}
-                              className="text-xs border border-zinc-200 rounded px-2 py-1 bg-white w-28 shrink-0"
+                              className="text-xs border border-zinc-200 dark:border-zinc-700 rounded px-2 py-1 bg-white dark:bg-zinc-800 dark:text-zinc-200 w-28 shrink-0"
                             >
                               {TIER_OPTIONS.map(o => (
                                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -418,9 +418,9 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
             })}
           </div>
 
-          <div className="mt-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+          <div className="mt-3 p-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg flex items-start gap-2">
             <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-blue-700">
+            <p className="text-xs text-blue-700 dark:text-blue-300">
               Override tier to reclassify tests. Setting an automatic test to "Guided Manual" will present it as a form
               instead of running the tool. Custom tests always appear as guided manual inputs.
             </p>

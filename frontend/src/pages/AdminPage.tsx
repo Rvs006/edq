@@ -133,7 +133,7 @@ function UsersTab() {
                 <td className="py-3 px-4">
                   <button
                     onClick={() => handleToggleActive(u.id, u.is_active)}
-                    className={`text-xs font-medium px-2 py-1 rounded ${u.is_active ? 'text-red-600 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
+                    className={`text-xs font-medium px-2 py-1 rounded ${u.is_active ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30' : 'text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30'}`}
                   >
                     {u.is_active ? 'Deactivate' : 'Activate'}
                   </button>
@@ -179,11 +179,11 @@ function SystemTab() {
     {
       title: 'Security Tools',
       items: [
-        ['nmap', tools.nmap ? 'Available' : 'Not Found'],
+        ['Nmap', tools.nmap ? 'Available' : 'Not Found'],
         ['testssl.sh', tools.testssl ? 'Available' : 'Not Found'],
         ['ssh-audit', tools.ssh_audit ? 'Available' : 'Not Found'],
-        ['hydra', tools.hydra ? 'Available' : 'Not Found'],
-        ['nikto', tools.nikto ? 'Available' : 'Not Found'],
+        ['Hydra', tools.hydra ? 'Available' : 'Not Found'],
+        ['Nikto', tools.nikto ? 'Available' : 'Not Found'],
       ],
     },
   ]

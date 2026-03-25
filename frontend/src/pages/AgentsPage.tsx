@@ -227,7 +227,7 @@ export default function AgentsPage() {
 
   if (loading) {
     return (
-      <div className="p-4 sm:p-6 max-w-6xl">
+      <div className="page-container">
         <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Agent Fleet</h1>
         <div className="flex items-center gap-2 text-sm text-zinc-500">
           <Loader2 className="w-4 h-4 animate-spin" />
@@ -239,7 +239,7 @@ export default function AgentsPage() {
 
   if (error) {
     return (
-      <div className="p-4 sm:p-6 max-w-6xl">
+      <div className="page-container">
         <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Agent Fleet</h1>
         <Callout variant="error">
           <div className="flex items-center gap-2">
@@ -253,7 +253,7 @@ export default function AgentsPage() {
 
   if (agents.length === 0) {
     return (
-      <div className="p-4 sm:p-6 max-w-6xl">
+      <div className="page-container">
         <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Agent Fleet</h1>
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 p-12 text-center">
           <RefreshCw className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
@@ -267,7 +267,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl">
+    <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Agent Fleet</h1>

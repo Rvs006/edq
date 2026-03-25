@@ -6,14 +6,15 @@ import { ListChecks, Loader2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const ACTION_COLORS: Record<string, string> = {
-  device_created: 'bg-blue-50 text-blue-700 border border-blue-200',
-  device_updated: 'bg-blue-50 text-blue-700 border border-blue-200',
-  test_run_started: 'bg-purple-50 text-purple-700 border border-purple-200',
-  test_run_completed: 'bg-green-50 text-green-700 border border-green-200',
-  test_result_updated: 'bg-amber-50 text-amber-700 border border-amber-200',
-  report_generated: 'bg-cyan-50 text-cyan-700 border border-cyan-200',
-  user_login: 'bg-zinc-100 text-zinc-700 border border-zinc-200',
-  user_created: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+  create: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
+  device_created: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
+  device_updated: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
+  test_run_started: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800',
+  test_run_completed: 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800',
+  test_result_updated: 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800',
+  report_generated: 'bg-cyan-50 text-cyan-700 border border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-400 dark:border-cyan-800',
+  user_login: 'bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700',
+  user_created: 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800',
 }
 
 export default function AuditLogPage() {
@@ -123,7 +124,7 @@ export default function AuditLogPage() {
                   {logs.map((log) => (
                     <tr key={log.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                       <td className="py-3 px-4">
-                        <span className={`badge text-[10px] ${ACTION_COLORS[log.action] || 'bg-zinc-100 text-zinc-600 border border-zinc-200'}`}>
+                        <span className={`badge text-[10px] ${ACTION_COLORS[log.action] || 'bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'}`}>
                           {log.action?.replace(/_/g, ' ')}
                         </span>
                       </td>
