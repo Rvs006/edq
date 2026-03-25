@@ -36,11 +36,11 @@ export default function VerdictBadge({ verdict, size = 'sm', showIcon = false }:
 export function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     pending: 'badge-pending',
-    discovering: 'bg-purple-50 text-purple-700 border border-purple-200',
-    running: 'bg-blue-50 text-blue-700 border border-blue-200',
-    paused_manual: 'bg-amber-50 text-amber-700 border border-amber-200',
-    paused_cable: 'bg-orange-50 text-orange-700 border border-orange-200',
-    awaiting_review: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+    discovering: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800',
+    running: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
+    paused_manual: 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800',
+    paused_cable: 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800',
+    awaiting_review: 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800',
     complete: 'badge-pass',
     completed: 'badge-pass',
     error: 'badge-fail',

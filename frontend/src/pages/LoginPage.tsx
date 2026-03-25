@@ -28,19 +28,20 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center bg-surface dark:bg-zinc-950 px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <div className="w-14 h-14 flex items-center justify-center mb-3">
-            <img src="/icon.png" alt="Electracom" className="w-12 h-12" />
+            <img src="/icon.png" alt="Electracom" className="w-12 h-12 dark:hidden" />
+            <img src="/icon-white.png" alt="Electracom" className="w-12 h-12 hidden dark:block" />
           </div>
-          <h1 className="text-lg font-bold text-zinc-900 tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</h1>
-          <p className="text-sm text-zinc-500 mt-0.5">Device Qualifier</p>
+          <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</h1>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Device Qualifier</p>
         </div>
 
         <div className="card p-6">
-          <h2 className="text-lg font-semibold text-zinc-900 mb-1">Sign in</h2>
-          <p className="text-sm text-zinc-500 mb-6">Enter your credentials to continue</p>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">Sign in</h2>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">Enter your credentials to continue</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -84,7 +85,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-zinc-400">
+        <p className="mt-6 text-center text-xs text-zinc-400 dark:text-zinc-500">
           Electracom Projects Ltd &mdash; A Sauter Group Company
         </p>
       </div>

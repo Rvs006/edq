@@ -98,19 +98,19 @@ export default function DeviceDetailPage() {
       <div className="card p-5 mb-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-lg bg-zinc-100 flex items-center justify-center">
-              <Monitor className="w-6 h-6 text-zinc-500" />
+            <div className="w-12 h-12 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+              <Monitor className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-zinc-900">{device.hostname || device.name || device.ip_address}</h1>
-              <p className="text-sm text-zinc-500">{device.ip_address} {device.manufacturer ? `· ${device.manufacturer}` : ''}</p>
+              <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{device.hostname || device.name || device.ip_address}</h1>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">{device.ip_address} {device.manufacturer ? `· ${device.manufacturer}` : ''}</p>
             </div>
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => autoDetectMutation.mutate()}
               disabled={autoDetectMutation.isPending}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-zinc-300 text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
               title="Re-scan device to auto-detect manufacturer, model, and open ports"
             >
               {autoDetectMutation.isPending ? (
@@ -126,13 +126,13 @@ export default function DeviceDetailPage() {
           </div>
         </div>
         {autoDetectMutation.isSuccess && (
-          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-2">
+          <div className="mt-3 p-3 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-400 flex items-center gap-2">
             <RefreshCw className="w-4 h-4" />
             Device re-scanned successfully. Information updated.
           </div>
         )}
         {autoDetectMutation.isError && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+          <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             Auto-detect failed. Make sure the tools sidecar is running and the device is reachable.
           </div>
@@ -142,12 +142,12 @@ export default function DeviceDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-1 space-y-5">
           <div className="card p-5">
-            <h2 className="font-semibold text-zinc-900 mb-4">Device Information</h2>
+            <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Device Information</h2>
             <dl className="space-y-3">
               {infoFields.map(([label, value]) => (
                 <div key={label} className="flex justify-between text-sm">
-                  <dt className="text-zinc-500">{label}</dt>
-                  <dd className="text-zinc-900 font-medium capitalize">{value || '—'}</dd>
+                  <dt className="text-zinc-500 dark:text-zinc-400">{label}</dt>
+                  <dd className="text-zinc-900 dark:text-zinc-100 font-medium capitalize">{value || '—'}</dd>
                 </div>
               ))}
             </dl>
@@ -156,14 +156,14 @@ export default function DeviceDetailPage() {
           {/* CVE Vulnerability Lookup */}
           <div className="card p-5">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-zinc-900 flex items-center gap-2">
+              <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                 <Shield className="w-4 h-4 text-red-500" />
                 CVE Vulnerabilities
               </h2>
               <button
                 onClick={() => cveMutation.mutate()}
                 disabled={cveMutation.isPending}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
               >
                 {cveMutation.isPending ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -182,7 +182,7 @@ export default function DeviceDetailPage() {
             )}
 
             {cveMutation.isError && (
-              <div className="text-sm text-red-600 bg-red-50 rounded-lg p-3">
+              <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded-lg p-3">
                 Failed to query NVD. The device may not have open ports scanned yet.
               </div>
             )}
@@ -205,8 +205,8 @@ export default function DeviceDetailPage() {
                       Found {cveData.total_cves} CVE(s) across {cveData.results.length} service(s)
                     </p>
                     {cveData.results.map((svc) => (
-                      <div key={`${svc.port}-${svc.service}`} className="border border-zinc-100 rounded-lg p-3">
-                        <p className="text-xs font-medium text-zinc-700 mb-2">
+                      <div key={`${svc.port}-${svc.service}`} className="border border-zinc-100 dark:border-zinc-700 rounded-lg p-3">
+                        <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                           Port {svc.port} \u2014 {svc.service} ({svc.version})
                         </p>
                         <div className="space-y-2">
@@ -246,26 +246,26 @@ export default function DeviceDetailPage() {
         </div>
 
         <div className="lg:col-span-2 card">
-          <div className="flex items-center justify-between p-4 border-b border-zinc-100">
-            <h2 className="font-semibold text-zinc-900">Test History</h2>
+          <div className="flex items-center justify-between p-4 border-b border-zinc-100 dark:border-zinc-800">
+            <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">Test History</h2>
           </div>
           {runs && runs.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-zinc-100">
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500">Run</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500">Status</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500">Verdict</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 hidden sm:table-cell">Tests</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500">Date</th>
+                  <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Run</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Status</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Verdict</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">Tests</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Date</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-50">
+                <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
                   {runs.map((run: TestRun) => (
-                    <tr key={run.id} className="hover:bg-zinc-50 transition-colors">
+                    <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                       <td className="py-2.5 px-4">
-                        <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 hover:text-brand-500">
+                        <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-zinc-100 hover:text-brand-500">
                           {run.id.slice(0, 8)}
                         </Link>
                       </td>
@@ -273,10 +273,10 @@ export default function DeviceDetailPage() {
                       <td className="py-2.5 px-4">
                         {run.overall_verdict ? <VerdictBadge verdict={run.overall_verdict} /> : <span className="text-xs text-zinc-400">&mdash;</span>}
                       </td>
-                      <td className="py-2.5 px-4 text-xs text-zinc-500 hidden sm:table-cell">
+                      <td className="py-2.5 px-4 text-xs text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">
                         {run.passed_tests ?? 0}P / {run.failed_tests ?? 0}F / {run.advisory_tests ?? 0}A
                       </td>
-                      <td className="py-2.5 px-4 text-xs text-zinc-500">
+                      <td className="py-2.5 px-4 text-xs text-zinc-500 dark:text-zinc-400">
                         {new Date(run.created_at).toLocaleDateString()}
                       </td>
                     </tr>

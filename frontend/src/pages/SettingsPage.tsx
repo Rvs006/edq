@@ -278,6 +278,9 @@ function SystemStatus() {
     nikto: 'Nikto',
   }
 
+  // Strip ANSI escape codes from tool version strings
+  const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '').replace(/\u001b\[[0-9;]*m/g, '').replace(/\[[\d;]*m/g, '').trim()
+
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
@@ -299,11 +302,11 @@ function SystemStatus() {
             const version = versions[key]
             const available = version && version !== 'unavailable'
             return (
-              <div key={key} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-800">
+              <div key={key} className="flex items-center gap-3 py-2.5 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
                 <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${available ? 'bg-emerald-500' : 'bg-red-400'}`} />
                 <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 w-24">{label}</span>
-                <span className="text-xs text-zinc-500 flex-1 truncate font-mono">
-                  {available ? version : 'Not available'}
+                <span className="text-xs text-zinc-500 dark:text-zinc-400 flex-1 truncate font-mono">
+                  {available ? stripAnsi(version) : 'Not available'}
                 </span>
               </div>
             )
@@ -449,14 +452,14 @@ function HelpSection({ tourState }: { tourState?: TourState }) {
 
   return (
     <div className="card p-5 mt-5">
-      <h2 className="font-semibold text-zinc-900 mb-4">Help</h2>
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Help</h2>
       <div className="space-y-3">
         <div className="flex items-start gap-3">
           <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
             <RotateCcw className="w-4 h-4 text-brand-500" />
           </div>
           <div>
-            <h3 className="text-sm font-medium text-zinc-900 mb-0.5">Guided Tour</h3>
+            <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-0.5">Guided Tour</h3>
             <p className="text-xs text-zinc-500 mb-2">
               Restart the interactive walkthrough to learn about EDQ features.
             </p>
