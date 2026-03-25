@@ -99,7 +99,7 @@ async def create_test_run(
         connection_scenario=data.connection_scenario,
         total_tests=len(template.test_ids),
         status=TestRunStatus.PENDING,
-        metadata=data.metadata,
+        run_metadata=data.metadata,
     )
     db.add(test_run)
     await db.flush()

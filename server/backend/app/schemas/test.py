@@ -99,7 +99,7 @@ class TestRunResponse(BaseModel):
     synopsis_status: str
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    metadata: Optional[Any] = None
+    run_metadata: Optional[Any] = None
     created_at: datetime
     updated_at: datetime
 
