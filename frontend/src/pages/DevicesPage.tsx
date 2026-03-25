@@ -33,7 +33,7 @@ export default function DevicesPage() {
           <p className="section-subtitle">Manage network devices for qualification testing</p>
         </div>
         <div className="flex gap-2">
-          <div className="flex border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden">
+          <div className="flex border border-zinc-200 dark:border-slate-700/50 rounded-lg overflow-hidden">
             <button
               onClick={() => setViewMode('table')}
               className={`p-2 ${viewMode === 'table' ? 'bg-brand-50 text-brand-600' : 'text-zinc-400 hover:text-zinc-600'}`}
@@ -97,29 +97,29 @@ export default function DevicesPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50">
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Name</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">IP Address</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden md:table-cell">Manufacturer</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden md:table-cell">Model</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden lg:table-cell">Firmware</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Category</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden lg:table-cell">Last Tested</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">Verdict</th>
+                <tr className="border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50/50 dark:bg-slate-800/50">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Name</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">IP Address</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden md:table-cell">Manufacturer</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden md:table-cell">Model</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Firmware</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Category</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Last Tested</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">Verdict</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
                 {devices.map((device: Device) => (
-                  <tr key={device.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                  <tr key={device.id} className="hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
                     <td className="py-3 px-4">
-                      <Link to={`/devices/${device.id}`} className="font-medium text-zinc-900 dark:text-zinc-100 hover:text-brand-500">
+                      <Link to={`/devices/${device.id}`} className="font-medium text-zinc-900 dark:text-slate-100 hover:text-brand-500">
                         {device.hostname || device.name || device.ip_address}
                       </Link>
                     </td>
-                    <td className="py-3 px-4 font-mono text-xs text-zinc-600 dark:text-zinc-400">{device.ip_address}</td>
-                    <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 hidden md:table-cell">{device.manufacturer || '—'}</td>
-                    <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 hidden md:table-cell">{device.model || '—'}</td>
-                    <td className="py-3 px-4 text-zinc-500 dark:text-zinc-400 text-xs hidden lg:table-cell">{device.firmware_version || '—'}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-zinc-600 dark:text-slate-400">{device.ip_address}</td>
+                    <td className="py-3 px-4 text-zinc-600 dark:text-slate-400 hidden md:table-cell">{device.manufacturer || '—'}</td>
+                    <td className="py-3 px-4 text-zinc-600 dark:text-slate-400 hidden md:table-cell">{device.model || '—'}</td>
+                    <td className="py-3 px-4 text-zinc-500 dark:text-slate-400 text-xs hidden lg:table-cell">{device.firmware_version || '—'}</td>
                     <td className="py-3 px-4">
                       <CategoryBadge category={device.category || 'unknown'} />
                     </td>
@@ -142,7 +142,7 @@ export default function DevicesPage() {
       ) : (
         <div className="card p-12 text-center">
           <Monitor className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-zinc-700 dark:text-zinc-300 mb-1">No devices found</h3>
+          <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No devices found</h3>
           <p className="text-sm text-zinc-500 mb-4">
             {search || categoryFilter ? 'Try adjusting your search or filters' : 'Add your first device to get started'}
           </p>
@@ -193,19 +193,18 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/40 z-50" onClick={onClose}
+        className="absolute inset-0 bg-black/40" onClick={onClose}
       />
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:w-full sm:max-w-lg bg-white dark:bg-zinc-900 rounded-lg shadow-2xl z-50 overflow-y-auto max-h-[90vh]"
+        className="relative w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
       >
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-700">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Discover Devices</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Discover Devices</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -219,7 +218,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
               type="button"
               onClick={() => setMode('ip')}
               className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
-                mode === 'ip' ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                mode === 'ip' ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-400 hover:border-zinc-300'
               }`}
             >
               Single IP
@@ -228,7 +227,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
               type="button"
               onClick={() => setMode('subnet')}
               className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
-                mode === 'subnet' ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                mode === 'subnet' ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-400 hover:border-zinc-300'
               }`}
             >
               Subnet Scan
@@ -263,12 +262,12 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
 
           {results && results.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Discovered Devices</h3>
+              <h3 className="text-sm font-medium text-zinc-700 dark:text-slate-300">Discovered Devices</h3>
               {results.map((dev, idx: number) => (
-                <div key={idx} className="flex items-center gap-3 p-2.5 bg-zinc-50 dark:bg-zinc-800 rounded-lg border border-zinc-100 dark:border-zinc-700">
+                <div key={idx} className="flex items-center gap-3 p-2.5 bg-zinc-50 dark:bg-slate-800 rounded-lg border border-zinc-100 dark:border-slate-700/50">
                   <div className={`w-2 h-2 rounded-full shrink-0 ${dev.is_new ? 'bg-emerald-500' : 'bg-blue-500'}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                    <p className="text-sm font-medium text-zinc-800 dark:text-slate-200 truncate">
                       {dev.hostname || dev.ip_address}
                     </p>
                     <p className="text-xs text-zinc-500">
@@ -290,7 +289,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
           )}
         </form>
       </motion.div>
-    </>
+    </div>
   )
 }
 
@@ -309,7 +308,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
       const payload = Object.fromEntries(
         Object.entries(form).filter(([, v]) => v !== '')
       )
-      await devicesApi.create(payload)
+      await devicesApi.create(payload as Parameters<typeof devicesApi.create>[0])
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       toast.success('Device added successfully')
       onClose()
@@ -322,19 +321,18 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/40 z-50" onClick={onClose}
+        className="absolute inset-0 bg-black/40" onClick={onClose}
       />
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:w-full sm:max-w-lg bg-white dark:bg-zinc-900 rounded-lg shadow-2xl z-50 overflow-y-auto max-h-[90vh]"
+        className="relative w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
       >
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-700">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Add New Device</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Add New Device</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -408,6 +406,6 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
           </div>
         </form>
       </motion.div>
-    </>
+    </div>
   )
 }

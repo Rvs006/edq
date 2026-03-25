@@ -150,7 +150,7 @@ export default function GuidedTour({ steps, isActive, onEnd, onStepChange }: Gui
       {/* Popover */}
       <div
         ref={popoverRef}
-        className="fixed z-[202] bg-white dark:bg-zinc-800 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-700 p-4"
+        className="fixed z-[202] bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-zinc-200 dark:border-slate-700/50 p-4"
         style={getPopoverStyle()}
       >
         <div className="flex items-center justify-between mb-1">
@@ -164,11 +164,11 @@ export default function GuidedTour({ steps, isActive, onEnd, onStepChange }: Gui
             <X className="w-4 h-4" />
           </button>
         </div>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 mb-1">
           {step.title}
         </h3>
         <p
-          className="text-xs text-zinc-600 dark:text-zinc-400 mb-3 leading-relaxed"
+          className="text-xs text-zinc-600 dark:text-slate-400 mb-3 leading-relaxed"
           dangerouslySetInnerHTML={{ __html: step.description }}
         />
         <div className="flex items-center justify-between">
@@ -194,7 +194,7 @@ export default function GuidedTour({ steps, isActive, onEnd, onStepChange }: Gui
             {currentStep > 0 && (
               <button
                 onClick={handleBack}
-                className="px-3 py-1 text-xs font-medium border border-zinc-300 dark:border-zinc-600 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300"
+                className="px-3 py-1 text-xs font-medium border border-zinc-300 dark:border-slate-600 rounded-md hover:bg-zinc-50 dark:hover:bg-slate-700 text-zinc-700 dark:text-slate-300"
               >
                 Back
               </button>

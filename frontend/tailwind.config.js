@@ -8,7 +8,7 @@ export default {
         surface: {
           DEFAULT: '#fafafa',
           card: '#ffffff',
-          sidebar: '#18181b',
+          sidebar: '#0f172a',
           hover: '#f4f4f5',
           border: '#e4e4e7',
           muted: '#71717a',
@@ -16,9 +16,20 @@ export default {
         brand: {
           50: '#eff6ff',
           100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
           500: '#1e40af',
           600: '#1e3a8a',
           700: '#1e3370',
+        },
+        // Dark-mode surface palette (navy/slate-tinted)
+        dark: {
+          bg: '#0b1120',
+          surface: '#111827',
+          card: '#1e293b',
+          border: '#1e3a5f',
+          hover: '#1e293b',
         },
         verdict: {
           pass: '#16a34a',

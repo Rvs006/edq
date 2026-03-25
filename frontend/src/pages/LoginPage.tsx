@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import ThemeToggle from '@/components/common/ThemeToggle'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
@@ -28,66 +29,81 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface dark:bg-zinc-950 px-4 py-12">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 flex items-center justify-center mb-3">
-            <img src="/icon.png" alt="Electracom" className="w-12 h-12 dark:hidden" />
-            <img src="/icon-white.png" alt="Electracom" className="w-12 h-12 hidden dark:block" />
+    <div className="min-h-screen flex flex-col bg-surface dark:bg-dark-bg">
+      {/* Top bar with rainbow accent + theme toggle */}
+      <div className="flex h-1 w-full shrink-0">
+        <div className="flex-1 bg-[#0099cc]" />
+        <div className="flex-1 bg-[#f5a623]" />
+        <div className="flex-1 bg-[#34a853]" />
+        <div className="flex-1 bg-[#9b59b6]" />
+        <div className="flex-1 bg-[#e53935]" />
+      </div>
+      <div className="flex justify-end px-4 py-3">
+        <ThemeToggle />
+      </div>
+
+      {/* Centered login card */}
+      <div className="flex-1 flex items-center justify-center px-4 pb-16">
+        <div className="w-full max-w-sm">
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-14 h-14 flex items-center justify-center mb-3">
+              <img src="/icon.png" alt="Electracom" className="w-12 h-12 dark:hidden" />
+              <img src="/icon-white.png" alt="Electracom" className="w-12 h-12 hidden dark:block" />
+            </div>
+            <h1 className="text-lg font-bold text-zinc-900 dark:text-white tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</h1>
+            <p className="text-sm text-zinc-500 dark:text-slate-400 mt-0.5">Device Qualifier</p>
           </div>
-          <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Device Qualifier</p>
-        </div>
 
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">Sign in</h2>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">Enter your credentials to continue</p>
+          <div className="card p-6">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-1">Sign in</h2>
+            <p className="text-sm text-zinc-500 dark:text-slate-400 mb-6">Enter your credentials to continue</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="label">Username</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="input"
-                placeholder="Enter your username"
-                required
-                autoFocus
-              />
-            </div>
-
-            <div>
-              <label className="label">Password</label>
-              <div className="relative">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="label">Username</label>
                 <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input pr-10"
-                  placeholder="Enter your password"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="input"
+                  placeholder="Enter your username"
                   required
+                  autoFocus
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
-            </div>
 
-            <button type="submit" disabled={loading} className="btn-primary w-full">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+              <div>
+                <label className="label">Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="input pr-10"
+                    placeholder="Enter your password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button type="submit" disabled={loading} className="btn-primary w-full">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {loading ? 'Signing in...' : 'Sign In'}
+              </button>
+            </form>
+          </div>
+
+          <p className="mt-6 text-center text-xs text-zinc-400 dark:text-slate-500">
+            Electracom Projects Ltd &mdash; A Sauter Group Company
+          </p>
         </div>
-
-        <p className="mt-6 text-center text-xs text-zinc-400 dark:text-zinc-500">
-          Electracom Projects Ltd &mdash; A Sauter Group Company
-        </p>
       </div>
     </div>
   )

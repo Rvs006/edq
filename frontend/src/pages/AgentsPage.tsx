@@ -228,7 +228,7 @@ export default function AgentsPage() {
   if (loading) {
     return (
       <div className="page-container">
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Agent Fleet</h1>
+        <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-4">Agent Fleet</h1>
         <div className="flex items-center gap-2 text-sm text-zinc-500">
           <Loader2 className="w-4 h-4 animate-spin" />
           Loading agents...
@@ -240,7 +240,7 @@ export default function AgentsPage() {
   if (error) {
     return (
       <div className="page-container">
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Agent Fleet</h1>
+        <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-4">Agent Fleet</h1>
         <Callout variant="error">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
@@ -254,10 +254,10 @@ export default function AgentsPage() {
   if (agents.length === 0) {
     return (
       <div className="page-container">
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Agent Fleet</h1>
-        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 p-12 text-center">
+        <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-4">Agent Fleet</h1>
+        <div className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-12 text-center">
           <RefreshCw className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
-          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">No agents registered</p>
+          <p className="text-sm font-medium text-zinc-600 dark:text-slate-400">No agents registered</p>
           <p className="text-xs text-zinc-400 mt-1">
             Register an agent using the API to see it here.
           </p>
@@ -270,7 +270,7 @@ export default function AgentsPage() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Agent Fleet</h1>
+          <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Agent Fleet</h1>
           <p className="text-sm text-zinc-500 mt-0.5">
             Monitor connected EDQ agents across your team
           </p>
@@ -294,7 +294,7 @@ export default function AgentsPage() {
       {/* Stats cards */}
       <div className="grid grid-cols-3 gap-4 mb-5">
         {stats.map((s) => (
-          <div key={s.label} className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 p-5">
+          <div key={s.label} className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-5">
             <div className="text-[13px] text-zinc-500">{s.label}</div>
             <div className={`text-2xl font-bold ${s.color}`} data-testid="stat-value">
               {s.value}
@@ -304,49 +304,49 @@ export default function AgentsPage() {
       </div>
 
       {/* Agent table */}
-      <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+      <div className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-800/60">
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide">
+              <tr className="border-b border-zinc-100 dark:border-slate-700/50 bg-zinc-50/60 dark:bg-slate-800/60">
+                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-slate-400 text-xs uppercase tracking-wide">
                   Status
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide">
+                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-slate-400 text-xs uppercase tracking-wide">
                   Agent
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide">
+                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-slate-400 text-xs uppercase tracking-wide">
                   Engineer
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide">
+                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-slate-400 text-xs uppercase tracking-wide">
                   OS
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide">
+                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-slate-400 text-xs uppercase tracking-wide">
                   Version
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide">
+                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-slate-400 text-xs uppercase tracking-wide">
                   Synced
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide">
+                <th className="text-left px-4 py-3 font-medium text-zinc-500 dark:text-slate-400 text-xs uppercase tracking-wide">
                   Last Heartbeat
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
               {agents.map((agent) => {
                 const sc = statusConfig[agent.status]
                 const outdated = agent.version !== CURRENT_VERSION && agent.version !== 'N/A'
                 return (
-                  <tr key={agent.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/60 transition-colors">
+                  <tr key={agent.id} className="hover:bg-zinc-50/60 dark:hover:bg-slate-800/60 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${sc.dot}`} />
                         <span className={`text-[13px] font-medium ${sc.text}`}>{sc.label}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">{agent.name}</td>
-                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400">{agent.engineer}</td>
-                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400">{agent.os}</td>
+                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-slate-100">{agent.name}</td>
+                    <td className="px-4 py-3 text-zinc-500 dark:text-slate-400">{agent.engineer}</td>
+                    <td className="px-4 py-3 text-zinc-500 dark:text-slate-400">{agent.os}</td>
                     <td className="px-4 py-3">
                       {outdated ? (
                         <span className="text-amber-600 font-semibold">
@@ -356,10 +356,10 @@ export default function AgentsPage() {
                         <span className="text-zinc-500">{agent.version}</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400">
+                    <td className="px-4 py-3 text-zinc-500 dark:text-slate-400">
                       {agent.syncedTests}/{agent.totalTests}
                     </td>
-                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400">{heartbeatText(agent.lastHeartbeat)}</td>
+                    <td className="px-4 py-3 text-zinc-500 dark:text-slate-400">{heartbeatText(agent.lastHeartbeat)}</td>
                   </tr>
                 )
               })}

@@ -223,7 +223,7 @@ function StepIndicator({ current }: { current: Step }) {
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
             i < idx ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
             i === idx ? 'bg-brand-50 text-brand-600 border border-brand-200' :
-            'bg-zinc-100 dark:bg-zinc-800 text-zinc-400 border border-zinc-200 dark:border-zinc-700'
+            'bg-zinc-100 dark:bg-slate-800 text-zinc-400 border border-zinc-200 dark:border-slate-700/50'
           }`}>
             {i < idx ? <CheckCircle2 className="w-3.5 h-3.5" /> :
              <span className="w-4 h-4 rounded-full bg-current opacity-20 flex items-center justify-center text-[10px]">{i + 1}</span>}
@@ -252,7 +252,7 @@ function ConfigureStep({
   return (
     <div className="space-y-4">
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Target Subnet</h3>
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 mb-3">Target Subnet</h3>
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <label className="label">CIDR Range</label>
@@ -267,13 +267,13 @@ function ConfigureStep({
           </div>
           <div className="sm:w-48">
             <label className="label">Hosts in range</label>
-            <div className="input bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">{hostCount > 0 ? `~${hostCount} hosts` : '—'}</div>
+            <div className="input bg-zinc-50 dark:bg-slate-800 text-zinc-600 dark:text-slate-400">{hostCount > 0 ? `~${hostCount} hosts` : '—'}</div>
           </div>
         </div>
       </div>
 
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3">Connection Scenario</h3>
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 mb-3">Connection Scenario</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {SCENARIOS.map(s => (
             <button
@@ -282,12 +282,12 @@ function ConfigureStep({
               className={`text-left p-3 rounded-lg border transition-colors ${
                 scenario === s.value
                   ? 'border-brand-500 bg-brand-50'
-                  : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
+                  : 'border-zinc-200 dark:border-slate-700/50 hover:border-zinc-300 dark:hover:border-slate-600'
               }`}
             >
               <div className="flex items-center gap-2 mb-1">
                 {s.warn ? <AlertTriangle className="w-4 h-4 text-amber-500" /> : <Shield className="w-4 h-4 text-brand-500" />}
-                <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{s.label}</span>
+                <span className="text-sm font-medium text-zinc-800 dark:text-slate-200">{s.label}</span>
               </div>
               <p className="text-xs text-zinc-500">{s.desc}</p>
             </button>
@@ -303,7 +303,7 @@ function ConfigureStep({
 
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Test Selection</h3>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Test Selection</h3>
           <div className="flex items-center gap-2">
             <span className="text-xs text-zinc-500">{selectedTests.size}/{UNIVERSAL_TESTS.length} selected</span>
             <button
@@ -324,17 +324,17 @@ function ConfigureStep({
             const someSelected = catTests.some(t => selectedTests.has(t.id))
             const expanded = expandedCategories.has(cat)
             return (
-              <div key={cat} className="border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden">
+              <div key={cat} className="border border-zinc-200 dark:border-slate-700/50 rounded-lg overflow-hidden">
                 <button
                   onClick={() => {
                     const next = new Set(expandedCategories)
                     expanded ? next.delete(cat) : next.add(cat)
                     setExpandedCategories(next)
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-slate-800 hover:bg-zinc-100 dark:hover:bg-slate-700 transition-colors"
                 >
                   {expanded ? <ChevronDown className="w-4 h-4 text-zinc-400" /> : <ChevronRight className="w-4 h-4 text-zinc-400" />}
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex-1 text-left">{cat}</span>
+                  <span className="text-sm font-medium text-zinc-700 dark:text-slate-300 flex-1 text-left">{cat}</span>
                   <span className="text-xs text-zinc-400">{catTests.filter(t => selectedTests.has(t.id)).length}/{catTests.length}</span>
                   <input
                     type="checkbox"
@@ -350,7 +350,7 @@ function ConfigureStep({
                     {catTests.map(t => (
                       <label
                         key={t.id}
-                        className="flex items-center gap-3 px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer"
+                        className="flex items-center gap-3 px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-slate-800 cursor-pointer"
                       >
                         <input
                           type="checkbox"
@@ -359,7 +359,7 @@ function ConfigureStep({
                           className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500"
                         />
                         <span className="text-xs font-mono text-zinc-400 w-8">{t.id}</span>
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300 flex-1">{t.name}</span>
+                        <span className="text-sm text-zinc-700 dark:text-slate-300 flex-1">{t.name}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                           t.tier === 'automatic' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
                         }`}>{t.tier === 'automatic' ? 'Auto' : 'Manual'}</span>
@@ -400,10 +400,10 @@ function ReviewStep({
   return (
     <div className="space-y-4">
       <div className="card">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-800">
           <div className="flex items-center gap-2">
             <Monitor className="w-4 h-4 text-zinc-500" />
-            <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{devices.length} Device(s) Found</span>
+            <span className="text-sm font-semibold text-zinc-700 dark:text-slate-300">{devices.length} Device(s) Found</span>
           </div>
           <label className="flex items-center gap-2 text-sm text-zinc-600 cursor-pointer">
             <input
@@ -423,7 +423,7 @@ function ReviewStep({
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-700">
+              <tr className="text-left text-xs text-zinc-500 dark:text-slate-400 border-b border-zinc-200 dark:border-slate-700/50">
                 <th className="px-5 py-2 w-10"></th>
                 <th className="px-3 py-2">IP Address</th>
                 <th className="px-3 py-2">MAC Address</th>
@@ -435,7 +435,7 @@ function ReviewStep({
               {devices.map((d, i) => (
                 <tr
                   key={d.ip}
-                  className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 animate-fade-in-row"
+                  className="border-b border-zinc-100 dark:border-slate-700/50 hover:bg-zinc-50 dark:hover:bg-slate-800 animate-fade-in-row"
                   style={{ animationDelay: `${i * 120}ms` }}
                 >
                   <td className="px-5 py-2">
@@ -450,10 +450,10 @@ function ReviewStep({
                       className="w-4 h-4 rounded border-zinc-300 text-brand-500"
                     />
                   </td>
-                  <td className="px-3 py-2 font-mono text-zinc-800 dark:text-zinc-200">{d.ip}</td>
-                  <td className="px-3 py-2 font-mono text-zinc-500 dark:text-zinc-400 text-xs">{d.mac || '—'}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{d.vendor || '—'}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{d.hostname || '—'}</td>
+                  <td className="px-3 py-2 font-mono text-zinc-800 dark:text-slate-200">{d.ip}</td>
+                  <td className="px-3 py-2 font-mono text-zinc-500 dark:text-slate-400 text-xs">{d.mac || '—'}</td>
+                  <td className="px-3 py-2 text-zinc-600 dark:text-slate-400">{d.vendor || '—'}</td>
+                  <td className="px-3 py-2 text-zinc-600 dark:text-slate-400">{d.hostname || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -490,7 +490,7 @@ function MonitorStep({ results, scanStatus }: { results: ScanResult[]; scanStatu
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin text-brand-500" />
-            <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Scanning {results.length} device(s)...</span>
+            <span className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Scanning {results.length} device(s)...</span>
           </div>
           <span className="text-sm font-medium text-brand-500">{overallPct}%</span>
         </div>
@@ -521,7 +521,7 @@ function DeviceProgressCard({ result }: { result: ScanResult }) {
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <Server className="w-4 h-4 text-zinc-400" />
-          <span className="text-sm font-mono font-medium text-zinc-800 dark:text-zinc-200">{result.device_ip}</span>
+          <span className="text-sm font-mono font-medium text-zinc-800 dark:text-slate-200">{result.device_ip}</span>
         </div>
         <StatusBadge status={result.status} verdict={result.overall_verdict} />
       </div>
@@ -574,7 +574,7 @@ function ResultsStep({
       <div className="card">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800">
+            <tr className="text-left text-xs text-zinc-500 dark:text-slate-400 border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-800">
               <th className="px-5 py-2.5">Device IP</th>
               <th className="px-3 py-2.5">Vendor</th>
               <th className="px-3 py-2.5">Tests</th>
@@ -587,10 +587,10 @@ function ResultsStep({
           </thead>
           <tbody>
             {results.map(r => (
-              <tr key={r.run_id} className="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                <td className="px-5 py-2.5 font-mono text-zinc-800 dark:text-zinc-200">{r.device_ip}</td>
-                <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400">{r.vendor || '—'}</td>
-                <td className="px-3 py-2.5 text-zinc-600 dark:text-zinc-400">{r.total_tests}</td>
+              <tr key={r.run_id} className="border-b border-zinc-100 dark:border-slate-700/50 hover:bg-zinc-50 dark:hover:bg-slate-800">
+                <td className="px-5 py-2.5 font-mono text-zinc-800 dark:text-slate-200">{r.device_ip}</td>
+                <td className="px-3 py-2.5 text-zinc-600 dark:text-slate-400">{r.vendor || '—'}</td>
+                <td className="px-3 py-2.5 text-zinc-600 dark:text-slate-400">{r.total_tests}</td>
                 <td className="px-3 py-2.5 text-emerald-600 font-medium">{r.passed_tests}</td>
                 <td className="px-3 py-2.5 text-red-600 font-medium">{r.failed_tests}</td>
                 <td className="px-3 py-2.5 text-amber-600 font-medium">{r.advisory_tests}</td>
@@ -628,8 +628,8 @@ function StatCard({ label, value, icon: Icon, color = 'brand' }: { label: string
       <div className={`w-8 h-8 rounded-lg ${colors[color]} flex items-center justify-center mb-2`}>
         <Icon className="w-4 h-4" />
       </div>
-      <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{value}</p>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
+      <p className="text-2xl font-bold text-zinc-900 dark:text-slate-100">{value}</p>
+      <p className="text-xs text-zinc-500 dark:text-slate-400">{label}</p>
     </div>
   )
 }

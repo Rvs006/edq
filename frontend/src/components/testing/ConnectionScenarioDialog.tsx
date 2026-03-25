@@ -67,22 +67,22 @@ export default function ConnectionScenarioDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-50 animate-fade-in" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50
-                                   w-[90vw] max-w-lg bg-white rounded-xl shadow-xl
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <Dialog.Content className="w-[90vw] max-w-lg bg-white dark:bg-dark-card rounded-xl shadow-xl
                                    animate-fade-in">
-          <div className="p-5 border-b border-zinc-100">
+          <div className="p-5 border-b border-zinc-100 dark:border-slate-700/50">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-brand-500" />
-                <Dialog.Title className="text-base font-semibold text-zinc-900">
+                <Dialog.Title className="text-base font-semibold text-zinc-900 dark:text-slate-100">
                   Connection Scenario
                 </Dialog.Title>
               </div>
-              <Dialog.Close className="p-1 rounded-lg hover:bg-zinc-100 transition-colors">
+              <Dialog.Close className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors">
                 <X className="w-4 h-4 text-zinc-400" />
               </Dialog.Close>
             </div>
-            <Dialog.Description className="text-sm text-zinc-500 mt-1">
+            <Dialog.Description className="text-sm text-zinc-500 dark:text-slate-400 mt-1">
               Select how the device under test is connected. This determines scan intensity.
             </Dialog.Description>
           </div>
@@ -100,20 +100,20 @@ export default function ConnectionScenarioDialog({
                   }}
                   className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-all text-left
                     ${isActive
-                      ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-500/20'
-                      : 'border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
+                      ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 ring-2 ring-brand-500/20'
+                      : 'border-zinc-200 dark:border-slate-700/50 hover:border-zinc-300 dark:hover:border-slate-600 hover:bg-zinc-50 dark:hover:bg-slate-800'
                     }`}
                 >
                   <div
                     className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
-                      isActive ? 'bg-brand-500 text-white' : 'bg-zinc-100 text-zinc-500'
+                      isActive ? 'bg-brand-500 text-white' : 'bg-zinc-100 dark:bg-slate-800 text-zinc-500'
                     }`}
                   >
                     <Icon className="w-4.5 h-4.5" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium ${isActive ? 'text-brand-700' : 'text-zinc-900'}`}>
+                      <span className={`text-sm font-medium ${isActive ? 'text-brand-700 dark:text-brand-400' : 'text-zinc-900 dark:text-slate-100'}`}>
                         {scenario.label}
                       </span>
                       {scenario.warning && (
@@ -156,7 +156,7 @@ export default function ConnectionScenarioDialog({
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2 p-4 border-t border-zinc-100">
+          <div className="flex items-center justify-end gap-2 p-4 border-t border-zinc-100 dark:border-slate-700/50">
             <Dialog.Close className="btn-secondary text-sm">Cancel</Dialog.Close>
             <button
               onClick={handleConfirm}
@@ -176,6 +176,7 @@ export default function ConnectionScenarioDialog({
             </button>
           </div>
         </Dialog.Content>
+        </div>
       </Dialog.Portal>
     </Dialog.Root>
   )

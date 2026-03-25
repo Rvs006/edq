@@ -58,27 +58,27 @@ export default function WhitelistsPage() {
             <div key={wl.id} className="card">
               <button
                 onClick={() => setExpanded(expanded === wl.id ? null : wl.id)}
-                className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <Shield className="w-5 h-5 text-brand-500" />
                   <div className="text-left">
-                    <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{wl.name}</h3>
-                    <p className="text-xs text-zinc-500">{wl.entries?.length || 0} entries &middot; {wl.description || 'No description'}</p>
+                    <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">{wl.name}</h3>
+                    <p className="text-xs text-zinc-500 dark:text-slate-400">{wl.entries?.length || 0} entries &middot; {wl.description || 'No description'}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {wl.is_default && <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">Default</span>}
                   <button onClick={(e) => { e.stopPropagation(); setEditingWhitelist(wl) }}
-                    className="p-1.5 rounded-lg hover:bg-zinc-100" title="Edit">
+                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit">
                     <Pencil className="w-4 h-4 text-zinc-400" />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(wl.id) }}
-                    className="p-1.5 rounded-lg hover:bg-zinc-100" title="Duplicate">
+                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Duplicate">
                     <Copy className="w-4 h-4 text-zinc-400" />
                   </button>
                   <button onClick={(e) => { e.stopPropagation(); handleDelete(wl.id, wl.name) }}
-                    className="p-1.5 rounded-lg hover:bg-red-50" title="Delete">
+                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30" title="Delete">
                     <Trash2 className="w-4 h-4 text-red-400" />
                   </button>
                   {expanded === wl.id ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
@@ -91,20 +91,20 @@ export default function WhitelistsPage() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
-                            <tr className="border-b border-zinc-200 dark:border-zinc-700">
-                              <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Port</th>
-                              <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Protocol</th>
-                              <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Service</th>
-                              <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">Required Version</th>
+                            <tr className="border-b border-zinc-200 dark:border-slate-700/50">
+                              <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-slate-400">Port</th>
+                              <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-slate-400">Protocol</th>
+                              <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-slate-400">Service</th>
+                              <th className="text-left py-2 px-2 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">Required Version</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                          <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
                             {wl.entries?.map((entry: WhitelistEntry, i: number) => (
-                              <tr key={i} className="hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                                <td className="py-2 px-2 font-mono text-xs text-zinc-700 dark:text-zinc-300">{entry.port}</td>
-                                <td className="py-2 px-2 text-zinc-600 dark:text-zinc-400">{entry.protocol}</td>
-                                <td className="py-2 px-2 text-zinc-900 dark:text-zinc-100">{entry.service}</td>
-                                <td className="py-2 px-2 text-zinc-500 hidden sm:table-cell">{entry.required_version || '\u2014'}</td>
+                              <tr key={i} className="hover:bg-zinc-50 dark:hover:bg-slate-800">
+                                <td className="py-2 px-2 font-mono text-xs text-zinc-700 dark:text-slate-300">{entry.port}</td>
+                                <td className="py-2 px-2 text-zinc-600 dark:text-slate-400">{entry.protocol}</td>
+                                <td className="py-2 px-2 text-zinc-900 dark:text-slate-100">{entry.service}</td>
+                                <td className="py-2 px-2 text-zinc-500 dark:text-slate-400 hidden sm:table-cell">{entry.required_version || '\u2014'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -120,7 +120,7 @@ export default function WhitelistsPage() {
       ) : (
         <div className="card p-12 text-center">
           <Shield className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-zinc-700 dark:text-zinc-300 mb-1">No whitelists</h3>
+          <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No whitelists</h3>
           <p className="text-sm text-zinc-500 mb-4">Create a protocol whitelist for compliance checking</p>
           <button onClick={() => setShowCreate(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Whitelist
@@ -175,17 +175,16 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
   }
 
   return (
-    <>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/40 z-50" onClick={onClose} />
+        className="absolute inset-0 bg-black/40" onClick={onClose} />
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed inset-2 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:w-full sm:max-w-2xl bg-white dark:bg-zinc-900 rounded-lg shadow-2xl z-50 flex flex-col max-h-[90vh]"
+        className="relative w-full max-w-2xl bg-white dark:bg-dark-card rounded-lg shadow-2xl flex flex-col max-h-[90vh]"
       >
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-700">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{isEdit ? 'Edit' : 'New'} Protocol Whitelist</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">{isEdit ? 'Edit' : 'New'} Protocol Whitelist</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -206,7 +205,7 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
           </div>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Entries</span>
+              <span className="text-sm font-medium text-zinc-700 dark:text-slate-300">Entries</span>
               <button type="button" onClick={addEntry} className="text-xs text-brand-500 hover:text-brand-600">+ Add Entry</button>
             </div>
             <div className="space-y-2">
@@ -236,7 +235,7 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
               ))}
             </div>
           </div>
-          <div className="flex justify-end gap-3 p-4 border-t border-zinc-200 dark:border-zinc-700">
+          <div className="flex justify-end gap-3 p-4 border-t border-zinc-200 dark:border-slate-700/50">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button type="submit" disabled={loading} className="btn-primary">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : isEdit ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -245,6 +244,6 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
           </div>
         </form>
       </motion.div>
-    </>
+    </div>
   )
 }

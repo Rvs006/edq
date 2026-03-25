@@ -106,7 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   })()
 
   return (
-    <div className="min-h-screen bg-surface dark:bg-zinc-950">
+    <div className="min-h-screen bg-surface dark:bg-dark-bg">
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-40 lg:hidden"
@@ -114,7 +114,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-zinc-900 flex flex-col transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#0f172a] flex flex-col transition-transform duration-200 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -135,25 +135,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       <div className="lg:pl-64 flex flex-col min-h-screen">
-        <header className="sticky top-0 z-20 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700">
+        <header className="sticky top-0 z-20 bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
           <div className="flex items-center justify-between h-14 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <Menu className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
               </button>
-              <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{pageTitle}</h1>
+              <h1 className="text-base font-semibold text-zinc-900 dark:text-slate-100">{pageTitle}</h1>
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden sm:flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg px-3 py-1.5 w-56">
+              <div className="hidden sm:flex items-center gap-2 bg-zinc-100 dark:bg-slate-800 rounded-lg px-3 py-1.5 w-56">
                 <Search className="w-4 h-4 text-zinc-400" />
                 <input
                   type="text"
                   placeholder="Search..."
-                  className="bg-transparent text-sm text-zinc-700 dark:text-zinc-200 placeholder-zinc-400 outline-none w-full"
+                  className="bg-transparent text-sm text-zinc-700 dark:text-slate-200 placeholder-zinc-400 outline-none w-full"
                 />
               </div>
 
@@ -174,18 +174,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </button>
                 {statusTooltipOpen && (
                   <>
-                    <div className="absolute right-0 mt-1 w-56 bg-white dark:bg-zinc-800 rounded-lg shadow-lg border border-zinc-200 dark:border-zinc-700 p-3 z-50">
+                    <div className="absolute right-0 mt-1 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 p-3 z-50">
                       <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">System Status</p>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-zinc-700 dark:text-zinc-300">Backend API</span>
+                          <span className="text-sm text-zinc-700 dark:text-slate-300">Backend API</span>
                           <span className={`flex items-center gap-1.5 text-xs font-medium ${backendHealthy ? 'text-green-600' : 'text-red-600'}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${backendHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
                             {backendHealthy ? 'Healthy' : 'Unavailable'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-zinc-700 dark:text-zinc-300">Tools Sidecar</span>
+                          <span className="text-sm text-zinc-700 dark:text-slate-300">Tools Sidecar</span>
                           <span className={`flex items-center gap-1.5 text-xs font-medium ${toolsHealthy ? 'text-green-600' : 'text-red-600'}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${toolsHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
                             {toolsHealthy ? 'Healthy' : 'Unavailable'}
@@ -207,21 +207,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </div>
 
-              <button className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors relative">
+              <ThemeToggle />
+
+              <button className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors relative">
                 <Bell className="w-5 h-5 text-zinc-500" />
               </button>
 
               <div className="relative" ref={userMenuRef}>
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                  className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center">
                     <span className="text-xs font-semibold text-white">
                       {user?.full_name?.[0] || user?.username?.[0] || 'U'}
                     </span>
                   </div>
-                  <span className="hidden sm:block text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                  <span className="hidden sm:block text-sm font-medium text-zinc-700 dark:text-slate-200">
                     {user?.full_name || user?.username}
                   </span>
                   <ChevronDown className="w-4 h-4 text-zinc-400 hidden sm:block" />
@@ -229,14 +231,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 {userMenuOpen && (
                   <>
-                    <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-zinc-800 rounded-lg shadow-lg border border-zinc-200 dark:border-zinc-700 py-1 z-50">
-                      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-700">
-                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{user?.username}</p>
+                    <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 py-1 z-50">
+                      <div className="px-3 py-2 border-b border-zinc-100 dark:border-slate-700">
+                        <p className="text-sm font-medium text-zinc-900 dark:text-slate-100">{user?.username}</p>
                         <p className="text-xs text-zinc-500 capitalize">{user?.role}</p>
                       </div>
                       <Link
                         to="/settings"
-                        className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+                        className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-700 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-slate-700"
                         onClick={() => setUserMenuOpen(false)}
                       >
                         <Settings className="w-4 h-4" /> Settings
@@ -276,7 +278,7 @@ function SidebarContent({
 }) {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between h-14 px-4 border-b border-zinc-800">
+      <div className="flex items-center justify-between h-14 px-4 border-b border-slate-800">
         <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
           <div className="w-8 h-8 flex items-center justify-center">
             <img src="/icon-white.png" alt="" className="w-7 h-7" />
@@ -287,7 +289,7 @@ function SidebarContent({
           </div>
         </Link>
         {onClose && (
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-800 lg:hidden">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-800 lg:hidden">
             <X className="w-5 h-5 text-zinc-400" />
           </button>
         )}
@@ -309,8 +311,8 @@ function SidebarContent({
                     onClick={onClose}
                     className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       active
-                        ? 'bg-zinc-800 text-white'
-                        : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+                        ? 'bg-slate-800 text-white'
+                        : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
                     }`}
                   >
                     {active && (
@@ -326,17 +328,14 @@ function SidebarContent({
         ))}
       </nav>
 
-      <div className="px-3 py-3 border-t border-zinc-800 space-y-3">
-        <div className="px-3">
-          <ThemeToggle />
-        </div>
+      <div className="px-3 py-3 border-t border-slate-800">
         <div className="flex items-center gap-3 px-3 py-2">
-          <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center">
-            <User className="w-4 h-4 text-zinc-300" />
+          <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
+            <User className="w-4 h-4 text-slate-300" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-white truncate">{user?.full_name || user?.username}</p>
-            <p className="text-xs text-zinc-500 capitalize">{user?.role}</p>
+            <p className="text-xs text-slate-500 capitalize">{user?.role}</p>
           </div>
         </div>
       </div>

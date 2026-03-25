@@ -39,7 +39,7 @@ export default function TestRunsPage() {
             className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
               statusFilter === s
                 ? 'bg-brand-500 text-white'
-                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                : 'bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hover:bg-zinc-200 dark:hover:bg-slate-700'
             }`}
           >
             {s ? s.replace(/_/g, ' ') : 'All'}
@@ -56,21 +56,21 @@ export default function TestRunsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50">
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Device</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">IP</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden md:table-cell">Template</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Status</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">Progress</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Verdict</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden lg:table-cell">Started</th>
+                <tr className="border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50/50 dark:bg-slate-800/50">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Device</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">IP</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden md:table-cell">Template</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Status</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">Progress</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Verdict</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Started</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
                 {runs.map((run: TestRun) => (
-                  <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                  <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
                     <td className="py-3 px-4">
-                      <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-zinc-100 hover:text-brand-500">
+                      <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-slate-100 hover:text-brand-500">
                         {run.device_name || `Run ${run.id.slice(0, 8)}`}
                       </Link>
                     </td>
@@ -110,7 +110,7 @@ export default function TestRunsPage() {
       ) : (
         <div className="card p-12 text-center">
           <Play className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-zinc-700 dark:text-zinc-300 mb-1">No test runs</h3>
+          <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No test runs</h3>
           <p className="text-sm text-zinc-500 mb-4">Create a test run to start qualifying devices</p>
           <button onClick={() => setShowCreateModal(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Test Run
@@ -157,17 +157,16 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/40 z-50" onClick={onClose} />
+        className="absolute inset-0 bg-black/40" onClick={onClose} />
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2
-                   sm:w-full sm:max-w-md bg-white dark:bg-zinc-900 rounded-lg shadow-2xl z-50"
+        className="relative w-full max-w-md bg-white dark:bg-dark-card rounded-lg shadow-2xl"
       >
-        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-700">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">New Test Run</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">New Test Run</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -199,6 +198,6 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
           </div>
         </form>
       </motion.div>
-    </>
+    </div>
   )
 }
