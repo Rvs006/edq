@@ -306,7 +306,10 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
     e.preventDefault()
     setLoading(true)
     try {
-      await devicesApi.create(form)
+      const payload = Object.fromEntries(
+        Object.entries(form).filter(([, v]) => v !== '')
+      )
+      await devicesApi.create(payload)
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       toast.success('Device added successfully')
       onClose()
