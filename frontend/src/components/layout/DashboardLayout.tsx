@@ -107,6 +107,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen bg-surface dark:bg-dark-bg">
+      {/* Rainbow accent bar — spans full width at the very top */}
+      <div
+        className="fixed top-0 left-0 right-0 z-[60] h-[3px]"
+        style={{ background: 'linear-gradient(90deg, #0044ff, #00bfff, #00e676, #ffeb3b, #ff9800, #f44336, #e91e63)' }}
+      />
+
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-40 lg:hidden"
@@ -114,18 +120,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#0f172a] flex flex-col transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed top-1 inset-y-0 left-0 z-50 w-64 bg-[#0f172a] flex flex-col transition-transform duration-200 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Rainbow accent bar */}
-        <div className="flex h-1 w-full shrink-0">
-          <div className="flex-1 bg-[#0099cc]" />
-          <div className="flex-1 bg-[#f5a623]" />
-          <div className="flex-1 bg-[#34a853]" />
-          <div className="flex-1 bg-[#9b59b6]" />
-          <div className="flex-1 bg-[#e53935]" />
-        </div>
         <SidebarContent
           isActive={isActive}
           onClose={() => setSidebarOpen(false)}
@@ -134,8 +132,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       </aside>
 
-      <div className="lg:pl-64 flex flex-col min-h-screen">
-        <header className="sticky top-0 z-20 bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
+      <div className="lg:pl-64 flex flex-col min-h-screen pt-1">
+        <header className="sticky top-1 z-20 bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
           <div className="flex items-center justify-between h-14 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <button
@@ -279,14 +277,9 @@ function SidebarContent({
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between h-14 px-4 border-b border-slate-800">
-        <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
-          <div className="w-8 h-8 flex items-center justify-center">
-            <img src="/icon-white.png" alt="" className="w-7 h-7" />
-          </div>
-          <div>
-            <span className="text-sm font-bold text-white tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</span>
-            <span className="text-[10px] text-zinc-400 block -mt-0.5 font-medium">Device Qualifier</span>
-          </div>
+        <Link to="/" className="flex items-center gap-2" onClick={onClose}>
+          <img src="/icon-white.png" alt="" className="w-7 h-7 shrink-0" />
+          <img src="/electracom-logo.png" alt="Electracom" className="h-10" style={{ filter: 'brightness(2) saturate(1.3)' }} />
         </Link>
         {onClose && (
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-800 lg:hidden">
