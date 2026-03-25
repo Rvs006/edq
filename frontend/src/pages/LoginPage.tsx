@@ -29,15 +29,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface dark:bg-dark-bg">
-      {/* Top bar with rainbow accent + theme toggle */}
-      <div className="flex h-1 w-full shrink-0">
-        <div className="flex-1 bg-[#0099cc]" />
-        <div className="flex-1 bg-[#f5a623]" />
-        <div className="flex-1 bg-[#34a853]" />
-        <div className="flex-1 bg-[#9b59b6]" />
-        <div className="flex-1 bg-[#e53935]" />
-      </div>
+    <div className="min-h-screen flex flex-col bg-surface dark:bg-dark-bg pt-1">
+      {/* Rainbow accent bar — full width fixed */}
+      <div
+        className="fixed top-0 left-0 right-0 z-[60] h-[3px]"
+        style={{ background: 'linear-gradient(90deg, #0044ff, #00bfff, #00e676, #ffeb3b, #ff9800, #f44336, #e91e63)' }}
+      />
       <div className="flex justify-end px-4 py-3">
         <ThemeToggle />
       </div>
@@ -50,8 +47,8 @@ export default function LoginPage() {
               <img src="/icon.png" alt="Electracom" className="w-12 h-12 dark:hidden" />
               <img src="/icon-white.png" alt="Electracom" className="w-12 h-12 hidden dark:block" />
             </div>
-            <h1 className="text-lg font-bold text-zinc-900 dark:text-white tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</h1>
-            <p className="text-sm text-zinc-500 dark:text-slate-400 mt-0.5">Device Qualifier</p>
+            <img src="/electracom-logo.png" alt="Electracom" className="h-12 dark:brightness-0 dark:invert" />
+            <p className="text-sm text-zinc-500 dark:text-slate-400 mt-1.5">Device Qualifier</p>
           </div>
 
           <div className="card p-6">

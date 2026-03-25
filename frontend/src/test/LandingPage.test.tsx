@@ -76,7 +76,7 @@ describe('LandingPage', () => {
   it('displays the footer with Electracom branding', () => {
     renderLandingPage()
 
-    expect(screen.getAllByText('Electracom').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByAltText('Electracom').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/Electracom Projects Ltd/)).toBeInTheDocument()
   })
 })

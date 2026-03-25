@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Zap, FileSpreadsheet, Wifi, WifiOff, ArrowRight, Cpu, ScanLine, ClipboardCheck, FileDown, Shield } from 'lucide-react'
+import ThemeToggle from '@/components/common/ThemeToggle'
 
 const stats = [
   { value: '43', label: 'Security Tests', icon: Shield, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -41,33 +42,34 @@ const steps = [
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-zinc-50 flex flex-col">
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-zinc-200">
-        {/* Rainbow accent bar */}
-        <div className="flex h-1 w-full">
-          <div className="flex-1 bg-[#0099cc]" />
-          <div className="flex-1 bg-[#f5a623]" />
-          <div className="flex-1 bg-[#34a853]" />
-          <div className="flex-1 bg-[#9b59b6]" />
-          <div className="flex-1 bg-[#e53935]" />
-        </div>
+    <div className="min-h-screen bg-zinc-50 dark:bg-dark-bg flex flex-col pt-1">
+      {/* Rainbow accent bar — full width fixed */}
+      <div
+        className="fixed top-0 left-0 right-0 z-[60] h-[3px]"
+        style={{ background: 'linear-gradient(90deg, #0044ff, #00bfff, #00e676, #ffeb3b, #ff9800, #f44336, #e91e63)' }}
+      />
+      <header className="sticky top-1 z-30 bg-white/80 dark:bg-dark-surface/80 backdrop-blur-md border-b border-zinc-200 dark:border-slate-700/50">
         <div className="max-w-6xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <img src="/icon.png" alt="" className="h-7 w-7" />
-            <span className="text-sm font-bold text-zinc-900 tracking-widest uppercase" style={{ letterSpacing: '0.15em' }}>Electracom</span>
+          <div className="flex items-center gap-2">
+            <img src="/icon.png" alt="" className="h-7 w-7 dark:hidden" />
+            <img src="/icon-white.png" alt="" className="h-7 w-7 hidden dark:block" />
+            <img src="/electracom-logo.png" alt="Electracom" className="h-10 dark:brightness-0 dark:invert" />
           </div>
-          <Link
-            to="/login"
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors"
-          >
-            Sign In
-          </Link>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors"
+            >
+              Sign In
+            </Link>
+          </div>
         </div>
       </header>
 
       <main className="flex-1">
         <section className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50" />
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-dark-bg dark:via-dark-surface dark:to-dark-bg" />
           <div className="absolute top-20 -right-32 w-96 h-96 bg-brand-500/5 rounded-full blur-3xl" />
           <div className="absolute -bottom-16 -left-16 w-72 h-72 bg-purple-500/5 rounded-full blur-3xl" />
 
@@ -78,17 +80,17 @@ export default function LandingPage() {
                 Electracom Device Qualifier
               </div>
 
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-zinc-900 leading-[1.1]">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-zinc-900 dark:text-white leading-[1.1]">
                 <span className="bg-gradient-to-r from-brand-500 via-blue-600 to-purple-600 bg-clip-text text-transparent">
                   Automated Security
                 </span>
                 <br />
-                <span className="text-zinc-900">Qualification for</span>
+                <span>Qualification for</span>
                 <br />
-                <span className="text-zinc-900">Smart Building Devices</span>
+                <span>Smart Building Devices</span>
               </h1>
 
-              <p className="mt-5 text-lg text-zinc-600 max-w-lg mx-auto leading-relaxed">
+              <p className="mt-5 text-lg text-zinc-600 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
                 Reduce device qualification from a full working day to 1&ndash;2 hours.
                 43 security tests. Automated reports. Completely offline.
               </p>
@@ -111,13 +113,13 @@ export default function LandingPage() {
               {stats.map((stat) => (
                 <div
                   key={stat.label}
-                  className="bg-white rounded-xl border border-zinc-200 p-4 sm:p-5 shadow-sm hover:shadow-md transition-shadow"
+                  className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-4 sm:p-5 shadow-sm hover:shadow-md transition-shadow"
                 >
                   <div className={`w-9 h-9 rounded-lg ${stat.bg} flex items-center justify-center mb-3`}>
                     <stat.icon className={`w-4.5 h-4.5 ${stat.color}`} />
                   </div>
-                  <p className="text-2xl sm:text-3xl font-bold text-zinc-900">{stat.value}</p>
-                  <p className="text-xs sm:text-sm text-zinc-500 mt-0.5">{stat.label}</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-zinc-900 dark:text-slate-100">{stat.value}</p>
+                  <p className="text-xs sm:text-sm text-zinc-500 dark:text-slate-400 mt-0.5">{stat.label}</p>
                 </div>
               ))}
             </div>
@@ -126,8 +128,8 @@ export default function LandingPage() {
 
         <section className="max-w-5xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
           <div className="text-center mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold text-zinc-900">How It Works</h2>
-            <p className="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
+            <h2 className="text-2xl sm:text-3xl font-bold text-zinc-900 dark:text-white">How It Works</h2>
+            <p className="text-sm text-zinc-500 dark:text-slate-400 mt-2 max-w-md mx-auto">
               Four simple steps to qualify any IP device on your network
             </p>
           </div>
@@ -135,20 +137,20 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {steps.map((step) => (
               <div key={step.step} className="relative group">
-                <div className="bg-white rounded-xl border border-zinc-200 p-5 h-full hover:border-zinc-300 hover:shadow-md transition-all">
+                <div className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-5 h-full hover:border-zinc-300 dark:hover:border-slate-600 hover:shadow-md transition-all">
                   <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${step.color} flex items-center justify-center mb-4 shadow-sm`}>
                     <step.icon className="w-5 h-5 text-white" />
                   </div>
-                  <div className="text-xs font-semibold text-zinc-400 mb-1">Step {step.step}</div>
-                  <h3 className="text-base font-semibold text-zinc-900 mb-1.5">{step.title}</h3>
-                  <p className="text-sm text-zinc-500 leading-relaxed">{step.description}</p>
+                  <div className="text-xs font-semibold text-zinc-400 dark:text-slate-500 mb-1">Step {step.step}</div>
+                  <h3 className="text-base font-semibold text-zinc-900 dark:text-slate-100 mb-1.5">{step.title}</h3>
+                  <p className="text-sm text-zinc-500 dark:text-slate-400 leading-relaxed">{step.description}</p>
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="bg-zinc-900 text-white">
+        <section className="bg-zinc-900 dark:bg-dark-surface text-white">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               <div>
@@ -183,13 +185,14 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className="bg-white border-t border-zinc-200">
+      <footer className="bg-white dark:bg-dark-card border-t border-zinc-200 dark:border-slate-700/50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="" className="h-5 w-5" />
-            <span className="text-xs font-bold text-zinc-700 tracking-widest uppercase" style={{ letterSpacing: '0.12em' }}>Electracom</span>
+            <img src="/icon.png" alt="" className="h-5 w-5 dark:hidden" />
+            <img src="/icon-white.png" alt="" className="h-5 w-5 hidden dark:block" />
+            <img src="/electracom-logo.png" alt="Electracom" className="h-7 dark:brightness-0 dark:invert" />
           </div>
-          <p className="text-xs text-zinc-400">
+          <p className="text-xs text-zinc-400 dark:text-slate-500">
             Electracom Projects Ltd &mdash; A Sauter Group Company
           </p>
         </div>
