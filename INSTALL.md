@@ -57,7 +57,7 @@ Open http://localhost in your browser.
 
 | Field | Value |
 |-------|-------|
-| Email | admin@electracom.co.uk |
+| Email | admin |
 | Password | Admin123! |
 
 **⚠️ Change this password immediately after first login via the Admin panel.**
