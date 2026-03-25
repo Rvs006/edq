@@ -21,11 +21,23 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// TODO: Remove DEV_BYPASS_AUTH before production
+const DEV_BYPASS_AUTH = true
+const MOCK_USER: User = {
+  id: 'dev-mock-id',
+  email: 'admin@electracom.co.uk',
+  username: 'admin',
+  full_name: 'Admin User',
+  role: 'admin',
+  is_active: true,
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(DEV_BYPASS_AUTH ? MOCK_USER : null)
+  const [loading, setLoading] = useState(DEV_BYPASS_AUTH ? false : true)
 
   const fetchUser = useCallback(async () => {
+    if (DEV_BYPASS_AUTH) { setUser(MOCK_USER); setLoading(false); return }
     try {
       const { data } = await authApi.me()
       setUser(data)
@@ -41,11 +53,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchUser])
 
   const login = async (username: string, password: string) => {
+    if (DEV_BYPASS_AUTH) { setUser(MOCK_USER); return }
     await authApi.login({ username, password })
     await fetchUser()
   }
 
   const logout = async () => {
+    if (DEV_BYPASS_AUTH) { return }
     try {
       await authApi.logout()
     } catch {

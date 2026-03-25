@@ -58,7 +58,7 @@ const colorMap: Record<string, { bg: string; border: string; text: string; badge
   purple: { bg: 'bg-purple-50 dark:bg-purple-950/30', border: 'border-purple-200 dark:border-purple-800', text: 'text-purple-700 dark:text-purple-300', badge: 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300', iconBg: 'bg-purple-100 dark:bg-purple-900', ring: 'ring-purple-400/30' },
   green: { bg: 'bg-green-50 dark:bg-green-950/30', border: 'border-green-200 dark:border-green-800', text: 'text-green-700 dark:text-green-300', badge: 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300', iconBg: 'bg-green-100 dark:bg-green-900', ring: 'ring-green-400/30' },
   amber: { bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-300', badge: 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300', iconBg: 'bg-amber-100 dark:bg-amber-900', ring: 'ring-amber-400/30' },
-  zinc: { bg: 'bg-zinc-50 dark:bg-zinc-800/50', border: 'border-zinc-200 dark:border-zinc-700', text: 'text-zinc-700 dark:text-zinc-300', badge: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300', iconBg: 'bg-zinc-100 dark:bg-zinc-800', ring: 'ring-zinc-400/30' },
+  zinc: { bg: 'bg-zinc-50 dark:bg-slate-800/50', border: 'border-zinc-200 dark:border-slate-700/50', text: 'text-zinc-700 dark:text-slate-300', badge: 'bg-zinc-100 dark:bg-slate-800 text-zinc-700 dark:text-slate-300', iconBg: 'bg-zinc-100 dark:bg-slate-800', ring: 'ring-zinc-400/30' },
 }
 
 export default function DeviceProfilesPage() {
@@ -87,16 +87,16 @@ export default function DeviceProfilesPage() {
               className={`text-left p-4 rounded-xl border-2 transition-all duration-200 ${
                 isSelected
                   ? `${c.bg} ${c.border} ring-2 ring-offset-1 ${c.ring}`
-                  : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 bg-white dark:bg-zinc-900'
+                  : 'border-zinc-200 dark:border-slate-700/50 hover:border-zinc-300 dark:hover:border-slate-600 bg-white dark:bg-dark-card'
               }`}
             >
               <div className={`w-10 h-10 rounded-lg ${c.iconBg} flex items-center justify-center mb-3`}>
                 <Icon className={`w-5 h-5 ${c.text}`} />
               </div>
-              <h3 className={`text-sm font-semibold mb-1 ${isSelected ? c.text : 'text-zinc-900 dark:text-zinc-100'}`}>
+              <h3 className={`text-sm font-semibold mb-1 ${isSelected ? c.text : 'text-zinc-900 dark:text-slate-100'}`}>
                 {profile.name}
               </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2 mb-2">
+              <p className="text-xs text-zinc-500 dark:text-slate-400 line-clamp-2 mb-2">
                 {profile.description}
               </p>
               <div className="flex items-center justify-between">
@@ -117,7 +117,7 @@ export default function DeviceProfilesPage() {
               <selected.icon className={`w-4 h-4 ${colorMap[selected.color].text}`} />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">
                 {selected.name} — Included Tests
               </h3>
               <p className="text-xs text-zinc-500">
@@ -129,10 +129,10 @@ export default function DeviceProfilesPage() {
             {selected.testIds.map((testId) => (
               <div
                 key={testId}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-50 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700/50"
               >
                 <Shield className="w-3.5 h-3.5 text-brand-500 flex-shrink-0" />
-                <span className="text-xs font-mono text-zinc-700 dark:text-zinc-300">{testId}</span>
+                <span className="text-xs font-mono text-zinc-700 dark:text-slate-300">{testId}</span>
               </div>
             ))}
           </div>
@@ -141,10 +141,10 @@ export default function DeviceProfilesPage() {
 
       {!selected && (
         <div className="card p-8 text-center">
-          <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mx-auto mb-3">
+          <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-3">
             <ChevronRight className="w-6 h-6 text-zinc-400" />
           </div>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="text-sm text-zinc-500 dark:text-slate-400">
             Select a device profile above to see the included test suite
           </p>
         </div>

@@ -118,7 +118,7 @@ export default function TestSidebar({
   }, [handleKeyNav])
 
   return (
-    <div ref={containerRef} className={`flex flex-col h-full bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-700 ${className}`}>
+    <div ref={containerRef} className={`flex flex-col h-full bg-white dark:bg-dark-card border-r border-zinc-200 dark:border-slate-700/50 ${className}`}>
       <div className="px-3 pt-3 pb-2 border-b border-zinc-100 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">

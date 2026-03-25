@@ -14,7 +14,7 @@
   }
 
   body {
-    @apply font-sans text-zinc-900 bg-surface dark:bg-zinc-950 dark:text-zinc-100;
+    @apply font-sans text-zinc-900 bg-surface dark:bg-dark-bg dark:text-slate-100;
     min-height: 100dvh;
   }
 
@@ -35,11 +35,11 @@
 
 @layer components {
   .card {
-    @apply bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 shadow-sm;
+    @apply bg-white dark:bg-dark-card rounded-lg border border-zinc-200 dark:border-slate-700/50 shadow-sm;
   }
 
   .card-hover {
-    @apply card transition-all duration-200 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-600;
+    @apply card transition-all duration-200 hover:shadow-md hover:border-zinc-300 dark:hover:border-slate-600;
   }
 
   .badge {
@@ -92,9 +92,9 @@
 
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2 px-4 py-2.5
-           bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 font-medium rounded-lg
-           border border-zinc-300 dark:border-zinc-600
-           hover:bg-zinc-50 dark:hover:bg-zinc-700 active:bg-zinc-100 dark:active:bg-zinc-600
+           bg-white dark:bg-slate-800 text-zinc-700 dark:text-slate-200 font-medium rounded-lg
+           border border-zinc-300 dark:border-slate-600
+           hover:bg-zinc-50 dark:hover:bg-slate-700 active:bg-zinc-100 dark:active:bg-slate-600
            transition-colors duration-150
            focus:outline-none focus:ring-2 focus:ring-zinc-500/30
            disabled:opacity-50 disabled:cursor-not-allowed;
@@ -110,14 +110,14 @@
   }
 
   .input {
-    @apply w-full px-3.5 py-2.5 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded-lg
-           text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500
+    @apply w-full px-3.5 py-2.5 bg-white dark:bg-slate-800/80 border border-zinc-300 dark:border-slate-600 rounded-lg
+           text-sm text-zinc-900 dark:text-slate-100 placeholder-zinc-400 dark:placeholder-slate-500
            focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500
            transition-colors duration-150;
   }
 
   .label {
-    @apply block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5;
+    @apply block text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5;
   }
 
   @keyframes fade-in-row {
@@ -140,11 +140,11 @@
   }
 
   .section-title {
-    @apply text-lg sm:text-xl font-semibold text-zinc-900 dark:text-zinc-100;
+    @apply text-lg sm:text-xl font-semibold text-zinc-900 dark:text-slate-100;
   }
 
   .section-subtitle {
-    @apply text-sm text-zinc-500 dark:text-zinc-400 mt-0.5;
+    @apply text-sm text-zinc-500 dark:text-slate-400 mt-0.5;
   }
 }
 

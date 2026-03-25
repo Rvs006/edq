@@ -77,7 +77,7 @@ export default function AuditLogPage() {
               key={a}
               onClick={() => { setActionFilter(a); setPage(0) }}
               className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                actionFilter === a ? 'bg-brand-500 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                actionFilter === a ? 'bg-brand-500 text-white' : 'bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hover:bg-zinc-200 dark:hover:bg-slate-700'
               }`}
             >
               {a ? a.replace(/_/g, ' ') : 'All'}
@@ -113,25 +113,25 @@ export default function AuditLogPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50">
-                    <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Action</th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden sm:table-cell">User</th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400 hidden md:table-cell">Details</th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">Time</th>
+                  <tr className="border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50/50 dark:bg-slate-800/50">
+                    <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Action</th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">User</th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden md:table-cell">Details</th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Time</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
                   {logs.map((log) => (
-                    <tr key={log.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                    <tr key={log.id} className="hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
                       <td className="py-3 px-4">
                         <span className={`badge text-[10px] ${ACTION_COLORS[log.action] || 'bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'}`}>
                           {log.action?.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 text-xs hidden sm:table-cell">
+                      <td className="py-3 px-4 text-zinc-600 dark:text-slate-400 text-xs hidden sm:table-cell">
                         {log.user_name || (log.user_id ? log.user_id.slice(0, 8) : '\u2014')}
                       </td>
-                      <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 text-xs max-w-xs truncate hidden md:table-cell">
+                      <td className="py-3 px-4 text-zinc-600 dark:text-slate-400 text-xs max-w-xs truncate hidden md:table-cell">
                         {log.details ? (typeof log.details === 'string' ? log.details : JSON.stringify(log.details)) : '\u2014'}
                       </td>
                       <td className="py-3 px-4 text-zinc-500 text-xs whitespace-nowrap">
@@ -171,7 +171,7 @@ export default function AuditLogPage() {
       ) : (
         <div className="card p-12 text-center">
           <ListChecks className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-zinc-700 dark:text-zinc-300 mb-1">No audit logs</h3>
+          <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No audit logs</h3>
           <p className="text-sm text-zinc-500">Actions will be logged here as you use the system</p>
         </div>
       )}

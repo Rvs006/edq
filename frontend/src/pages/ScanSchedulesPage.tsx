@@ -86,10 +86,10 @@ function CreateScheduleDialog({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between p-5 border-b border-zinc-100">
-          <h2 className="text-lg font-semibold text-zinc-900">Create Scan Schedule</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600">&times;</button>
+      <div className="bg-white dark:bg-dark-card rounded-xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between p-5 border-b border-zinc-100 dark:border-slate-700/50">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Create Scan Schedule</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200 text-xl leading-none">&times;</button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {error && (
@@ -100,12 +100,12 @@ function CreateScheduleDialog({
           )}
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Device</label>
+            <label className="block text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1">Device</label>
             <div className="relative">
               <select
                 value={deviceId}
                 onChange={(e) => setDeviceId(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm appearance-none pr-8"
+                className="input appearance-none pr-8"
               >
                 <option value="">Select a device...</option>
                 {devices.map((d) => (
@@ -119,12 +119,12 @@ function CreateScheduleDialog({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Test Template</label>
+            <label className="block text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1">Test Template</label>
             <div className="relative">
               <select
                 value={templateId}
                 onChange={(e) => setTemplateId(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm appearance-none pr-8"
+                className="input appearance-none pr-8"
               >
                 <option value="">Select a template...</option>
                 {templates.map((t) => (
@@ -138,7 +138,7 @@ function CreateScheduleDialog({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Frequency</label>
+            <label className="block text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1">Frequency</label>
             <div className="flex gap-2">
               {(['daily', 'weekly', 'monthly'] as const).map((f) => (
                 <button
@@ -147,8 +147,8 @@ function CreateScheduleDialog({
                   onClick={() => setFrequency(f)}
                   className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
                     frequency === f
-                      ? 'border-brand-500 bg-brand-50 text-brand-700'
-                      : 'border-zinc-200 text-zinc-600 hover:border-zinc-300'
+                      ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-400'
+                      : 'border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-400 hover:border-zinc-300 dark:hover:border-slate-600'
                   }`}
                 >
                   {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -158,7 +158,7 @@ function CreateScheduleDialog({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">
+            <label className="block text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1">
               Max Runs <span className="text-zinc-400 font-normal">(optional)</span>
             </label>
             <input
@@ -167,7 +167,7 @@ function CreateScheduleDialog({
               value={maxRuns}
               onChange={(e) => setMaxRuns(e.target.value)}
               placeholder="Unlimited"
-              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+              className="input"
             />
           </div>
 
@@ -175,7 +175,7 @@ function CreateScheduleDialog({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 rounded-lg"
+              className="btn-secondary text-sm"
             >
               Cancel
             </button>
@@ -234,8 +234,8 @@ export default function ScanSchedulesPage() {
     <div className="page-container">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">Scan Schedules</h1>
-          <p className="text-sm text-zinc-500 mt-1">Schedule recurring security scans for your devices</p>
+          <h1 className="section-title">Scan Schedules</h1>
+          <p className="section-subtitle">Schedule recurring security scans for your devices</p>
         </div>
         <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
           <Plus className="w-4 h-4" /> New Schedule
@@ -249,7 +249,7 @@ export default function ScanSchedulesPage() {
       ) : !schedules || schedules.length === 0 ? (
         <div className="card p-12 text-center">
           <CalendarClock className="w-12 h-12 text-zinc-300 mx-auto mb-3" />
-          <h3 className="text-lg font-semibold text-zinc-900 mb-1">No scan schedules</h3>
+          <h3 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-1">No scan schedules</h3>
           <p className="text-sm text-zinc-500 mb-4">
             Create a schedule to automatically re-scan devices on a recurring basis.
           </p>
@@ -273,7 +273,7 @@ export default function ScanSchedulesPage() {
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold text-zinc-900 truncate">
+                        <p className="text-sm font-semibold text-zinc-900 dark:text-slate-100 truncate">
                           {device?.hostname || device?.ip_address || 'Unknown Device'}
                         </p>
                         <FrequencyBadge frequency={schedule.frequency} />
@@ -312,7 +312,7 @@ export default function ScanSchedulesPage() {
                 </div>
 
                 {schedule.last_run_at && (
-                  <div className="mt-3 pt-3 border-t border-zinc-100 flex items-center gap-2 text-xs text-zinc-500">
+                  <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-slate-700/50 flex items-center gap-2 text-xs text-zinc-500">
                     <Clock className="w-3.5 h-3.5" />
                     Last run: {new Date(schedule.last_run_at).toLocaleString()}
                   </div>
