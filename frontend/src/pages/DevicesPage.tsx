@@ -306,7 +306,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
     setLoading(true)
     try {
       const payload = Object.fromEntries(
-        Object.entries(form).filter(([, v]) => v !== '')
+        Object.entries(form).filter(([k, v]) => v !== '' && k !== 'location')
       )
       await devicesApi.create(payload as Parameters<typeof devicesApi.create>[0])
       queryClient.invalidateQueries({ queryKey: ['devices'] })
