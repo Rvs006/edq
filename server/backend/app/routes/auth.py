@@ -34,6 +34,8 @@ from app.security.auth import (
     get_current_active_user,
 )
 
+from app.utils.audit import log_security_event
+
 logger = logging.getLogger("edq.routes.auth")
 
 
@@ -64,6 +66,8 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
     db.add(user)
     await db.flush()
     await db.refresh(user)
+    await log_security_event(db, "auth.register", user_id=user.id,
+                             details={"username": user.username}, request=request)
     return user
 
 
@@ -95,6 +99,8 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         if user.failed_login_attempts >= settings.ACCOUNT_LOCKOUT_ATTEMPTS:
             user.locked_until = _utcnow() + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
             logger.warning("Account locked for user %s after %d failed attempts", data.username, user.failed_login_attempts)
+        await log_security_event(db, "auth.login_failed", user_id=user.id,
+                                 details={"username": data.username}, request=request)
         await db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -114,6 +120,8 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     await store_refresh_token(db, user.id, refresh_token, expires_at)
 
     set_auth_cookies(response, access_token, csrf_token)
+    await log_security_event(db, "auth.login", user_id=user.id,
+                             details={"username": user.username}, request=request)
 
     return {
         "message": "Login successful",
@@ -132,17 +140,19 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     response: Response,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     await revoke_user_refresh_tokens(db, user.id)
+    await log_security_event(db, "auth.logout", user_id=user.id, request=request)
     clear_auth_cookies(response)
     return {"message": "Logged out successfully"}
 
 
 @router.post("/refresh")
-async def refresh(data: RefreshRequest, response: Response, db: AsyncSession = Depends(get_db)):
+async def refresh(data: RefreshRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     # Verify JWT signature/expiry first
     verify_token(data.refresh_token, token_type="refresh")
 
@@ -163,6 +173,7 @@ async def refresh(data: RefreshRequest, response: Response, db: AsyncSession = D
     await store_refresh_token(db, user.id, refresh_token, expires_at)
 
     set_auth_cookies(response, access_token, csrf_token)
+    await log_security_event(db, "auth.token_refresh", user_id=user.id, request=request)
 
     return {
         "message": "Token refreshed",
@@ -206,6 +217,7 @@ async def update_profile(
 @router.post("/change-password")
 async def change_password(
     data: ChangePasswordRequest,
+    request: Request,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -213,4 +225,5 @@ async def change_password(
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.password_hash = hash_password(data.new_password)
     await revoke_user_refresh_tokens(db, user.id)
+    await log_security_event(db, "auth.password_change", user_id=user.id, request=request)
     return {"message": "Password changed successfully"}

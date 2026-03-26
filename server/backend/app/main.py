@@ -131,12 +131,15 @@ async def lifespan(app: FastAPI):
         await recover_orphaned_runs()
     except Exception as e:
         print(f"[EDQ] Warning: could not recover orphaned runs: {e}")
-    # Start the background scan scheduler
+    # Start background tasks
     from app.services.scan_scheduler import start_scheduler, stop_scheduler
+    from app.services.token_cleanup import start_token_cleanup, stop_token_cleanup
     start_scheduler()
+    start_token_cleanup()
     try:
         yield
     finally:
+        stop_token_cleanup()
         stop_scheduler()
 
 

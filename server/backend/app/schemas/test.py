@@ -9,8 +9,8 @@ import json
 # --- Test Template ---
 class TestTemplateCreate(BaseModel):
     name: str = Field(..., max_length=128)
-    description: Optional[str] = None
-    test_ids: List[str]
+    description: Optional[str] = Field(None, max_length=2000)
+    test_ids: List[str] = Field(..., max_length=500)
     whitelist_id: Optional[str] = None
     cell_mappings: Optional[Any] = None
     report_config: Optional[Any] = None
@@ -59,10 +59,10 @@ class TestTemplateResponse(BaseModel):
 
 # --- Test Run ---
 class TestRunCreate(BaseModel):
-    device_id: str
-    template_id: str
-    agent_id: Optional[str] = None
-    connection_scenario: str = "direct"
+    device_id: str = Field(..., max_length=36)
+    template_id: str = Field(..., max_length=36)
+    agent_id: Optional[str] = Field(None, max_length=36)
+    connection_scenario: str = Field("direct", max_length=32)
     metadata: Optional[Any] = None
 
 
@@ -109,14 +109,14 @@ class TestRunResponse(BaseModel):
 
 # --- Test Result ---
 class TestResultCreate(BaseModel):
-    test_run_id: str
-    test_id: str
-    test_name: str
-    tier: str
-    tool: Optional[str] = None
-    verdict: str = "pending"
-    is_essential: str = "no"
-    comment: Optional[str] = None
+    test_run_id: str = Field(..., max_length=36)
+    test_id: str = Field(..., max_length=64)
+    test_name: str = Field(..., max_length=256)
+    tier: str = Field(..., max_length=32)
+    tool: Optional[str] = Field(None, max_length=64)
+    verdict: str = Field("pending", max_length=32)
+    is_essential: str = Field("no", max_length=8)
+    comment: Optional[str] = Field(None, max_length=4000)
     raw_output: Optional[str] = None
     parsed_data: Optional[Any] = None
     findings: Optional[List[Any]] = None

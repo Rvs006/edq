@@ -34,9 +34,9 @@ class DeviceCreate(BaseModel):
     manufacturer: Optional[str] = Field(None, max_length=128)
     model: Optional[str] = Field(None, max_length=128)
     firmware_version: Optional[str] = Field(None, max_length=64)
-    category: str = "unknown"
-    notes: Optional[str] = None
-    profile_id: Optional[str] = None
+    category: str = Field("unknown", max_length=64)
+    notes: Optional[str] = Field(None, max_length=2000)
+    profile_id: Optional[str] = Field(None, max_length=36)
 
 
 class DeviceUpdate(BaseModel):
@@ -60,10 +60,10 @@ class DeviceUpdate(BaseModel):
     manufacturer: Optional[str] = Field(None, max_length=128)
     model: Optional[str] = Field(None, max_length=128)
     firmware_version: Optional[str] = Field(None, max_length=64)
-    category: Optional[str] = None
-    status: Optional[str] = None
-    notes: Optional[str] = None
-    profile_id: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=64)
+    status: Optional[str] = Field(None, max_length=32)
+    notes: Optional[str] = Field(None, max_length=2000)
+    profile_id: Optional[str] = Field(None, max_length=36)
     open_ports: Optional[List[Any]] = None
     discovery_data: Optional[Any] = None
 
@@ -93,7 +93,26 @@ class DeviceResponse(BaseModel):
 
 
 class DiscoveryRequest(BaseModel):
-    subnet: Optional[str] = None  # e.g. "192.168.1.0/24"
-    ip_address: Optional[str] = None  # Single IP
-    interface: Optional[str] = None  # Network interface name
-    agent_id: Optional[str] = None
+    subnet: Optional[str] = Field(None, max_length=43)  # e.g. "192.168.1.0/24"
+    ip_address: Optional[str] = Field(None, max_length=45)
+    interface: Optional[str] = Field(None, max_length=64)
+    agent_id: Optional[str] = Field(None, max_length=36)
+
+    @field_validator("subnet")
+    @classmethod
+    def validate_subnet(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        import ipaddress
+        try:
+            ipaddress.ip_network(v, strict=False)
+        except ValueError:
+            raise ValueError("Invalid CIDR subnet (e.g. 192.168.1.0/24)")
+        return v
+
+    @field_validator("ip_address")
+    @classmethod
+    def validate_discovery_ip(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _IP_RE.match(v):
+            raise ValueError("Invalid IPv4 address")
+        return v

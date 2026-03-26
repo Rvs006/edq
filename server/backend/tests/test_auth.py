@@ -1,8 +1,9 @@
 """Tests for authentication routes."""
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
+
+from tests.conftest import register_and_login
 
 
 @pytest.mark.asyncio
@@ -18,6 +19,8 @@ async def test_register_user(client: AsyncClient):
     data = resp.json()
     assert data["email"] == "test@example.com"
     assert data["username"] == "testuser"
+    # Role should always be engineer regardless of input
+    assert data["role"] == "engineer"
 
 
 @pytest.mark.asyncio
@@ -91,8 +94,105 @@ async def test_me_unauthenticated(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_logout(client: AsyncClient):
-    """Logout should return success."""
-    resp = await client.post("/api/auth/logout")
+async def test_logout_authenticated(client: AsyncClient):
+    """Logout with a valid session should succeed and revoke tokens."""
+    # Register and login to get session cookies + CSRF
+    await client.post("/api/auth/register", json={
+        "email": "logout@example.com",
+        "username": "logoutuser",
+        "password": "TestPass1",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "logoutuser",
+        "password": "TestPass1",
+    })
+    assert login_resp.status_code == 200
+    csrf = login_resp.json()["csrf_token"]
+
+    resp = await client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf})
     assert resp.status_code == 200
     assert resp.json()["message"] == "Logged out successfully"
+
+
+@pytest.mark.asyncio
+async def test_logout_unauthenticated(client: AsyncClient):
+    """Logout without authentication should return 401."""
+    resp = await client.post("/api/auth/logout")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_single_use(client: AsyncClient):
+    """A refresh token should work once and fail on second use."""
+    await client.post("/api/auth/register", json={
+        "email": "refresh@example.com",
+        "username": "refreshuser",
+        "password": "TestPass1",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "refreshuser",
+        "password": "TestPass1",
+    })
+    assert login_resp.status_code == 200
+    refresh_token = login_resp.json()["refresh_token"]
+
+    # First use should succeed
+    resp1 = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert resp1.status_code == 200
+    assert "refresh_token" in resp1.json()
+
+    # Second use of the SAME token should fail (single-use rotation)
+    resp2 = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert resp2.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_rotation(client: AsyncClient):
+    """After refresh, the new token should work."""
+    await client.post("/api/auth/register", json={
+        "email": "rotate@example.com",
+        "username": "rotateuser",
+        "password": "TestPass1",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "rotateuser",
+        "password": "TestPass1",
+    })
+    refresh_token = login_resp.json()["refresh_token"]
+
+    # Rotate
+    resp1 = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert resp1.status_code == 200
+    new_token = resp1.json()["refresh_token"]
+
+    # New token should work
+    resp2 = await client.post("/api/auth/refresh", json={"refresh_token": new_token})
+    assert resp2.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_reuse_revokes_family(client: AsyncClient):
+    """Reusing a revoked refresh token should revoke ALL tokens for that user."""
+    await client.post("/api/auth/register", json={
+        "email": "reuse@example.com",
+        "username": "reuseuser",
+        "password": "TestPass1",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "reuseuser",
+        "password": "TestPass1",
+    })
+    old_token = login_resp.json()["refresh_token"]
+
+    # Rotate to get a new token (old_token is now revoked)
+    resp1 = await client.post("/api/auth/refresh", json={"refresh_token": old_token})
+    assert resp1.status_code == 200
+    new_token = resp1.json()["refresh_token"]
+
+    # Reuse the old (revoked) token — should trigger family revocation
+    resp2 = await client.post("/api/auth/refresh", json={"refresh_token": old_token})
+    assert resp2.status_code == 401
+
+    # The new token should also be revoked now
+    resp3 = await client.post("/api/auth/refresh", json={"refresh_token": new_token})
+    assert resp3.status_code == 401

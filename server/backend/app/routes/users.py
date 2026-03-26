@@ -1,6 +1,6 @@
 """User management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -9,6 +9,7 @@ from app.models.database import get_db
 from app.models.user import User
 from app.schemas.user import UserResponse, UserUpdate
 from app.security.auth import get_current_active_user, require_role
+from app.utils.audit import log_security_event
 
 router = APIRouter()
 
@@ -39,6 +40,7 @@ async def get_user(
 async def update_user(
     user_id: str,
     data: UserUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["admin"])),
 ):
@@ -48,6 +50,7 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     updates = data.model_dump(exclude_unset=True)
+    old_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     if "full_name" in updates:
         user.full_name = updates["full_name"]
     if "email" in updates:
@@ -58,4 +61,20 @@ async def update_user(
         user.is_active = updates["is_active"]
     await db.flush()
     await db.refresh(user)
+
+    # Audit role changes and account deactivations
+    new_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    if "role" in updates and old_role != new_role:
+        await log_security_event(
+            db, "auth.role_change", user_id=current_user.id,
+            details={"target_user": user_id, "old_role": old_role, "new_role": new_role},
+            request=request,
+        )
+    if "is_active" in updates:
+        await log_security_event(
+            db, "auth.account_status_change", user_id=current_user.id,
+            details={"target_user": user_id, "is_active": user.is_active},
+            request=request,
+        )
+
     return user
