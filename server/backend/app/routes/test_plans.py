@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -14,6 +14,7 @@ from app.models.test_plan import TestPlan
 from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
+from app.utils.audit import log_action
 
 logger = logging.getLogger("edq.routes.test_plans")
 
@@ -71,6 +72,7 @@ async def list_test_plans(
 @router.post("/", response_model=TestPlanResponse, status_code=201)
 async def create_test_plan(
     data: TestPlanCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["admin", "engineer"])),
 ):
@@ -91,6 +93,7 @@ async def create_test_plan(
     db.add(plan)
     await db.flush()
     await db.refresh(plan)
+    await log_action(db, user, "test_plan.create", "test_plan", plan.id, {"name": plan.name}, request)
     return plan
 
 
@@ -111,44 +114,54 @@ async def get_test_plan(
 async def update_test_plan(
     plan_id: str,
     data: TestPlanUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin", "engineer"])),
+    user: User = Depends(require_role(["admin", "engineer"])),
 ):
     result = await db.execute(select(TestPlan).where(TestPlan.id == plan_id))
     plan = result.scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="Test plan not found")
 
+    updated_fields = []
     if data.name is not None:
         plan.name = data.name
+        updated_fields.append("name")
     if data.description is not None:
         plan.description = data.description
+        updated_fields.append("description")
     if data.base_template_id is not None:
         plan.base_template_id = data.base_template_id
+        updated_fields.append("base_template_id")
     if data.test_configs is not None:
         plan.test_configs = [c.model_dump() for c in data.test_configs]
+        updated_fields.append("test_configs")
 
     await db.flush()
     await db.refresh(plan)
+    await log_action(db, user, "test_plan.update", "test_plan", plan_id, {"fields": updated_fields}, request)
     return plan
 
 
 @router.delete("/{plan_id}", status_code=204)
 async def delete_test_plan(
     plan_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
+    user: User = Depends(require_role(["admin"])),
 ):
     result = await db.execute(select(TestPlan).where(TestPlan.id == plan_id))
     plan = result.scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="Test plan not found")
+    await log_action(db, user, "test_plan.delete", "test_plan", plan_id, {"name": plan.name}, request)
     await db.delete(plan)
 
 
 @router.post("/{plan_id}/clone", response_model=TestPlanResponse, status_code=201)
 async def clone_test_plan(
     plan_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -167,4 +180,5 @@ async def clone_test_plan(
     db.add(clone)
     await db.flush()
     await db.refresh(clone)
+    await log_action(db, user, "test_plan.clone", "test_plan", clone.id, {"source_id": plan_id}, request)
     return clone

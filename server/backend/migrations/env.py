@@ -32,6 +32,7 @@ from app.models.network_scan import NetworkScan
 from app.models.test_plan import TestPlan
 from app.models.branding import BrandingSettings
 from app.models.scan_schedule import ScanSchedule
+from app.models.refresh_token import RefreshToken
 
 config = context.config
 

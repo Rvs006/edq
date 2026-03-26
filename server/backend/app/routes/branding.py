@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from app.models.branding import BrandingSettings
 from app.models.database import get_db
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
+from app.utils.audit import log_action
 
 logger = logging.getLogger("edq.routes.branding")
 
@@ -57,6 +58,7 @@ async def get_branding(
 @router.put("/branding", response_model=BrandingResponse)
 async def update_branding(
     data: BrandingUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["admin"])),
 ):
@@ -78,6 +80,7 @@ async def update_branding(
 
     await db.flush()
     await db.refresh(branding)
+    await log_action(db, user, "branding.update", "branding", branding.id, {"company_name": branding.company_name}, request)
     return branding
 
 
@@ -86,6 +89,7 @@ _ALLOWED_LOGO_MIME_TYPES = {"image/png", "image/jpeg", "image/jpg"}
 
 @router.post("/branding/logo", response_model=BrandingResponse)
 async def upload_branding_logo(
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["admin"])),
@@ -122,6 +126,7 @@ async def upload_branding_logo(
     branding.logo_path = logo_path
     await db.flush()
     await db.refresh(branding)
+    await log_action(db, user, "branding.logo_upload", "branding", branding.id, {"filename": logo_filename}, request)
     return branding
 
 

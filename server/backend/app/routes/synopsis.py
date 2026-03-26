@@ -1,6 +1,6 @@
 """AI Synopsis Generator routes."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -12,6 +12,7 @@ from app.models.test_result import TestResult
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
 from app.config import settings
+from app.utils.audit import log_action
 
 router = APIRouter()
 
@@ -29,6 +30,7 @@ class SynopsisApproval(BaseModel):
 @router.post("/generate")
 async def generate_synopsis(
     data: SynopsisRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -76,6 +78,7 @@ async def generate_synopsis(
     test_run.synopsis = f"[AI-DRAFTED] {synopsis_text}"
     test_run.synopsis_status = "ai_draft"
 
+    await log_action(db, user, "synopsis.generate", "synopsis", data.test_run_id, {"status": "ai_draft"}, request)
     return {
         "synopsis": synopsis_text,
         "status": "ai_draft",
@@ -86,6 +89,7 @@ async def generate_synopsis(
 @router.post("/approve")
 async def approve_synopsis(
     data: SynopsisApproval,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["reviewer", "admin"])),
 ):
@@ -98,6 +102,7 @@ async def approve_synopsis(
     test_run.synopsis = data.edited_text
     test_run.synopsis_status = "human_approved"
 
+    await log_action(db, user, "synopsis.approve", "synopsis", data.test_run_id, {"status": "human_approved"}, request)
     return {"message": "Synopsis approved and saved.", "status": "human_approved"}
 
 

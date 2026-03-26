@@ -4,7 +4,7 @@ import json
 import os
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -20,6 +20,7 @@ from app.models.test_run import TestRun
 from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.security.auth import get_current_active_user
+from app.utils.audit import log_action
 from app.services.report_generator import (
     generate_excel_report,
     generate_pdf_report,
@@ -106,6 +107,7 @@ async def _load_run_context(data: ReportRequest, db: AsyncSession):
 @router.post("/generate")
 async def generate_report(
     data: ReportRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -147,6 +149,7 @@ async def generate_report(
             )
 
         filename = os.path.basename(file_path)
+        await log_action(db, user, "report.generate", "report", data.test_run_id, {"type": data.report_type, "filename": filename}, request)
         return {
             "filename": filename,
             "file_path": file_path,

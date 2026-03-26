@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Security
     COOKIE_SECURE: bool = False  # Set True when serving over HTTPS
-    INITIAL_ADMIN_PASSWORD: str = "Admin123!"  # Override in .env for fresh installs
+    INITIAL_ADMIN_PASSWORD: str = ""  # REQUIRED — must be set in .env
     SSL_VERIFY_DEVICES: bool = True  # Set False only if your devices use self-signed certs
     ALLOW_REGISTRATION: bool = False  # Set True to allow public self-registration
 
@@ -69,7 +69,22 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Warn loudly if placeholder secrets are still in use
+# --- Production safety checks ---
+
+import secrets as _secrets
+import warnings as _warnings
+
+# INITIAL_ADMIN_PASSWORD must be set explicitly
+if not settings.INITIAL_ADMIN_PASSWORD:
+    _generated = _secrets.token_urlsafe(16)
+    settings.INITIAL_ADMIN_PASSWORD = _generated
+    print(
+        f"\n[EDQ SECURITY] INITIAL_ADMIN_PASSWORD was not set. "
+        f"Generated one-time password: {_generated}\n"
+        f"Set INITIAL_ADMIN_PASSWORD in your .env file for future starts.\n"
+    )
+
+# Warn/error if placeholder secrets are still in use
 _PLACEHOLDER_PREFIXES = ("change-me",)
 _SECRET_FIELDS = {
     "SECRET_KEY": settings.SECRET_KEY,
@@ -78,16 +93,16 @@ _SECRET_FIELDS = {
 }
 for _name, _value in _SECRET_FIELDS.items():
     if any(_value.startswith(p) for p in _PLACEHOLDER_PREFIXES):
-        import warnings
-        warnings.warn(
+        _msg = (
             f"[EDQ SECURITY] {_name} is still set to the default placeholder value. "
-            "Generate a strong secret with: openssl rand -hex 64",
-            stacklevel=2,
+            "Generate a strong secret with: openssl rand -hex 64"
         )
+        if not settings.DEBUG:
+            raise RuntimeError(_msg)
+        _warnings.warn(_msg, stacklevel=2)
 
 if not settings.COOKIE_SECURE:
-    import warnings
-    warnings.warn(
+    _warnings.warn(
         "[EDQ SECURITY] COOKIE_SECURE=false — session cookies will be sent over plain HTTP. "
         "Set COOKIE_SECURE=true when deploying behind HTTPS.",
         stacklevel=2,

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -41,12 +41,28 @@ class DiscoverRequest(BaseModel):
     test_ids: Optional[List[str]] = None
 
 
+_IP_RE = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
+
+
 class StartBatchRequest(BaseModel):
     scan_id: str
     device_ips: List[str]
     test_ids: Optional[List[str]] = None
     connection_scenario: str = "test_lab"
     template_id: Optional[str] = None
+
+    @field_validator("device_ips")
+    @classmethod
+    def validate_device_ips(cls, v: List[str]) -> List[str]:
+        import ipaddress
+        for ip in v:
+            if not _IP_RE.match(ip):
+                raise ValueError(f"Invalid IPv4 address: {ip}")
+            try:
+                ipaddress.ip_address(ip)
+            except ValueError:
+                raise ValueError(f"Invalid IPv4 address: {ip}")
+        return v
 
 
 class NetworkScanResponse(BaseModel):

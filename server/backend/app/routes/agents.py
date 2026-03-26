@@ -1,6 +1,6 @@
 """Agent management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.agent import AgentRegister, AgentResponse, AgentRegisterResponse, AgentHeartbeat
 from app.security.auth import get_current_active_user, require_role, generate_api_key, hash_api_key
 from app.routes.websocket_routes import manager
+from app.utils.audit import log_action
 
 router = APIRouter()
 
@@ -28,6 +29,7 @@ async def list_agents(
 @router.post("/register", response_model=AgentRegisterResponse, status_code=201)
 async def register_agent(
     data: AgentRegister,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["admin"])),
 ):
@@ -46,6 +48,7 @@ async def register_agent(
     db.add(agent)
     await db.flush()
     await db.refresh(agent)
+    await log_action(db, user, "agent.create", "agent", agent.id, {"name": agent.name}, request)
     return AgentRegisterResponse(
         id=agent.id,
         name=agent.name,
@@ -106,11 +109,13 @@ async def get_agent(
 @router.delete("/{agent_id}", status_code=204)
 async def deactivate_agent(
     agent_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
+    user: User = Depends(require_role(["admin"])),
 ):
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     agent.is_active = False
+    await log_action(db, user, "agent.deactivate", "agent", agent_id, {"name": agent.name}, request)
