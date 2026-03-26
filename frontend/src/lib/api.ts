@@ -20,9 +20,10 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   if (config.method && ['post', 'put', 'patch', 'delete'].includes(config.method)) {
     const csrf = getCsrfToken()
-    if (csrf) {
-      config.headers['X-CSRF-Token'] = csrf
+    if (!csrf) {
+      return Promise.reject(new Error('CSRF token is missing. Please refresh the page and log in again.'))
     }
+    config.headers['X-CSRF-Token'] = csrf
   }
   return config
 })

@@ -361,10 +361,20 @@ function BrandingSettings() {
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setLogoFile(file)
-      setLogoPreview(URL.createObjectURL(file))
+    if (!file) return
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg']
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Logo must be a PNG or JPEG image')
+      e.target.value = ''
+      return
     }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Logo must be under 5MB')
+      e.target.value = ''
+      return
+    }
+    setLogoFile(file)
+    setLogoPreview(URL.createObjectURL(file))
   }
 
   if (loading) {

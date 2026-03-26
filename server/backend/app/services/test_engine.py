@@ -19,6 +19,7 @@ from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.device import Device
 from app.models.test_template import TestTemplate
 from app.models.protocol_whitelist import ProtocolWhitelist
+from app.config import settings
 from app.services.tools_client import tools_client
 from app.services.parsers.nmap_parser import nmap_parser
 from app.services.parsers.testssl_parser import testssl_parser
@@ -469,7 +470,7 @@ class TestEngine:
         http_open = False
 
         try:
-            async with httpx.AsyncClient(timeout=10, verify=False, follow_redirects=False) as client:
+            async with httpx.AsyncClient(timeout=10, verify=settings.SSL_VERIFY_DEVICES, follow_redirects=False) as client:
                 resp = await client.head(f"http://{device_ip}")
                 http_open = True
                 location = resp.headers.get("location", "")

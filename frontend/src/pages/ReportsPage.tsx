@@ -56,7 +56,17 @@ export default function ReportsPage() {
           a.click()
           URL.revokeObjectURL(url)
         } catch {
-          window.open(data.download_url, '_blank')
+          // Only allow relative URLs or same-origin URLs to prevent open redirects
+          const url = data.download_url
+          const isRelative = url.startsWith('/') && !url.startsWith('//')
+          const isSameOrigin = (() => {
+            try { return new URL(url, window.location.origin).origin === window.location.origin } catch { return false }
+          })()
+          if (isRelative || isSameOrigin) {
+            window.open(url, '_blank')
+          } else {
+            toast.error('Download URL is not trusted')
+          }
         }
       }
     } catch (err: unknown) {

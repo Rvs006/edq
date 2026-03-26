@@ -8,8 +8,9 @@ services:
       context: ./server/backend
       dockerfile: Dockerfile
     container_name: edq-backend
+    # Bind to 127.0.0.1 so port 8000 is only accessible from the local host, not the network
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - edq-data:/app/data
       - edq-uploads:/app/uploads
@@ -24,6 +25,9 @@ services:
     depends_on:
       tools:
         condition: service_healthy
+    networks:
+      - edq-internal
+      - edq-frontend
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health"]
@@ -47,7 +51,15 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    networks:
+      - edq-frontend
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     logging:
       driver: json-file
       options:
@@ -59,14 +71,17 @@ services:
       context: ./tools
       dockerfile: Dockerfile
     container_name: edq-tools
+    # Bind to 127.0.0.1 so the tools sidecar is only accessible from the local host
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Required for nmap raw socket scans (SYN scan, OS detection, etc.)
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    networks:
+      - edq-internal
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
@@ -87,3 +102,12 @@ volumes:
     driver: local
   edq-reports:
     driver: local
+
+networks:
+  # Internal network: backend ↔ tools only
+  edq-internal:
+    driver: bridge
+    internal: false
+  # Frontend network: frontend ↔ backend (for nginx proxy)
+  edq-frontend:
+    driver: bridge

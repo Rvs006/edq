@@ -6,7 +6,7 @@ export interface TourStep {
   selector: string
   /** Title of the tour step */
   title: string
-  /** Description (supports HTML-like content via dangerouslySetInnerHTML) */
+  /** Description text */
   description: string
   /** Preferred popover position relative to the highlighted element */
   position?: 'top' | 'bottom' | 'left' | 'right'
@@ -167,10 +167,9 @@ export default function GuidedTour({ steps, isActive, onEnd, onStepChange }: Gui
         <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 mb-1">
           {step.title}
         </h3>
-        <p
-          className="text-xs text-zinc-600 dark:text-slate-400 mb-3 leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: step.description }}
-        />
+        <p className="text-xs text-zinc-600 dark:text-slate-400 mb-3 leading-relaxed">
+          {step.description}
+        </p>
         <div className="flex items-center justify-between">
           {/* Dots */}
           <div className="flex gap-1">

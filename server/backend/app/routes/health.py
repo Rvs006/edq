@@ -1,16 +1,18 @@
 """Health check route — database + tools sidecar status."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.models.database import async_session
+from app.models.user import User
+from app.security.auth import get_current_active_user
 
 router = APIRouter()
 
 
 @router.get("")
 async def health_check():
-    """Public health endpoint. No auth required."""
+    """Public health endpoint for load balancers. No auth required."""
     db_status = "connected"
     try:
         async with async_session() as session:
@@ -18,27 +20,16 @@ async def health_check():
     except Exception:
         db_status = "unreachable"
 
-    tools_status = "unreachable"
-    try:
-        from app.services.tools_client import tools_client
-        result = await tools_client.health()
-        if result.get("status") == "healthy":
-            tools_status = "healthy"
-    except Exception:
-        tools_status = "unreachable"
-
     overall = "ok" if db_status == "connected" else "degraded"
 
     return {
         "status": overall,
-        "database": db_status,
-        "tools_sidecar": tools_status,
     }
 
 
 @router.get("/tools/versions")
-async def tool_versions():
-    """Return installed tool versions from the sidecar."""
+async def tool_versions(_user: User = Depends(get_current_active_user)):
+    """Return installed tool versions from the sidecar. Requires authentication."""
     from app.services.tools_client import tools_client
     try:
         result = await tools_client.versions()

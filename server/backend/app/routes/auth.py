@@ -43,6 +43,8 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(data: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    if not settings.ALLOW_REGISTRATION:
+        raise HTTPException(status_code=403, detail="Public registration is disabled")
     check_rate_limit(request, max_requests=3, window_seconds=60, action="register")
 
     result = await db.execute(select(User).where((User.email == data.email) | (User.username == data.username)))
@@ -72,12 +74,11 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Check account lockout before password verification to avoid leaking credential validity
+    # Check account lockout — return 401 (not 403) to avoid leaking whether the account exists
     if user.locked_until and user.locked_until > _utcnow():
-        remaining = int((user.locked_until - _utcnow()).total_seconds() / 60) + 1
         raise HTTPException(
-            status_code=403,
-            detail=f"Account is temporarily locked. Try again in {remaining} minute(s).",
+            status_code=401,
+            detail="Invalid credentials",
         )
 
     # Reset failed attempts after lockout period expires, giving a fresh window

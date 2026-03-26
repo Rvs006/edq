@@ -38,13 +38,24 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
+# IPs that are trusted to set X-Forwarded-For (nginx in Docker resolves as 172.x.x.x)
+# Only trust X-Forwarded-For when the direct connection comes from a known proxy.
+_TRUSTED_PROXY_NETWORKS = ("127.0.0.1", "::1", "172.")
+
+
 def get_client_ip(request: Request) -> str:
-    """Extract client IP from request, respecting X-Forwarded-For behind proxy."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
+    """Extract client IP from request.
+
+    Only trust X-Forwarded-For when the TCP peer is a known internal proxy.
+    This prevents attackers from spoofing X-Forwarded-For to bypass rate limits.
+    """
+    peer = request.client.host if request.client else None
+    if peer and any(peer.startswith(p) for p in _TRUSTED_PROXY_NETWORKS):
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    if peer:
+        return peer
     return "unknown"
 
 

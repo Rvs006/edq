@@ -103,10 +103,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; "
+            "img-src 'self' data: blob:; "
             "connect-src 'self' ws: wss:; "
             "font-src 'self'; "
-            "frame-ancestors 'none'"
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "frame-ancestors 'none'; "
+            "upgrade-insecure-requests"
+        )
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=(), payment=(), "
+            "usb=(), bluetooth=(), serial=()"
         )
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
@@ -161,8 +169,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*", "X-CSRF-Token"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
         expose_headers=["X-CSRF-Token"],
     )
 

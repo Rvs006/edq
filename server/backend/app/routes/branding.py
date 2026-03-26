@@ -14,7 +14,7 @@ from app.config import settings
 from app.models.branding import BrandingSettings
 from app.models.database import get_db
 from app.models.user import User
-from app.security.auth import get_current_active_user
+from app.security.auth import get_current_active_user, require_role
 
 logger = logging.getLogger("edq.routes.branding")
 
@@ -58,11 +58,9 @@ async def get_branding(
 async def update_branding(
     data: BrandingUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_role(["admin"])),
 ):
     """Update branding settings. Requires admin role."""
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
 
     result = await db.execute(select(BrandingSettings).limit(1))
     branding = result.scalar_one_or_none()
@@ -83,18 +81,23 @@ async def update_branding(
     return branding
 
 
+_ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+_ALLOWED_LOGO_MIME_TYPES = {"image/png", "image/jpeg", "image/jpg"}
+
 @router.post("/branding/logo", response_model=BrandingResponse)
 async def upload_branding_logo(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_role(["admin"])),
 ):
     """Upload a company logo for report branding."""
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+    filename = file.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _ALLOWED_LOGO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="File must be PNG or JPEG")
 
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image (PNG, JPEG, SVG)")
+    if not file.content_type or file.content_type not in _ALLOWED_LOGO_MIME_TYPES:
+        raise HTTPException(status_code=400, detail="File must be PNG or JPEG")
 
     contents = await file.read()
     if len(contents) > 5 * 1024 * 1024:
@@ -103,7 +106,6 @@ async def upload_branding_logo(
     upload_dir = os.path.join(settings.UPLOAD_DIR, "branding")
     os.makedirs(upload_dir, exist_ok=True)
 
-    ext = os.path.splitext(file.filename or "logo.png")[1] or ".png"
     logo_filename = f"company_logo{ext}"
     logo_path = os.path.join(upload_dir, logo_filename)
 

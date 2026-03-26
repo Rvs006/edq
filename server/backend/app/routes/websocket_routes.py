@@ -42,10 +42,8 @@ manager = ConnectionManager()
 
 
 def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
-    """Validate JWT from cookie or query param. Return payload or None."""
+    """Validate JWT from httpOnly cookie only. Return payload or None."""
     token = websocket.cookies.get(SESSION_COOKIE)
-    if not token:
-        token = websocket.query_params.get("token")
     if not token:
         return None
     try:

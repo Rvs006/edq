@@ -1,6 +1,7 @@
 """EDQ Tools Sidecar — REST API wrapper for security scanning tools."""
 
 import base64
+import ipaddress
 import os
 import re
 import shutil
@@ -22,15 +23,27 @@ ALLOWED_TOOLS = {
     "nikto": "nikto",
 }
 
-IP_RE = re.compile(
-    r"^("
-    r"(\d{1,3}\.){3}\d{1,3}"
-    r"|"
-    r"[a-zA-Z0-9._-]{1,253}"
-    r"|"
-    r"[0-9a-fA-F:]{2,39}"
-    r")$"
-)
+# Hostname pattern: labels of 1-63 chars, total max 253, no leading/trailing hyphens
+_HOSTNAME_LABEL_RE = re.compile(r"^(?!-)[a-zA-Z0-9-]{1,63}(?<!-)$")
+
+
+def _is_valid_target(target: str) -> bool:
+    """Return True if target is a valid IPv4, IPv6, or hostname."""
+    # Try IPv4 / IPv6 first
+    try:
+        ipaddress.ip_address(target)
+        return True
+    except ValueError:
+        pass
+    # Validate as hostname (RFC 1123)
+    if len(target) > 253:
+        return False
+    labels = target.rstrip(".").split(".")
+    return all(_HOSTNAME_LABEL_RE.match(label) for label in labels)
+
+
+# Keep IP_RE for backward compatibility with callers that use it directly
+IP_RE = re.compile(r".*")  # validation now done via _is_valid_target()
 
 BLOCKED_ARGS = {"&&", "||", ";", "|", "`", "$", "(", ")", "{", "}", "<", ">", "\n", "\r"}
 
@@ -81,7 +94,7 @@ def _validate_target(target: str) -> str:
     target = target.strip()
     if not target or len(target) > 253:
         raise ValueError("Invalid target: empty or too long")
-    if not IP_RE.match(target):
+    if not _is_valid_target(target):
         raise ValueError(f"Invalid target format: {target}")
     return target
 

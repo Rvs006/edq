@@ -166,7 +166,12 @@ async def download_report(filename: str, _: User = Depends(get_current_active_us
     """Download a generated report file."""
     safe_filename = os.path.basename(filename)
     file_path = os.path.join(settings.REPORT_DIR, safe_filename)
-    if not os.path.exists(file_path):
+    # Prevent path traversal by verifying the resolved path stays inside REPORT_DIR
+    report_dir_real = os.path.realpath(settings.REPORT_DIR)
+    file_path_real = os.path.realpath(file_path)
+    if not file_path_real.startswith(report_dir_real + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not os.path.exists(file_path_real):
         raise HTTPException(status_code=404, detail="Report file not found")
 
     media_types = {
@@ -178,7 +183,7 @@ async def download_report(filename: str, _: User = Depends(get_current_active_us
     media_type = media_types.get(ext, "application/octet-stream")
 
     return FileResponse(
-        path=file_path,
+        path=file_path_real,
         filename=safe_filename,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},

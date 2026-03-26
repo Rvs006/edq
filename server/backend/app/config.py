@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-me-jwt-secret-use-openssl-rand-hex-64"
     JWT_REFRESH_SECRET: str = "change-me-refresh-secret-use-openssl-rand-hex-64"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8 hours
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour (use refresh tokens for longer sessions)
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # CORS
@@ -49,6 +49,9 @@ class Settings(BaseSettings):
 
     # Security
     COOKIE_SECURE: bool = False  # Set True when serving over HTTPS
+    INITIAL_ADMIN_PASSWORD: str = "Admin123!"  # Override in .env for fresh installs
+    SSL_VERIFY_DEVICES: bool = True  # Set False only if your devices use self-signed certs
+    ALLOW_REGISTRATION: bool = False  # Set True to allow public self-registration
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
@@ -65,6 +68,30 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Warn loudly if placeholder secrets are still in use
+_PLACEHOLDER_PREFIXES = ("change-me",)
+_SECRET_FIELDS = {
+    "SECRET_KEY": settings.SECRET_KEY,
+    "JWT_SECRET": settings.JWT_SECRET,
+    "JWT_REFRESH_SECRET": settings.JWT_REFRESH_SECRET,
+}
+for _name, _value in _SECRET_FIELDS.items():
+    if any(_value.startswith(p) for p in _PLACEHOLDER_PREFIXES):
+        import warnings
+        warnings.warn(
+            f"[EDQ SECURITY] {_name} is still set to the default placeholder value. "
+            "Generate a strong secret with: openssl rand -hex 64",
+            stacklevel=2,
+        )
+
+if not settings.COOKIE_SECURE:
+    import warnings
+    warnings.warn(
+        "[EDQ SECURITY] COOKIE_SECURE=false — session cookies will be sent over plain HTTP. "
+        "Set COOKIE_SECURE=true when deploying behind HTTPS.",
+        stacklevel=2,
+    )
 
 # Ensure directories exist
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

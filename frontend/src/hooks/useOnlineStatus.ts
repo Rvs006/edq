@@ -33,8 +33,9 @@ export function useOnlineStatus(): SystemStatus {
         return
       }
       const data = await res.json()
-      setBackendHealthy(data.status === 'ok')
-      setToolsHealthy(data.tools_sidecar !== 'unhealthy' && data.tools_sidecar !== 'unavailable')
+      const healthy = data.status === 'ok'
+      setBackendHealthy(healthy)
+      setToolsHealthy(healthy)
       setLastChecked(new Date())
     } catch {
       setBackendHealthy(false)

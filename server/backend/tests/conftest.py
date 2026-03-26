@@ -16,6 +16,7 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-not-for-production")
 os.environ.setdefault("JWT_REFRESH_SECRET", "test-refresh-secret-not-for-production")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("TOOLS_SIDECAR_URL", "http://localhost:8001")
+os.environ.setdefault("ALLOW_REGISTRATION", "true")
 
 from app.models.database import Base, get_db
 from app.main import create_app

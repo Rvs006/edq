@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Explicitly restrict default GITHUB_TOKEN permissions (principle of least privilege)
+permissions:
+  contents: read
+
 jobs:
   backend-lint-test:
     runs-on: ubuntu-latest
@@ -26,10 +30,13 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx ruff
+          pip install pytest pytest-asyncio httpx ruff pip-audit
 
       - name: Lint with ruff
         run: ruff check app/ --select E,F,W --ignore E402,E501,E712,F401,F841
+
+      - name: Dependency vulnerability audit
+        run: pip-audit -r requirements.txt --skip-editable || true
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
@@ -46,7 +53,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "20"
 
       - name: Install dependencies
         run: |
@@ -57,6 +64,14 @@ jobs:
             npm ci
           else
             npm install
+          fi
+
+      - name: Dependency vulnerability audit
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm audit --audit-level=high || true
+          else
+            npm audit --audit-level=high || true
           fi
 
       - name: Run tests
