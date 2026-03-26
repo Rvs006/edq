@@ -6,13 +6,14 @@ from fastapi import Depends, HTTPException, Request, Response, status
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 import secrets
 import hashlib
 
 from app.config import settings
 from app.models.database import get_db
 from app.models.user import User
+from app.models.refresh_token import RefreshToken
 
 SESSION_COOKIE = "edq_session"
 CSRF_COOKIE = "edq_csrf"
@@ -52,6 +53,64 @@ def create_refresh_token(data: dict) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     return jwt.encode(to_encode, settings.JWT_REFRESH_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def hash_token(token: str) -> str:
+    """SHA-256 hash of a refresh token for DB storage."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def store_refresh_token(db: AsyncSession, user_id: str, token: str, expires_at: datetime) -> None:
+    """Persist a hashed refresh token in the database."""
+    db.add(RefreshToken(
+        token_hash=hash_token(token),
+        user_id=user_id,
+        expires_at=expires_at,
+    ))
+    await db.flush()
+
+
+async def validate_and_rotate_refresh_token(db: AsyncSession, token: str) -> str:
+    """Validate a refresh token is in the DB and not revoked, then revoke it.
+
+    Returns the user_id. Raises 401 if the token is revoked, missing, or expired.
+    """
+    t_hash = hash_token(token)
+    result = await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == t_hash)
+    )
+    db_token = result.scalar_one_or_none()
+
+    if not db_token or db_token.revoked:
+        # Possible token reuse attack — revoke entire family for this user
+        if db_token and db_token.revoked:
+            await db.execute(
+                update(RefreshToken)
+                .where(RefreshToken.user_id == db_token.user_id, RefreshToken.revoked == False)
+                .values(revoked=True)
+            )
+            await db.flush()
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        db_token.revoked = True
+        await db.flush()
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    # Revoke the used token (single-use)
+    db_token.revoked = True
+    await db.flush()
+    return db_token.user_id
+
+
+async def revoke_user_refresh_tokens(db: AsyncSession, user_id: str) -> None:
+    """Revoke all active refresh tokens for a user (logout, password change)."""
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked == False)
+        .values(revoked=True)
+    )
+    await db.flush()
 
 
 def verify_token(token: str, token_type: str = "access") -> dict:

@@ -26,6 +26,9 @@ from app.security.auth import (
     generate_csrf_token,
     hash_password,
     set_auth_cookies,
+    store_refresh_token,
+    validate_and_rotate_refresh_token,
+    revoke_user_refresh_tokens,
     verify_password,
     verify_token,
     get_current_active_user,
@@ -56,7 +59,7 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
         username=data.username,
         password_hash=hash_password(data.password),
         full_name=data.full_name,
-        role=UserRole(data.role) if data.role in [r.value for r in UserRole] else UserRole.ENGINEER,
+        role=UserRole.ENGINEER,
     )
     db.add(user)
     await db.flush()
@@ -107,6 +110,9 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     refresh_token = create_refresh_token({"sub": user.id})
     csrf_token = generate_csrf_token()
 
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    await store_refresh_token(db, user.id, refresh_token, expires_at)
+
     set_auth_cookies(response, access_token, csrf_token)
 
     return {
@@ -125,15 +131,23 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(
+    response: Response,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await revoke_user_refresh_tokens(db, user.id)
     clear_auth_cookies(response)
     return {"message": "Logged out successfully"}
 
 
 @router.post("/refresh")
 async def refresh(data: RefreshRequest, response: Response, db: AsyncSession = Depends(get_db)):
-    payload = verify_token(data.refresh_token, token_type="refresh")
-    user_id = payload.get("sub")
+    # Verify JWT signature/expiry first
+    verify_token(data.refresh_token, token_type="refresh")
+
+    # Validate against DB — revokes the old token (single-use rotation)
+    user_id = await validate_and_rotate_refresh_token(db, data.refresh_token)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -143,6 +157,10 @@ async def refresh(data: RefreshRequest, response: Response, db: AsyncSession = D
     access_token = create_access_token({"sub": user.id, "role": user.role.value})
     refresh_token = create_refresh_token({"sub": user.id})
     csrf_token = generate_csrf_token()
+
+    # Store the new refresh token
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    await store_refresh_token(db, user.id, refresh_token, expires_at)
 
     set_auth_cookies(response, access_token, csrf_token)
 
@@ -194,4 +212,5 @@ async def change_password(
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.password_hash = hash_password(data.new_password)
+    await revoke_user_refresh_tokens(db, user.id)
     return {"message": "Password changed successfully"}
