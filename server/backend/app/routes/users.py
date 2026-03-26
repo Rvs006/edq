@@ -1,6 +1,6 @@
 """User management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -16,10 +16,14 @@ router = APIRouter()
 
 @router.get("/", response_model=List[UserResponse])
 async def list_users(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin", "reviewer"])),
+    _: User = Depends(require_role(["admin"])),
 ):
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    result = await db.execute(
+        select(User).order_by(User.created_at.desc()).offset(skip).limit(limit)
+    )
     return result.scalars().all()
 
 

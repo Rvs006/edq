@@ -20,6 +20,9 @@ class ToolsClient:
 
     def __init__(self) -> None:
         self.base_url: str = settings.TOOLS_SIDECAR_URL
+        self._headers: Dict[str, str] = {}
+        if settings.TOOLS_API_KEY:
+            self._headers["X-Tools-Key"] = settings.TOOLS_API_KEY
 
     async def _post(
         self,
@@ -34,6 +37,7 @@ class ToolsClient:
                     resp = await client.post(
                         f"{self.base_url}{path}",
                         json=payload,
+                        headers=self._headers,
                     )
                     if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
                         logger.warning("Retryable %d from %s (attempt %d)", resp.status_code, path, attempt + 1)
@@ -53,7 +57,7 @@ class ToolsClient:
     async def health(self) -> Dict[str, Any]:
         """Check sidecar health and tool availability."""
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{self.base_url}/health")
+            resp = await client.get(f"{self.base_url}/health", headers=self._headers)
             resp.raise_for_status()
             return resp.json()
 
@@ -125,7 +129,7 @@ class ToolsClient:
     async def versions(self) -> Dict[str, Any]:
         """Get installed tool versions from the sidecar."""
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{self.base_url}/versions")
+            resp = await client.get(f"{self.base_url}/versions", headers=self._headers)
             resp.raise_for_status()
             return resp.json()
 

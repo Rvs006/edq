@@ -140,6 +140,13 @@ async def get_branding_logo(
     branding = result.scalar_one_or_none()
     if not branding or not branding.logo_path:
         raise HTTPException(status_code=404, detail="No logo uploaded")
-    if not os.path.isfile(branding.logo_path):
+
+    # Path traversal protection: ensure logo_path stays inside the upload directory
+    upload_dir_real = os.path.realpath(os.path.join(settings.UPLOAD_DIR, "branding"))
+    logo_path_real = os.path.realpath(branding.logo_path)
+    if not logo_path_real.startswith(upload_dir_real + os.sep) and logo_path_real != upload_dir_real:
+        raise HTTPException(status_code=403, detail="Invalid logo path")
+
+    if not os.path.isfile(logo_path_real):
         raise HTTPException(status_code=404, detail="Logo file not found on disk")
-    return FileResponse(branding.logo_path)
+    return FileResponse(logo_path_real)

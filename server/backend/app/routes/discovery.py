@@ -4,7 +4,7 @@ import base64
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,9 +14,11 @@ from app.models.device import Device, DeviceCategory, DeviceStatus
 from app.models.user import User
 from app.schemas.device import DiscoveryRequest
 from app.security.auth import get_current_active_user
+from app.middleware.rate_limit import check_rate_limit
 from app.services.discovery_service import guess_category, guess_manufacturer, guess_model
 from app.services.tools_client import tools_client
 from app.services.parsers.nmap_parser import nmap_parser
+from app.utils.audit import log_action
 
 logger = logging.getLogger("edq.routes.discovery")
 
@@ -123,6 +125,7 @@ async def _upsert_device(
 @router.post("/scan")
 async def initiate_discovery(
     data: DiscoveryRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -131,6 +134,8 @@ async def initiate_discovery(
     - ip_address provided: full service detection + OS fingerprint (-sV -O -p-)
     - subnet provided: ping sweep (-sn) to list live hosts
     """
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="discovery_scan")
+
     target = data.ip_address or data.subnet
     if not target:
         raise HTTPException(status_code=400, detail="Provide either ip_address or subnet")
@@ -144,9 +149,9 @@ async def initiate_discovery(
                 ["-sV", "-O", "-p-", "--max-rate", "300", "-oX", "-"],
                 timeout=300,
             )
-        except Exception as exc:
-            logger.exception("Nmap service scan failed for %s: %s", data.ip_address, exc)
-            raise HTTPException(status_code=502, detail=f"Tools sidecar error: {exc}")
+        except Exception:
+            logger.exception("Nmap service scan failed for %s", data.ip_address)
+            raise HTTPException(status_code=502, detail="Tools sidecar error")
 
         xml_out = raw.get("stdout", "")
         parsed = nmap_parser.parse_xml(xml_out) if xml_out else {}
@@ -196,9 +201,9 @@ async def initiate_discovery(
                 ["-sn"],
                 timeout=120,
             )
-        except Exception as exc:
-            logger.exception("Nmap ping sweep failed for %s: %s", data.subnet, exc)
-            raise HTTPException(status_code=502, detail=f"Tools sidecar error: {exc}")
+        except Exception:
+            logger.exception("Nmap ping sweep failed for %s", data.subnet)
+            raise HTTPException(status_code=502, detail="Tools sidecar error")
 
         hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
 
@@ -229,6 +234,9 @@ async def initiate_discovery(
                 "is_new": is_new,
             })
 
+    await log_action(db, user, "discovery.scan", "discovery", target,
+                     {"devices_found": len(discovered_devices)}, request)
+
     return {
         "status": "complete",
         "target": target,
@@ -240,6 +248,7 @@ async def initiate_discovery(
 @router.post("/register-device")
 async def register_discovered_device(
     data: DiscoveryResult,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -257,4 +266,6 @@ async def register_discovered_device(
     db.add(device)
     await db.flush()
     await db.refresh(device)
+    await log_action(db, user, "discovery.register_device", "device", device.id,
+                     {"ip_address": data.ip_address}, request)
     return {"device_id": device.id, "message": "Device registered successfully"}

@@ -125,12 +125,13 @@ def verify_token(token: str, token_type: str = "access") -> dict:
 
 
 def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> None:
+    samesite = settings.COOKIE_SAMESITE
     response.set_cookie(
         key=SESSION_COOKIE,
         value=access_token,
         httponly=True,
         secure=settings.COOKIE_SECURE,
-        samesite="lax",
+        samesite=samesite,
         max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
     )
@@ -139,7 +140,7 @@ def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> 
         value=csrf_token,
         httponly=False,
         secure=settings.COOKIE_SECURE,
-        samesite="lax",
+        samesite=samesite,
         max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
     )

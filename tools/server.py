@@ -11,9 +11,26 @@ import time
 
 from typing import Tuple, Union
 
+from functools import wraps
+
 from flask import Flask, Response, jsonify, request
 
 app = Flask(__name__)
+
+# Shared secret for authenticating requests from the backend
+TOOLS_API_KEY = os.environ.get("TOOLS_API_KEY", "")
+
+
+def require_api_key(f):
+    """Reject requests without a valid X-Tools-Key header."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if TOOLS_API_KEY:
+            provided = request.headers.get("X-Tools-Key", "")
+            if not provided or provided != TOOLS_API_KEY:
+                return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 ALLOWED_TOOLS = {
     "nmap": "nmap",
@@ -206,6 +223,7 @@ def health() -> Response:
 
 
 @app.route("/scan/nmap", methods=["POST"])
+@require_api_key
 def scan_nmap() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request(tool_name="nmap")
     if err:
@@ -220,6 +238,7 @@ def scan_nmap() -> Union[Response, Tuple[Response, int]]:
 
 
 @app.route("/scan/testssl", methods=["POST"])
+@require_api_key
 def scan_testssl() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request(tool_name="testssl")
     if err:
@@ -246,6 +265,7 @@ def scan_testssl() -> Union[Response, Tuple[Response, int]]:
 
 
 @app.route("/scan/ssh-audit", methods=["POST"])
+@require_api_key
 def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request(tool_name="ssh-audit")
     if err:
@@ -260,6 +280,7 @@ def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
 
 
 @app.route("/scan/hydra", methods=["POST"])
+@require_api_key
 def scan_hydra() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request(tool_name="hydra")
     if err:
@@ -274,6 +295,7 @@ def scan_hydra() -> Union[Response, Tuple[Response, int]]:
 
 
 @app.route("/scan/nikto", methods=["POST"])
+@require_api_key
 def scan_nikto() -> Union[Response, Tuple[Response, int]]:
     target, args, timeout, err = _parse_scan_request(tool_name="nikto")
     if err:
@@ -288,6 +310,7 @@ def scan_nikto() -> Union[Response, Tuple[Response, int]]:
 
 
 @app.route("/scan/ping", methods=["POST"])
+@require_api_key
 def scan_ping() -> Union[Response, Tuple[Response, int]]:
     data = request.get_json(force=True, silent=True)
     if not data or not data.get("target"):
@@ -310,6 +333,7 @@ def scan_ping() -> Union[Response, Tuple[Response, int]]:
 
 
 @app.route("/versions", methods=["GET"])
+@require_api_key
 def tool_versions() -> Response:
     """Return installed tool versions."""
     version_cmds = {

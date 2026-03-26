@@ -2,6 +2,7 @@
 
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -121,6 +122,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Attach a unique request ID to every request/response cycle."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+        response: Response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(f"[EDQ] Frontend directory: {FRONTEND_DIR} (exists: {os.path.isdir(FRONTEND_DIR)})")
@@ -200,6 +212,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(CSRFMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestIDMiddleware)
 
     # Build the list of (router, suffix, tag) tuples for all API routes
     _api_routes = [
