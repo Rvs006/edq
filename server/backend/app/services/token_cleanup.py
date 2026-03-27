@@ -16,9 +16,15 @@ _cleanup_task: asyncio.Task | None = None
 CLEANUP_INTERVAL_SECONDS = 3600  # every hour
 
 
-async def _cleanup_expired_tokens() -> int:
-    """Delete revoked tokens and tokens past their expiry. Returns count deleted."""
-    async with async_session() as db:
+async def _cleanup_expired_tokens(session_factory=None) -> int:
+    """Delete revoked tokens and tokens past their expiry. Returns count deleted.
+
+    Args:
+        session_factory: Optional async session factory for dependency injection (testing).
+                         Falls back to the default ``async_session`` when *None*.
+    """
+    factory = session_factory or async_session
+    async with factory() as db:
         now = datetime.now(timezone.utc)
         result = await db.execute(
             delete(RefreshToken).where(
