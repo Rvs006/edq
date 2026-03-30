@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   Network, Search, Play, CheckCircle2, XCircle, AlertTriangle,
   Loader2, ChevronRight, ChevronDown, RotateCcw, Wifi, WifiOff,
-  Info, ArrowRight, Shield, Monitor, Server
+  Info, ArrowRight, Shield, Monitor, Server, LayoutGrid, List
 } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { networkScanApi, templatesApi } from '@/lib/api'
 import { UNIVERSAL_TESTS, TEST_CATEGORIES } from '@/lib/universal-tests'
 import toast from 'react-hot-toast'
@@ -28,7 +29,14 @@ interface DiscoveredDevice {
   mac: string | null
   vendor: string | null
   hostname: string | null
+  services?: string[]
+  open_ports?: number[]
+  os?: string | null
+  model?: string | null
+  http_server?: string | null
 }
+
+type DeviceViewMode = 'grid' | 'tree'
 
 interface ScanResult {
   run_id: string
@@ -176,7 +184,7 @@ export default function NetworkScanPage() {
 
       <StepIndicator current={step} />
 
-      {step === 'configure' && (
+      {step === 'configure' && !discovering && (
         <ConfigureStep
           cidr={cidr} setCidr={setCidr} cidrValid={cidrValid} hostCount={hostCount}
           scenario={scenario} setScenario={setScenario}
@@ -184,6 +192,9 @@ export default function NetworkScanPage() {
           expandedCategories={expandedCategories} setExpandedCategories={setExpandedCategories}
           discovering={discovering} onDiscover={handleDiscover}
         />
+      )}
+      {step === 'configure' && discovering && (
+        <ScanAnimation cidr={cidr} />
       )}
       {step === 'review' && (
         <ReviewStep
@@ -388,6 +399,42 @@ function ConfigureStep({
   )
 }
 
+function ScanAnimation({ cidr }: { cidr: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-col items-center py-16"
+    >
+      <div className="relative w-28 h-28 mb-6">
+        {/* Outer pulsing rings */}
+        <div className="absolute inset-0 rounded-full border-2 border-blue-200 dark:border-blue-900 animate-ping opacity-20" />
+        <div className="absolute inset-2 rounded-full border-2 border-blue-200 dark:border-blue-900 animate-ping opacity-20" style={{ animationDelay: '0.5s' }} />
+        {/* Static ring */}
+        <div className="absolute inset-0 rounded-full border-4 border-blue-200 dark:border-blue-900" />
+        {/* Spinning arc */}
+        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-500 animate-spin" />
+        {/* Center icon */}
+        <Network className="absolute inset-0 m-auto w-9 h-9 text-blue-500" />
+      </div>
+      <p className="text-base font-medium text-zinc-700 dark:text-slate-300">
+        Scanning {cidr}...
+      </p>
+      <p className="text-sm text-zinc-400 dark:text-slate-500 mt-1.5">
+        Discovering devices on the network
+      </p>
+      {/* Animated sweep bar */}
+      <div className="w-64 h-1.5 mt-6 rounded-full bg-zinc-200 dark:bg-slate-700 overflow-hidden">
+        <motion.div
+          className="h-full w-1/3 rounded-full bg-gradient-to-r from-transparent via-blue-500 to-transparent"
+          animate={{ x: ['-100%', '400%'] }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </div>
+    </motion.div>
+  )
+}
+
 function ReviewStep({
   devices, selectedDevices, setSelectedDevices,
   starting, onStart, onBack, testCount,
@@ -395,7 +442,29 @@ function ReviewStep({
   devices: DiscoveredDevice[]; selectedDevices: Set<string>; setSelectedDevices: (v: Set<string>) => void
   starting: boolean; onStart: () => void; onBack: () => void; testCount: number
 }) {
+  const [viewMode, setViewMode] = useState<DeviceViewMode>('grid')
+  const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set())
   const allSelected = devices.length > 0 && devices.every(d => selectedDevices.has(d.ip))
+
+  // Group devices by vendor for tree view
+  const vendorGroups = devices.reduce<Record<string, DiscoveredDevice[]>>((acc, d) => {
+    const vendor = d.vendor || 'Unknown Vendor'
+    if (!acc[vendor]) acc[vendor] = []
+    acc[vendor].push(d)
+    return acc
+  }, {})
+
+  // Auto-expand all vendors on first render
+  useEffect(() => {
+    setExpandedVendors(new Set(Object.keys(vendorGroups)))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [devices])
+
+  const toggleDeviceSelection = (ip: string) => {
+    const next = new Set(selectedDevices)
+    next.has(ip) ? next.delete(ip) : next.add(ip)
+    setSelectedDevices(next)
+  }
 
   return (
     <div className="space-y-4">
@@ -405,59 +474,187 @@ function ReviewStep({
             <Monitor className="w-4 h-4 text-zinc-500" />
             <span className="text-sm font-semibold text-zinc-700 dark:text-slate-300">{devices.length} Device(s) Found</span>
           </div>
-          <label className="flex items-center gap-2 text-sm text-zinc-600 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={() => setSelectedDevices(allSelected ? new Set() : new Set(devices.map(d => d.ip)))}
-              className="w-4 h-4 rounded border-zinc-300 text-brand-500"
-            />
-            Select All
-          </label>
+          <div className="flex items-center gap-3">
+            {/* View mode toggle */}
+            <div className="flex items-center rounded-lg border border-zinc-200 dark:border-slate-700/50 overflow-hidden">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400'
+                    : 'text-zinc-500 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-700'
+                }`}
+                title="Grid view"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                Grid
+              </button>
+              <button
+                onClick={() => setViewMode('tree')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors border-l border-zinc-200 dark:border-slate-700/50 ${
+                  viewMode === 'tree'
+                    ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400'
+                    : 'text-zinc-500 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-700'
+                }`}
+                title="Tree view"
+              >
+                <List className="w-3.5 h-3.5" />
+                Tree
+              </button>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-slate-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={() => setSelectedDevices(allSelected ? new Set() : new Set(devices.map(d => d.ip)))}
+                className="w-4 h-4 rounded border-zinc-300 text-brand-500"
+              />
+              Select All
+            </label>
+          </div>
         </div>
+
         {devices.length === 0 ? (
           <div className="p-8 text-center">
             <WifiOff className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
             <p className="text-sm text-zinc-500">No devices found. Try a different subnet.</p>
           </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-zinc-500 dark:text-slate-400 border-b border-zinc-200 dark:border-slate-700/50">
-                <th className="px-5 py-2 w-10"></th>
-                <th className="px-3 py-2">IP Address</th>
-                <th className="px-3 py-2">MAC Address</th>
-                <th className="px-3 py-2">Vendor</th>
-                <th className="px-3 py-2">Hostname</th>
-              </tr>
-            </thead>
-            <tbody>
+        ) : viewMode === 'grid' ? (
+          /* --- Grid View --- */
+          <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <AnimatePresence>
               {devices.map((d, i) => (
-                <tr
+                <motion.div
                   key={d.ip}
-                  className="border-b border-zinc-100 dark:border-slate-700/50 hover:bg-zinc-50 dark:hover:bg-slate-800 animate-fade-in-row"
-                  style={{ animationDelay: `${i * 120}ms` }}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                  className={`relative rounded-lg border p-4 cursor-pointer transition-colors ${
+                    selectedDevices.has(d.ip)
+                      ? 'border-brand-400 bg-brand-50/50 dark:bg-brand-900/20 dark:border-brand-600'
+                      : 'border-zinc-200 dark:border-slate-700/50 hover:border-zinc-300 dark:hover:border-slate-600 bg-white dark:bg-slate-800'
+                  }`}
+                  onClick={() => toggleDeviceSelection(d.ip)}
                 >
-                  <td className="px-5 py-2">
+                  <div className="absolute top-3 right-3">
                     <input
                       type="checkbox"
                       checked={selectedDevices.has(d.ip)}
-                      onChange={() => {
-                        const next = new Set(selectedDevices)
-                        next.has(d.ip) ? next.delete(d.ip) : next.add(d.ip)
-                        setSelectedDevices(next)
-                      }}
+                      onChange={() => toggleDeviceSelection(d.ip)}
+                      onClick={e => e.stopPropagation()}
                       className="w-4 h-4 rounded border-zinc-300 text-brand-500"
                     />
-                  </td>
-                  <td className="px-3 py-2 font-mono text-zinc-800 dark:text-slate-200">{d.ip}</td>
-                  <td className="px-3 py-2 font-mono text-zinc-500 dark:text-slate-400 text-xs">{d.mac || '—'}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-slate-400">{d.vendor || '—'}</td>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-slate-400">{d.hostname || '—'}</td>
-                </tr>
+                  </div>
+                  <p className="text-sm font-mono font-bold text-zinc-800 dark:text-slate-200 mb-1">{d.ip}</p>
+                  {d.mac && (
+                    <p className="text-xs font-mono text-zinc-400 dark:text-slate-500 mb-2">{d.mac}</p>
+                  )}
+                  <div className="space-y-1">
+                    {d.vendor && (
+                      <div className="flex items-center gap-1.5">
+                        <Shield className="w-3 h-3 text-zinc-400 shrink-0" />
+                        <span className="text-xs text-zinc-600 dark:text-slate-400 truncate">{d.vendor}</span>
+                      </div>
+                    )}
+                    {d.hostname && (
+                      <div className="flex items-center gap-1.5">
+                        <Server className="w-3 h-3 text-zinc-400 shrink-0" />
+                        <span className="text-xs text-zinc-600 dark:text-slate-400 truncate">{d.hostname}</span>
+                      </div>
+                    )}
+                    {d.os && (
+                      <div className="flex items-center gap-1.5">
+                        <Monitor className="w-3 h-3 text-zinc-400 shrink-0" />
+                        <span className="text-xs text-zinc-600 dark:text-slate-400 truncate">{d.os}</span>
+                      </div>
+                    )}
+                    {d.services && d.services.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {d.services.map(svc => (
+                          <span key={svc} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium">
+                            {svc}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
               ))}
-            </tbody>
-          </table>
+            </AnimatePresence>
+          </div>
+        ) : (
+          /* --- Tree View --- */
+          <div className="divide-y divide-zinc-100 dark:divide-slate-700/50">
+            {Object.entries(vendorGroups).map(([vendor, vendorDevices]) => {
+              const expanded = expandedVendors.has(vendor)
+              const vendorAllSelected = vendorDevices.every(d => selectedDevices.has(d.ip))
+              const vendorSomeSelected = vendorDevices.some(d => selectedDevices.has(d.ip))
+              return (
+                <div key={vendor}>
+                  <button
+                    onClick={() => {
+                      const next = new Set(expandedVendors)
+                      expanded ? next.delete(vendor) : next.add(vendor)
+                      setExpandedVendors(next)
+                    }}
+                    className="w-full flex items-center gap-2 px-5 py-2.5 bg-zinc-50 dark:bg-slate-800/50 hover:bg-zinc-100 dark:hover:bg-slate-700/50 transition-colors"
+                  >
+                    {expanded
+                      ? <ChevronDown className="w-4 h-4 text-zinc-400 dark:text-slate-500" />
+                      : <ChevronRight className="w-4 h-4 text-zinc-400 dark:text-slate-500" />
+                    }
+                    <Shield className="w-4 h-4 text-brand-500" />
+                    <span className="text-sm font-medium text-zinc-700 dark:text-slate-300 flex-1 text-left">{vendor}</span>
+                    <span className="text-xs text-zinc-400 dark:text-slate-500 mr-2">{vendorDevices.length} device(s)</span>
+                    <input
+                      type="checkbox"
+                      checked={vendorAllSelected}
+                      ref={el => { if (el) el.indeterminate = vendorSomeSelected && !vendorAllSelected }}
+                      onChange={(e) => {
+                        e.stopPropagation()
+                        const next = new Set(selectedDevices)
+                        vendorDevices.forEach(d => vendorAllSelected ? next.delete(d.ip) : next.add(d.ip))
+                        setSelectedDevices(next)
+                      }}
+                      onClick={e => e.stopPropagation()}
+                      className="w-4 h-4 rounded border-zinc-300 text-brand-500"
+                    />
+                  </button>
+                  <AnimatePresence>
+                    {expanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        {vendorDevices.map(d => (
+                          <label
+                            key={d.ip}
+                            className="flex items-center gap-3 px-5 pl-12 py-2 hover:bg-zinc-50 dark:hover:bg-slate-800 cursor-pointer border-t border-zinc-100 dark:border-slate-700/30"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedDevices.has(d.ip)}
+                              onChange={() => toggleDeviceSelection(d.ip)}
+                              className="w-4 h-4 rounded border-zinc-300 text-brand-500"
+                            />
+                            <Wifi className="w-3.5 h-3.5 text-zinc-400 dark:text-slate-500" />
+                            <span className="text-sm font-mono font-medium text-zinc-800 dark:text-slate-200 w-32">{d.ip}</span>
+                            {d.hostname && (
+                              <span className="text-sm text-zinc-600 dark:text-slate-400 flex-1 truncate">{d.hostname}</span>
+                            )}
+                            <span className="text-xs font-mono text-zinc-400 dark:text-slate-500">{d.mac || ''}</span>
+                          </label>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
 
