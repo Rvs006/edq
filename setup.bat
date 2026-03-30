@@ -19,7 +19,7 @@ timeout /t 10 /nobreak >nul
 
 echo.
 echo === EDQ is running at http://localhost ===
-echo   Login: admin@electracom.co.uk / Admin123!
+echo   Login: username 'admin' / password from INITIAL_ADMIN_PASSWORD in .env
 echo   (Change your password after first login)
 echo.
 echo Useful commands:

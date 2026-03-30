@@ -7,10 +7,17 @@ cd "$(dirname "$0")"
 if [ ! -f .env ]; then
   cp .env.example .env
   JWT_SECRET=$(openssl rand -hex 64 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(64))")
+  JWT_REFRESH_SECRET=$(openssl rand -hex 64 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(64))")
   SECRET_KEY=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))")
-  sed -i "s/change-me-use-openssl-rand-hex-64/$JWT_SECRET/" .env
-  sed -i "s/change-me-use-openssl-rand-hex-32/$SECRET_KEY/" .env
+  TOOLS_API_KEY=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))")
+  ADMIN_PASS=$(openssl rand -base64 16 2>/dev/null || python3 -c "import secrets; print(secrets.token_urlsafe(16))")
+  sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$JWT_SECRET|" .env
+  sed -i "s|^JWT_REFRESH_SECRET=.*|JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET|" .env
+  sed -i "s|^SECRET_KEY=.*|SECRET_KEY=$SECRET_KEY|" .env
+  sed -i "s|^TOOLS_API_KEY=.*|TOOLS_API_KEY=$TOOLS_API_KEY|" .env
+  sed -i "s|^INITIAL_ADMIN_PASSWORD=.*|INITIAL_ADMIN_PASSWORD=$ADMIN_PASS|" .env
   echo "Created .env with random secrets"
+  echo "  Admin password: $ADMIN_PASS"
 fi
 
 mkdir -p data
@@ -35,7 +42,7 @@ done
 
 echo ""
 echo "=== EDQ is running at http://localhost ==="
-echo "  Login: admin@electracom.co.uk / Admin123!"
+echo "  Login: username 'admin' / password from INITIAL_ADMIN_PASSWORD in .env"
 echo "  (Change your password after first login)"
 echo ""
 echo "Useful commands:"

@@ -10,6 +10,8 @@ set -euo pipefail
 
 BASE_URL="${EDQ_URL:-http://localhost:80}"
 API_URL="$BASE_URL/api"
+ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
+ADMIN_PASS="${EDQ_ADMIN_PASS:-${INITIAL_ADMIN_PASSWORD:-Admin123!}}"
 COOKIE_FILE=$(mktemp)
 PASS=0
 FAIL=0
@@ -55,7 +57,7 @@ echo ""
 echo "--- Authentication ---"
 check "Login (admin)" bash -c "curl -sf -X POST '$API_URL/auth/login' \
   -H 'Content-Type: application/json' \
-  -d '{\"username\":\"admin@electracom.co.uk\",\"password\":\"Admin123!\"}' \
+  -d '{\"username\":\"'$ADMIN_USER'\",\"password\":\"'$ADMIN_PASS'\"}' \
   -c '$COOKIE_FILE' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('token received')\""
 
 check "Get current user" bash -c "curl -sf '$API_URL/auth/me' -b '$COOKIE_FILE' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('email',''))\""

@@ -15,6 +15,8 @@ set -euo pipefail
 
 BASE_URL="${1:-http://localhost}"
 API="$BASE_URL/api"
+ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
+ADMIN_PASS="${EDQ_ADMIN_PASS:-${INITIAL_ADMIN_PASSWORD:-Admin123!}}"
 COOKIE=$(mktemp)
 TOTAL=0 PASS=0 FAIL=0 SKIP=0
 
@@ -201,13 +203,13 @@ section "2. Authentication Flow"
 test_case "2.1 Login with admin credentials" bash -c "
   resp=\$(curl -sf -X POST '$API/auth/login' \
     -H 'Content-Type: application/json' \
-    -d '{\"username\":\"admin@electracom.co.uk\",\"password\":\"Admin123!\"}' \
+    -d '{\"username\":\"'$ADMIN_USER'\",\"password\":\"'$ADMIN_PASS'\"}' \
     -c '$COOKIE')
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
 user = d.get('user', {})
-if user.get('email') == 'admin@electracom.co.uk' or d.get('message') == 'Login successful':
+if d.get('message') == 'Login successful':
     print('login ok — ' + user.get('role', 'admin'))
 else:
     sys.exit(1)

@@ -10,18 +10,24 @@ Premium feel comes from typography, spacing, and restraint — not effects.
 
 ## Colours
 
-### Surfaces (solid, never gradient)
-- Background: #09090b (zinc-950 — near black)
-- Surface raised: #18181b (zinc-900 — cards, panels)
-- Surface overlay: #27272a (zinc-800 — modals, dropdowns)
-- Sidebar: #0f0f12 (darker than background)
-- Input background: #18181b (same as raised surface)
-- Hover: #27272a (zinc-800)
+### Surfaces — Dark Mode (solid, never gradient)
+- Background: #0b1120 (dark-bg — deep navy)
+- Surface raised: #111827 (dark-surface — cards, panels)
+- Card: #1e293b (dark-card — elevated cards)
+- Sidebar: #0f172a (surface-sidebar — darker navy)
+- Hover: #1e293b (dark-hover — same as card)
+
+### Surfaces — Light Mode
+- Background: #fafafa (surface — near white)
+- Card: #ffffff (surface-card)
+- Hover: #f4f4f5 (surface-hover)
 
 ### Borders
-- Default: #27272a (zinc-800 — subtle, barely there)
-- Focused: #3f3f46 (zinc-700 — slightly brighter on focus)
-- Divider: #1c1c1f (almost invisible dividers between sections)
+- Dark mode: #1e3a5f (dark-border — subtle navy)
+- Light mode: #e4e4e7 (surface-border)
+
+### Text
+- Muted: #71717a (surface-muted — timestamps, hints)
 
 ### Text
 - Primary: #fafafa (zinc-50 — almost white, not pure white)
@@ -42,15 +48,14 @@ Use Gradient B sparingly for secondary highlights or to distinguish elements.
 - Accent text: #818cf8 (indigo-400)
 - Accent icon: #a78bfa (violet-400)
 
-### Status Colours (solid, muted — not harsh)
-- Success: #34d399 (emerald-400) — text/icons only
-- Success background: rgba(52, 211, 153, 0.1) — subtle tinted surface
-- Danger: #f87171 (red-400)
-- Danger background: rgba(248, 113, 113, 0.1)
-- Warning: #fbbf24 (amber-400)
-- Warning background: rgba(251, 191, 36, 0.1)
-- Info: #60a5fa (blue-400)
-- Info background: rgba(96, 165, 250, 0.1)
+### Verdict / Status Colours (from tailwind config)
+- Pass: #16a34a (green-600)
+- Fail: #dc2626 (red-600)
+- Advisory: #d97706 (amber-600)
+- Qualified: #ca8a04 (yellow-600)
+- N/A: #71717a (zinc-500)
+- Pending: #2563eb (blue-600)
+- Info: #0891b2 (cyan-600)
 
 ### Status Badges
 - Pass: Success text on Success background, 9999px radius (pill)
@@ -64,9 +69,9 @@ Use Gradient B sparingly for secondary highlights or to distinguish elements.
 
 ## Typography
 
-### Font Stack
-- Primary: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif
-- Monospace: "JetBrains Mono", "SF Mono", "Fira Code", monospace
+### Font Stack (from tailwind config)
+- Primary: "Inter", system-ui, -apple-system, sans-serif
+- Monospace: "JetBrains Mono", "Fira Code", monospace
 - Load Inter from Google Fonts (weights: 400, 500, 600, 700)
 - Load JetBrains Mono (weight: 400, 500)
 
@@ -244,7 +249,7 @@ Use Gradient B sparingly for secondary highlights or to distinguish elements.
 - Do not use coloured shadows or glowing effects
 - Do not use borders thicker than 1px
 - Do not use pure white (#ffffff) — use zinc-50 (#fafafa)
-- Do not use pure black (#000000) — use zinc-950 (#09090b)
+- Do not use pure black (#000000) — use dark-bg (#0b1120)
 - Do not use rounded corners larger than 16px (except pills)
 - Do not animate layout changes
 - Do not use icons with fill — stroke/outline only
