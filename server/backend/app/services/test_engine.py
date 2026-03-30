@@ -243,7 +243,7 @@ class TestEngine:
         except Exception as exc:
             logger.warning("Test %s failed for run %s: %s", test_id, run_id, exc)
             elapsed = time.monotonic() - start
-            return ("error", f"Test execution error: {exc}", None, None, round(elapsed, 2))
+            return ("error", "Test execution failed due to an internal error", None, None, round(elapsed, 2))
 
         elapsed = time.monotonic() - start
         return (verdict, comment, parsed, raw_out, round(elapsed, 2))

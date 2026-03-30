@@ -3,7 +3,10 @@
 Maps each test ID to evaluation logic that produces (verdict, comment) tuples.
 """
 
+import logging
 from typing import Any
+
+logger = logging.getLogger("edq.services.evaluation")
 
 
 def evaluate_result(
@@ -28,7 +31,8 @@ def evaluate_result(
     try:
         return evaluator(parsed_data, whitelist_entries or [])
     except Exception as exc:
-        return ("error", f"Evaluation error for {test_id}: {exc}")
+        logger.warning("Evaluation error for %s: %s", test_id, exc)
+        return ("error", f"Evaluation failed for {test_id}")
 
 
 def _eval_u01(data: dict, _wl: list) -> tuple[str, str]:
