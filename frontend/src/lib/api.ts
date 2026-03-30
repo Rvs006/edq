@@ -69,9 +69,10 @@ export const devicesApi = {
 export const profilesApi = {
   list: (params?: { skip?: number; limit?: number }) => api.get('/device-profiles/', { params }),
   get: (id: string) => api.get(`/device-profiles/${id}`),
-  create: (data: { name: string; manufacturer?: string; model?: string; category?: string }) => api.post('/device-profiles/', data),
-  update: (id: string, data: { name?: string; manufacturer?: string; model?: string; category?: string }) => api.patch(`/device-profiles/${id}`, data),
+  create: (data: Record<string, unknown>) => api.post('/device-profiles/', data),
+  update: (id: string, data: Record<string, unknown>) => api.patch(`/device-profiles/${id}`, data),
   delete: (id: string) => api.delete(`/device-profiles/${id}`),
+  autoLearn: (testRunId: string) => api.post('/device-profiles/auto-learn', { test_run_id: testRunId }),
 }
 
 export const templatesApi = {

@@ -6,10 +6,11 @@ import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   ArrowLeft, Loader2, Monitor, Wifi, WifiOff,
-  FileText, Cpu, Menu, X
+  FileText, Cpu, Menu, X, Fingerprint, Zap, Save
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
+import { profilesApi } from '@/lib/api'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import SegmentedProgressBar from '@/components/common/SegmentedProgressBar'
 import SmartPrompt from '@/components/common/SmartPrompt'
@@ -321,6 +322,27 @@ export default function TestRunDetailPage() {
     }
   }
 
+  const fingerprint = useMemo(() => {
+    const meta = (run as any)?.metadata || (run as any)?.run_metadata
+    return meta?.fingerprint || null
+  }, [run])
+
+  const handleSaveProfile = async () => {
+    if (!id) return
+    try {
+      const resp = await profilesApi.autoLearn(id)
+      if (resp.data?.created) {
+        toast.success(resp.data.message || 'Profile saved')
+        queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      } else {
+        toast.error(resp.data?.message || 'Could not create profile')
+      }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to save profile')
+    }
+  }
+
   const isOwner = user?.id === run?.user_id
   const canSelfApprove =
     user?.role === 'admin' || (isOwner && (user?.role === 'engineer' || user?.role === 'reviewer'))
@@ -372,13 +394,14 @@ export default function TestRunDetailPage() {
           <Link
             to="/test-runs"
             className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors flex-shrink-0"
+            title="Back to test runs"
           >
             <ArrowLeft className="w-4 h-4 text-zinc-500" />
           </Link>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 truncate">
-                {run.device_name || `Device ${run.device_id?.slice(0, 8)}`}
+                {run.device_name || run.device_ip || `Device ${run.device_id?.slice(0, 8)}`}
               </h1>
               <StatusBadge status={run.status} />
               {ws.isConnected && (
@@ -415,6 +438,7 @@ export default function TestRunDetailPage() {
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors flex-shrink-0"
+            title="Toggle test list"
           >
             {sidebarOpen ? <X className="w-5 h-5 text-zinc-600" /> : <Menu className="w-5 h-5 text-zinc-600" />}
           </button>
@@ -436,6 +460,52 @@ export default function TestRunDetailPage() {
           </span>
         </div>
       </div>
+
+      {fingerprint && (
+        <div className="flex-shrink-0 px-4 pt-3">
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 border border-indigo-200 dark:border-indigo-800/50">
+            <div className="w-9 h-9 rounded-lg bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center flex-shrink-0">
+              <Fingerprint className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-indigo-900 dark:text-indigo-200 capitalize">
+                  {fingerprint.category?.replace(/_/g, ' ') || 'Unknown'}
+                </span>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                  fingerprint.confidence === 'high'
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                    : fingerprint.confidence === 'medium'
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+                    : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                }`}>
+                  {fingerprint.confidence} confidence
+                </span>
+                {fingerprint.matched_profile_name && (
+                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400">
+                    Profile: {fingerprint.matched_profile_name}
+                  </span>
+                )}
+              </div>
+              {fingerprint.skip_test_ids?.length > 0 && (
+                <p className="text-xs text-indigo-700/70 dark:text-indigo-300/60 mt-0.5 truncate">
+                  <Zap className="w-3 h-3 inline mr-0.5" />
+                  Skipped {fingerprint.skip_test_ids.length} tests: {fingerprint.skip_test_ids.join(', ')}
+                </p>
+              )}
+            </div>
+            {!fingerprint.matched_profile_id && fingerprint.category !== 'unknown' && (
+              <button
+                onClick={handleSaveProfile}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors flex-shrink-0"
+              >
+                <Save className="w-3 h-3" />
+                Save Profile
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {pendingManualCount > 0 && run.status !== 'pending' && run.status !== 'error' && (
         <div className="flex-shrink-0 px-4 pt-3">
@@ -544,6 +614,14 @@ export default function TestRunDetailPage() {
           onApprove={handleApprove}
           onRequestReview={handleRequestReview}
           isActioning={isActioning}
+          runningTestName={
+            runningTestNumber
+              ? (results as any[]).find((r: any) => r.test_number === runningTestNumber || r.test_id === runningTestNumber)?.test_name || runningTestNumber
+              : null
+          }
+          progressPct={run.progress_pct ?? progressPct}
+          completedCount={completedCount}
+          totalCount={results.length}
         />
       </div>
 

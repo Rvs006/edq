@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import { authApi, healthApi, brandingApi } from '@/lib/api'
 import type { TourState } from '@/lib/types'
-import { User, Lock, Sun, Moon, Monitor as MonitorIcon, Loader2, Server, RotateCcw, Save, Palette, Upload } from 'lucide-react'
+import { User, Lock, Sun, Moon, Loader2, Server, RotateCcw, Save, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function SettingsPage({ tourState }: { tourState?: TourState }) {
@@ -218,10 +218,9 @@ function SecuritySettings() {
 function AppearanceSettings() {
   const { mode, setMode } = useTheme()
 
-  const options: { value: 'light' | 'dark' | 'system'; label: string; icon: React.ElementType }[] = [
+  const options: { value: 'light' | 'dark'; label: string; icon: React.ElementType }[] = [
     { value: 'light', label: 'Light', icon: Sun },
     { value: 'dark', label: 'Dark', icon: Moon },
-    { value: 'system', label: 'System', icon: MonitorIcon },
   ]
 
   return (

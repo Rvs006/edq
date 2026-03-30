@@ -27,7 +27,7 @@ def evaluate_result(
     """
     evaluator = _EVALUATORS.get(test_id)
     if evaluator is None:
-        return ("info", f"No evaluation rule defined for {test_id}")
+        return ("info", f"No evaluation rule defined for {test_id}. This test may require manual assessment.")
     try:
         return evaluator(parsed_data, whitelist_entries or [])
     except Exception as exc:
@@ -38,8 +38,8 @@ def evaluate_result(
 def _eval_u01(data: dict, _wl: list) -> tuple[str, str]:
     """Ping Response."""
     if data.get("reachable"):
-        return ("pass", "Device responds to ICMP echo requests")
-    return ("fail", "Device did not respond to ping — unreachable")
+        return ("pass", "Ping Response — Device responds to ICMP echo requests. Network reachability confirmed.")
+    return ("fail", "Ping Response — Device did not respond to ping. Verify the IP address is correct and the device is powered on. Some devices block ICMP — check firewall settings.")
 
 
 def _eval_u02(data: dict, _wl: list) -> tuple[str, str]:
@@ -47,32 +47,35 @@ def _eval_u02(data: dict, _wl: list) -> tuple[str, str]:
     mac = data.get("mac_address")
     vendor = data.get("oui_vendor", "")
     if mac and vendor:
-        return ("pass", f"MAC {mac} registered to {vendor}")
+        return ("pass", f"MAC Vendor Lookup — MAC address identified: {mac}. Vendor: {vendor}.")
     if mac:
-        return ("advisory", f"MAC {mac} found but vendor not in OUI database")
-    return ("info", "MAC address could not be determined")
+        return ("advisory", f"MAC Vendor Lookup — MAC {mac} found but vendor not in OUI database. The manufacturer may not be registered.")
+    return ("info", "MAC Vendor Lookup — Could not determine MAC address. The device may be behind a router/NAT. Try scanning from the same subnet.")
 
 
 def _eval_u03(data: dict, _wl: list) -> tuple[str, str]:
     """Switch Negotiation — ethtool not in sidecar, mark N/A."""
-    return ("na", "Switch negotiation test requires ethtool (not available in sidecar)")
+    return ("na", "Switch Negotiation (Speed/Duplex) — This test checks Ethernet link speed and duplex settings using ethtool. "
+                   "It cannot run remotely from the Docker sidecar. To verify: physically check the switch port configuration "
+                   "or run 'ethtool <interface>' from a device with direct network access.")
 
 
 def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
     """DHCP Behaviour."""
     dhcp = data.get("dhcp_enabled")
     if dhcp is True:
-        return ("pass", "Device accepts DHCP lease")
+        return ("pass", "DHCP Behaviour — Device accepts DHCP lease. Automatic IP assignment confirmed.")
     if dhcp is False:
-        return ("info", "Device uses static IP configuration")
-    return ("info", "DHCP behaviour could not be determined from discovery data")
+        return ("info", "DHCP Behaviour — Device uses static IP configuration. No DHCP lease detected.")
+    return ("info", "DHCP Behaviour — Could not be determined automatically. Check the device's network "
+                     "settings page, or monitor DHCP lease tables on the network switch/router.")
 
 
 def _eval_u05(data: dict, _wl: list) -> tuple[str, str]:
     """IPv6 Support Detection — informational."""
     if data.get("ipv6_supported"):
-        return ("info", "IPv6 is enabled on this device")
-    return ("info", "IPv6 does not appear to be enabled")
+        return ("info", "IPv6 Detection — IPv6 is enabled and responding on this device.")
+    return ("info", "IPv6 Detection — No IPv6 response. The device may not support IPv6, or it is disabled in device settings.")
 
 
 def _eval_u06(data: dict, _wl: list) -> tuple[str, str]:
@@ -80,12 +83,12 @@ def _eval_u06(data: dict, _wl: list) -> tuple[str, str]:
     open_ports = data.get("open_ports", [])
     count = len(open_ports)
     if count == 0:
-        return ("info", "No open TCP ports detected")
+        return ("info", "TCP Port Scan — No open TCP ports found. Verify the device is reachable and not blocking scans.")
     port_list = ", ".join(
         f"{p['port']}/{p.get('service', '?')}" for p in open_ports[:20]
     )
     suffix = f" (and {count - 20} more)" if count > 20 else ""
-    return ("info", f"{count} open TCP port(s): {port_list}{suffix}")
+    return ("info", f"TCP Port Scan — {count} open TCP port(s) found: {port_list}{suffix}. Review for unnecessary services.")
 
 
 def _eval_u07(data: dict, _wl: list) -> tuple[str, str]:
@@ -93,23 +96,23 @@ def _eval_u07(data: dict, _wl: list) -> tuple[str, str]:
     open_ports = data.get("open_ports", [])
     count = len(open_ports)
     if count == 0:
-        return ("info", "No open UDP ports detected in top 100")
+        return ("info", "UDP Port Scan — No open UDP ports detected in top 100 scan.")
     port_list = ", ".join(
         f"{p['port']}/{p.get('service', '?')}" for p in open_ports[:20]
     )
-    return ("info", f"{count} open/filtered UDP port(s): {port_list}")
+    return ("info", f"UDP Port Scan — {count} open/filtered UDP port(s) found: {port_list}.")
 
 
 def _eval_u08(data: dict, _wl: list) -> tuple[str, str]:
     """Service Version Detection."""
     open_ports = data.get("open_ports", [])
     if not open_ports:
-        return ("info", "No services detected")
+        return ("info", "Service Detection — No service versions could be determined.")
     services = [
         f"{p['port']}: {p.get('service', '?')} {p.get('version', '')}".strip()
         for p in open_ports[:15]
     ]
-    return ("info", f"Detected services: {'; '.join(services)}")
+    return ("info", f"Service Detection — Versions identified on {len(open_ports)} port(s): {'; '.join(services)}.")
 
 
 def _eval_u09(data: dict, wl: list) -> tuple[str, str]:
@@ -119,7 +122,7 @@ def _eval_u09(data: dict, wl: list) -> tuple[str, str]:
         open_ports.add(int(p["port"]))
 
     if not open_ports:
-        return ("pass", "No open ports to compare against whitelist")
+        return ("pass", "Whitelist Compliance — No open ports to compare against whitelist.")
 
     allowed_ports = set()
     for entry in wl:
@@ -129,8 +132,8 @@ def _eval_u09(data: dict, wl: list) -> tuple[str, str]:
 
     non_compliant = sorted(open_ports - allowed_ports)
     if non_compliant:
-        return ("fail", f"Non-whitelisted ports open: {non_compliant}")
-    return ("pass", "All open ports are on the protocol whitelist")
+        return ("fail", f"Whitelist Compliance — Non-whitelisted ports open: {non_compliant}. These services are not approved. Disable them or add to the whitelist if justified.")
+    return ("pass", "Whitelist Compliance — All open ports match the protocol whitelist.")
 
 
 def _eval_u10(data: dict, _wl: list) -> tuple[str, str]:
@@ -138,10 +141,12 @@ def _eval_u10(data: dict, _wl: list) -> tuple[str, str]:
     weak = data.get("weak_versions", [])
     tls_versions = data.get("tls_versions", [])
     if not tls_versions:
-        return ("na", "No TLS service detected or testssl could not connect")
+        return ("na", "TLS Assessment — No HTTPS service detected (port 443 not open) or testssl could not connect. "
+                       "If this device should support HTTPS, verify the web server configuration and ensure TLS is enabled. "
+                       "Devices without HTTPS transmit data in cleartext, which is a security concern on shared networks.")
     if weak:
-        return ("fail", f"Weak TLS versions detected: {', '.join(weak)}")
-    return ("pass", f"TLS versions: {', '.join(tls_versions)} — no weak versions")
+        return ("fail", f"TLS Assessment — Weak TLS versions detected: {', '.join(weak)}. Disable TLS 1.0/1.1 and SSLv3 in the device web server settings.")
+    return ("pass", f"TLS Assessment — TLS versions: {', '.join(tls_versions)}. All secure (TLS 1.2+).")
 
 
 def _eval_u11(data: dict, _wl: list) -> tuple[str, str]:
@@ -149,49 +154,50 @@ def _eval_u11(data: dict, _wl: list) -> tuple[str, str]:
     weak_ciphers = data.get("weak_ciphers", [])
     ciphers = data.get("ciphers", [])
     if not ciphers:
-        return ("na", "No cipher suites detected")
+        return ("na", "Cipher Strength — No cipher suites detected. TLS may not be configured.")
     if weak_ciphers:
         names = [c.get("name", str(c)) if isinstance(c, dict) else str(c) for c in weak_ciphers[:5]]
-        return ("fail", f"Weak cipher suites detected: {', '.join(names)}")
-    return ("pass", f"{len(ciphers)} cipher suite(s) — all acceptable strength")
+        return ("fail", f"Cipher Strength — Weak ciphers found: {', '.join(names)}. Disable RC4, DES, 3DES, NULL, and EXPORT ciphers in the TLS configuration.")
+    return ("pass", f"Cipher Strength — All {len(ciphers)} cipher suite(s) are strong.")
 
 
 def _eval_u12(data: dict, _wl: list) -> tuple[str, str]:
     """Certificate Validity."""
     if data.get("cert_valid"):
         expiry = data.get("cert_expiry", "unknown")
-        return ("pass", f"Certificate valid, expires {expiry}")
+        issuer = data.get("cert_issuer", "unknown")
+        return ("pass", f"Certificate Validity — Certificate is valid. Expires: {expiry}. Issuer: {issuer}.")
     expiry = data.get("cert_expiry")
     if expiry:
-        return ("advisory", f"Certificate issue detected. Expiry: {expiry}")
-    return ("na", "No certificate detected or testssl could not connect")
+        return ("advisory", f"Certificate Validity — Issue found: certificate may be expired or self-signed. Expiry: {expiry}. Renew or replace the certificate.")
+    return ("na", "Certificate Validity — No certificate detected or testssl could not connect.")
 
 
 def _eval_u13(data: dict, _wl: list) -> tuple[str, str]:
     """HSTS Header Presence."""
     if data.get("hsts"):
         max_age = data.get("hsts_max_age")
-        suffix = f" (max-age={max_age})" if max_age else ""
-        return ("pass", f"HSTS header present{suffix}")
-    return ("fail", "HSTS header not set — HTTP Strict Transport Security missing")
+        suffix = f" with max-age={max_age}" if max_age else ""
+        return ("pass", f"HSTS Header — Present{suffix}. HTTPS-only browsing enforced.")
+    return ("fail", "HSTS Header — Missing. Add 'Strict-Transport-Security' header to prevent protocol downgrade attacks.")
 
 
 def _eval_u14(data: dict, _wl: list) -> tuple[str, str]:
     """HTTP Security Headers (nikto)."""
     stdout = data.get("raw", data.get("stdout", ""))
     if not stdout:
-        return ("na", "No HTTP service detected or nikto could not connect")
+        return ("na", "HTTP Headers — No HTTP service detected or nikto could not connect.")
 
     issues = _extract_nikto_findings(stdout)
     vuln_count = len(issues)
 
     if vuln_count > 5:
         details = "; ".join(issues[:5]) + f" (+{vuln_count - 5} more)"
-        return ("fail", f"Nikto found {vuln_count} issues: {details}")
+        return ("fail", f"HTTP Headers — Missing or misconfigured headers ({vuln_count} issues): {details}. Add Content-Security-Policy, X-Frame-Options, X-Content-Type-Options.")
     if vuln_count > 0:
         details = "; ".join(issues)
-        return ("advisory", f"Nikto found {vuln_count} issue(s): {details}")
-    return ("pass", "No significant HTTP security header issues found")
+        return ("advisory", f"HTTP Headers — {vuln_count} issue(s) found: {details}. Review and add missing security headers.")
+    return ("pass", "HTTP Headers — Security headers are properly configured.")
 
 
 def _eval_u15(data: dict, _wl: list) -> tuple[str, str]:
@@ -206,7 +212,7 @@ def _eval_u15(data: dict, _wl: list) -> tuple[str, str]:
     total_weak = len(weak_kex) + len(weak_ciphers) + len(weak_macs) + len(weak_hk)
 
     if not version and total_weak == 0:
-        return ("na", "SSH service not detected or ssh-audit could not connect")
+        return ("na", "SSH Algorithms — No SSH service detected (port 22 closed). Not applicable.")
 
     if score == "fail" or total_weak > 3:
         parts = []
@@ -218,12 +224,12 @@ def _eval_u15(data: dict, _wl: list) -> tuple[str, str]:
             parts.append(f"MACs: {', '.join(weak_macs[:3])}")
         if weak_hk:
             parts.append(f"Host keys: {', '.join(weak_hk)}")
-        return ("fail", f"Weak SSH algorithms: {'; '.join(parts)}")
+        return ("fail", f"SSH Algorithms — Weak algorithms found: {'; '.join(parts)}. Update the SSH server configuration to remove weak algorithms.")
 
     if total_weak > 0:
-        return ("advisory", f"{total_weak} weak algorithm(s) found — see parsed data for details")
+        return ("advisory", f"SSH Algorithms — {total_weak} weak algorithm(s) found. Update the SSH server configuration to remove weak algorithms.")
 
-    return ("pass", f"SSH algorithms acceptable. Version: {version}")
+    return ("pass", f"SSH Algorithms — All SSH key exchange, cipher, and MAC algorithms are strong. Version: {version}.")
 
 
 def _eval_u16(data: dict, _wl: list) -> tuple[str, str]:
@@ -231,8 +237,8 @@ def _eval_u16(data: dict, _wl: list) -> tuple[str, str]:
     found = data.get("found_credentials", [])
     if found:
         creds = [f"{c['login']}:{c['password']}" for c in found[:3]]
-        return ("fail", f"Default credentials accepted: {', '.join(creds)}")
-    return ("pass", "Default/common credentials were rejected")
+        return ("fail", f"Default Credentials — Default credentials work ({', '.join(creds)}). CRITICAL: Change the default password immediately via the device web interface.")
+    return ("pass", "Default Credentials — No default credentials found. Device uses custom credentials.")
 
 
 def _eval_u17(data: dict, _wl: list) -> tuple[str, str]:
@@ -240,10 +246,10 @@ def _eval_u17(data: dict, _wl: list) -> tuple[str, str]:
     lockout_detected = data.get("lockout_detected", False)
     error_msg = data.get("error", "")
     if lockout_detected:
-        return ("pass", "Account lockout detected after repeated failed login attempts")
+        return ("pass", "Brute Force Protection — Account lockout detected after rapid login attempts. Protection is active.")
     if "connection refused" in error_msg.lower() or "max retries" in error_msg.lower():
-        return ("pass", "Connection refused after rapid attempts — brute force protection active")
-    return ("advisory", "No account lockout detected — brute force protection may not be configured")
+        return ("pass", "Brute Force Protection — Connection refused after rapid attempts. Brute force protection is active.")
+    return ("advisory", "Brute Force Protection — No lockout detected after rapid login attempts. Enable account lockout or rate limiting on the device.")
 
 
 def _eval_u18(data: dict, _wl: list) -> tuple[str, str]:
@@ -251,42 +257,42 @@ def _eval_u18(data: dict, _wl: list) -> tuple[str, str]:
     redirects = data.get("redirects_to_https", False)
     http_open = data.get("http_open", False)
     if redirects:
-        return ("pass", "HTTP requests redirect to HTTPS")
+        return ("pass", "HTTP→HTTPS Redirect — HTTP correctly redirects to HTTPS.")
     if not http_open:
-        return ("pass", "HTTP port not open — only HTTPS available")
-    return ("fail", "HTTP is accessible without redirect to HTTPS")
+        return ("pass", "HTTP→HTTPS Redirect — No HTTP service detected. Only HTTPS available.")
+    return ("fail", "HTTP→HTTPS Redirect — HTTP does not redirect to HTTPS. Configure the web server to redirect port 80 to port 443.")
 
 
 def _eval_u19(data: dict, _wl: list) -> tuple[str, str]:
     """OS Fingerprinting — informational."""
     os_fp = data.get("os_fingerprint")
     if os_fp:
-        return ("info", f"OS fingerprint: {os_fp}")
-    return ("info", "OS fingerprint could not be determined")
+        return ("info", f"OS Fingerprint — Operating system identified: {os_fp}.")
+    return ("info", "OS Fingerprint — Could not determine OS. The device may block fingerprinting probes.")
 
 
 def _eval_u26(data: dict, _wl: list) -> tuple[str, str]:
     """NTP Synchronisation Check."""
     ntp_open = data.get("ntp_open", False)
     if ntp_open:
-        return ("pass", "NTP service detected (port 123 open)")
-    return ("advisory", "NTP port 123 not detected — device may not support time synchronisation")
+        return ("pass", "NTP Check — NTP service detected on port 123. Time synchronisation supported.")
+    return ("advisory", "NTP Check — No NTP service detected. Device may not sync time, affecting log accuracy and certificate validation.")
 
 
 def _eval_u28(data: dict, _wl: list) -> tuple[str, str]:
     """BACnet/IP Discovery."""
     bacnet_open = data.get("bacnet_open", False)
     if bacnet_open:
-        return ("info", "BACnet/IP service detected on port 47808")
-    return ("info", "BACnet/IP not detected on port 47808")
+        return ("info", "BACnet Discovery — BACnet service detected on port 47808. Ensure traffic is restricted to the BAS VLAN.")
+    return ("info", "BACnet Discovery — No BACnet service detected on port 47808.")
 
 
 def _eval_u29(data: dict, _wl: list) -> tuple[str, str]:
     """DNS Support Verification."""
     dns_open = data.get("dns_open", False)
     if dns_open:
-        return ("pass", "DNS service detected (port 53)")
-    return ("info", "DNS port 53 not detected — device may use external DNS")
+        return ("info", "DNS Verification — DNS service detected on port 53.")
+    return ("info", "DNS Verification — No DNS service detected. Device may use external DNS.")
 
 
 def _eval_u31(data: dict, _wl: list) -> tuple[str, str]:
@@ -294,14 +300,14 @@ def _eval_u31(data: dict, _wl: list) -> tuple[str, str]:
     open_ports = data.get("open_ports", [])
     snmp_ports = [p for p in open_ports if p.get("port") in (161, 162)]
     if not snmp_ports:
-        return ("pass", "No SNMP services detected")
+        return ("pass", "SNMP Check — No SNMP services detected.")
     stdout = data.get("raw", data.get("stdout", ""))
     stdout_lower = (stdout or "").lower()
     if "snmpv1" in stdout_lower or "snmpv2" in stdout_lower or "v2c" in stdout_lower:
-        return ("fail", "Insecure SNMP version detected (v1/v2c). Only SNMPv3 is acceptable.")
+        return ("fail", "SNMP Check — SNMP v1/v2c detected. These versions transmit community strings in cleartext. Upgrade to SNMPv3 only.")
     if "snmpv3" in stdout_lower:
-        return ("pass", "SNMPv3 detected — secure SNMP version in use")
-    return ("advisory", "SNMP port open but version could not be determined — verify manually")
+        return ("pass", "SNMP Check — SNMPv3 only detected. Secure configuration.")
+    return ("advisory", "SNMP Check — SNMP port open but version could not be determined. Verify manually that only SNMPv3 is in use.")
 
 
 def _eval_u32(data: dict, _wl: list) -> tuple[str, str]:
@@ -309,8 +315,8 @@ def _eval_u32(data: dict, _wl: list) -> tuple[str, str]:
     open_ports = data.get("open_ports", [])
     upnp_ports = [p for p in open_ports if p.get("port") == 1900]
     if upnp_ports:
-        return ("advisory", "UPnP/SSDP service detected on port 1900 — may expose device to network attacks")
-    return ("pass", "No UPnP/SSDP service detected")
+        return ("fail", "UPnP Check — UPnP/SSDP open on port 1900. This can expose the device to network attacks. Disable UPnP if not required.")
+    return ("pass", "UPnP Check — No UPnP/SSDP service exposed.")
 
 
 def _eval_u33(data: dict, _wl: list) -> tuple[str, str]:
@@ -318,8 +324,8 @@ def _eval_u33(data: dict, _wl: list) -> tuple[str, str]:
     open_ports = data.get("open_ports", [])
     mdns_ports = [p for p in open_ports if p.get("port") == 5353]
     if mdns_ports:
-        return ("advisory", "mDNS/Bonjour service detected on port 5353 — may leak device information")
-    return ("pass", "No mDNS/Bonjour service detected")
+        return ("fail", "mDNS Check — mDNS open on port 5353. This leaks device information. Disable if not required.")
+    return ("pass", "mDNS Check — No mDNS/Bonjour service exposed.")
 
 
 def _eval_u34(data: dict, _wl: list) -> tuple[str, str]:
@@ -336,38 +342,38 @@ def _eval_u34(data: dict, _wl: list) -> tuple[str, str]:
         other = [p for p in insecure if p not in (21, 23)]
         if other:
             parts.append(f"ports {other}")
-        return ("fail", f"Insecure cleartext protocols detected: {', '.join(parts)}")
+        return ("fail", f"Insecure Protocols — Found: {', '.join(parts)}. Telnet and FTP transmit credentials in cleartext. Disable and use SSH/SFTP instead.")
     if insecure:
-        return ("fail", f"Insecure cleartext protocol ports open: {insecure}")
-    return ("pass", "No insecure cleartext protocols (Telnet, FTP) detected")
+        return ("fail", f"Insecure Protocols — Cleartext protocol ports open: {insecure}. Disable and use encrypted alternatives.")
+    return ("pass", "Insecure Protocols — No Telnet/FTP detected.")
 
 
 def _eval_u35(data: dict, _wl: list) -> tuple[str, str]:
     """Web Server Vulnerability Scan (nikto)."""
     stdout = data.get("raw", data.get("stdout", ""))
     if not stdout:
-        return ("na", "No HTTP service detected or nikto could not connect")
+        return ("na", "Web Vulnerability Scan — No HTTP service detected or nikto could not connect.")
 
     issues = _extract_nikto_findings(stdout)
     vuln_count = len(issues)
 
     if vuln_count > 10:
         details = "; ".join(issues[:5]) + f" (+{vuln_count - 5} more)"
-        return ("fail", f"Nikto found {vuln_count} vulnerabilities — critical review needed: {details}")
+        return ("fail", f"Web Vulnerability Scan — Nikto found {vuln_count} issues: {details}. Review and patch the web server.")
     if vuln_count > 3:
         details = "; ".join(issues[:5])
-        return ("advisory", f"Nikto found {vuln_count} issue(s): {details}")
+        return ("advisory", f"Web Vulnerability Scan — Nikto found {vuln_count} issue(s): {details}. Review and patch.")
     if vuln_count > 0:
         details = "; ".join(issues)
-        return ("advisory", f"Nikto found {vuln_count} minor issue(s): {details}")
-    return ("pass", "No significant web server vulnerabilities found")
+        return ("advisory", f"Web Vulnerability Scan — Nikto found {vuln_count} minor issue(s): {details}.")
+    return ("pass", "Web Vulnerability Scan — Nikto found no significant issues.")
 
 
 def _eval_u36(data: dict, _wl: list) -> tuple[str, str]:
     """Banner Grabbing / Information Leakage."""
     open_ports = data.get("open_ports", [])
     if not open_ports:
-        return ("info", "No services detected for banner analysis")
+        return ("info", "Banner Grabbing — No services detected for banner analysis.")
     leaky = []
     for p in open_ports:
         version = p.get("version", "") or ""
@@ -376,8 +382,8 @@ def _eval_u36(data: dict, _wl: list) -> tuple[str, str]:
         if any(kw in banner for kw in ["10.0.", "192.168.", "172.16.", "internal", "debug"]):
             leaky.append(f"port {p['port']}: {service} {version}".strip())
     if leaky:
-        return ("advisory", f"Potential information leakage in banners: {'; '.join(leaky[:5])}")
-    return ("pass", "No sensitive information disclosed in service banners")
+        return ("advisory", f"Banner Grabbing — Banners reveal version info: {'; '.join(leaky[:5])}. Configure services to suppress version information.")
+    return ("pass", "Banner Grabbing — No sensitive information leakage in service banners.")
 
 
 def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
@@ -385,10 +391,10 @@ def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
     rtsp_open = data.get("rtsp_open", False)
     auth_required = data.get("auth_required", False)
     if not rtsp_open:
-        return ("na", "No RTSP service detected on port 554")
+        return ("na", "RTSP Auth — No RTSP service detected (port 554 closed).")
     if auth_required:
-        return ("pass", "RTSP streams require authentication")
-    return ("fail", "RTSP streams accessible without authentication")
+        return ("pass", "RTSP Auth — Stream requires authentication.")
+    return ("fail", "RTSP Auth — Stream accessible without authentication. Anyone on the network can view the video. Enable RTSP authentication.")
 
 
 import re

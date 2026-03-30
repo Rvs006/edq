@@ -45,6 +45,10 @@ async def create_template(
     user: User = Depends(require_role(["admin"])),
 ):
     clean = sanitize_dict(data.model_dump(), ["name", "description"])
+    # Deduplicate test_ids while preserving order
+    if "test_ids" in clean and clean["test_ids"]:
+        seen: set[str] = set()
+        clean["test_ids"] = [t for t in clean["test_ids"] if t not in seen and not seen.add(t)]  # type: ignore[func-returns-value]
     template = TestTemplate(**clean, created_by=user.id)
     db.add(template)
     await db.flush()
@@ -84,7 +88,9 @@ async def update_template(
     if "description" in updates:
         template.description = updates["description"]
     if "test_ids" in updates:
-        template.test_ids = updates["test_ids"]
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        template.test_ids = [t for t in updates["test_ids"] if t not in seen and not seen.add(t)]  # type: ignore[func-returns-value]
     if "whitelist_id" in updates:
         template.whitelist_id = updates["whitelist_id"]
     if "cell_mappings" in updates:

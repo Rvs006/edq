@@ -17,12 +17,22 @@ Fallback scratch generation available when template files are missing.
 import json
 import logging
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from app.config import settings
+
+_ILLEGAL_XML_CHARS = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]')
+
+
+def _sanitize_for_excel(value):
+    """Strip control characters that are illegal in Excel/XML."""
+    if not isinstance(value, str):
+        return value
+    return _ILLEGAL_XML_CHARS.sub('', value)
 
 logger = logging.getLogger(__name__)
 
@@ -228,9 +238,9 @@ async def generate_excel_report(
         if cell_addr and field_key in metadata_values:
             value = metadata_values[field_key]
             try:
-                synopsis_ws[cell_addr] = value
-            except Exception:
-                logger.warning("Could not write to cell %s in synopsis sheet", cell_addr)
+                synopsis_ws[cell_addr] = _sanitize_for_excel(value)
+            except Exception as e:
+                logger.warning("Could not write to cell %s in synopsis sheet: %s", cell_addr, str(e))
 
     overall_cell = meta.get("overall_result")
     if overall_cell:
@@ -257,7 +267,7 @@ async def generate_excel_report(
         tools_cell = meta.get("tool_versions")
         if tools_cell:
             try:
-                synopsis_ws[tools_cell] = tools_text
+                synopsis_ws[tools_cell] = _sanitize_for_excel(tools_text)
             except Exception:
                 pass
 
@@ -274,11 +284,11 @@ async def generate_excel_report(
             testplan_ws.insert_rows(row)
 
         if cols.get("test_result"):
-            testplan_ws[f"{cols['test_result']}{row}"] = _resolve_verdict(result, verdict_map)
+            testplan_ws[f"{cols['test_result']}{row}"] = _sanitize_for_excel(_resolve_verdict(result, verdict_map))
         if cols.get("test_comments"):
-            testplan_ws[f"{cols['test_comments']}{row}"] = _resolve_comment(result)
+            testplan_ws[f"{cols['test_comments']}{row}"] = _sanitize_for_excel(_resolve_comment(result))
         if cols.get("script_flag"):
-            testplan_ws[f"{cols['script_flag']}{row}"] = _resolve_script_flag(result)
+            testplan_ws[f"{cols['script_flag']}{row}"] = _sanitize_for_excel(_resolve_script_flag(result))
 
     total_template_rows = max(template_row_count, len(filtered_results))
     if len(filtered_results) < template_row_count:
@@ -323,17 +333,17 @@ async def generate_excel_report_scratch(test_run, test_results, report_config=No
 
     ws_summary["A3"] = "Test Run ID"
     ws_summary["A3"].font = label_font
-    ws_summary["B3"] = test_run.id
+    ws_summary["B3"] = _sanitize_for_excel(test_run.id)
     ws_summary["B3"].font = value_font
 
     ws_summary["A4"] = "Device ID"
     ws_summary["A4"].font = label_font
-    ws_summary["B4"] = test_run.device_id
+    ws_summary["B4"] = _sanitize_for_excel(test_run.device_id)
 
     ws_summary["A5"] = "Overall Verdict"
     ws_summary["A5"].font = label_font
     overall_verdict_str = _resolve_overall_verdict(test_run)
-    ws_summary["B5"] = overall_verdict_str
+    ws_summary["B5"] = _sanitize_for_excel(overall_verdict_str)
     verdict_colors = {"PASS": "27AE60", "QUALIFIED PASS": "F39C12", "FAIL": "E74C3C"}
     ws_summary["B5"].font = Font(
         name="Calibri", size=11, bold=True, color=verdict_colors.get(overall_verdict_str, "000000")
@@ -356,8 +366,8 @@ async def generate_excel_report_scratch(test_run, test_results, report_config=No
         ws_summary["A13"].font = label_font
         row_offset = 14
         for tool_name, tool_ver in tool_versions.items():
-            ws_summary[f"A{row_offset}"] = tool_name
-            ws_summary[f"B{row_offset}"] = tool_ver
+            ws_summary[f"A{row_offset}"] = _sanitize_for_excel(tool_name)
+            ws_summary[f"B{row_offset}"] = _sanitize_for_excel(tool_ver)
             row_offset += 1
         ws_summary[f"A{row_offset + 1}"] = "Generated"
         ws_summary[f"B{row_offset + 1}"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -397,15 +407,15 @@ async def generate_excel_report_scratch(test_run, test_results, report_config=No
         tier_val = _get_tier_raw(result)
         compliance = ", ".join(result.compliance_map) if result.compliance_map else ""
 
-        ws_results.cell(row=row_idx, column=1, value=result.test_id)
-        ws_results.cell(row=row_idx, column=2, value=result.test_name)
-        ws_results.cell(row=row_idx, column=3, value=tier_val)
-        ws_results.cell(row=row_idx, column=4, value=result.tool or "—")
-        ws_results.cell(row=row_idx, column=5, value=result.is_essential.upper())
-        verdict_cell = ws_results.cell(row=row_idx, column=6, value=verdict_val.upper())
+        ws_results.cell(row=row_idx, column=1, value=_sanitize_for_excel(result.test_id))
+        ws_results.cell(row=row_idx, column=2, value=_sanitize_for_excel(result.test_name))
+        ws_results.cell(row=row_idx, column=3, value=_sanitize_for_excel(tier_val))
+        ws_results.cell(row=row_idx, column=4, value=_sanitize_for_excel(result.tool or "—"))
+        ws_results.cell(row=row_idx, column=5, value=_sanitize_for_excel(result.is_essential.upper()))
+        verdict_cell = ws_results.cell(row=row_idx, column=6, value=_sanitize_for_excel(verdict_val.upper()))
         verdict_cell.fill = verdict_fills.get(verdict_val, PatternFill())
-        ws_results.cell(row=row_idx, column=7, value=_resolve_comment(result))
-        ws_results.cell(row=row_idx, column=8, value=compliance)
+        ws_results.cell(row=row_idx, column=7, value=_sanitize_for_excel(_resolve_comment(result)))
+        ws_results.cell(row=row_idx, column=8, value=_sanitize_for_excel(compliance))
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"EDQ_Report_{test_run.id[:8]}_scratch_{timestamp}.xlsx"
@@ -528,7 +538,7 @@ async def generate_word_report(
     info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     for i, (label, value) in enumerate(info_items):
         info_table.rows[i].cells[0].text = label
-        info_table.rows[i].cells[1].text = str(value)
+        info_table.rows[i].cells[1].text = _sanitize_for_excel(str(value))
         for paragraph in info_table.rows[i].cells[0].paragraphs:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
             for run in paragraph.runs:
@@ -574,7 +584,7 @@ async def generate_word_report(
 
     if include_synopsis and test_run.synopsis:
         synopsis_text = test_run.synopsis.replace("[AI-DRAFTED] ", "")
-        p = doc.add_paragraph(synopsis_text)
+        p = doc.add_paragraph(_sanitize_for_excel(synopsis_text))
         p.paragraph_format.space_after = Pt(12)
     else:
         p = doc.add_paragraph(
@@ -598,8 +608,8 @@ async def generate_word_report(
         ("Overall Verdict", overall_display),
     ]
     for i, (label, value) in enumerate(findings_data):
-        findings_table.rows[i].cells[0].text = label
-        findings_table.rows[i].cells[1].text = value
+        findings_table.rows[i].cells[0].text = _sanitize_for_excel(label)
+        findings_table.rows[i].cells[1].text = _sanitize_for_excel(value)
         for paragraph in findings_table.rows[i].cells[0].paragraphs:
             for run in paragraph.runs:
                 run.font.bold = True
@@ -627,8 +637,8 @@ async def generate_word_report(
             for run in paragraph.runs:
                 run.font.bold = True
         for i, (tool_name, tool_ver) in enumerate(tool_versions.items(), 1):
-            tv_table.rows[i].cells[0].text = tool_name
-            tv_table.rows[i].cells[1].text = str(tool_ver)
+            tv_table.rows[i].cells[0].text = _sanitize_for_excel(tool_name)
+            tv_table.rows[i].cells[1].text = _sanitize_for_excel(str(tool_ver))
 
     doc.add_page_break()
 
@@ -654,12 +664,12 @@ async def generate_word_report(
         verdict_raw = _get_verdict_raw(result)
         tier_raw = _get_tier_raw(result)
 
-        row.cells[0].text = result.test_id
-        row.cells[1].text = result.test_name
-        row.cells[2].text = tier_raw.replace("_", " ").title()
-        row.cells[3].text = result.is_essential.upper()
-        row.cells[4].text = _resolve_verdict(result, {})
-        row.cells[5].text = _resolve_comment(result)[:200]
+        row.cells[0].text = _sanitize_for_excel(result.test_id)
+        row.cells[1].text = _sanitize_for_excel(result.test_name)
+        row.cells[2].text = _sanitize_for_excel(tier_raw.replace("_", " ").title())
+        row.cells[3].text = _sanitize_for_excel(result.is_essential.upper())
+        row.cells[4].text = _sanitize_for_excel(_resolve_verdict(result, {}))
+        row.cells[5].text = _sanitize_for_excel(_resolve_comment(result)[:200])
 
         bg_hex = _VERDICT_BG_COLORS.get(verdict_raw)
         if bg_hex:
@@ -707,7 +717,7 @@ async def generate_word_report(
 
             comment = _resolve_comment(result)
             if comment:
-                doc.add_paragraph(f"Comment: {comment}")
+                doc.add_paragraph(f"Comment: {_sanitize_for_excel(comment)}")
 
             findings = getattr(result, "findings", None)
             if findings:
@@ -715,12 +725,12 @@ async def generate_word_report(
                 if isinstance(findings, list):
                     for f in findings:
                         doc.add_paragraph(
-                            str(f) if isinstance(f, str) else json.dumps(f),
+                            _sanitize_for_excel(str(f) if isinstance(f, str) else json.dumps(f)),
                             style="List Bullet 2",
                         )
                 elif isinstance(findings, dict):
                     for k, v in findings.items():
-                        doc.add_paragraph(f"{k}: {v}", style="List Bullet 2")
+                        doc.add_paragraph(_sanitize_for_excel(f"{k}: {v}"), style="List Bullet 2")
 
             raw_output = getattr(result, "raw_output", None)
             if raw_output:
@@ -729,7 +739,7 @@ async def generate_word_report(
                 if len(raw_output) > 500:
                     excerpt += "..."
                 p = doc.add_paragraph()
-                run = p.add_run(excerpt)
+                run = p.add_run(_sanitize_for_excel(excerpt))
                 run.font.name = "Courier New"
                 run.font.size = Pt(8)
 
@@ -777,8 +787,8 @@ async def generate_word_report(
             service = entry.get("service", "Unknown")
             port = entry.get("port", "")
             protocol = entry.get("protocol", "")
-            row.cells[0].text = service
-            row.cells[1].text = f"{port}/{protocol}"
+            row.cells[0].text = _sanitize_for_excel(service)
+            row.cells[1].text = _sanitize_for_excel(f"{port}/{protocol}")
             row.cells[2].text = "Allowed"
             is_compliant = port not in non_compliant_ports
             row.cells[3].text = "Compliant" if is_compliant else "Non-Compliant"

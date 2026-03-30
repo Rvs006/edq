@@ -134,6 +134,52 @@ async def discover_devices(
         )
         hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
 
+        # Enrich discovered hosts with service/OS info via quick scan
+        if hosts:
+            discovered_ips = [h["ip"] for h in hosts if h.get("ip")]
+            if discovered_ips:
+                try:
+                    enrich_raw = await tools_client.nmap(
+                        " ".join(discovered_ips),
+                        ["-sV", "-O", "--top-ports", "20", "-T4", "-oX", "-"],
+                        timeout=180,
+                    )
+                    enrich_xml = enrich_raw.get("stdout", "")
+                    if enrich_xml and "<?xml" in enrich_xml:
+                        enrich_data = nmap_parser.parse_xml(enrich_xml)
+                        # Build IP -> enrichment map
+                        enrich_map = {}
+                        for ehost in enrich_data.get("hosts", []):
+                            eip = ehost.get("ip")
+                            if eip:
+                                enrich_map[eip] = ehost
+                        # Merge enrichment into discovered hosts
+                        for h in hosts:
+                            einfo = enrich_map.get(h.get("ip"))
+                            if einfo:
+                                # Extract services list
+                                ports = einfo.get("ports", [])
+                                h["services"] = [
+                                    f"{p.get('service', '?')}/{p.get('port', '?')}"
+                                    for p in ports if p.get("state") == "open"
+                                ]
+                                h["open_ports"] = [
+                                    {"port": p.get("port"), "service": p.get("service", ""), "version": p.get("version", "")}
+                                    for p in ports if p.get("state") == "open"
+                                ]
+                                h["os"] = einfo.get("os")
+                                # Try to extract model/firmware from service banners
+                                for p in ports:
+                                    version = (p.get("version") or "").strip()
+                                    service = (p.get("service") or "").strip()
+                                    if version and not h.get("model"):
+                                        # Common patterns: "EasyIO FW-14", "Axis M1065", etc
+                                        h["model"] = version
+                                    if service == "http" and version:
+                                        h["http_server"] = version
+                except Exception:
+                    logger.warning("Enrichment scan failed, continuing with basic discovery")
+
         scan.devices_found = hosts
         scan.status = NetworkScanStatus.PENDING
         await db.flush()
@@ -187,7 +233,14 @@ async def start_batch_scan(
                 raise HTTPException(status_code=400, detail="No test template available")
         template_id = template.id
 
-    test_ids = data.test_ids or scan.selected_test_ids or (template.test_ids if template else [])
+    raw_test_ids = data.test_ids or scan.selected_test_ids or (template.test_ids if template else [])
+    # Deduplicate while preserving order (guards against double-serialized or manually edited templates)
+    seen: set[str] = set()
+    test_ids: list[str] = []
+    for tid in raw_test_ids:
+        if tid not in seen:
+            seen.add(tid)
+            test_ids.append(tid)
 
     run_ids = []
     for ip in data.device_ips:

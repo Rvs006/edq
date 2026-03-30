@@ -9,6 +9,24 @@ import {
   Bell, Search, Users, Eye, Network, Wifi, Activity, CalendarClock, Cpu
 } from 'lucide-react'
 
+const pageDescriptions: Record<string, string> = {
+  '/': 'Overview of testing activity, recent sessions, and quick actions',
+  '/devices': 'Register, discover, and manage all IP devices under test',
+  '/device-profiles': 'Fingerprint rules that auto-identify device types and skip irrelevant tests',
+  '/test-runs': 'Security qualification sessions — 43 checks per device (25 automated, 18 guided manual)',
+  '/network-scan': 'Scan a subnet to discover and bulk-test multiple devices at once',
+  '/templates': 'Define which tests to include and map results to report cells',
+  '/test-plans': 'Saved test configurations that can be reused across devices',
+  '/scan-schedules': 'Schedule recurring network scans to run automatically',
+  '/whitelists': 'Approved port/protocol lists — open ports are checked against these',
+  '/reports': 'Generate Excel, Word, or PDF qualification reports from completed test sessions',
+  '/agents': 'Tools sidecar instances that execute security scans (nmap, testssl, hydra, etc.)',
+  '/review': 'QA review queue — approve, override, or request retests on flagged results',
+  '/admin': 'Manage user accounts, roles, and permissions',
+  '/audit-log': 'Full history of actions — who did what and when',
+  '/settings': 'Application preferences, theme, tool versions, and account settings',
+}
+
 const navSections = [
   {
     label: 'Main',
@@ -105,6 +123,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return 'EDQ'
   })()
 
+  const pageDescription = (() => {
+    for (const [path, desc] of Object.entries(pageDescriptions)) {
+      if (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)) return desc
+    }
+    return ''
+  })()
+
   return (
     <div className="min-h-screen bg-surface dark:bg-dark-bg">
       {/* Rainbow accent bar — spans full width at the very top */}
@@ -120,7 +145,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
       <aside
-        className={`fixed top-1 inset-y-0 left-0 z-50 w-64 bg-[#0f172a] flex flex-col transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed top-1 inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#0f172a] flex flex-col transition-transform duration-200 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -139,10 +164,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
+                title="Open menu"
               >
                 <Menu className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
               </button>
-              <h1 className="text-base font-semibold text-zinc-900 dark:text-slate-100">{pageTitle}</h1>
+              <div className="min-w-0">
+                <h1 className="text-base font-semibold text-zinc-900 dark:text-slate-100">{pageTitle}</h1>
+                {pageDescription && (
+                  <p className="text-[11px] text-zinc-400 dark:text-slate-500 truncate hidden sm:block">{pageDescription}</p>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -207,7 +238,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               <ThemeToggle />
 
-              <button className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors relative">
+              <button className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors relative" title="Notifications">
                 <Bell className="w-5 h-5 text-zinc-500" />
               </button>
 
@@ -215,6 +246,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
                   className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
+                  title="Account menu"
                 >
                   <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center">
                     <span className="text-xs font-semibold text-white">
@@ -276,13 +308,18 @@ function SidebarContent({
 }) {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between h-14 px-4 border-b border-slate-800">
-        <Link to="/" className="flex items-center gap-2" onClick={onClose}>
-          <img src="/icon-white.png" alt="" className="w-8 h-8 shrink-0" />
-          <img src="/electracom-logo.png" alt="Electracom" className="h-14" style={{ filter: 'brightness(2) saturate(1.3)' }} />
+      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-slate-800">
+        <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
+          <img src="/icon-white.png" alt="" className="w-9 h-9 shrink-0 hidden dark:block" />
+          <img src="/icon-white.png" alt="" className="w-9 h-9 shrink-0 dark:hidden" style={{ filter: 'brightness(0)' }} />
+          <div className="flex flex-col">
+            <img src="/electracom-logo.png" alt="Electracom" className="h-7 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
+            <img src="/electracom-logo.png" alt="Electracom" className="h-7 dark:hidden" />
+            <span className="text-[10px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
+          </div>
         </Link>
         {onClose && (
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-800 lg:hidden">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 lg:hidden" title="Close menu">
             <X className="w-5 h-5 text-zinc-400" />
           </button>
         )}
@@ -291,7 +328,7 @@ function SidebarContent({
       <nav className="flex-1 px-3 py-4 overflow-y-auto">
         {navSections.map((section) => (
           <div key={section.label} className="mb-4">
-            <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
               {section.label}
             </p>
             <div className="space-y-0.5">
@@ -304,8 +341,8 @@ function SidebarContent({
                     onClick={onClose}
                     className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       active
-                        ? 'bg-slate-800 text-white'
-                        : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                        ? 'bg-zinc-100 text-zinc-900 dark:bg-slate-800 dark:text-white'
+                        : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200'
                     }`}
                   >
                     {active && (
@@ -321,14 +358,14 @@ function SidebarContent({
         ))}
       </nav>
 
-      <div className="px-3 py-3 border-t border-slate-800">
+      <div className="px-3 py-3 border-t border-zinc-200 dark:border-slate-800">
         <div className="flex items-center gap-3 px-3 py-2">
-          <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
-            <User className="w-4 h-4 text-slate-300" />
+          <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-slate-700 flex items-center justify-center">
+            <User className="w-4 h-4 text-zinc-500 dark:text-slate-300" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">{user?.full_name || user?.username}</p>
-            <p className="text-xs text-slate-500 capitalize">{user?.role}</p>
+            <p className="text-sm font-medium text-zinc-900 dark:text-white truncate">{user?.full_name || user?.username}</p>
+            <p className="text-xs text-zinc-400 dark:text-slate-500 capitalize">{user?.role}</p>
           </div>
         </div>
       </div>

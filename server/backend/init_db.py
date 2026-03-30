@@ -130,6 +130,30 @@ def _run_migrations(db: Session) -> None:
             pass
     db.commit()
 
+    # Fix any templates with duplicate test_ids (e.g. U20 appearing twice)
+    _dedup_template_test_ids(db)
+
+
+def _dedup_template_test_ids(db: Session) -> None:
+    """Remove duplicate entries from test_ids JSON arrays in all templates."""
+    templates = db.query(TestTemplate).all()
+    for tmpl in templates:
+        raw = tmpl.test_ids
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        if not raw:
+            continue
+        seen: set = set()
+        deduped = []
+        for tid in raw:
+            if tid not in seen:
+                seen.add(tid)
+                deduped.append(tid)
+        if len(deduped) != len(raw):
+            print(f"  Fixed duplicate test_ids in template '{tmpl.name}': {len(raw)} → {len(deduped)}")
+            tmpl.test_ids = deduped
+    db.commit()
+
 
 def _seed_admin_user(db: Session) -> User:
     admin = db.query(User).filter(User.username == "admin").first()

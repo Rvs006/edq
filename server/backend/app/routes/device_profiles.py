@@ -9,8 +9,10 @@ from datetime import datetime
 
 from app.models.database import get_db
 from app.models.device_profile import DeviceProfile
+from app.models.test_run import TestRun
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
+from app.services.device_fingerprinter import fingerprinter
 from app.utils.sanitize import sanitize_dict
 from app.utils.audit import log_action
 
@@ -53,6 +55,7 @@ class ProfileResponse(BaseModel):
     additional_tests: Optional[list] = None
     safe_mode: Optional[dict] = None
     fingerprint_rules: Optional[dict] = None
+    auto_generated: bool = False
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -160,3 +163,44 @@ async def delete_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     profile.is_active = False
     await log_action(db, user, "delete", "device_profile", profile_id, {"name": profile.name}, request)
+
+
+class AutoLearnRequest(BaseModel):
+    test_run_id: str
+
+
+class AutoLearnResponse(BaseModel):
+    created: bool
+    profile: Optional[ProfileResponse] = None
+    message: str
+
+
+@router.post("/auto-learn", response_model=AutoLearnResponse)
+async def auto_learn_profile(
+    data: AutoLearnRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(["admin", "engineer"])),
+):
+    """Create a DeviceProfile from a completed test run's fingerprint data."""
+    run_result = await db.execute(select(TestRun).where(TestRun.id == data.test_run_id))
+    run = run_result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Test run not found")
+
+    if not run.run_metadata or not run.run_metadata.get("fingerprint"):
+        raise HTTPException(status_code=400, detail="No fingerprint data for this run")
+
+    profile = await fingerprinter.learn_from_run(db, run.device_id, run.run_metadata)
+    if not profile:
+        return AutoLearnResponse(created=False, message="Profile already exists or insufficient data")
+
+    await db.flush()
+    await db.refresh(profile)
+    await log_action(db, user, "create", "device_profile", profile.id, {"auto_learn": True, "run_id": data.test_run_id}, request)
+
+    return AutoLearnResponse(
+        created=True,
+        profile=ProfileResponse.model_validate(profile),
+        message=f"Created profile '{profile.name}'",
+    )

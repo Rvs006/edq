@@ -3,10 +3,18 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { testRunsApi, devicesApi, templatesApi } from '@/lib/api'
 import type { TestRun, Device, TestTemplate } from '@/lib/types'
-import { Play, Plus, Loader2, X } from 'lucide-react'
+import { Play, Plus, Loader2, X, Activity } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
+
+function formatRunName(run: TestRun) {
+  const device = run.device_name || run.device_ip || `Device ${run.device_id?.slice(0, 8)}`
+  const date = run.started_at
+    ? new Date(run.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : new Date(run.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return `${device} — ${date}`
+}
 
 export default function TestRunsPage() {
   const [searchParams] = useSearchParams()
@@ -17,6 +25,11 @@ export default function TestRunsPage() {
   const { data: runs, isLoading } = useQuery({
     queryKey: ['test-runs', statusFilter, deviceId],
     queryFn: () => testRunsApi.list({ status: statusFilter || undefined, device_id: deviceId }).then(r => r.data),
+    refetchInterval: (query) => {
+      const data = query.state.data as TestRun[] | undefined
+      const hasRunning = data?.some(r => r.status === 'running')
+      return hasRunning ? 3000 : false
+    },
   })
 
   return (
@@ -67,42 +80,66 @@ export default function TestRunsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
-                {runs.map((run: TestRun) => (
-                  <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
-                    <td className="py-3 px-4">
-                      <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-slate-100 hover:text-brand-500">
-                        {run.device_name || `Run ${run.id.slice(0, 8)}`}
-                      </Link>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs text-zinc-500 hidden sm:table-cell">
-                      {run.device_ip || run.device_id?.slice(0, 8)}
-                    </td>
-                    <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
-                      {run.template_name || run.template_id?.slice(0, 8)}
-                    </td>
-                    <td className="py-3 px-4"><StatusBadge status={run.status} /></td>
-                    <td className="py-3 px-4 hidden sm:table-cell">
-                      {run.status === 'running' ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 h-1.5 bg-zinc-100 dark:bg-zinc-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-brand-500 rounded-full" style={{ width: `${run.progress_pct || 0}%` }} />
-                          </div>
-                          <span className="text-xs text-zinc-500">{Math.round(run.progress_pct || 0)}%</span>
+                {runs.map((run: TestRun) => {
+                  const isRunning = run.status === 'running'
+                  return (
+                    <tr
+                      key={run.id}
+                      className={`transition-colors ${
+                        isRunning
+                          ? 'bg-blue-50/40 dark:bg-blue-950/20 hover:bg-blue-50/70 dark:hover:bg-blue-950/30'
+                          : 'hover:bg-zinc-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <td className="py-3 px-4">
+                        <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-slate-100 hover:text-brand-500">
+                          {formatRunName(run)}
+                        </Link>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-xs text-zinc-500 hidden sm:table-cell">
+                        {run.device_ip || '—'}
+                      </td>
+                      <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
+                        {run.template_name || '—'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={run.status} />
+                          {isRunning && (
+                            <Activity className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-xs text-zinc-400">
-                          {run.total_tests ? `${run.passed_tests || 0}/${run.total_tests}` : '—'}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      {run.overall_verdict ? <VerdictBadge verdict={run.overall_verdict} /> : <span className="text-xs text-zinc-400">&mdash;</span>}
-                    </td>
-                    <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
-                      {run.started_at ? new Date(run.started_at).toLocaleString() : new Date(run.created_at).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3 px-4 hidden sm:table-cell">
+                        {isRunning ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 h-2 bg-zinc-100 dark:bg-zinc-700 rounded-full overflow-hidden">
+                              <motion.div
+                                className="h-full bg-gradient-to-r from-blue-500 to-brand-500 rounded-full"
+                                initial={{ width: 0 }}
+                                animate={{ width: `${run.progress_pct || 0}%` }}
+                                transition={{ duration: 0.5, ease: 'easeOut' }}
+                              />
+                            </div>
+                            <span className="text-xs font-mono text-blue-600 dark:text-blue-400 min-w-[3rem]">
+                              {run.completed_tests || 0}/{run.total_tests || 43}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-zinc-400 font-mono">
+                            {run.total_tests ? `${run.completed_tests || 0}/${run.total_tests}` : '—'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {run.overall_verdict ? <VerdictBadge verdict={run.overall_verdict} /> : <span className="text-xs text-zinc-400">&mdash;</span>}
+                      </td>
+                      <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
+                        {run.started_at ? new Date(run.started_at).toLocaleString() : new Date(run.created_at).toLocaleString()}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -140,11 +177,13 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
     queryFn: () => templatesApi.list().then(r => r.data),
   })
 
+  const defaultTemplate = (templates as TestTemplate[] | undefined)?.find(t => t.is_default)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     try {
-      await testRunsApi.create({ device_id: deviceId, template_id: templateId })
+      await testRunsApi.create({ device_id: deviceId, template_id: templateId || defaultTemplate?.id || '' })
       queryClient.invalidateQueries({ queryKey: ['test-runs'] })
       toast.success('Test run created')
       onClose()
@@ -182,10 +221,17 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label className="label">Test Template</label>
-            <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="input" required>
+            <select
+              value={templateId || defaultTemplate?.id || ''}
+              onChange={(e) => setTemplateId(e.target.value)}
+              className="input"
+              required
+            >
               <option value="">Select a template...</option>
               {templates?.map((t: TestTemplate) => (
-                <option key={t.id} value={t.id}>{t.name} ({t.test_ids?.length || 0} tests)</option>
+                <option key={t.id} value={t.id}>
+                  {t.name} ({t.test_ids?.length || 0} tests){t.is_default ? ' — Recommended' : ''}
+                </option>
               ))}
             </select>
           </div>
