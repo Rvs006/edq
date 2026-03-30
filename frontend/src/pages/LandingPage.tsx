@@ -51,8 +51,8 @@ export default function LandingPage() {
       <header className="sticky top-1 z-30 bg-white/80 dark:bg-dark-surface/80 backdrop-blur-md border-b border-zinc-200 dark:border-slate-700/50">
         <div className="max-w-6xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
           <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="" className="h-[58px] w-auto shrink-0 dark:hidden" />
-            <img src="/icon-white.png" alt="" className="h-[58px] w-auto shrink-0 hidden dark:block" />
+            <img src="/icon.png" alt="" className="h-[32px] w-auto shrink-0 dark:hidden" />
+            <img src="/icon-white.png" alt="" className="h-[32px] w-auto shrink-0 hidden dark:block" />
             <ElectracomLogo size="md" />
           </div>
           <div className="flex items-center gap-2">
@@ -188,8 +188,8 @@ export default function LandingPage() {
       <footer className="bg-white dark:bg-dark-card border-t border-zinc-200 dark:border-slate-700/50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="" className="h-[38px] w-auto shrink-0 dark:hidden" />
-            <img src="/icon-white.png" alt="" className="h-[38px] w-auto shrink-0 hidden dark:block" />
+            <img src="/icon.png" alt="" className="h-[22px] w-auto shrink-0 dark:hidden" />
+            <img src="/icon-white.png" alt="" className="h-[22px] w-auto shrink-0 hidden dark:block" />
             <ElectracomLogo size="sm" />
           </div>
           <p className="text-xs text-zinc-400 dark:text-slate-500">
