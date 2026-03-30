@@ -136,24 +136,19 @@ export default function SessionControls({
             </button>
           )}
 
-          {!isComplete && !isAwaitingReview && !isPending && !isRunning && canSelfApprove && (
+          {(isComplete || isAwaitingReview) && canSelfApprove && (
             <>
               <button onClick={onApprove} disabled={isActioning} className="btn-primary text-sm">
                 {isActioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                Approve All
+                {isAwaitingReview ? 'Approve' : 'Approve All'}
               </button>
-              <button onClick={onRequestReview} disabled={isActioning} className="btn-secondary text-sm" title="Submit for peer review">
-                <Send className="w-4 h-4" />
-                <span className="hidden sm:inline">Request Review</span>
-              </button>
+              {!isAwaitingReview && (
+                <button onClick={onRequestReview} disabled={isActioning} className="btn-secondary text-sm" title="Submit for peer review">
+                  <Send className="w-4 h-4" />
+                  <span className="hidden sm:inline">Request Review</span>
+                </button>
+              )}
             </>
-          )}
-
-          {isAwaitingReview && canSelfApprove && (
-            <button onClick={onApprove} disabled={isActioning} className="btn-primary text-sm">
-              {isActioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              Approve
-            </button>
           )}
         </div>
       </div>

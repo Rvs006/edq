@@ -9,6 +9,24 @@ import {
   Bell, Search, Users, Eye, Network, Wifi, Activity, CalendarClock, Cpu
 } from 'lucide-react'
 
+const pageDescriptions: Record<string, string> = {
+  '/': 'Overview of testing activity, recent sessions, and quick actions',
+  '/devices': 'Register, discover, and manage all IP devices under test',
+  '/device-profiles': 'Fingerprint rules that auto-identify device types and skip irrelevant tests',
+  '/test-runs': 'Security qualification sessions — 43 checks per device (25 automated, 18 guided manual)',
+  '/network-scan': 'Scan a subnet to discover and bulk-test multiple devices at once',
+  '/templates': 'Define which tests to include and map results to report cells',
+  '/test-plans': 'Saved test configurations that can be reused across devices',
+  '/scan-schedules': 'Schedule recurring network scans to run automatically',
+  '/whitelists': 'Approved port/protocol lists — open ports are checked against these',
+  '/reports': 'Generate Excel, Word, or PDF qualification reports from completed test sessions',
+  '/agents': 'Tools sidecar instances that execute security scans (nmap, testssl, hydra, etc.)',
+  '/review': 'QA review queue — approve, override, or request retests on flagged results',
+  '/admin': 'Manage user accounts, roles, and permissions',
+  '/audit-log': 'Full history of actions — who did what and when',
+  '/settings': 'Application preferences, theme, tool versions, and account settings',
+}
+
 const navSections = [
   {
     label: 'Main',
@@ -105,6 +123,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return 'EDQ'
   })()
 
+  const pageDescription = (() => {
+    for (const [path, desc] of Object.entries(pageDescriptions)) {
+      if (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)) return desc
+    }
+    return ''
+  })()
+
   return (
     <div className="min-h-screen bg-surface dark:bg-dark-bg">
       {/* Rainbow accent bar — spans full width at the very top */}
@@ -143,7 +168,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               >
                 <Menu className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
               </button>
-              <h1 className="text-base font-semibold text-zinc-900 dark:text-slate-100">{pageTitle}</h1>
+              <div className="min-w-0">
+                <h1 className="text-base font-semibold text-zinc-900 dark:text-slate-100">{pageTitle}</h1>
+                {pageDescription && (
+                  <p className="text-[11px] text-zinc-400 dark:text-slate-500 truncate hidden sm:block">{pageDescription}</p>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
