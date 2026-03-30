@@ -308,12 +308,15 @@ function SidebarContent({
 }) {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between h-14 px-4 border-b border-zinc-200 dark:border-slate-800">
-        <Link to="/" className="flex items-center gap-2" onClick={onClose}>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-slate-800">
+        <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
           <img src="/icon-white.png" alt="" className="w-9 h-9 shrink-0 hidden dark:block" />
           <img src="/icon-white.png" alt="" className="w-9 h-9 shrink-0 dark:hidden" style={{ filter: 'brightness(0)' }} />
-          <img src="/electracom-logo.png" alt="Electracom" className="h-16 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
-          <img src="/electracom-logo.png" alt="Electracom" className="h-16 dark:hidden" />
+          <div className="flex flex-col">
+            <img src="/electracom-logo.png" alt="Electracom" className="h-7 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
+            <img src="/electracom-logo.png" alt="Electracom" className="h-7 dark:hidden" />
+            <span className="text-[10px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
+          </div>
         </Link>
         {onClose && (
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 lg:hidden" title="Close menu">
