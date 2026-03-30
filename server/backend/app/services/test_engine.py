@@ -28,6 +28,7 @@ from app.services.parsers.hydra_parser import hydra_parser
 from app.services.evaluation import evaluate_result
 from app.services.wobbly_cable import WobblyCableHandler
 from app.services.test_library import get_test_by_id
+from app.services.device_fingerprinter import fingerprinter, FingerprintResult
 from app.routes.websocket_routes import manager
 
 logger = logging.getLogger("edq.test_engine")
@@ -116,6 +117,12 @@ class TestEngine:
             total = len(test_results)
             completed = 0
 
+            # Discovery test IDs — these run first, before fingerprinting
+            DISCOVERY_TESTS = {"U01", "U02", "U03", "U04", "U05", "U06", "U07", "U08"}
+            skip_test_ids: set[str] = set()
+            fingerprint_done = False
+            fingerprint_result: FingerprintResult | None = None
+
             for i, test_result in enumerate(test_results):
                 test_def = get_test_by_id(test_result.test_id)
                 if test_def is None:
@@ -125,6 +132,49 @@ class TestEngine:
                     cfg = plan_configs.get(test_result.test_id)
                     if cfg is not None and not cfg.get("enabled", True):
                         continue
+
+                # --- Fingerprint phase: runs once after U08 completes ---
+                if not fingerprint_done and test_result.test_id not in DISCOVERY_TESTS:
+                    fingerprint_done = True
+                    fingerprint_result = await self._run_fingerprint_phase(
+                        test_run_id, device
+                    )
+                    if fingerprint_result:
+                        skip_test_ids = set(fingerprint_result.skip_test_ids)
+                        logger.info(
+                            "Fingerprint phase complete for run %s: category=%s, skipping %s",
+                            test_run_id, fingerprint_result.category, skip_test_ids,
+                        )
+
+                # --- Skip tests flagged by fingerprinter ---
+                if test_result.test_id in skip_test_ids:
+                    async with async_session() as db:
+                        result_row = await db.get(TestResult, test_result.id)
+                        if result_row:
+                            result_row.verdict = TestVerdict.NA
+                            result_row.comment = "Not applicable — service not detected on device"
+                            result_row.completed_at = datetime.now(timezone.utc)
+                            await db.commit()
+
+                    completed += 1
+                    await manager.broadcast(f"test-run:{test_run_id}", {
+                        "type": "test_complete",
+                        "data": {
+                            "test_id": test_result.test_id,
+                            "test_name": test_result.test_name,
+                            "verdict": "na",
+                            "comment": "Not applicable — service not detected on device",
+                            "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
+                        },
+                    })
+
+                    async with async_session() as db:
+                        run_row = await db.get(TestRun, test_run_id)
+                        if run_row:
+                            run_row.completed_tests = completed
+                            run_row.progress_pct = round(((i + 1) / total) * 100, 1) if total else 0
+                            await db.commit()
+                    continue
 
                 await self._wait_while_paused(test_run_id)
 
@@ -248,6 +298,65 @@ class TestEngine:
 
         elapsed = time.monotonic() - start
         return (verdict, comment, parsed, raw_out, round(elapsed, 2))
+
+    async def _run_fingerprint_phase(
+        self,
+        test_run_id: str,
+        device: Device,
+    ) -> FingerprintResult | None:
+        """Run device fingerprinting after discovery tests complete.
+
+        Collects U02 + U08 cached results, runs the fingerprinter, stores
+        the result in run metadata, and broadcasts a device_classified event.
+        """
+        try:
+            # Gather U08 data (service detection)
+            u08_data = _PORT_SCAN_CACHE.get(f"{test_run_id}_u08", {})
+
+            # Gather U02 data from the device record (already parsed)
+            u02_data = {
+                "oui_vendor": device.oui_vendor or "",
+                "mac_address": device.mac_address or "",
+            }
+
+            async with async_session() as db:
+                result = await fingerprinter.fingerprint(
+                    db, device.id, u08_data, u02_data
+                )
+
+                # Store fingerprint in run metadata
+                run_row = await db.get(TestRun, test_run_id)
+                if run_row:
+                    meta = run_row.run_metadata or {}
+                    meta["fingerprint"] = {
+                        "category": result.category,
+                        "confidence": result.confidence,
+                        "vendor": result.vendor,
+                        "matched_profile_id": result.matched_profile_id,
+                        "matched_profile_name": result.matched_profile_name,
+                        "skip_test_ids": result.skip_test_ids,
+                        "reason": result.reason,
+                    }
+                    run_row.run_metadata = meta
+                    await db.commit()
+
+            # Broadcast classification event so the UI updates
+            await manager.broadcast(f"test-run:{test_run_id}", {
+                "type": "device_classified",
+                "data": {
+                    "category": result.category,
+                    "confidence": result.confidence,
+                    "vendor": result.vendor,
+                    "matched_profile_name": result.matched_profile_name,
+                    "skip_test_ids": result.skip_test_ids,
+                },
+            })
+
+            return result
+
+        except Exception as exc:
+            logger.warning("Fingerprint phase failed for run %s: %s", test_run_id, exc)
+            return None
 
     async def _dispatch_test(
         self, test_id: str, device_ip: str, run_id: str
@@ -676,6 +785,27 @@ class TestEngine:
             na,
             pending_manual,
         )
+
+        # Auto-learn: offer to save a new DeviceProfile if none matched
+        try:
+            async with async_session() as db:
+                run_row = await db.get(TestRun, run_id)
+                if run_row and run_row.run_metadata and run_row.run_metadata.get("fingerprint"):
+                    profile = await fingerprinter.learn_from_run(
+                        db, run_row.device_id, run_row.run_metadata
+                    )
+                    if profile:
+                        await db.commit()
+                        await manager.broadcast(f"test-run:{run_id}", {
+                            "type": "profile_learned",
+                            "data": {
+                                "profile_id": profile.id,
+                                "profile_name": profile.name,
+                                "category": profile.category,
+                            },
+                        })
+        except Exception as exc:
+            logger.warning("Auto-learn failed for run %s: %s", run_id, exc)
 
     async def _load_run(self, db: AsyncSession, run_id: str) -> TestRun | None:
         result = await db.execute(select(TestRun).where(TestRun.id == run_id))
