@@ -25,6 +25,8 @@ from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
 from app.services.parsers.nmap_parser import nmap_parser
 from app.utils.audit import log_action
+from app.models.authorized_network import AuthorizedNetwork
+from app.models.user import UserRole
 from app.routes.authorized_networks import get_active_networks, is_target_authorized, is_ip_authorized
 
 logger = logging.getLogger("edq.routes.network_scan")
@@ -85,6 +87,29 @@ class NetworkScanResponse(BaseModel):
         from_attributes = True
 
 
+@router.get("/detect-networks")
+async def detect_networks(
+    _: User = Depends(get_current_active_user),
+):
+    """Auto-detect reachable networks from the tools sidecar.
+
+    Returns discovered interfaces, host IP, and scan recommendations.
+    Used by the frontend to pre-fill scan targets.
+    """
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{tools_client.base_url}/detect-networks",
+                headers=tools_client._headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.warning("Network detection failed: %s", exc)
+        return {"interfaces": [], "host_ip": None, "in_docker": True, "scan_recommendation": None}
+
+
 @router.get("/", response_model=List[NetworkScanResponse])
 async def list_network_scans(
     skip: int = Query(0, ge=0),
@@ -115,18 +140,27 @@ async def discover_devices(
     if prefix < 16 or prefix > 30:
         raise HTTPException(status_code=400, detail="CIDR prefix must be between /16 and /30")
 
-    # Validate against authorized networks
+    # Validate against authorized networks — admins auto-authorize
     authorized = await get_active_networks(db)
-    if not authorized:
-        raise HTTPException(
-            status_code=403,
-            detail="No authorized networks configured. An admin must add authorized scan ranges before scanning.",
-        )
     if not is_target_authorized(data.cidr, authorized):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Network {data.cidr} is not within any authorized scan range. Contact your admin to authorize this network.",
-        )
+        if user.role == UserRole.ADMIN:
+            import ipaddress
+            net = ipaddress.ip_network(data.cidr, strict=False)
+            new_auth = AuthorizedNetwork(
+                cidr=str(net),
+                label=f"Auto-authorized ({data.connection_scenario or 'scan'})",
+                description=f"Automatically authorized by {user.username} during network scan",
+                is_active=True,
+                created_by=user.id,
+            )
+            db.add(new_auth)
+            await db.flush()
+            logger.info("Auto-authorized network %s for admin %s", data.cidr, user.username)
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Network {data.cidr} is not authorized. Contact your admin to authorize this network.",
+            )
 
     scan = NetworkScan(
         cidr=data.cidr,
@@ -220,14 +254,38 @@ async def start_batch_scan(
 ):
     check_rate_limit(request, max_requests=3, window_seconds=60, action="network_start")
 
-    # Validate device IPs against authorized networks
+    # Validate device IPs against authorized networks — admins auto-authorize
     authorized = await get_active_networks(db)
-    if authorized:
-        unauthorized_ips = [ip for ip in data.device_ips if not is_ip_authorized(ip, authorized)]
-        if unauthorized_ips:
+    unauthorized_ips = [ip for ip in data.device_ips if not is_ip_authorized(ip, authorized)]
+    if unauthorized_ips:
+        if user.role == UserRole.ADMIN:
+            import ipaddress
+            # Auto-authorize each unique /24 subnet containing unauthorized IPs
+            auto_subnets: set[str] = set()
+            for ip in unauthorized_ips:
+                try:
+                    net = ipaddress.ip_network(f"{ip}/24", strict=False)
+                    auto_subnets.add(str(net))
+                except ValueError:
+                    pass
+            for subnet in auto_subnets:
+                existing = await db.execute(
+                    select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == subnet)
+                )
+                if not existing.scalar_one_or_none():
+                    db.add(AuthorizedNetwork(
+                        cidr=subnet,
+                        label="Auto-authorized (batch scan)",
+                        description=f"Automatically authorized by {user.username} during batch scan",
+                        is_active=True,
+                        created_by=user.id,
+                    ))
+            await db.flush()
+            logger.info("Auto-authorized %d subnets for admin %s", len(auto_subnets), user.username)
+        else:
             raise HTTPException(
                 status_code=403,
-                detail=f"IPs not within authorized scan ranges: {', '.join(unauthorized_ips[:5])}",
+                detail=f"IPs not within authorized scan ranges: {', '.join(unauthorized_ips[:5])}. Contact your admin.",
             )
 
     result = await db.execute(select(NetworkScan).where(NetworkScan.id == data.scan_id))

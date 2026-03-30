@@ -234,6 +234,119 @@ def health() -> Response:
     return jsonify({"status": overall, "tools": tools_status})
 
 
+@app.route("/detect-networks", methods=["GET"])
+@require_api_key
+def detect_networks() -> Response:
+    """Discover host network interfaces and reachable subnets.
+
+    Works from inside Docker by:
+    1. Resolving host.docker.internal to find the host IP
+    2. Running nmap -sn on likely subnets to find live hosts
+    3. Detecting direct-connected devices (link-local)
+    """
+    import socket
+
+    interfaces: list[dict] = []
+    host_ip = None
+
+    # Resolve the Docker host IP
+    try:
+        host_ip = socket.gethostbyname("host.docker.internal")
+    except socket.gaierror:
+        pass
+
+    if host_ip and host_ip.startswith("192.168.65."):
+        # Docker Desktop VM gateway — need to discover actual host subnets
+        # Try common private ranges via nmap quick ping sweep of gateway/host
+        for candidate in ["192.168.1.0/24", "192.168.0.0/24", "10.0.0.0/24", "172.16.0.0/24"]:
+            try:
+                result = subprocess.run(
+                    ["nmap", "-sn", "-Pn", "--max-retries", "1", "-T4",
+                     "--max-hostgroup", "64", candidate],
+                    capture_output=True, text=True, timeout=15,
+                )
+                # Count hosts found (lines containing "Nmap scan report for")
+                hosts_found = result.stdout.count("Nmap scan report for")
+                if hosts_found > 0:
+                    # Extract individual IPs found
+                    found_ips = []
+                    for line in result.stdout.splitlines():
+                        if "Nmap scan report for" in line:
+                            parts = line.split()
+                            ip_part = parts[-1].strip("()")
+                            if _is_valid_target(ip_part):
+                                found_ips.append(ip_part)
+
+                    # Guess interface type from subnet
+                    iface_type = "ethernet"
+                    label = f"Network {candidate}"
+                    if candidate.startswith("192.168."):
+                        label = f"Local Network ({candidate})"
+                    elif candidate.startswith("10."):
+                        label = f"Office/VPN ({candidate})"
+
+                    interfaces.append({
+                        "label": label,
+                        "type": iface_type,
+                        "cidr": candidate,
+                        "hosts_found": hosts_found,
+                        "sample_hosts": found_ips[:5],
+                        "reachable": True,
+                    })
+            except (subprocess.TimeoutExpired, Exception):
+                continue
+    elif host_ip:
+        # Direct host IP — derive /24 subnet
+        parts = host_ip.split(".")
+        if len(parts) == 4:
+            subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+            interfaces.append({
+                "label": f"Host Network ({subnet})",
+                "type": "ethernet",
+                "cidr": subnet,
+                "hosts_found": 1,
+                "sample_hosts": [host_ip],
+                "reachable": True,
+            })
+
+    # Check for link-local (direct Cat6 cable connection — 169.254.x.x)
+    try:
+        result = subprocess.run(
+            ["nmap", "-sn", "169.254.0.0/16", "--max-retries", "0", "-T5"],
+            capture_output=True, text=True, timeout=10,
+        )
+        link_local_hosts = result.stdout.count("Nmap scan report for")
+        if link_local_hosts > 0:
+            found_ips = []
+            for line in result.stdout.splitlines():
+                if "Nmap scan report for" in line:
+                    parts = line.split()
+                    ip_part = parts[-1].strip("()")
+                    if ip_part.startswith("169.254."):
+                        found_ips.append(ip_part)
+            if found_ips:
+                interfaces.append({
+                    "label": "Direct Cable Connection (link-local)",
+                    "type": "direct",
+                    "cidr": "169.254.0.0/16",
+                    "hosts_found": len(found_ips),
+                    "sample_hosts": found_ips[:5],
+                    "reachable": True,
+                })
+    except (subprocess.TimeoutExpired, Exception):
+        pass
+
+    # Detect if running in Docker (for scan flag recommendations)
+    in_docker = os.path.exists("/.dockerenv") or os.path.isfile("/proc/1/cgroup")
+
+    return jsonify({
+        "interfaces": interfaces,
+        "host_ip": host_ip,
+        "in_docker": in_docker,
+        "scan_recommendation": "Use TCP connect scan (-sT -Pn) when running in Docker" if in_docker else None,
+    })
+
+
 @app.route("/scan/nmap", methods=["POST"])
 @require_api_key
 def scan_nmap() -> Union[Response, Tuple[Response, int]]:

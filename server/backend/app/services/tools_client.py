@@ -24,6 +24,23 @@ class ToolsClient:
         self._headers: Dict[str, str] = {}
         if settings.TOOLS_API_KEY:
             self._headers["X-Tools-Key"] = settings.TOOLS_API_KEY
+        # Detect Docker environment — nmap needs -sT -Pn through NAT
+        import os
+        self.in_docker: bool = os.path.exists("/.dockerenv") or "TOOLS_SIDECAR_URL" in os.environ
+
+    def docker_nmap_flags(self, args: List[str]) -> List[str]:
+        """Adjust nmap flags for Docker NAT: replace -sS with -sT, add -Pn."""
+        if not self.in_docker:
+            return args
+        adjusted = []
+        for a in args:
+            if a == "-sS":
+                adjusted.append("-sT")
+            else:
+                adjusted.append(a)
+        if "-Pn" not in adjusted:
+            adjusted.insert(0, "-Pn")
+        return adjusted
 
     async def _post(
         self,
@@ -107,10 +124,10 @@ class ToolsClient:
         timeout: int = 300,
         on_line: Optional[Callable[[str], Coroutine]] = None,
     ) -> Dict[str, Any]:
-        """Run nmap with line-by-line streaming."""
+        """Run nmap with line-by-line streaming (auto-adjusts flags for Docker NAT)."""
         return await self._post_stream(
             "/stream/nmap",
-            {"target": target, "args": args or [], "timeout": timeout},
+            {"target": target, "args": self.docker_nmap_flags(args or []), "timeout": timeout},
             timeout=timeout,
             on_line=on_line,
         )
@@ -188,10 +205,10 @@ class ToolsClient:
         args: Optional[List[str]] = None,
         timeout: int = 300,
     ) -> Dict[str, Any]:
-        """Run nmap scan."""
+        """Run nmap scan (auto-adjusts flags for Docker NAT)."""
         return await self._post(
             "/scan/nmap",
-            {"target": target, "args": args or [], "timeout": timeout},
+            {"target": target, "args": self.docker_nmap_flags(args or []), "timeout": timeout},
             timeout=timeout,
         )
 

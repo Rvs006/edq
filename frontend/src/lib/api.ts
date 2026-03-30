@@ -151,6 +151,7 @@ export const synopsisApi = {
 
 export const networkScanApi = {
   list: (params?: { skip?: number; limit?: number }) => api.get('/network-scan/', { params }),
+  detectNetworks: () => api.get('/network-scan/detect-networks'),
   discover: (data: { cidr: string; connection_scenario: string; test_ids: string[] }) => api.post('/network-scan/discover', data),
   start: (data: { scan_id: string; device_ips: string[]; test_ids: string[]; connection_scenario: string }) => api.post('/network-scan/start', data),
   get: (id: string) => api.get(`/network-scan/${id}`),

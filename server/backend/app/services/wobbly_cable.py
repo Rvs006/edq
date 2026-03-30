@@ -32,17 +32,13 @@ class WobblyCableHandler:
         self.consecutive_failures = 0
 
     async def check_connectivity(self) -> bool:
-        """Ping device, return True if reachable."""
+        """Ping device via tools sidecar, return True if reachable."""
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "ping", "-c", "1", "-W", "2", self.ip,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-            return proc.returncode == 0
+            from app.services.tools_client import tools_client
+            result = await tools_client.ping(self.ip, count=1)
+            return result.get("exit_code") == 0
         except Exception as exc:
-            logger.warning("Ping subprocess error for %s: %s", self.ip, exc)
+            logger.warning("Ping via sidecar error for %s: %s", self.ip, exc)
             return False
 
     async def monitor(self) -> None:

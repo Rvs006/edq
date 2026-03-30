@@ -350,10 +350,67 @@ function ConfigureStep({
   expandedCategories: Set<string>; setExpandedCategories: (v: Set<string>) => void
   discovering: boolean; onDiscover: () => void
 }) {
+  const [detecting, setDetecting] = useState(false)
+  const [detectedNets, setDetectedNets] = useState<{ label: string; cidr: string; type: string; hosts_found: number; sample_hosts: string[] }[]>([])
+
+  const detectNetworks = async () => {
+    setDetecting(true)
+    try {
+      const res = await networkScanApi.detectNetworks()
+      const nets = res.data.interfaces || []
+      setDetectedNets(nets)
+      if (nets.length === 0) {
+        toast('No networks detected. Enter a CIDR range manually.', { icon: '📡' })
+      }
+    } catch {
+      toast.error('Network detection failed')
+    } finally {
+      setDetecting(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 mb-3">Target Subnet</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Target Subnet</h3>
+          <button
+            onClick={detectNetworks}
+            disabled={detecting}
+            className="btn-secondary text-xs py-1.5 px-3"
+          >
+            {detecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+            {detecting ? 'Detecting...' : 'Detect My Network'}
+          </button>
+        </div>
+
+        {/* Detected networks */}
+        {detectedNets.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-3">
+            {detectedNets.map(net => (
+              <button
+                key={net.cidr}
+                onClick={() => {
+                  setCidr(net.cidr)
+                  if (net.type === 'direct') setScenario('direct')
+                }}
+                className={`text-left p-3 rounded-lg border transition-all ${
+                  cidr === net.cidr
+                    ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
+                    : 'border-zinc-200 dark:border-slate-700/50 hover:border-brand-300 dark:hover:border-brand-700'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  {net.type === 'direct' ? <Monitor className="w-4 h-4 text-amber-500" /> : <Wifi className="w-4 h-4 text-brand-500" />}
+                  <span className="text-sm font-medium text-zinc-800 dark:text-slate-200">{net.label}</span>
+                </div>
+                <p className="text-xs font-mono text-zinc-500 dark:text-slate-400">{net.cidr}</p>
+                <p className="text-[10px] text-zinc-400 dark:text-slate-500 mt-1">{net.hosts_found} host{net.hosts_found !== 1 ? 's' : ''} detected</p>
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <label className="label">CIDR Range</label>
