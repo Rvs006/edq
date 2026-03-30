@@ -52,6 +52,24 @@ async def _get_authorized_test_run(
 _running_tasks: dict[str, asyncio.Task] = {}
 
 
+async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
+    """Add device_name, device_ip, template_name to a TestRun for the response."""
+    data = TestRunResponse.model_validate(run).model_dump()
+
+    device = await db.get(Device, run.device_id)
+    if device:
+        data["device_name"] = device.hostname or device.manufacturer or device.ip_address
+        data["device_ip"] = device.ip_address
+    else:
+        data["device_name"] = None
+        data["device_ip"] = None
+
+    template = await db.get(TestTemplate, run.template_id)
+    data["template_name"] = template.name if template else None
+
+    return data
+
+
 @router.get("/", response_model=List[TestRunResponse])
 async def list_test_runs(
     device_id: Optional[str] = None,
@@ -72,7 +90,8 @@ async def list_test_runs(
     result = await db.execute(
         query.order_by(TestRun.created_at.desc()).offset(skip).limit(limit)
     )
-    return result.scalars().all()
+    runs = result.scalars().all()
+    return [await _enrich_run(r, db) for r in runs]
 
 
 @router.get("/stats")
@@ -155,7 +174,7 @@ async def create_test_run(
     await db.flush()
     await db.refresh(test_run)
     await log_action(db, user, "create", "test_run", test_run.id, {"device_id": data.device_id}, request)
-    return test_run
+    return await _enrich_run(test_run, db)
 
 
 @router.get("/{run_id}", response_model=TestRunResponse)
@@ -165,12 +184,7 @@ async def get_test_run(
     user: User = Depends(get_current_active_user),
 ):
     run = await _get_authorized_test_run(run_id, user, db)
-    # Eagerly load results for the response
-    result = await db.execute(
-        select(TestRun).where(TestRun.id == run_id)
-        .options(selectinload(TestRun.results))
-    )
-    return result.scalar_one()
+    return await _enrich_run(run, db)
 
 
 @router.patch("/{run_id}", response_model=TestRunResponse)

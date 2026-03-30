@@ -82,7 +82,10 @@ class TestRunUpdate(BaseModel):
 class TestRunResponse(BaseModel):
     id: str
     device_id: str
+    device_name: Optional[str] = None
+    device_ip: Optional[str] = None
     template_id: str
+    template_name: Optional[str] = None
     engineer_id: str
     agent_id: Optional[str] = None
     connection_scenario: str = "direct"

@@ -400,7 +400,7 @@ export default function TestRunDetailPage() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 truncate">
-                {run.device_name || `Device ${run.device_id?.slice(0, 8)}`}
+                {run.device_name || run.device_ip || `Device ${run.device_id?.slice(0, 8)}`}
               </h1>
               <StatusBadge status={run.status} />
               {ws.isConnected && (
@@ -612,6 +612,14 @@ export default function TestRunDetailPage() {
           onApprove={handleApprove}
           onRequestReview={handleRequestReview}
           isActioning={isActioning}
+          runningTestName={
+            runningTestNumber
+              ? (results as any[]).find((r: any) => r.test_number === runningTestNumber || r.test_id === runningTestNumber)?.test_name || runningTestNumber
+              : null
+          }
+          progressPct={run.progress_pct ?? progressPct}
+          completedCount={completedCount}
+          totalCount={results.length}
         />
       </div>
 
