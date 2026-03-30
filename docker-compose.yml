@@ -98,6 +98,23 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # Redis — optional, enables distributed rate limiting and session persistence
+  # Uncomment to enable for multi-instance deployments
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: edq-redis
+  #   command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-edq-redis-secret}
+  #   volumes:
+  #     - edq-redis:/data
+  #   networks:
+  #     - edq-internal
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-edq-redis-secret}", "ping"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 3
+
 volumes:
   edq-data:
     driver: local
@@ -105,6 +122,8 @@ volumes:
     driver: local
   edq-reports:
     driver: local
+  # edq-redis:
+  #   driver: local
 
 networks:
   # Internal network: backend ↔ tools (not internal — tools needs outbound for device scanning)

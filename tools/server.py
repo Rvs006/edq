@@ -1,6 +1,7 @@
 """EDQ Tools Sidecar — REST API wrapper for security scanning tools."""
 
 import base64
+import hmac
 import ipaddress
 import os
 import re
@@ -20,15 +21,20 @@ app = Flask(__name__)
 # Shared secret for authenticating requests from the backend
 TOOLS_API_KEY = os.environ.get("TOOLS_API_KEY", "")
 
+if not TOOLS_API_KEY:
+    raise RuntimeError(
+        "TOOLS_API_KEY environment variable is required. "
+        "Generate one with: openssl rand -hex 32"
+    )
+
 
 def require_api_key(f):
     """Reject requests without a valid X-Tools-Key header."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if TOOLS_API_KEY:
-            provided = request.headers.get("X-Tools-Key", "")
-            if not provided or provided != TOOLS_API_KEY:
-                return jsonify({"error": "Unauthorized"}), 401
+        provided = request.headers.get("X-Tools-Key", "")
+        if not provided or not hmac.compare_digest(provided, TOOLS_API_KEY):
+            return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return decorated
 

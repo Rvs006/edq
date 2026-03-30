@@ -137,6 +137,27 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
+    """Redirect HTTP to HTTPS in production when COOKIE_SECURE=true.
+
+    Trusts X-Forwarded-Proto from reverse proxy (nginx) to detect the
+    original protocol. Does not redirect health checks or internal calls.
+    """
+
+    EXEMPT_PATHS = {"/api/health", "/api/v1/health", "/health"}
+
+    async def dispatch(self, request: Request, call_next):
+        proto = request.headers.get("X-Forwarded-Proto", request.url.scheme)
+        if proto == "http" and request.url.path not in self.EXEMPT_PATHS:
+            url = request.url.replace(scheme="https")
+            return JSONResponse(
+                status_code=301,
+                headers={"Location": str(url)},
+                content={"detail": "Redirecting to HTTPS"},
+            )
+        return await call_next(request)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(f"[EDQ] Frontend directory: {FRONTEND_DIR} (exists: {os.path.isdir(FRONTEND_DIR)})")
@@ -217,6 +238,10 @@ def create_app() -> FastAPI:
     app.add_middleware(CSRFMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestIDMiddleware)
+
+    # Redirect HTTP → HTTPS in production
+    if settings.COOKIE_SECURE:
+        app.add_middleware(HTTPSRedirectMiddleware)
 
     # Build the list of (router, suffix, tag) tuples for all API routes
     _api_routes = [

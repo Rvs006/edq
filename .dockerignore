@@ -1,0 +1,22 @@
+# Prevent secrets and unnecessary files from entering Docker build context
+.env
+.env.*
+!.env.example
+.git
+.github
+.vscode
+.claude
+*.md
+!DEPLOY.md
+node_modules
+electron
+__pycache__
+*.pyc
+*.db
+backups
+reports
+uploads
+*.exe
+*.msi
+*.dmg
+*.AppImage

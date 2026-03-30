@@ -33,6 +33,7 @@ from app.models.test_plan import TestPlan
 from app.models.branding import BrandingSettings
 from app.models.scan_schedule import ScanSchedule
 from app.models.refresh_token import RefreshToken
+from app.models.authorized_network import AuthorizedNetwork
 
 config = context.config
 

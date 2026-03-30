@@ -201,6 +201,42 @@ EDQ includes penetration testing tools (nmap, hydra, nikto, testssl). Scan targe
 
 ---
 
+## Production Readiness Checklist
+
+Complete **every item** before going live. The app will refuse to start if secrets are placeholders.
+
+### Required (app won't start without these)
+
+- [ ] Copy `.env.example` to `.env`
+- [ ] Generate and set `JWT_SECRET` — `openssl rand -hex 64`
+- [ ] Generate and set `JWT_REFRESH_SECRET` — `openssl rand -hex 64`
+- [ ] Generate and set `SECRET_KEY` — `openssl rand -hex 32`
+- [ ] Generate and set `TOOLS_API_KEY` — `openssl rand -hex 32`
+- [ ] Set `INITIAL_ADMIN_PASSWORD` to a strong password
+- [ ] Set `COOKIE_SECURE=true`
+- [ ] Set `DEBUG=false`
+- [ ] Update `CORS_ORIGINS` to your production domain(s)
+
+### Required (infrastructure)
+
+- [ ] Configure HTTPS with TLS termination (use `nginx-ssl.conf.template`)
+- [ ] Set up automated backups — `crontab -e` then add: `0 2 * * * cd /path/to/edq && ./scripts/backup.sh`
+- [ ] Authorize scan networks via Admin > Authorized Networks
+- [ ] Test full scan workflow end-to-end on real devices
+- [ ] Run database migrations: `docker exec edq-backend alembic upgrade head`
+
+### Recommended (operational excellence)
+
+- [ ] Set up Sentry for error tracking: set `SENTRY_DSN` in `.env`
+- [ ] Configure log aggregation — Docker JSON logs go to stdout, forward to ELK/Splunk/CloudWatch
+- [ ] Set up Prometheus scraping on `/api/health/metrics`
+- [ ] Enable Redis for multi-instance rate limiting (uncomment in `docker-compose.yml`)
+- [ ] Set up alerting on the `/api/health` endpoint
+- [ ] Create runbook for: secret rotation, backup/restore, incident response
+- [ ] Review audit logs weekly via Admin > Audit Log
+
+---
+
 ## Architecture
 
 ```

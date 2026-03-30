@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     ACCOUNT_LOCKOUT_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15
 
+    # Sentry (optional — error tracking & performance monitoring)
+    SENTRY_DSN: str = ""
+    SENTRY_ENVIRONMENT: str = "production"
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+
     # Logging
     LOG_LEVEL: str = "INFO"
 
@@ -90,8 +95,8 @@ if not settings.INITIAL_ADMIN_PASSWORD:
         file=_sys.stderr,
     )
 
-# Warn/error if placeholder secrets are still in use
-_PLACEHOLDER_PREFIXES = ("change-me",)
+# Reject placeholder or CHANGE_ME secrets — app must not start with unsafe values
+_PLACEHOLDER_PREFIXES = ("change-me", "CHANGE_ME")
 _SECRET_FIELDS = {
     "SECRET_KEY": settings.SECRET_KEY,
     "JWT_SECRET": settings.JWT_SECRET,
@@ -100,17 +105,19 @@ _SECRET_FIELDS = {
 for _name, _value in _SECRET_FIELDS.items():
     if any(_value.startswith(p) for p in _PLACEHOLDER_PREFIXES):
         _msg = (
-            f"[EDQ SECURITY] {_name} is still set to the default placeholder value. "
+            f"[EDQ SECURITY] {_name} is still set to a placeholder value. "
             "Generate a strong secret with: openssl rand -hex 64"
         )
         if not settings.DEBUG:
             raise RuntimeError(_msg)
         _warnings.warn(_msg, stacklevel=2)
 
-if not settings.TOOLS_API_KEY:
+if not settings.TOOLS_API_KEY or any(
+    settings.TOOLS_API_KEY.startswith(p) for p in _PLACEHOLDER_PREFIXES
+):
     _msg = (
-        "[EDQ SECURITY] TOOLS_API_KEY is not set. The tools sidecar will accept "
-        "unauthenticated requests. Generate a key with: openssl rand -hex 32"
+        "[EDQ SECURITY] TOOLS_API_KEY is not set or is a placeholder. "
+        "The tools sidecar requires a valid key. Generate with: openssl rand -hex 32"
     )
     if not settings.DEBUG:
         raise RuntimeError(_msg)
@@ -124,12 +131,34 @@ if _localhost_origins and not settings.DEBUG:
         stacklevel=2,
     )
 
-if not settings.COOKIE_SECURE:
+if not settings.COOKIE_SECURE and not settings.DEBUG:
     _warnings.warn(
-        "[EDQ SECURITY] COOKIE_SECURE=false — session cookies will be sent over plain HTTP. "
-        "Set COOKIE_SECURE=true when deploying behind HTTPS.",
+        "[EDQ SECURITY] COOKIE_SECURE=false in production mode — session cookies will be "
+        "sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",
         stacklevel=2,
     )
+
+# --- Sentry integration (optional) ---
+if settings.SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            environment=settings.SENTRY_ENVIRONMENT,
+            traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+            send_default_pii=False,
+        )
+        print(f"[EDQ] Sentry initialized (env={settings.SENTRY_ENVIRONMENT})", file=_sys.stderr)
+    except ImportError:
+        _warnings.warn(
+            "[EDQ] SENTRY_DSN is set but sentry-sdk is not installed. "
+            "Install with: pip install sentry-sdk[fastapi]",
+            stacklevel=2,
+        )
 
 # Ensure directories exist
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
