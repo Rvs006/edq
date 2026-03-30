@@ -118,20 +118,26 @@ async def create_test_run(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
+    # Handle both native list and double-serialized JSON string
+    raw_ids = template.test_ids
+    if isinstance(raw_ids, str):
+        import json as _json
+        raw_ids = _json.loads(raw_ids)
+
     test_run = TestRun(
         device_id=data.device_id,
         template_id=data.template_id,
         engineer_id=user.id,
         agent_id=data.agent_id,
         connection_scenario=data.connection_scenario,
-        total_tests=len(template.test_ids),
+        total_tests=len(raw_ids),
         status=TestRunStatus.PENDING,
         run_metadata=data.metadata,
     )
     db.add(test_run)
     await db.flush()
 
-    for test_id in template.test_ids:
+    for test_id in raw_ids:
         test_def = get_test_by_id(test_id)
         if test_def:
             result = TestResult(

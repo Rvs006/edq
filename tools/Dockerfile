@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nikto \
     iputils-ping \
     net-tools \
+    bsdmainutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin testssl.sh to a stable release tag

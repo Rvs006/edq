@@ -156,14 +156,14 @@ def _seed_protocol_whitelist(db: Session, admin: User) -> ProtocolWhitelist:
     if old_wl:
         old_wl.name = "Electracom Standard"
         old_wl.description = "Standard Electracom protocol whitelist for smart building devices (from EasyIO template)"
-        old_wl.entries = json.dumps(ELECTRACOM_WHITELIST_ENTRIES)
+        old_wl.entries = ELECTRACOM_WHITELIST_ENTRIES
         db.flush()
         print("Updated existing 'Electracom Default' whitelist → 'Electracom Standard'")
         return old_wl
 
     existing = db.query(ProtocolWhitelist).filter(ProtocolWhitelist.name == "Electracom Standard").first()
     if existing:
-        existing.entries = json.dumps(ELECTRACOM_WHITELIST_ENTRIES)
+        existing.entries = ELECTRACOM_WHITELIST_ENTRIES
         existing.description = "Standard Electracom protocol whitelist for smart building devices (from EasyIO template)"
         db.flush()
         return existing
@@ -172,7 +172,7 @@ def _seed_protocol_whitelist(db: Session, admin: User) -> ProtocolWhitelist:
         id=str(uuid.uuid4()),
         name="Electracom Standard",
         description="Standard Electracom protocol whitelist for smart building devices (from EasyIO template)",
-        entries=json.dumps(ELECTRACOM_WHITELIST_ENTRIES),
+        entries=ELECTRACOM_WHITELIST_ENTRIES,
         is_default=True,
         created_by=admin.id,
     )
@@ -195,9 +195,9 @@ def _seed_device_profiles(db: Session, admin: User, whitelist: ProtocolWhitelist
             category=profile_data["category"],
             description=profile_data["description"],
             default_whitelist_id=whitelist.id,
-            additional_tests=json.dumps(profile_data["additional_tests"]),
-            safe_mode=json.dumps(profile_data["safe_mode"]),
-            fingerprint_rules=json.dumps(profile_data["fingerprint_rules"]),
+            additional_tests=profile_data["additional_tests"],
+            safe_mode=profile_data["safe_mode"],
+            fingerprint_rules=profile_data["fingerprint_rules"],
             is_active=True,
             created_by=admin.id,
         )
@@ -214,16 +214,16 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
 
     full_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "Full Security Assessment").first()
     if full_tmpl:
-        full_tmpl.test_ids = json.dumps(all_test_ids)
+        full_tmpl.test_ids = all_test_ids
         full_tmpl.description = f"Complete {len(all_test_ids)}-test qualification suite covering all security domains"
     else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
             name="Full Security Assessment",
             description=f"Complete {len(all_test_ids)}-test qualification suite covering all security domains",
-            test_ids=json.dumps(all_test_ids),
+            test_ids=all_test_ids,
             whitelist_id=whitelist.id,
-            report_config=json.dumps({"template_key": "generic", "device_category": "generic"}),
+            report_config={"template_key": "generic", "device_category": "generic"},
             is_default=True,
             created_by=admin.id,
         ))
@@ -231,16 +231,16 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
 
     essential_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "Essential Tests Only").first()
     if essential_tmpl:
-        essential_tmpl.test_ids = json.dumps(essential_ids)
+        essential_tmpl.test_ids = essential_ids
         essential_tmpl.description = f"Minimum required tests for device qualification ({len(essential_ids)} essential tests)"
     else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
             name="Essential Tests Only",
             description=f"Minimum required tests for device qualification ({len(essential_ids)} essential tests)",
-            test_ids=json.dumps(essential_ids),
+            test_ids=essential_ids,
             whitelist_id=whitelist.id,
-            report_config=json.dumps({"template_key": "generic", "device_category": "generic"}),
+            report_config={"template_key": "generic", "device_category": "generic"},
             is_default=False,
             created_by=admin.id,
         ))
@@ -248,16 +248,16 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
 
     pelco_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "Pelco Camera Assessment").first()
     if pelco_tmpl:
-        pelco_tmpl.test_ids = json.dumps(all_test_ids)
+        pelco_tmpl.test_ids = all_test_ids
         pelco_tmpl.description = f"Full {len(all_test_ids)}-test qualification for Pelco camera devices (Rev 2 format)"
     else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
             name="Pelco Camera Assessment",
             description=f"Full {len(all_test_ids)}-test qualification for Pelco camera devices (Rev 2 format)",
-            test_ids=json.dumps(all_test_ids),
+            test_ids=all_test_ids,
             whitelist_id=whitelist.id,
-            report_config=json.dumps({"template_key": "pelco_camera", "device_category": "camera"}),
+            report_config={"template_key": "pelco_camera", "device_category": "camera"},
             is_default=False,
             created_by=admin.id,
         ))
@@ -265,16 +265,16 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
 
     easyio_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "EasyIO Controller Assessment").first()
     if easyio_tmpl:
-        easyio_tmpl.test_ids = json.dumps(all_test_ids)
+        easyio_tmpl.test_ids = all_test_ids
         easyio_tmpl.description = f"Full {len(all_test_ids)}-test qualification for EasyIO building controllers (v1.1 format)"
     else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
             name="EasyIO Controller Assessment",
             description=f"Full {len(all_test_ids)}-test qualification for EasyIO building controllers (v1.1 format)",
-            test_ids=json.dumps(all_test_ids),
+            test_ids=all_test_ids,
             whitelist_id=whitelist.id,
-            report_config=json.dumps({"template_key": "easyio_controller", "device_category": "controller"}),
+            report_config={"template_key": "easyio_controller", "device_category": "controller"},
             is_default=False,
             created_by=admin.id,
         ))
@@ -295,13 +295,13 @@ def _seed_report_config(db: Session, admin: User) -> None:
         client_name="Electracom Projects Ltd",
         logo_path="/app/templates/cropped-Electracom-Group-GREY (1).png",
         report_type="excel",
-        compliance_standards=json.dumps(["ISO 27001", "Cyber Essentials", "SOC2"]),
-        branding_colours=json.dumps({"primary": "#1F4E79", "accent": "#f59e0b"}),
-        branding=json.dumps({
+        compliance_standards=["ISO 27001", "Cyber Essentials", "SOC2"],
+        branding_colours={"primary": "#1F4E79", "accent": "#f59e0b"},
+        branding={
             "logo_url": "/app/templates/cropped-Electracom-Group-GREY (1).png",
             "company_name": "Electracom Projects Ltd",
             "colors": {"primary": "#1F4E79", "accent": "#f59e0b"},
-        }),
+        },
         is_active=True,
         created_by=admin.id,
     )
