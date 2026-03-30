@@ -51,7 +51,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update({"exp": expire, "type": "refresh", "jti": secrets.token_hex(16)})
     return jwt.encode(to_encode, settings.JWT_REFRESH_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -89,7 +89,10 @@ async def validate_and_rotate_refresh_token(db: AsyncSession, token: str) -> str
                 .where(RefreshToken.user_id == db_token.user_id, RefreshToken.revoked == False)
                 .values(revoked=True)
             )
-            await db.flush()
+            # Commit the family revocation immediately so it survives the
+            # upcoming HTTPException (which triggers a rollback in the
+            # dependency cleanup).
+            await db.commit()
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):

@@ -43,16 +43,16 @@ async def generate_synopsis(
     """Generate an AI draft synopsis for a test run."""
     check_rate_limit(request, max_requests=3, window_seconds=60, action="synopsis_generate")
 
-    if not settings.AI_API_KEY:
-        raise HTTPException(status_code=503, detail="AI synopsis feature is not configured. Set AI_API_KEY in environment.")
-
-    # Get test run and verify ownership
+    # Verify ownership before checking feature configuration
     run_result = await db.execute(select(TestRun).where(TestRun.id == data.test_run_id))
     test_run = run_result.scalar_one_or_none()
     if not test_run:
         raise HTTPException(status_code=404, detail="Test run not found")
     if user.role == UserRole.ENGINEER and test_run.engineer_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
+
+    if not settings.AI_API_KEY:
+        raise HTTPException(status_code=503, detail="AI synopsis feature is not configured. Set AI_API_KEY in environment.")
 
     results = await db.execute(
         select(TestResult).where(TestResult.test_run_id == data.test_run_id).order_by(TestResult.test_id)

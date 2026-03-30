@@ -16,8 +16,8 @@ async def test_security_headers(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_csrf_protection_blocks_without_token(client: AsyncClient):
-    """POST to a CSRF-protected endpoint without token should still work
-    if there's no session cookie (CSRF only enforced when authenticated)."""
-    # Logout doesn't require CSRF when no session cookie is present
+    """POST to a CSRF-protected endpoint without a session cookie bypasses
+    CSRF check but the endpoint itself requires authentication → 401."""
+    # No session cookie → CSRF middleware passes through → endpoint returns 401
     resp = await client.post("/api/auth/logout")
-    assert resp.status_code == 200
+    assert resp.status_code == 401

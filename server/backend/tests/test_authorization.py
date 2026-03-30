@@ -293,3 +293,118 @@ async def test_request_id_echoed_when_provided(client: AsyncClient):
     custom_id = "test-req-12345"
     resp = await client.get("/api/health", headers={"X-Request-ID": custom_id})
     assert resp.headers.get("X-Request-ID") == custom_id
+
+
+# ── IDOR: Engineer cannot access nessus endpoints on another's run ────
+
+
+@pytest.mark.asyncio
+async def test_engineer_cannot_upload_nessus_for_other(client: AsyncClient, db_session: AsyncSession):
+    """Engineer A cannot upload a nessus file to Engineer B's test run."""
+    headers_a, run_id = await _setup_idor_scenario(client, db_session, "nup")
+
+    # Simulate a file upload (will fail at auth before file parsing)
+    resp = await client.post(
+        f"/api/test-runs/{run_id}/nessus/upload",
+        files={"file": ("scan.nessus", b"<xml>fake</xml>", "text/xml")},
+        headers=headers_a,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_engineer_cannot_list_nessus_findings_for_other(client: AsyncClient, db_session: AsyncSession):
+    """Engineer A cannot list nessus findings for Engineer B's test run."""
+    headers_a, run_id = await _setup_idor_scenario(client, db_session, "nfind")
+
+    resp = await client.get(f"/api/test-runs/{run_id}/nessus/findings", headers=headers_a)
+    assert resp.status_code == 403
+
+
+# ── Reviewer CAN access any test run ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reviewer_can_access_any_test_run(client: AsyncClient, db_session: AsyncSession):
+    """Reviewer can GET a test run owned by any engineer."""
+    await register_and_login(client, suffix="engRev")
+
+    device_id = await _create_device(db_session)
+    template_id = await _create_template(db_session)
+    eng_id = await _get_user_id(db_session, "engRevuser")
+    run_id = await _create_test_run(db_session, eng_id, device_id, template_id)
+    await db_session.commit()
+
+    reviewer_headers = await register_and_login(client, suffix="revAcc", role="reviewer")
+
+    resp = await client.get(f"/api/test-runs/{run_id}", headers=reviewer_headers)
+    assert resp.status_code == 200
+
+
+# ── IDOR: Synopsis generation ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_engineer_cannot_generate_synopsis_for_other(client: AsyncClient, db_session: AsyncSession):
+    """Engineer A cannot generate a synopsis for Engineer B's test run."""
+    headers_a, run_id = await _setup_idor_scenario(client, db_session, "syn")
+
+    resp = await client.post(
+        "/api/synopsis/generate",
+        json={"test_run_id": run_id},
+        headers=headers_a,
+    )
+    # Should be 403 (access denied) — not 503 (AI not configured)
+    assert resp.status_code == 403
+
+
+# ── IDOR: List endpoint scoping ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_engineer_list_only_own_test_runs(client: AsyncClient, db_session: AsyncSession):
+    """GET /test-runs/ should return only the engineer's own runs."""
+    # Create a run owned by user B
+    await register_and_login(client, suffix="listB")
+    device_id = await _create_device(db_session)
+    template_id = await _create_template(db_session)
+    user_b_id = await _get_user_id(db_session, "listBuser")
+    await _create_test_run(db_session, user_b_id, device_id, template_id)
+    await db_session.commit()
+
+    # Login as A and list — should not see B's run
+    headers_a = await register_and_login(client, suffix="listA")
+    resp = await client.get("/api/test-runs/", headers=headers_a)
+    assert resp.status_code == 200
+    runs = resp.json()
+    user_a_id = await _get_user_id(db_session, "listAuser")
+    for run in runs:
+        assert run["engineer_id"] == user_a_id, "Engineer should only see own test runs"
+
+
+# ── Change-password rate limit ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_change_password_rate_limit(client: AsyncClient):
+    """Change-password should be rate-limited to 3/min."""
+    rate_limiter._buckets.clear()
+
+    headers = await register_and_login(client, suffix="cpRL")
+
+    # Fire 3 requests (will fail with wrong password, but should not be 429)
+    for i in range(3):
+        resp = await client.post(
+            "/api/auth/change-password",
+            json={"current_password": "WrongPass1", "new_password": "NewPass123"},
+            headers=headers,
+        )
+        assert resp.status_code != 429, f"Request {i+1} should not be rate-limited"
+
+    # 4th request should be rate-limited
+    resp = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": "WrongPass1", "new_password": "NewPass123"},
+        headers=headers,
+    )
+    assert resp.status_code == 429
