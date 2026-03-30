@@ -840,6 +840,8 @@ async def generate_pdf_report(
     output_dir = str(Path(docx_path).parent)
 
     try:
+        env = os.environ.copy()
+        env["HOME"] = "/tmp"
         subprocess.run(
             [
                 "libreoffice",
@@ -852,6 +854,7 @@ async def generate_pdf_report(
             check=True,
             timeout=120,
             capture_output=True,
+            env=env,
         )
     except FileNotFoundError:
         logger.error("libreoffice not found — cannot convert to PDF")

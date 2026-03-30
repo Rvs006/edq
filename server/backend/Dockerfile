@@ -28,7 +28,8 @@ WORKDIR /app
 
 COPY . .
 
-RUN mkdir -p data uploads reports && chown -R edq:edq data uploads reports
+RUN mkdir -p data uploads reports /app/.cache/dconf /app/.config/libreoffice && \
+    chown -R edq:edq data uploads reports /app/.cache /app/.config
 
 USER edq
 
