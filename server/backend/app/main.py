@@ -52,8 +52,10 @@ FRONTEND_DIR = str(_PROJECT_ROOT / "frontend" / "dist")
 
 CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CSRF_EXEMPT_PATHS = {
-    "/api/auth/login", "/api/auth/register", "/api/health", "/api/health/",
-    "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/health", "/api/v1/health/",
+    "/api/auth/login", "/api/auth/register", "/api/auth/refresh",
+    "/api/health", "/api/health/",
+    "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh",
+    "/api/v1/health", "/api/v1/health/",
 }
 
 

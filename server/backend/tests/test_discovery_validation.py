@@ -35,7 +35,7 @@ async def test_network_scan_rejects_invalid_device_ips(client: AsyncClient):
     """StartBatchRequest with invalid device_ips should return 422."""
     headers = await register_and_login(client, suffix="netscanval")
     resp = await client.post(
-        "/api/network-scans/start",
+        "/api/network-scan/start",
         json={
             "scan_id": "fake-scan-id",
             "device_ips": ["not-an-ip", "192.168.1.1"],

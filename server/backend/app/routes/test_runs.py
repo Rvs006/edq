@@ -59,9 +59,12 @@ async def list_test_runs(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
     query = select(TestRun)
+    # Engineers can only see their own test runs
+    if user.role == UserRole.ENGINEER:
+        query = query.where(TestRun.engineer_id == user.id)
     if device_id:
         query = query.where(TestRun.device_id == device_id)
     if status:
@@ -75,14 +78,20 @@ async def list_test_runs(
 @router.get("/stats")
 async def test_run_stats(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    total = await db.execute(select(func.count(TestRun.id)))
+    # Engineers see only their own stats; admins/reviewers see all
+    base_filter = TestRun.engineer_id == user.id if user.role == UserRole.ENGINEER else True
+
+    total = await db.execute(select(func.count(TestRun.id)).where(base_filter))
     by_status = await db.execute(
-        select(TestRun.status, func.count(TestRun.id)).group_by(TestRun.status)
+        select(TestRun.status, func.count(TestRun.id))
+        .where(base_filter)
+        .group_by(TestRun.status)
     )
     by_verdict = await db.execute(
         select(TestRun.overall_verdict, func.count(TestRun.id))
+        .where(base_filter)
         .where(TestRun.overall_verdict.isnot(None))
         .group_by(TestRun.overall_verdict)
     )
