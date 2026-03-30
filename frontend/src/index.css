@@ -120,6 +120,17 @@
     @apply block text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5;
   }
 
+  @keyframes rainbow-slide {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+
+  .rainbow-bar {
+    background: linear-gradient(90deg, #0044ff, #00bfff, #00e676, #ffeb3b, #ff9800, #f44336, #e91e63, #0044ff, #00bfff, #00e676);
+    background-size: 200% 100%;
+    animation: rainbow-slide 4s linear infinite;
+  }
+
   @keyframes fade-in-row {
     from {
       opacity: 0;

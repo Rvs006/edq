@@ -45,15 +45,18 @@ export default function LandingPage() {
     <div className="min-h-screen bg-zinc-50 dark:bg-dark-bg flex flex-col pt-1">
       {/* Rainbow accent bar — full width fixed */}
       <div
-        className="fixed top-0 left-0 right-0 z-[60] h-[3px]"
-        style={{ background: 'linear-gradient(90deg, #0044ff, #00bfff, #00e676, #ffeb3b, #ff9800, #f44336, #e91e63)' }}
+        className="fixed top-0 left-0 right-0 z-[60] h-[3px] rainbow-bar"
       />
       <header className="sticky top-1 z-30 bg-white/80 dark:bg-dark-surface/80 backdrop-blur-md border-b border-zinc-200 dark:border-slate-700/50">
         <div className="max-w-6xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
           <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="" className="h-7 w-7 dark:hidden" />
-            <img src="/icon-white.png" alt="" className="h-7 w-7 hidden dark:block" />
-            <img src="/electracom-logo.png" alt="Electracom" className="h-10 dark:brightness-0 dark:invert" />
+            <img src="/icon.png" alt="" className="w-8 h-8 shrink-0 dark:hidden" />
+            <img src="/icon-white.png" alt="" className="w-8 h-8 shrink-0 hidden dark:block" />
+            <div className="flex flex-col">
+              <img src="/electracom-logo.png" alt="Electracom" className="h-6 dark:hidden" />
+              <img src="/electracom-logo.png" alt="Electracom" className="h-6 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
+              <span className="text-[9px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -188,9 +191,13 @@ export default function LandingPage() {
       <footer className="bg-white dark:bg-dark-card border-t border-zinc-200 dark:border-slate-700/50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="" className="h-5 w-5 dark:hidden" />
-            <img src="/icon-white.png" alt="" className="h-5 w-5 hidden dark:block" />
-            <img src="/electracom-logo.png" alt="Electracom" className="h-7 dark:brightness-0 dark:invert" />
+            <img src="/icon.png" alt="" className="w-6 h-6 shrink-0 dark:hidden" />
+            <img src="/icon-white.png" alt="" className="w-6 h-6 shrink-0 hidden dark:block" />
+            <div className="flex flex-col">
+              <img src="/electracom-logo.png" alt="Electracom" className="h-5 dark:hidden" />
+              <img src="/electracom-logo.png" alt="Electracom" className="h-5 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
+              <span className="text-[8px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
+            </div>
           </div>
           <p className="text-xs text-zinc-400 dark:text-slate-500">
             Electracom Projects Ltd &mdash; A Sauter Group Company

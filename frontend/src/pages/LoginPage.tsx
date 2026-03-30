@@ -32,8 +32,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col bg-surface dark:bg-dark-bg pt-1">
       {/* Rainbow accent bar — full width fixed */}
       <div
-        className="fixed top-0 left-0 right-0 z-[60] h-[3px]"
-        style={{ background: 'linear-gradient(90deg, #0044ff, #00bfff, #00e676, #ffeb3b, #ff9800, #f44336, #e91e63)' }}
+        className="fixed top-0 left-0 right-0 z-[60] h-[3px] rainbow-bar"
       />
       <div className="flex justify-end px-4 py-3">
         <ThemeToggle />
@@ -43,12 +42,15 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center px-4 pb-16">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
-            <div className="flex items-center justify-center mb-1">
-              <img src="/icon.png" alt="" className="w-14 h-14 dark:hidden" />
-              <img src="/icon-white.png" alt="" className="w-14 h-14 hidden dark:block" />
+            <div className="flex items-center gap-2.5">
+              <img src="/icon.png" alt="" className="w-11 h-11 shrink-0 dark:hidden" />
+              <img src="/icon-white.png" alt="" className="w-11 h-11 shrink-0 hidden dark:block" />
+              <div className="flex flex-col">
+                <img src="/electracom-logo.png" alt="Electracom" className="h-8 dark:hidden" />
+                <img src="/electracom-logo.png" alt="Electracom" className="h-8 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
+                <span className="text-[10px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
+              </div>
             </div>
-            <img src="/electracom-logo.png" alt="Electracom" className="h-16" />
-            <p className="text-sm text-zinc-500 dark:text-slate-400 mt-0.5">Device Qualifier</p>
           </div>
 
           <div className="card p-6">

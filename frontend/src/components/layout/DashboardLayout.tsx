@@ -134,8 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen bg-surface dark:bg-dark-bg">
       {/* Rainbow accent bar — spans full width at the very top */}
       <div
-        className="fixed top-0 left-0 right-0 z-[60] h-[3px]"
-        style={{ background: 'linear-gradient(90deg, #0044ff, #00bfff, #00e676, #ffeb3b, #ff9800, #f44336, #e91e63)' }}
+        className="fixed top-0 left-0 right-0 z-[60] h-[3px] rainbow-bar"
       />
 
       {sidebarOpen && (
