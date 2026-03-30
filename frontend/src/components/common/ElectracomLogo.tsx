@@ -1,6 +1,6 @@
 /**
- * Electracom wordmark with division color badges and Device Qualifier subtitle.
- * Matches the official brand reference exactly.
+ * Electracom logo using the actual brand PNG with Device Qualifier subtitle.
+ * Uses the tightly-cropped assets/electracom-logo.png (1600x296).
  */
 export function ElectracomLogo({
   size = 'md',
@@ -9,56 +9,25 @@ export function ElectracomLogo({
   size?: 'sm' | 'md' | 'lg'
 }) {
   const config = {
-    sm: {
-      title: 'text-[11px] tracking-[0.15em]',
-      badge: 'text-[3.5px] px-[3px] py-[1px]',
-      badgeGap: 'gap-[1.5px]',
-      sub: 'text-[8px]',
-      gap: 'gap-[1.5px]',
-    },
-    md: {
-      title: 'text-[15px] tracking-[0.16em]',
-      badge: 'text-[4.5px] px-[4px] py-[1.5px]',
-      badgeGap: 'gap-[2px]',
-      sub: 'text-[11px]',
-      gap: 'gap-[2px]',
-    },
-    lg: {
-      title: 'text-[19px] tracking-[0.16em]',
-      badge: 'text-[5.5px] px-[5px] py-[2px]',
-      badgeGap: 'gap-[2.5px]',
-      sub: 'text-[14px]',
-      gap: 'gap-[2.5px]',
-    },
+    sm: { img: 'h-5', sub: 'text-[8px]' },
+    md: { img: 'h-7', sub: 'text-[10px]' },
+    lg: { img: 'h-9', sub: 'text-[10px]' },
   }[size]
 
-  const divisions = [
-    { label: 'PROJECTS', color: '#6a3d9a' },
-    { label: 'SERVICE', color: '#1f78b4' },
-    { label: 'ENERGY', color: '#33a02c' },
-    { label: 'CONNECT', color: '#e6a800' },
-    { label: 'SMART', color: '#e31a1c' },
-  ]
-
   return (
-    <div className={`flex flex-col ${config.gap}`}>
-      <span
-        className={`${config.title} font-extrabold text-zinc-500 dark:text-zinc-300 leading-none select-none`}
-      >
-        ELECTRACOM
-      </span>
-      <div className={`flex ${config.badgeGap}`}>
-        {divisions.map((d) => (
-          <span
-            key={d.label}
-            className={`${config.badge} font-bold text-white leading-none select-none rounded-[1px]`}
-            style={{ backgroundColor: d.color }}
-          >
-            {d.label}
-          </span>
-        ))}
-      </div>
-      <span className={`${config.sub} font-semibold text-zinc-800 dark:text-slate-200 leading-none select-none`}>
+    <div className="flex flex-col">
+      <img
+        src="/electracom-logo.png"
+        alt="Electracom"
+        className={`${config.img} object-contain object-left dark:hidden`}
+      />
+      <img
+        src="/electracom-logo.png"
+        alt="Electracom"
+        className={`${config.img} object-contain object-left hidden dark:block`}
+        style={{ filter: 'brightness(2) saturate(1.3)' }}
+      />
+      <span className={`${config.sub} font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5`}>
         Device Qualifier
       </span>
     </div>
