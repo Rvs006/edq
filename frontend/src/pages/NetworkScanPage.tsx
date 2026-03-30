@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import {
   Network, Search, Play, CheckCircle2, XCircle, AlertTriangle,
   Loader2, ChevronRight, ChevronDown, RotateCcw, Wifi, WifiOff,
-  Info, ArrowRight, Shield, Monitor, Server, LayoutGrid, List
+  Info, ArrowRight, Shield, Monitor, Server, LayoutGrid, List,
+  Clock, Circle, Terminal, Minus
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { networkScanApi, templatesApi, authorizedNetworksApi } from '@/lib/api'
@@ -38,10 +39,25 @@ interface DiscoveredDevice {
 
 type DeviceViewMode = 'grid' | 'tree'
 
+interface TestDetail {
+  test_id: string
+  test_name: string
+  verdict: string
+  tool: string | null
+  duration_seconds: number | null
+  is_essential: string
+  tier: string
+  comment: string | null
+  raw_output: string | null
+  started_at: string | null
+  completed_at: string | null
+}
+
 interface ScanResult {
   run_id: string
   device_ip: string
   device_id: string
+  device_category: string | null
   vendor: string | null
   hostname: string | null
   status: string
@@ -52,6 +68,7 @@ interface ScanResult {
   failed_tests: number
   advisory_tests: number
   overall_verdict: string | null
+  test_details: TestDetail[]
 }
 
 // Persist active scan across page navigations so leaving and returning resumes monitoring
@@ -267,7 +284,7 @@ export default function NetworkScanPage() {
         />
       )}
       {step === 'monitor' && (
-        <MonitorStep results={results} scanStatus={scanStatus} navigate={navigate} onNewScan={() => {
+        <MonitorStep results={results} scanStatus={scanStatus} navigate={navigate} selectedTests={selectedTests} onNewScan={() => {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('configure')
           setScanId(null)
@@ -746,7 +763,7 @@ function ReviewStep({
   )
 }
 
-function MonitorStep({ results, scanStatus, navigate, onNewScan }: { results: ScanResult[]; scanStatus: string; navigate: (path: string) => void; onNewScan: () => void }) {
+function MonitorStep({ results, scanStatus, navigate, onNewScan, selectedTests }: { results: ScanResult[]; scanStatus: string; navigate: (path: string) => void; onNewScan: () => void; selectedTests: Set<string> }) {
   const totalTests = results.reduce((s, r) => s + r.total_tests, 0)
   const completedTests = results.reduce((s, r) => s + r.completed_tests, 0)
   const overallPct = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0
@@ -775,9 +792,9 @@ function MonitorStep({ results, scanStatus, navigate, onNewScan }: { results: Sc
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="space-y-3">
         {results.map(r => (
-          <DeviceProgressCard key={r.run_id} result={r} navigate={navigate} />
+          <DeviceTestDashboard key={r.run_id} result={r} navigate={navigate} selectedTests={selectedTests} />
         ))}
       </div>
 
@@ -790,8 +807,55 @@ function MonitorStep({ results, scanStatus, navigate, onNewScan }: { results: Sc
   )
 }
 
-function DeviceProgressCard({ result, navigate }: { result: ScanResult; navigate: (path: string) => void }) {
-  const [expanded, setExpanded] = useState(false)
+function VerdictIcon({ verdict }: { verdict: string }) {
+  switch (verdict) {
+    case 'pass': return <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+    case 'fail': return <XCircle className="w-4 h-4 text-red-500" />
+    case 'advisory': return <AlertTriangle className="w-4 h-4 text-amber-500" />
+    case 'info': return <Info className="w-4 h-4 text-blue-500" />
+    case 'error': return <XCircle className="w-4 h-4 text-red-400" />
+    case 'running': return <Loader2 className="w-4 h-4 text-brand-500 animate-spin" />
+    case 'na': return <Minus className="w-4 h-4 text-zinc-400" />
+    case 'skipped_safe_mode': return <Minus className="w-4 h-4 text-zinc-300" />
+    default: return <Clock className="w-4 h-4 text-zinc-300 dark:text-slate-600" />
+  }
+}
+
+function formatDuration(seconds: number | null): string {
+  if (!seconds) return ''
+  if (seconds < 1) return '<1s'
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
+}
+
+// Device relevance mapping: which test categories matter for each device type
+const DEVICE_RELEVANCE: Record<string, Set<string>> = {
+  camera: new Set(['U01','U02','U06','U07','U08','U09','U10','U11','U12','U13','U14','U16','U18','U19','U26','U34','U35','U36','U37']),
+  controller: new Set(['U01','U02','U03','U04','U06','U07','U08','U09','U15','U16','U17','U19','U26','U28','U31','U34','U36']),
+  intercom: new Set(['U01','U02','U06','U08','U10','U11','U12','U14','U16','U18','U19','U26','U34','U35','U37']),
+  access_panel: new Set(['U01','U02','U06','U08','U10','U14','U16','U18','U19','U26','U34','U35']),
+  hvac: new Set(['U01','U02','U03','U06','U08','U09','U15','U16','U19','U26','U28','U31','U34']),
+  lighting: new Set(['U01','U02','U06','U08','U09','U16','U19','U26','U32','U33','U34']),
+  iot_sensor: new Set(['U01','U02','U06','U08','U16','U19','U26','U32','U33','U34']),
+  meter: new Set(['U01','U02','U06','U08','U09','U15','U16','U19','U26','U31','U34']),
+}
+
+function getTestRelevance(testId: string, deviceCategory: string | null): 'high' | 'normal' | 'low' {
+  if (!deviceCategory || deviceCategory === 'unknown') return 'normal'
+  const relevant = DEVICE_RELEVANCE[deviceCategory]
+  if (!relevant) return 'normal'
+  // Essential tests on relevant devices are high priority
+  const test = UNIVERSAL_TESTS.find(t => t.id === testId)
+  if (relevant.has(testId)) {
+    return test?.essential ? 'high' : 'normal'
+  }
+  return 'low'
+}
+
+function DeviceTestDashboard({ result, navigate, selectedTests }: { result: ScanResult; navigate: (path: string) => void; selectedTests: Set<string> }) {
+  const [expanded, setExpanded] = useState(true)
+  const [expandedOutput, setExpandedOutput] = useState<string | null>(null)
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const pct = Math.round(result.progress_pct || 0)
   const isComplete = result.status === 'completed' || result.status === 'awaiting_manual'
   const isError = result.status === 'failed' || result.status === 'error'
@@ -799,8 +863,36 @@ function DeviceProgressCard({ result, navigate }: { result: ScanResult; navigate
   const displayName = result.hostname || result.vendor || null
   const subtitle = result.vendor && result.hostname ? result.vendor : null
 
+  // Build test detail map for quick lookup
+  const detailMap = new Map<string, TestDetail>()
+  for (const td of (result.test_details || [])) {
+    detailMap.set(td.test_id, td)
+  }
+
+  // Group tests by category — only include tests that are selected for this scan
+  const selectedTestList = UNIVERSAL_TESTS.filter(t => selectedTests.has(t.id))
+  const unselectedTestList = UNIVERSAL_TESTS.filter(t => !selectedTests.has(t.id))
+
+  const categoryGroups: { category: string; tests: typeof selectedTestList }[] = []
+  for (const cat of TEST_CATEGORIES) {
+    const catTests = selectedTestList.filter(t => t.category === cat)
+    if (catTests.length > 0) {
+      categoryGroups.push({ category: cat, tests: catTests })
+    }
+  }
+
+  const toggleCategory = (cat: string) => {
+    setCollapsedCategories(prev => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat)
+      else next.add(cat)
+      return next
+    })
+  }
+
   return (
-    <div className={`card overflow-hidden ${isError ? 'border-red-200' : isComplete ? 'border-emerald-200' : ''}`}>
+    <div className={`card overflow-hidden ${isError ? 'border-red-200 dark:border-red-900/50' : isComplete ? 'border-emerald-200 dark:border-emerald-900/50' : ''}`}>
+      {/* Header */}
       <div
         className="p-4 cursor-pointer hover:bg-zinc-50 dark:hover:bg-slate-800/50 transition-colors"
         onClick={() => setExpanded(!expanded)}
@@ -811,6 +903,9 @@ function DeviceProgressCard({ result, navigate }: { result: ScanResult; navigate
             <span className="text-sm font-mono font-medium text-zinc-800 dark:text-slate-200">{result.device_ip}</span>
             {displayName && (
               <span className="text-sm text-zinc-500 dark:text-slate-400 truncate">— {displayName}</span>
+            )}
+            {result.device_category && result.device_category !== 'unknown' && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-slate-700 text-zinc-500 dark:text-slate-400 uppercase tracking-wider">{result.device_category.replace('_', ' ')}</span>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -833,6 +928,7 @@ function DeviceProgressCard({ result, navigate }: { result: ScanResult; navigate
         </div>
       </div>
 
+      {/* Expanded test dashboard */}
       <AnimatePresence>
         {expanded && (
           <motion.div
@@ -842,36 +938,127 @@ function DeviceProgressCard({ result, navigate }: { result: ScanResult; navigate
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 pt-1 border-t border-zinc-100 dark:border-slate-700/50">
-              <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-                <div>
-                  <span className="text-zinc-400">IP Address</span>
-                  <p className="font-mono text-zinc-700 dark:text-slate-300">{result.device_ip}</p>
-                </div>
-                {result.hostname && (
-                  <div>
-                    <span className="text-zinc-400">Hostname</span>
-                    <p className="text-zinc-700 dark:text-slate-300">{result.hostname}</p>
+            <div className="border-t border-zinc-100 dark:border-slate-700/50">
+              {/* Category groups */}
+              {categoryGroups.map(({ category, tests }) => {
+                const isCatCollapsed = collapsedCategories.has(category)
+                const catDetails = tests.map(t => detailMap.get(t.id))
+                const catCompleted = catDetails.filter(d => d && d.verdict !== 'pending' && d.verdict !== 'running').length
+                return (
+                  <div key={category}>
+                    <div
+                      className="flex items-center gap-2 px-4 py-2 bg-zinc-50 dark:bg-slate-800/80 border-b border-zinc-100 dark:border-slate-700/30 cursor-pointer hover:bg-zinc-100 dark:hover:bg-slate-800"
+                      onClick={() => toggleCategory(category)}
+                    >
+                      {isCatCollapsed ? <ChevronRight className="w-3 h-3 text-zinc-400" /> : <ChevronDown className="w-3 h-3 text-zinc-400" />}
+                      <span className="text-xs font-semibold text-zinc-600 dark:text-slate-300 uppercase tracking-wider">{category}</span>
+                      <span className="text-[10px] text-zinc-400 dark:text-slate-500">{catCompleted}/{tests.length}</span>
+                    </div>
+                    <AnimatePresence>
+                      {!isCatCollapsed && (
+                        <motion.div
+                          initial={{ height: 0 }}
+                          animate={{ height: 'auto' }}
+                          exit={{ height: 0 }}
+                          transition={{ duration: 0.15 }}
+                          className="overflow-hidden"
+                        >
+                          {tests.map(test => {
+                            const detail = detailMap.get(test.id)
+                            const verdict = detail?.verdict || 'pending'
+                            const relevance = getTestRelevance(test.id, result.device_category)
+                            const isOutputExpanded = expandedOutput === test.id
+                            const hasOutput = detail?.raw_output || detail?.comment
+
+                            return (
+                              <div key={test.id}>
+                                <div
+                                  className={`flex items-center gap-3 px-4 py-2 border-b border-zinc-50 dark:border-slate-700/20 transition-colors ${
+                                    hasOutput && (verdict !== 'pending') ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-slate-800/50' : ''
+                                  } ${relevance === 'low' ? 'opacity-40' : ''}`}
+                                  onClick={() => {
+                                    if (hasOutput && verdict !== 'pending') {
+                                      setExpandedOutput(isOutputExpanded ? null : test.id)
+                                    }
+                                  }}
+                                >
+                                  <VerdictIcon verdict={verdict} />
+                                  <span className={`text-xs font-mono w-8 shrink-0 ${relevance === 'high' ? 'text-red-600 dark:text-red-400 font-bold' : 'text-zinc-400 dark:text-slate-500'}`}>{test.id}</span>
+                                  <span className={`text-sm flex-1 ${verdict === 'fail' ? 'text-red-700 dark:text-red-300 font-medium' : verdict === 'pass' ? 'text-zinc-700 dark:text-slate-300' : 'text-zinc-600 dark:text-slate-400'}`}>
+                                    {test.name}
+                                    {test.essential && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-semibold uppercase">Essential</span>}
+                                    {relevance === 'high' && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-semibold uppercase">Critical</span>}
+                                    {relevance === 'low' && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-zinc-100 dark:bg-slate-700 text-zinc-400 dark:text-slate-500 font-semibold uppercase">Low relevance</span>}
+                                  </span>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {detail?.tool && <span className="text-[10px] text-zinc-400 dark:text-slate-500 font-mono">{detail.tool}</span>}
+                                    {detail?.duration_seconds && <span className="text-[10px] text-zinc-400 dark:text-slate-500 tabular-nums">{formatDuration(detail.duration_seconds)}</span>}
+                                    {hasOutput && verdict !== 'pending' && (
+                                      <Terminal className={`w-3 h-3 ${isOutputExpanded ? 'text-brand-500' : 'text-zinc-300 dark:text-slate-600'}`} />
+                                    )}
+                                  </div>
+                                </div>
+                                {/* Expandable raw output */}
+                                <AnimatePresence>
+                                  {isOutputExpanded && (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.15 }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="px-4 py-3 bg-zinc-900 dark:bg-black/40 border-b border-zinc-200 dark:border-slate-700/30">
+                                        {detail?.comment && (
+                                          <p className="text-xs text-amber-400 mb-2 font-medium">{detail.comment}</p>
+                                        )}
+                                        {detail?.raw_output && (
+                                          <pre className="text-[11px] leading-relaxed text-green-400 font-mono whitespace-pre-wrap break-all max-h-64 overflow-y-auto scrollbar-thin">
+                                            {detail.raw_output}
+                                          </pre>
+                                        )}
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            )
+                          })}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                )}
-                {result.vendor && (
-                  <div>
-                    <span className="text-zinc-400">Vendor</span>
-                    <p className="text-zinc-700 dark:text-slate-300">{result.vendor}</p>
-                  </div>
-                )}
+                )
+              })}
+
+              {/* Unselected tests — shown dimmed at bottom */}
+              {unselectedTestList.length > 0 && (
                 <div>
-                  <span className="text-zinc-400">Progress</span>
-                  <p className="text-zinc-700 dark:text-slate-300">{pct}% ({result.completed_tests}/{result.total_tests})</p>
+                  <div className="flex items-center gap-2 px-4 py-2 bg-zinc-50/50 dark:bg-slate-800/40 border-b border-zinc-100 dark:border-slate-700/30">
+                    <span className="text-[10px] font-semibold text-zinc-400 dark:text-slate-500 uppercase tracking-wider">Not included in this scan</span>
+                  </div>
+                  <div className="opacity-30">
+                    {unselectedTestList.map(test => (
+                      <div key={test.id} className="flex items-center gap-3 px-4 py-1.5 border-b border-zinc-50 dark:border-slate-700/10">
+                        <Circle className="w-3.5 h-3.5 text-zinc-300 dark:text-slate-600" />
+                        <span className="text-xs font-mono w-8 text-zinc-300 dark:text-slate-600">{test.id}</span>
+                        <span className="text-xs text-zinc-400 dark:text-slate-500">{test.name}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )}
+
+              {/* Footer action */}
+              <div className="px-4 py-3">
+                <button
+                  onClick={(e) => { e.stopPropagation(); navigate(`/test-runs/${result.run_id}`) }}
+                  className="btn-primary text-xs py-1.5 px-3 w-full"
+                >
+                  <ArrowRight className="w-3.5 h-3.5" />
+                  View Full Test Details
+                </button>
               </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); navigate(`/test-runs/${result.run_id}`) }}
-                className="btn-primary text-xs py-1.5 px-3 w-full"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
-                View Full Test Details
-              </button>
             </div>
           </motion.div>
         )}

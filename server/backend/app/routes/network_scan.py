@@ -375,7 +375,7 @@ async def get_scan_results(
     if not run_ids:
         return {"scan_id": scan_id, "status": scan.status.value, "results": []}
 
-    # Batch-load all test runs and devices in two queries instead of N+1
+    # Batch-load all test runs, devices, and test results in three queries instead of N+1
     runs_result = await db.execute(select(TestRun).where(TestRun.id.in_(run_ids)))
     runs = {r.id: r for r in runs_result.scalars().all()}
 
@@ -385,6 +385,16 @@ async def get_scan_results(
         devs_result = await db.execute(select(Device).where(Device.id.in_(device_ids)))
         devices_map = {d.id: d for d in devs_result.scalars().all()}
 
+    # Batch-load all test results for all runs
+    test_results_result = await db.execute(
+        select(TestResult).where(TestResult.test_run_id.in_(list(runs.keys())))
+    )
+    all_test_results = test_results_result.scalars().all()
+    # Group by test_run_id
+    results_by_run: dict = {}
+    for tr in all_test_results:
+        results_by_run.setdefault(tr.test_run_id, []).append(tr)
+
     results = []
     for rid in run_ids:
         run = runs.get(rid)
@@ -392,10 +402,31 @@ async def get_scan_results(
             continue
         device = devices_map.get(run.device_id)
 
+        # Build per-test detail list
+        run_test_results = results_by_run.get(rid, [])
+        test_details = []
+        for tr in run_test_results:
+            test_details.append({
+                "test_id": tr.test_id,
+                "test_name": tr.test_name,
+                "verdict": tr.verdict.value if hasattr(tr.verdict, "value") else str(tr.verdict),
+                "tool": tr.tool,
+                "duration_seconds": tr.duration_seconds,
+                "is_essential": tr.is_essential,
+                "tier": tr.tier.value if hasattr(tr.tier, "value") else str(tr.tier),
+                "comment": tr.comment,
+                "raw_output": tr.raw_output,
+                "started_at": tr.started_at.isoformat() if tr.started_at else None,
+                "completed_at": tr.completed_at.isoformat() if tr.completed_at else None,
+            })
+        # Sort by test_id for consistent ordering
+        test_details.sort(key=lambda t: t["test_id"])
+
         results.append({
             "run_id": run.id,
             "device_ip": device.ip_address if device else "unknown",
             "device_id": run.device_id,
+            "device_category": device.category.value if device and device.category and hasattr(device.category, "value") else str(device.category) if device and device.category else None,
             "vendor": device.manufacturer or device.oui_vendor if device else None,
             "hostname": device.hostname if device else None,
             "status": run.status.value if hasattr(run.status, "value") else str(run.status),
@@ -406,6 +437,7 @@ async def get_scan_results(
             "failed_tests": run.failed_tests,
             "advisory_tests": run.advisory_tests,
             "overall_verdict": run.overall_verdict.value if run.overall_verdict and hasattr(run.overall_verdict, "value") else str(run.overall_verdict) if run.overall_verdict else None,
+            "test_details": test_details,
         })
 
     return {"scan_id": scan_id, "status": scan.status.value, "results": results}
