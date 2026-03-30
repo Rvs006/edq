@@ -239,7 +239,14 @@ export default function NetworkScanPage() {
         />
       )}
       {step === 'monitor' && (
-        <MonitorStep results={results} scanStatus={scanStatus} />
+        <MonitorStep results={results} scanStatus={scanStatus} navigate={navigate} onNewScan={() => {
+          if (pollRef.current) clearInterval(pollRef.current)
+          setStep('configure')
+          setScanId(null)
+          setDevices([])
+          setResults([])
+          setScanStatus('pending')
+        }} />
       )}
       {step === 'results' && (
         <ResultsStep results={results} navigate={navigate} onReset={() => {
@@ -711,18 +718,24 @@ function ReviewStep({
   )
 }
 
-function MonitorStep({ results, scanStatus }: { results: ScanResult[]; scanStatus: string }) {
+function MonitorStep({ results, scanStatus, navigate, onNewScan }: { results: ScanResult[]; scanStatus: string; navigate: (path: string) => void; onNewScan: () => void }) {
   const totalTests = results.reduce((s, r) => s + r.total_tests, 0)
   const completedTests = results.reduce((s, r) => s + r.completed_tests, 0)
   const overallPct = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0
+  const isRunning = scanStatus === 'running' || scanStatus === 'pending'
 
   return (
     <div className="space-y-4">
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-brand-500" />
-            <span className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Scanning {results.length} device(s)...</span>
+            {isRunning
+              ? <Loader2 className="w-4 h-4 animate-spin text-brand-500" />
+              : <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            }
+            <span className="text-sm font-semibold text-zinc-900 dark:text-slate-100">
+              {isRunning ? `Scanning ${results.length} device(s)...` : `Scan complete — ${results.length} device(s)`}
+            </span>
           </div>
           <span className="text-sm font-medium text-brand-500">{overallPct}%</span>
         </div>
@@ -736,40 +749,105 @@ function MonitorStep({ results, scanStatus }: { results: ScanResult[]; scanStatu
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {results.map(r => (
-          <DeviceProgressCard key={r.run_id} result={r} />
+          <DeviceProgressCard key={r.run_id} result={r} navigate={navigate} />
         ))}
+      </div>
+
+      <div className="flex justify-start">
+        <button onClick={onNewScan} className="btn-secondary">
+          <RotateCcw className="w-4 h-4" /> New Scan
+        </button>
       </div>
     </div>
   )
 }
 
-function DeviceProgressCard({ result }: { result: ScanResult }) {
+function DeviceProgressCard({ result, navigate }: { result: ScanResult; navigate: (path: string) => void }) {
+  const [expanded, setExpanded] = useState(false)
   const pct = Math.round(result.progress_pct || 0)
   const isComplete = result.status === 'completed' || result.status === 'awaiting_manual'
   const isError = result.status === 'failed' || result.status === 'error'
 
+  const displayName = result.hostname || result.vendor || null
+  const subtitle = result.vendor && result.hostname ? result.vendor : null
+
   return (
-    <div className={`card p-4 ${isError ? 'border-red-200' : isComplete ? 'border-emerald-200' : ''}`}>
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <Server className="w-4 h-4 text-zinc-400" />
-          <span className="text-sm font-mono font-medium text-zinc-800 dark:text-slate-200">{result.device_ip}</span>
+    <div className={`card overflow-hidden ${isError ? 'border-red-200' : isComplete ? 'border-emerald-200' : ''}`}>
+      <div
+        className="p-4 cursor-pointer hover:bg-zinc-50 dark:hover:bg-slate-800/50 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <Server className="w-4 h-4 text-zinc-400 shrink-0" />
+            <span className="text-sm font-mono font-medium text-zinc-800 dark:text-slate-200">{result.device_ip}</span>
+            {displayName && (
+              <span className="text-sm text-zinc-500 dark:text-slate-400 truncate">— {displayName}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <StatusBadge status={result.status} verdict={result.overall_verdict} />
+            {expanded ? <ChevronDown className="w-3.5 h-3.5 text-zinc-400" /> : <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />}
+          </div>
         </div>
-        <StatusBadge status={result.status} verdict={result.overall_verdict} />
+        {subtitle && <p className="text-xs text-zinc-500 mb-2 ml-6">{subtitle}</p>}
+        <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-1.5 mb-2">
+          <div
+            className={`h-1.5 rounded-full transition-all duration-500 ${isError ? 'bg-red-400' : isComplete ? 'bg-emerald-400' : 'bg-brand-500'}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+          <span>{result.completed_tests}/{result.total_tests} tests</span>
+          {result.passed_tests > 0 && <span className="text-emerald-600">{result.passed_tests} pass</span>}
+          {result.failed_tests > 0 && <span className="text-red-600">{result.failed_tests} fail</span>}
+          {result.advisory_tests > 0 && <span className="text-amber-600">{result.advisory_tests} advisory</span>}
+        </div>
       </div>
-      {result.vendor && <p className="text-xs text-zinc-500 mb-2">{result.vendor}{result.hostname ? ` • ${result.hostname}` : ''}</p>}
-      <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-1.5 mb-2">
-        <div
-          className={`h-1.5 rounded-full transition-all duration-500 ${isError ? 'bg-red-400' : isComplete ? 'bg-emerald-400' : 'bg-brand-500'}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="flex items-center gap-3 text-[11px] text-zinc-500">
-        <span>{result.completed_tests}/{result.total_tests} tests</span>
-        {result.passed_tests > 0 && <span className="text-emerald-600">{result.passed_tests} pass</span>}
-        {result.failed_tests > 0 && <span className="text-red-600">{result.failed_tests} fail</span>}
-        {result.advisory_tests > 0 && <span className="text-amber-600">{result.advisory_tests} advisory</span>}
-      </div>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 pt-1 border-t border-zinc-100 dark:border-slate-700/50">
+              <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                <div>
+                  <span className="text-zinc-400">IP Address</span>
+                  <p className="font-mono text-zinc-700 dark:text-slate-300">{result.device_ip}</p>
+                </div>
+                {result.hostname && (
+                  <div>
+                    <span className="text-zinc-400">Hostname</span>
+                    <p className="text-zinc-700 dark:text-slate-300">{result.hostname}</p>
+                  </div>
+                )}
+                {result.vendor && (
+                  <div>
+                    <span className="text-zinc-400">Vendor</span>
+                    <p className="text-zinc-700 dark:text-slate-300">{result.vendor}</p>
+                  </div>
+                )}
+                <div>
+                  <span className="text-zinc-400">Progress</span>
+                  <p className="text-zinc-700 dark:text-slate-300">{pct}% ({result.completed_tests}/{result.total_tests})</p>
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate(`/test-runs/${result.run_id}`) }}
+                className="btn-primary text-xs py-1.5 px-3 w-full"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                View Full Test Details
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
