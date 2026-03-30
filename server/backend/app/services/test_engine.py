@@ -609,12 +609,12 @@ class TestEngine:
                     "-t", "16",
                     "-f",
                     device_ip,
-                    f"http-post-form",
+                    "http-post-form",
                 ]
                 # Hydra http-post-form needs the form spec as the last positional arg
                 # Format: /path:user=^USER^&pass=^PASS^:F=failure_string
                 if form_fields:
-                    args[-1] = f"http-post-form"
+                    args[-1] = "http-post-form"
                     args.append(form_fields)
             else:
                 args = [

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
-type ThemeMode = 'light' | 'dark' | 'system'
+type ThemeMode = 'light' | 'dark'
 
 interface ThemeContextType {
   mode: ThemeMode
@@ -9,7 +9,7 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  mode: 'system',
+  mode: 'light',
   setMode: () => {},
   isDark: false,
 })
@@ -18,20 +18,15 @@ export function useTheme() {
   return useContext(ThemeContext)
 }
 
-function getSystemDark(): boolean {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-}
-
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem('edq-theme')
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
-    return 'system'
+    if (stored === 'light' || stored === 'dark') return stored
+    // Auto-detect system preference on first visit
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   })
-  // Separate state to track the resolved system preference so isDark stays fresh
-  const [systemDark, setSystemDark] = useState(getSystemDark)
 
-  const isDark = mode === 'dark' || (mode === 'system' && systemDark)
+  const isDark = mode === 'dark'
 
   const setMode = (newMode: ThemeMode) => {
     setModeState(newMode)
@@ -47,14 +42,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.classList.remove('dark')
     }
   }, [isDark])
-
-  // Listen for system preference changes — update systemDark state to trigger re-render
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => setSystemDark(mq.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
 
   return (
     <ThemeContext.Provider value={{ mode, setMode, isDark }}>

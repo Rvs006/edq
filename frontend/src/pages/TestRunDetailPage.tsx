@@ -394,6 +394,7 @@ export default function TestRunDetailPage() {
           <Link
             to="/test-runs"
             className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors flex-shrink-0"
+            title="Back to test runs"
           >
             <ArrowLeft className="w-4 h-4 text-zinc-500" />
           </Link>
@@ -437,6 +438,7 @@ export default function TestRunDetailPage() {
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors flex-shrink-0"
+            title="Toggle test list"
           >
             {sidebarOpen ? <X className="w-5 h-5 text-zinc-600" /> : <Menu className="w-5 h-5 text-zinc-600" />}
           </button>

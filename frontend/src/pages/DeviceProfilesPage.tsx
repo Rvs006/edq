@@ -177,6 +177,7 @@ export default function DeviceProfilesPage() {
         <button
           onClick={() => handleOpenEditor()}
           className="btn-primary text-sm flex-shrink-0"
+          title="Create a new device profile"
         >
           <Plus className="w-4 h-4" />
           New Profile
@@ -249,6 +250,7 @@ export default function DeviceProfilesPage() {
                 <button
                   onClick={() => handleOpenEditor(selectedApiProfile)}
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+                  title="Edit profile"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                   Edit
@@ -256,6 +258,7 @@ export default function DeviceProfilesPage() {
                 <button
                   onClick={() => handleDeleteProfile(selected.id)}
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                  title="Delete this profile"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Delete

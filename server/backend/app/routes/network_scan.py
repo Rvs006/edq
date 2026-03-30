@@ -187,7 +187,14 @@ async def start_batch_scan(
                 raise HTTPException(status_code=400, detail="No test template available")
         template_id = template.id
 
-    test_ids = data.test_ids or scan.selected_test_ids or (template.test_ids if template else [])
+    raw_test_ids = data.test_ids or scan.selected_test_ids or (template.test_ids if template else [])
+    # Deduplicate while preserving order (guards against double-serialized or manually edited templates)
+    seen: set[str] = set()
+    test_ids: list[str] = []
+    for tid in raw_test_ids:
+        if tid not in seen:
+            seen.add(tid)
+            test_ids.append(tid)
 
     run_ids = []
     for ip in data.device_ips:

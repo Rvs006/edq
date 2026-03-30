@@ -142,7 +142,7 @@ export default function SessionControls({
                 {isActioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                 Approve All
               </button>
-              <button onClick={onRequestReview} disabled={isActioning} className="btn-secondary text-sm">
+              <button onClick={onRequestReview} disabled={isActioning} className="btn-secondary text-sm" title="Submit for peer review">
                 <Send className="w-4 h-4" />
                 <span className="hidden sm:inline">Request Review</span>
               </button>

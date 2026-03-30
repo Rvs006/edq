@@ -143,6 +143,15 @@ async def create_test_run(
         import json as _json
         raw_ids = _json.loads(raw_ids)
 
+    # Deduplicate while preserving order (guards against manually edited or double-serialized templates)
+    seen_ids: set[str] = set()
+    deduped_ids: list[str] = []
+    for tid in raw_ids:
+        if tid not in seen_ids:
+            seen_ids.add(tid)
+            deduped_ids.append(tid)
+    raw_ids = deduped_ids
+
     test_run = TestRun(
         device_id=data.device_id,
         template_id=data.template_id,
