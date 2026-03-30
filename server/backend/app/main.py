@@ -104,7 +104,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob:; "
             "connect-src 'self' ws: wss:; "

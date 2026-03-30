@@ -43,6 +43,7 @@
 - `GET /test-runs/` and `/stats` are scoped: engineers see only their own runs/stats
 - Report generation and synopsis generation verify test-run ownership
 - Nessus upload and findings endpoints verify test-run ownership
+- WebSocket `/ws/test-run/{run_id}` verifies ownership via `_authorize_test_run()` before accepting the connection
 - Device PATCH is restricted to admin only; device DELETE was already admin-only
 - User listing (`GET /users/`) is restricted to admin only with pagination
 
@@ -80,9 +81,11 @@ Applied to all responses via `SecurityHeadersMiddleware`:
 - `X-XSS-Protection: 1; mode=block`
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (when `COOKIE_SECURE=True`)
-- `Content-Security-Policy` (restricts script-src, style-src, img-src, connect-src)
+- `Content-Security-Policy` — backend: `script-src 'self'` (no `unsafe-inline`), `style-src 'self' 'unsafe-inline'` (required for Tailwind); frontend nginx mirrors the same CSP
 - `Permissions-Policy` (denies camera, microphone, geolocation, payment)
 - `Cache-Control: no-store` on all `/api/` responses
+
+**Frontend nginx** also sets: CSP, Permissions-Policy, Cache-Control, and all X- headers (matching the backend).
 
 ### Request ID Tracking
 Every response includes an `X-Request-ID` header for tracing.
@@ -173,7 +176,7 @@ The system automatically handles this:
 - To check locally: `pip-audit -r requirements.txt --skip-editable --desc`
 
 ### Frontend (Node.js)
-- `pnpm audit --audit-level=high` runs in CI
+- `pnpm audit --audit-level=high` runs in CI (strict — failures break the build)
 - `picomatch` pinned to `>=4.0.4` via pnpm overrides to resolve ReDoS vulnerabilities
 - To check locally: `cd frontend && pnpm audit`
 
@@ -208,6 +211,15 @@ The system automatically handles this:
 - All `/scan/*` endpoints require the `X-Tools-Key` header matching `TOOLS_API_KEY`
 - The sidecar should not be exposed to the public internet — only the backend communicates with it
 - Network policy: restrict tools container to backend-only access via Docker networking
+
+---
+
+## WebSocket Security
+
+- All WebSocket endpoints (`/ws/test-run/{run_id}`, `/ws/discovery/{task_id}`, `/ws/agents`) require JWT authentication via the httpOnly session cookie
+- Unauthenticated connections are closed with `WS_1008_POLICY_VIOLATION`
+- `/ws/test-run/{run_id}` enforces IDOR: engineers can only subscribe to their own test runs; admins and reviewers can subscribe to any
+- WebSockets bypass CSRF (by design — no mutating state from WS messages), but JWT validation prevents unauthorized access
 
 ---
 

@@ -6,8 +6,12 @@ from typing import Dict, Optional, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from jose import JWTError, jwt
+from sqlalchemy import select
 
 from app.config import settings
+from app.models.database import async_session
+from app.models.test_run import TestRun
+from app.models.user import UserRole
 from app.security.auth import SESSION_COOKIE
 
 logger = logging.getLogger("edq.routes.websocket")
@@ -55,12 +59,34 @@ def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
         return None
 
 
+async def _authorize_test_run(payload: dict, run_id: str) -> bool:
+    """Check if the authenticated user is allowed to access this test run.
+
+    Admins and reviewers can access all test runs.
+    Engineers can only access their own.
+    """
+    role = payload.get("role", "engineer")
+    if role in (UserRole.ADMIN.value, UserRole.REVIEWER.value):
+        return True
+    user_id = payload.get("sub")
+    async with async_session() as db:
+        result = await db.execute(select(TestRun.engineer_id).where(TestRun.id == run_id))
+        row = result.scalar_one_or_none()
+        if row is None:
+            return False
+        return row == user_id
+
+
 @router.websocket("/test-run/{run_id}")
 async def test_run_ws(websocket: WebSocket, run_id: str):
     """WebSocket endpoint for real-time test run progress."""
     payload = _authenticate_ws(websocket)
     if not payload:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
+        return
+
+    if not await _authorize_test_run(payload, run_id):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Access denied")
         return
 
     channel = f"test-run:{run_id}"
