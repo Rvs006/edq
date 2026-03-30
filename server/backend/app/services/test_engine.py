@@ -229,6 +229,13 @@ class TestEngine:
                         result_row.duration_seconds = duration
                         result_row.started_at = datetime.now(timezone.utc)
                         result_row.completed_at = datetime.now(timezone.utc)
+
+                        # Auto-populate Device fields from test results as they complete
+                        if parsed:
+                            await self._enrich_device_from_result(
+                                db, device.id, test_result.test_id, parsed, raw_out
+                            )
+
                         await db.commit()
 
                 completed += 1
@@ -276,6 +283,105 @@ class TestEngine:
             _TESTSSL_CACHE.pop(test_run_id, None)
 
         await self._finalize_run(test_run_id)
+
+    async def _enrich_device_from_result(
+        self,
+        db: "AsyncSession",
+        device_id: str,
+        test_id: str,
+        parsed: dict,
+        raw_out: str | None = None,
+    ) -> None:
+        """Auto-populate Device fields from parsed test data as each test completes."""
+        device_row = await db.get(Device, device_id)
+        if not device_row:
+            return
+
+        changed = False
+
+        if test_id == "U01":
+            # Ping — can extract hostname from reverse DNS
+            for h in parsed.get("hosts", []):
+                hostname = h.get("hostname") or h.get("name")
+                if hostname and not device_row.hostname:
+                    device_row.hostname = hostname
+                    changed = True
+
+        elif test_id == "U02":
+            # MAC/Vendor lookup
+            if parsed.get("mac_address") and not device_row.mac_address:
+                device_row.mac_address = parsed["mac_address"]
+                changed = True
+            if parsed.get("oui_vendor") and not device_row.oui_vendor:
+                device_row.oui_vendor = parsed["oui_vendor"]
+                changed = True
+            # Use OUI vendor as manufacturer if not set
+            if parsed.get("oui_vendor") and not device_row.manufacturer:
+                device_row.manufacturer = parsed["oui_vendor"]
+                changed = True
+
+        elif test_id == "U06":
+            # TCP port scan — store open ports
+            if parsed.get("open_ports") and not device_row.open_ports:
+                device_row.open_ports = parsed["open_ports"]
+                changed = True
+
+        elif test_id == "U08":
+            # Service version detection — extract model/firmware from banners
+            ports = parsed.get("open_ports", [])
+            for p in ports:
+                service = (p.get("service") or "").lower()
+                version = (p.get("version") or "").strip()
+                product = (p.get("product") or "").strip()
+
+                # Use HTTP server header as model hint
+                if service in ("http", "https") and version and not device_row.model:
+                    device_row.model = version
+                    changed = True
+
+                # Extract firmware from version strings (e.g. "EasyIO FW-14 v2.3")
+                if version and not device_row.firmware_version:
+                    import re
+                    fw_match = re.search(r'[Vv]?(\d+\.\d+[\.\d]*)', version)
+                    if fw_match:
+                        device_row.firmware_version = fw_match.group(0)
+                        changed = True
+
+                # Use product name as hostname fallback
+                if product and not device_row.hostname:
+                    device_row.hostname = product
+                    changed = True
+
+            # Update open_ports with service info if we have richer data
+            if ports:
+                device_row.open_ports = ports
+                changed = True
+
+        elif test_id == "U19":
+            # OS fingerprinting
+            if parsed.get("os_fingerprint") and not device_row.os_fingerprint:
+                device_row.os_fingerprint = parsed["os_fingerprint"]
+                changed = True
+
+        elif test_id == "U15":
+            # SSH version — can reveal device info
+            ssh_ver = parsed.get("ssh_version", "")
+            if ssh_ver and not device_row.firmware_version:
+                device_row.firmware_version = ssh_ver
+                changed = True
+
+        elif test_id == "U36":
+            # Banner grabbing — look for model/version info in banners
+            for p in parsed.get("open_ports", []):
+                version = (p.get("version") or "").strip()
+                if version and not device_row.model:
+                    device_row.model = version
+                    changed = True
+                    break
+
+        if changed:
+            await db.flush()
+            logger.info("Device %s enriched from %s", device_id[:8], test_id)
 
     async def _run_single_test(
         self,
