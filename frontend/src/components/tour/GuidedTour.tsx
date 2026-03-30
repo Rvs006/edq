@@ -286,7 +286,7 @@ export default function GuidedTour({ isActive, currentStep, onNext, onPrev, onSk
               )`
             : undefined,
         }}
-        onClick={onSkip}
+        onClick={() => { onSkip(); navigate('/') }}
       />
 
       {/* Spotlight ring */}
@@ -319,7 +319,7 @@ export default function GuidedTour({ isActive, currentStep, onNext, onPrev, onSk
             </span>
           </div>
           <button
-            onClick={onSkip}
+            onClick={() => { onSkip(); navigate('/') }}
             className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300 transition-colors"
           >
             <X className="w-3.5 h-3.5" />
@@ -355,7 +355,7 @@ export default function GuidedTour({ isActive, currentStep, onNext, onPrev, onSk
             )}
             {isLastStep ? (
               <button
-                onClick={onComplete}
+                onClick={() => { onComplete(); navigate('/') }}
                 className="inline-flex items-center gap-1 px-4 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
               >
                 Finish Tour
