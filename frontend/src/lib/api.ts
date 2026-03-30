@@ -17,13 +17,18 @@ const api = axios.create({
   withCredentials: true,
 })
 
+// Endpoints that don't require CSRF (no session exists yet)
+const CSRF_EXEMPT = ['/auth/login', '/auth/register', '/auth/refresh']
+
 api.interceptors.request.use((config) => {
   if (config.method && ['post', 'put', 'patch', 'delete'].includes(config.method)) {
+    const isExempt = CSRF_EXEMPT.some((path) => config.url?.endsWith(path))
     const csrf = getCsrfToken()
-    if (!csrf) {
+    if (csrf) {
+      config.headers['X-CSRF-Token'] = csrf
+    } else if (!isExempt) {
       return Promise.reject(new Error('CSRF token is missing. Please refresh the page and log in again.'))
     }
-    config.headers['X-CSRF-Token'] = csrf
   }
   return config
 })
