@@ -21,6 +21,7 @@ import TestPlansPage from './pages/TestPlansPage'
 import ScanSchedulesPage from './pages/ScanSchedulesPage'
 import AgentsPage from './pages/AgentsPage'
 import DeviceProfilesPage from './pages/DeviceProfilesPage'
+import AuthorizedNetworksPage from './pages/AuthorizedNetworksPage'
 import GuidedTour, { useTourState } from './components/tour/GuidedTour'
 
 function LoadingScreen() {
@@ -75,6 +76,7 @@ function AppShell() {
             <Route path="/scan-schedules" element={<ScanSchedulesPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/device-profiles" element={<DeviceProfilesPage />} />
+            <Route path="/authorized-networks" element={<AuthorizedNetworksPage />} />
           </Routes>
         </PageErrorBoundary>
       </DashboardLayout>

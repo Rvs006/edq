@@ -25,6 +25,7 @@ from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
 from app.services.parsers.nmap_parser import nmap_parser
 from app.utils.audit import log_action
+from app.routes.authorized_networks import get_active_networks, is_target_authorized, is_ip_authorized
 
 logger = logging.getLogger("edq.routes.network_scan")
 
@@ -113,6 +114,19 @@ async def discover_devices(
     prefix = int(parts[1])
     if prefix < 16 or prefix > 30:
         raise HTTPException(status_code=400, detail="CIDR prefix must be between /16 and /30")
+
+    # Validate against authorized networks
+    authorized = await get_active_networks(db)
+    if not authorized:
+        raise HTTPException(
+            status_code=403,
+            detail="No authorized networks configured. An admin must add authorized scan ranges before scanning.",
+        )
+    if not is_target_authorized(data.cidr, authorized):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Network {data.cidr} is not within any authorized scan range. Contact your admin to authorize this network.",
+        )
 
     scan = NetworkScan(
         cidr=data.cidr,
@@ -205,6 +219,16 @@ async def start_batch_scan(
     user: User = Depends(get_current_active_user),
 ):
     check_rate_limit(request, max_requests=3, window_seconds=60, action="network_start")
+
+    # Validate device IPs against authorized networks
+    authorized = await get_active_networks(db)
+    if authorized:
+        unauthorized_ips = [ip for ip in data.device_ips if not is_ip_authorized(ip, authorized)]
+        if unauthorized_ips:
+            raise HTTPException(
+                status_code=403,
+                detail=f"IPs not within authorized scan ranges: {', '.join(unauthorized_ips[:5])}",
+            )
 
     result = await db.execute(select(NetworkScan).where(NetworkScan.id == data.scan_id))
     scan = result.scalar_one_or_none()

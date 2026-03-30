@@ -42,6 +42,7 @@ from app.routes import (
     cve,
     branding,
     scan_schedules,
+    authorized_networks,
 )
 
 
@@ -240,6 +241,7 @@ def create_app() -> FastAPI:
         (cve.router, "/cve", "CVE Lookup"),
         (branding.router, "/settings", "Settings"),
         (scan_schedules.router, "/scan-schedules", "Scan Schedules"),
+        (authorized_networks.router, "/authorized-networks", "Authorized Networks"),
     ]
 
     # Mount under both /api/ (legacy) and /api/v1/ (versioned) for backward compatibility

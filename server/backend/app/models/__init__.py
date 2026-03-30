@@ -17,6 +17,7 @@ from app.models.nessus_finding import NessusFinding
 from app.models.network_scan import NetworkScan
 from app.models.test_plan import TestPlan
 from app.models.refresh_token import RefreshToken
+from app.models.authorized_network import AuthorizedNetwork
 
 __all__ = [
     "Base", "get_db", "init_db",
@@ -24,4 +25,5 @@ __all__ = [
     "TestRun", "TestResult", "Attachment", "Agent",
     "AuditLog", "ReportConfig", "SyncQueue", "ProtocolWhitelist",
     "NessusFinding", "NetworkScan", "TestPlan", "RefreshToken",
+    "AuthorizedNetwork",
 ]

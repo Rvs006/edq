@@ -6,7 +6,7 @@ import {
   Info, ArrowRight, Shield, Monitor, Server, LayoutGrid, List
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { networkScanApi, templatesApi } from '@/lib/api'
+import { networkScanApi, templatesApi, authorizedNetworksApi } from '@/lib/api'
 import { UNIVERSAL_TESTS, TEST_CATEGORIES } from '@/lib/universal-tests'
 import toast from 'react-hot-toast'
 
@@ -69,6 +69,16 @@ export default function NetworkScanPage() {
   const [results, setResults] = useState<ScanResult[]>([])
   const [scanStatus, setScanStatus] = useState<string>('pending')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const [authorizedNets, setAuthorizedNets] = useState<{ cidr: string; label: string | null }[]>([])
+  const [authNetsLoaded, setAuthNetsLoaded] = useState(false)
+
+  useEffect(() => {
+    authorizedNetworksApi.list({ active_only: true }).then(res => {
+      setAuthorizedNets(res.data.map((n: { cidr: string; label: string | null }) => ({ cidr: n.cidr, label: n.label })))
+      setAuthNetsLoaded(true)
+    }).catch(() => setAuthNetsLoaded(true))
+  }, [])
 
   const cidrValid = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(cidr)
   const cidrPrefix = cidr.split('/')[1] ? parseInt(cidr.split('/')[1]) : 0
@@ -183,6 +193,31 @@ export default function NetworkScanPage() {
       </div>
 
       <StepIndicator current={step} />
+
+      {authNetsLoaded && authorizedNets.length === 0 && (
+        <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">No authorized networks configured</p>
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Scanning is blocked until an admin authorizes scan ranges.{' '}
+              <a href="/authorized-networks" className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200">
+                Go to Authorized Networks →
+              </a>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {authNetsLoaded && authorizedNets.length > 0 && step === 'configure' && (
+        <div className="mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl flex items-center gap-2">
+          <Shield className="w-4 h-4 text-emerald-500 shrink-0" />
+          <p className="text-xs text-emerald-700 dark:text-emerald-300">
+            <strong>Authorized ranges:</strong>{' '}
+            {authorizedNets.map(n => n.label ? `${n.cidr} (${n.label})` : n.cidr).join(', ')}
+          </p>
+        </div>
+      )}
 
       {step === 'configure' && !discovering && (
         <ConfigureStep

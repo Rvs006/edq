@@ -74,6 +74,23 @@ docker logs edq-frontend --tail 50
 docker logs edq-tools --tail 50
 ```
 
+### Authorize Scan Networks (Required First Step)
+
+Before anyone can run network scans, an admin must authorize which subnets EDQ is allowed to scan.
+
+1. Log in as **admin**
+2. Go to **Admin** → **Authorized Networks**
+3. Click **Add Network**
+4. Enter CIDR range (e.g., `192.168.1.0/24`), label, and optional description
+5. Repeat for each subnet your team needs to scan
+
+**Important:** Scans targeting networks outside authorized ranges will be blocked. This prevents EDQ from being misused to scan unauthorized targets.
+
+Common ranges:
+- `192.168.0.0/16` — home/office networks
+- `10.0.0.0/8` — large private networks
+- `172.16.0.0/12` — private range
+
 ### Adding Devices and Running Tests
 
 1. Navigate to **Devices** in the sidebar
@@ -166,6 +183,21 @@ curl http://localhost/api/health
 docker compose down -v
 docker compose up --build -d
 ```
+
+---
+
+## Security: Network Scanning
+
+EDQ includes penetration testing tools (nmap, hydra, nikto, testssl). Scan targets are restricted to admin-authorized networks only.
+
+**Never expose EDQ directly to the public internet.** If remote access is needed, use a VPN.
+
+| Rule | Why |
+|------|-----|
+| Authorize networks before scanning | Prevents scanning of unauthorized targets |
+| Keep EDQ on a private network | It's designed for internal use, not public exposure |
+| Use VPN for remote access | Safer than exposing the app directly |
+| Review audit logs regularly | All scans are logged with user, target, and timestamp |
 
 ---
 

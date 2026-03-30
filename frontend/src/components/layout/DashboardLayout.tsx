@@ -7,7 +7,7 @@ import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 import {
   LayoutDashboard, Monitor, Play, FileText, Shield, ClipboardList,
   ListChecks, Settings, LogOut, Menu, X, ChevronDown, User,
-  Bell, Search, Users, Eye, Network, Wifi, Activity, CalendarClock, Cpu
+  Bell, Search, Users, Eye, Network, Wifi, Activity, CalendarClock, Cpu, ShieldCheck
 } from 'lucide-react'
 
 const pageDescriptions: Record<string, string> = {
@@ -26,6 +26,7 @@ const pageDescriptions: Record<string, string> = {
   '/admin': 'Manage user accounts, roles, and permissions',
   '/audit-log': 'Full history of actions — who did what and when',
   '/settings': 'Application preferences, theme, tool versions, and account settings',
+  '/authorized-networks': 'Control which subnets EDQ is allowed to scan — all scan targets must fall within authorized ranges',
 }
 
 const navSections = [
@@ -60,6 +61,7 @@ const navSections = [
     items: [
       { name: 'Review Queue', href: '/review', icon: Eye },
       { name: 'Users', href: '/admin', icon: Users },
+      { name: 'Authorized Networks', href: '/authorized-networks', icon: ShieldCheck },
       { name: 'Audit Log', href: '/audit-log', icon: ListChecks },
       { name: 'Settings', href: '/settings', icon: Settings },
     ],

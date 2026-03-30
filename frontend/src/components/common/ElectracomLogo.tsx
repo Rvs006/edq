@@ -8,9 +8,9 @@ export function ElectracomLogo({
   size?: 'sm' | 'md' | 'lg'
 }) {
   const config = {
-    sm: { img: 'h-[18px]', sub: 'text-[7px]' },
-    md: { img: 'h-[26px]', sub: 'text-[9px]' },
-    lg: { img: 'h-[34px]', sub: 'text-[10px]' },
+    sm: { img: 'h-[28px]', sub: 'text-[7px]' },
+    md: { img: 'h-[44px]', sub: 'text-[10px]' },
+    lg: { img: 'h-[56px]', sub: 'text-[12px]' },
   }[size]
 
   return (

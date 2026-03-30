@@ -185,6 +185,17 @@ export const scanSchedulesApi = {
   diff: (id: string) => api.get(`/scan-schedules/${id}/diff`),
 }
 
+export const authorizedNetworksApi = {
+  list: (params?: { active_only?: boolean; skip?: number; limit?: number }) =>
+    api.get('/authorized-networks/', { params }),
+  get: (id: string) => api.get(`/authorized-networks/${id}`),
+  create: (data: { cidr: string; label?: string; description?: string }) =>
+    api.post('/authorized-networks/', data),
+  update: (id: string, data: { label?: string; description?: string; is_active?: boolean }) =>
+    api.patch(`/authorized-networks/${id}`, data),
+  delete: (id: string) => api.delete(`/authorized-networks/${id}`),
+}
+
 export const brandingApi = {
   get: () => api.get('/settings/branding'),
   update: (data: { company_name?: string; primary_color?: string; footer_text?: string }) =>
