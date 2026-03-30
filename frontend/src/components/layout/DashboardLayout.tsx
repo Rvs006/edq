@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import ThemeToggle from '@/components/common/ThemeToggle'
+import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 import {
   LayoutDashboard, Monitor, Play, FileText, Shield, ClipboardList,
   ListChecks, Settings, LogOut, Menu, X, ChevronDown, User,
@@ -311,11 +312,7 @@ function SidebarContent({
         <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
           <img src="/icon-white.png" alt="" className="w-9 h-9 shrink-0 hidden dark:block" />
           <img src="/icon-white.png" alt="" className="w-9 h-9 shrink-0 dark:hidden" style={{ filter: 'brightness(0)' }} />
-          <div className="flex flex-col">
-            <img src="/electracom-logo.png" alt="Electracom" className="h-7 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
-            <img src="/electracom-logo.png" alt="Electracom" className="h-7 dark:hidden" />
-            <span className="text-[10px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
-          </div>
+          <ElectracomLogo size="md" />
         </Link>
         {onClose && (
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 lg:hidden" title="Close menu">

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Zap, FileSpreadsheet, Wifi, WifiOff, ArrowRight, Cpu, ScanLine, ClipboardCheck, FileDown, Shield } from 'lucide-react'
 import ThemeToggle from '@/components/common/ThemeToggle'
+import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 
 const stats = [
   { value: '43', label: 'Security Tests', icon: Shield, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -52,11 +53,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2">
             <img src="/icon.png" alt="" className="w-8 h-8 shrink-0 dark:hidden" />
             <img src="/icon-white.png" alt="" className="w-8 h-8 shrink-0 hidden dark:block" />
-            <div className="flex flex-col">
-              <img src="/electracom-logo.png" alt="Electracom" className="h-6 dark:hidden" />
-              <img src="/electracom-logo.png" alt="Electracom" className="h-6 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
-              <span className="text-[9px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
-            </div>
+            <ElectracomLogo size="md" />
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -193,11 +190,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2">
             <img src="/icon.png" alt="" className="w-6 h-6 shrink-0 dark:hidden" />
             <img src="/icon-white.png" alt="" className="w-6 h-6 shrink-0 hidden dark:block" />
-            <div className="flex flex-col">
-              <img src="/electracom-logo.png" alt="Electracom" className="h-5 dark:hidden" />
-              <img src="/electracom-logo.png" alt="Electracom" className="h-5 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
-              <span className="text-[8px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
-            </div>
+            <ElectracomLogo size="sm" />
           </div>
           <p className="text-xs text-zinc-400 dark:text-slate-500">
             Electracom Projects Ltd &mdash; A Sauter Group Company

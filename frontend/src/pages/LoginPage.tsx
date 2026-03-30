@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import ThemeToggle from '@/components/common/ThemeToggle'
+import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
@@ -45,11 +46,7 @@ export default function LoginPage() {
             <div className="flex items-center gap-2.5">
               <img src="/icon.png" alt="" className="w-11 h-11 shrink-0 dark:hidden" />
               <img src="/icon-white.png" alt="" className="w-11 h-11 shrink-0 hidden dark:block" />
-              <div className="flex flex-col">
-                <img src="/electracom-logo.png" alt="Electracom" className="h-8 dark:hidden" />
-                <img src="/electracom-logo.png" alt="Electracom" className="h-8 hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
-                <span className="text-[10px] font-medium tracking-wide text-zinc-400 dark:text-slate-500 -mt-0.5">Device Qualifier</span>
-              </div>
+              <ElectracomLogo size="lg" />
             </div>
           </div>
 
