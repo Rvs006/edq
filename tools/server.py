@@ -354,5 +354,20 @@ def tool_versions() -> Response:
     return jsonify({"versions": versions})
 
 
+@app.route("/rotate-key", methods=["POST"])
+@require_api_key
+def rotate_key() -> Union[Response, Tuple[Response, int]]:
+    """Accept a new API key from the backend during key rotation."""
+    global TOOLS_API_KEY
+    data = request.get_json(force=True, silent=True)
+    if not data or not data.get("new_key"):
+        return jsonify({"error": "Missing 'new_key' field"}), 400
+    new_key = data["new_key"]
+    if len(new_key) < 32:
+        return jsonify({"error": "Key must be at least 32 characters"}), 400
+    TOOLS_API_KEY = new_key
+    return jsonify({"message": "Key rotated successfully"})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8001, debug=False)

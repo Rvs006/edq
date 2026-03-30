@@ -146,4 +146,19 @@ class ToolsClient:
         )
 
 
+    async def rotate_key(self, new_key: str) -> Dict[str, Any]:
+        """Push a new API key to the sidecar, then update local headers."""
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{self.base_url}/rotate-key",
+                json={"new_key": new_key},
+                headers=self._headers,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+        # Update local headers after successful sidecar update
+        self._headers["X-Tools-Key"] = new_key
+        return result
+
+
 tools_client = ToolsClient()

@@ -54,7 +54,7 @@
 
 ## Rate Limiting
 
-In-memory sliding-window rate limiter keyed by client IP and action.
+Sliding-window rate limiter keyed by client IP and action. Uses in-memory storage by default; set `REDIS_URL` for cross-instance persistence (e.g., `redis://redis:6379/0`).
 
 | Endpoint | Limit | Window | Action Key |
 |----------|-------|--------|------------|
@@ -106,6 +106,13 @@ Every response includes an `X-Request-ID` header for tracing.
 3. **Impact**: CSRF tokens are invalidated
 
 ### TOOLS_API_KEY
+**Option A — Automated rotation (no downtime):**
+1. `POST /api/admin/rotate-tools-key` (admin only)
+2. The backend generates a new key, pushes it to the tools sidecar via `/rotate-key`, and returns the new key once
+3. **Important**: update `TOOLS_API_KEY` in both `.env` files to persist across restarts
+4. **Impact**: zero downtime — both services update in memory immediately
+
+**Option B — Manual rotation:**
 1. Generate a new key: `openssl rand -hex 32`
 2. Update `TOOLS_API_KEY` in the backend `.env`
 3. Update the same key in the tools sidecar `.env`
@@ -149,10 +156,11 @@ docker compose logs backend | grep "user=<user_id>"
 ## Incident Response
 
 ### Compromised User Account
-1. **Immediate**: lock the account by setting `locked_until` to a far-future date in the database
-2. **Revoke tokens**: delete all rows in `refresh_tokens` for that user — existing access tokens expire within 60 minutes
-3. **Reset password**: update the password hash directly or use the admin API
-4. **Review audit logs**: search for the user's recent activity
+1. **Immediate**: `POST /api/users/{user_id}/revoke-sessions` (admin only) — revokes all refresh tokens for the user
+2. **Lock account**: `PATCH /api/users/{user_id}` with `{"is_active": false}` to prevent new logins
+3. Existing access tokens remain valid for up to 60 minutes (JWT limitation)
+4. **Reset password**: update the password hash directly or use the admin API
+5. **Review audit logs**: search for the user's recent activity via `GET /api/audit-logs/`
 
 ### Detected Token Reuse (Refresh Token Theft)
 The system automatically handles this:

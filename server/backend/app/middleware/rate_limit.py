@@ -1,10 +1,17 @@
-"""In-memory rate limiter using a sliding-window token bucket."""
+"""Rate limiter with in-memory default and optional Redis persistence.
 
+When REDIS_URL is configured, uses Redis for cross-instance rate limiting.
+Otherwise falls back to a local sliding-window implementation.
+"""
+
+import logging
 import time
 from collections import defaultdict
 from typing import Dict
 
 from fastapi import HTTPException, Request, status
+
+logger = logging.getLogger("edq.middleware.rate_limit")
 
 
 class _Bucket:
@@ -24,18 +31,55 @@ class _Bucket:
         return True
 
 
-class RateLimiter:
-    """Sliding-window rate limiter keyed by client IP."""
+class InMemoryRateLimiter:
+    """Sliding-window rate limiter keyed by client IP (single-instance only)."""
 
     def __init__(self) -> None:
         self._buckets: Dict[str, _Bucket] = defaultdict(_Bucket)
 
     def check(self, key: str, max_requests: int, window_seconds: int = 60) -> bool:
-        """Return True if the request is allowed, False if rate-limited."""
         return self._buckets[key].is_allowed(time.time(), window_seconds, max_requests)
 
 
-rate_limiter = RateLimiter()
+class RedisRateLimiter:
+    """Redis-backed sliding-window rate limiter for multi-instance deployments."""
+
+    def __init__(self, redis_url: str) -> None:
+        import redis
+        self._redis = redis.from_url(redis_url, decode_responses=True)
+        logger.info("Rate limiter using Redis: %s", redis_url.split("@")[-1])
+
+    def check(self, key: str, max_requests: int, window_seconds: int = 60) -> bool:
+        now = time.time()
+        pipe = self._redis.pipeline()
+        redis_key = f"ratelimit:{key}"
+        cutoff = now - window_seconds
+        pipe.zremrangebyscore(redis_key, 0, cutoff)
+        pipe.zcard(redis_key)
+        pipe.zadd(redis_key, {str(now): now})
+        pipe.expire(redis_key, window_seconds + 1)
+        results = pipe.execute()
+        current_count = results[1]
+        if current_count >= max_requests:
+            # Remove the entry we just added since we're denying the request
+            self._redis.zrem(redis_key, str(now))
+            return False
+        return True
+
+
+def _create_rate_limiter():
+    """Create the appropriate rate limiter based on configuration."""
+    from app.config import settings
+    if settings.REDIS_URL:
+        try:
+            limiter = RedisRateLimiter(settings.REDIS_URL)
+            return limiter
+        except Exception:
+            logger.warning("Failed to connect to Redis, falling back to in-memory rate limiter")
+    return InMemoryRateLimiter()
+
+
+rate_limiter = _create_rate_limiter()
 
 
 # IPs that are trusted to set X-Forwarded-For (nginx in Docker resolves as 172.x.x.x)
