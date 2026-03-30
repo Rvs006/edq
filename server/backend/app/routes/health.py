@@ -34,5 +34,5 @@ async def tool_versions(_user: User = Depends(get_current_active_user)):
     try:
         result = await tools_client.versions()
         return {"tools": result.get("versions", {}), "status": "ok"}
-    except Exception as e:
-        return {"tools": {}, "error": str(e), "status": "error"}
+    except Exception:
+        return {"tools": {}, "error": "Tools sidecar unreachable", "status": "error"}

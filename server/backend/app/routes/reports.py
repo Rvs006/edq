@@ -1,6 +1,7 @@
 """Report generation routes."""
 
 import json
+import logging
 import os
 from typing import Literal, Optional
 
@@ -20,6 +21,8 @@ from app.models.test_run import TestRun
 from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.security.auth import get_current_active_user
+from app.models.user import UserRole
+from app.middleware.rate_limit import check_rate_limit
 from app.utils.audit import log_action
 from app.services.report_generator import (
     generate_excel_report,
@@ -27,6 +30,8 @@ from app.services.report_generator import (
     generate_word_report,
     get_available_templates,
 )
+
+logger = logging.getLogger("edq.routes.reports")
 
 router = APIRouter()
 
@@ -112,6 +117,16 @@ async def generate_report(
     user: User = Depends(get_current_active_user),
 ):
     """Generate a report for a test run."""
+    check_rate_limit(request, max_requests=5, window_seconds=60, action="report_generate")
+
+    # IDOR check: verify the user has access to this test run
+    tr_result = await db.execute(select(TestRun).where(TestRun.id == data.test_run_id))
+    tr = tr_result.scalar_one_or_none()
+    if not tr:
+        raise HTTPException(status_code=404, detail="Test run not found")
+    if user.role == UserRole.ENGINEER and tr.engineer_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     test_run, test_results, report_config, enabled_test_ids, whitelist_entries = (
         await _load_run_context(data, db)
     )
@@ -158,9 +173,10 @@ async def generate_report(
             "download_url": f"/api/reports/download/{filename}",
             "message": "Report generated successfully",
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("Report generation failed for run %s", data.test_run_id)
         raise HTTPException(
-            status_code=500, detail=f"Report generation failed: {str(e)}"
+            status_code=500, detail="Report generation failed"
         )
 
 

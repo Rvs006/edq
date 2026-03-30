@@ -26,10 +26,28 @@ from app.services.test_engine import test_engine
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
 from app.utils.audit import log_action
+from app.models.user import UserRole
 
 logger = logging.getLogger("edq.routes.test_runs")
 
 router = APIRouter()
+
+
+async def _get_authorized_test_run(
+    run_id: str, user: User, db: AsyncSession
+) -> TestRun:
+    """Load a test run and verify the current user is authorized to access it.
+
+    Admins and reviewers can access all test runs.
+    Engineers can only access their own test runs.
+    """
+    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Test run not found")
+    if user.role == UserRole.ENGINEER and run.engineer_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return run
 
 _running_tasks: dict[str, asyncio.Task] = {}
 
@@ -128,16 +146,15 @@ async def create_test_run(
 async def get_test_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
+    run = await _get_authorized_test_run(run_id, user, db)
+    # Eagerly load results for the response
     result = await db.execute(
         select(TestRun).where(TestRun.id == run_id)
         .options(selectinload(TestRun.results))
     )
-    run = result.scalar_one_or_none()
-    if not run:
-        raise HTTPException(status_code=404, detail="Test run not found")
-    return run
+    return result.scalar_one()
 
 
 @router.patch("/{run_id}", response_model=TestRunResponse)
@@ -145,12 +162,9 @@ async def update_test_run(
     run_id: str,
     data: TestRunUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
-    run = result.scalar_one_or_none()
-    if not run:
-        raise HTTPException(status_code=404, detail="Test run not found")
+    run = await _get_authorized_test_run(run_id, user, db)
     updates = data.model_dump(exclude_unset=True)
     if "status" in updates:
         run.status = updates["status"]
@@ -181,12 +195,9 @@ async def update_test_run(
 async def start_test_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
-    run = result.scalar_one_or_none()
-    if not run:
-        raise HTTPException(status_code=404, detail="Test run not found")
+    run = await _get_authorized_test_run(run_id, user, db)
 
     if run.status not in (TestRunStatus.PENDING, TestRunStatus.FAILED):
         raise HTTPException(
@@ -209,12 +220,9 @@ async def start_test_run(
 async def pause_test_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
-    run = result.scalar_one_or_none()
-    if not run:
-        raise HTTPException(status_code=404, detail="Test run not found")
+    run = await _get_authorized_test_run(run_id, user, db)
 
     if run.status != TestRunStatus.RUNNING:
         raise HTTPException(
@@ -233,12 +241,9 @@ async def pause_test_run(
 async def resume_test_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
-    run = result.scalar_one_or_none()
-    if not run:
-        raise HTTPException(status_code=404, detail="Test run not found")
+    run = await _get_authorized_test_run(run_id, user, db)
 
     if run.status != TestRunStatus.PAUSED:
         raise HTTPException(
@@ -257,12 +262,9 @@ async def resume_test_run(
 async def complete_test_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
-    run = result.scalar_one_or_none()
-    if not run:
-        raise HTTPException(status_code=404, detail="Test run not found")
+    run = await _get_authorized_test_run(run_id, user, db)
 
     results = await db.execute(select(TestResult).where(TestResult.test_run_id == run_id))
     all_results = results.scalars().all()
@@ -305,12 +307,9 @@ async def upload_nessus(
     run_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
-    run = result.scalar_one_or_none()
-    if not run:
-        raise HTTPException(status_code=404, detail="Test run not found")
+    run = await _get_authorized_test_run(run_id, user, db)
 
     if not file.filename or not file.filename.endswith(".nessus"):
         raise HTTPException(status_code=400, detail="Only .nessus files are accepted")
@@ -322,8 +321,9 @@ async def upload_nessus(
         raise HTTPException(status_code=400, detail=f"Invalid content type: {file.content_type}")
 
     content = await file.read()
-    if len(content) > settings.MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail=f"File exceeds maximum size of {settings.MAX_FILE_SIZE // (1024*1024)}MB")
+    max_nessus = settings.MAX_NESSUS_FILE_SIZE
+    if len(content) > max_nessus:
+        raise HTTPException(status_code=400, detail=f"Nessus file exceeds maximum size of {max_nessus // (1024*1024)}MB")
 
     upload_dir = os.path.join(settings.UPLOAD_DIR, "nessus")
     os.makedirs(upload_dir, exist_ok=True)
@@ -334,9 +334,10 @@ async def upload_nessus(
 
     try:
         findings = nessus_parser.parse(file_path)
-    except Exception as exc:
+    except Exception:
         os.remove(file_path)
-        raise HTTPException(status_code=400, detail=f"Failed to parse .nessus file: {exc}")
+        logger.exception("Failed to parse .nessus file for run %s", run_id)
+        raise HTTPException(status_code=400, detail="Failed to parse .nessus file")
 
     existing = await db.execute(
         select(func.count(NessusFinding.id)).where(NessusFinding.run_id == run_id)
@@ -385,11 +386,9 @@ async def list_nessus_findings(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Test run not found")
+    await _get_authorized_test_run(run_id, user, db)
 
     query = select(NessusFinding).where(NessusFinding.run_id == run_id)
     if severity:

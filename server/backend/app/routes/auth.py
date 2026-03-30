@@ -153,6 +153,8 @@ async def logout(
 
 @router.post("/refresh")
 async def refresh(data: RefreshRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    check_rate_limit(request, max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE, window_seconds=60, action="refresh")
+
     # Verify JWT signature/expiry first
     verify_token(data.refresh_token, token_type="refresh")
 
@@ -221,6 +223,8 @@ async def change_password(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="change_password")
+
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.password_hash = hash_password(data.new_password)

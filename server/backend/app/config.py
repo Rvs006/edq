@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     REPORT_DIR: str = "./reports"
     MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB
+    MAX_NESSUS_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
 
     # Agent
     AGENT_API_KEY_LENGTH: int = 64
@@ -46,9 +47,11 @@ class Settings(BaseSettings):
 
     # Tools Sidecar
     TOOLS_SIDECAR_URL: str = "http://localhost:8001"
+    TOOLS_API_KEY: str = ""  # Shared secret for backend ↔ tools sidecar auth
 
     # Security
     COOKIE_SECURE: bool = False  # Set True when serving over HTTPS
+    COOKIE_SAMESITE: str = "strict"  # "strict" or "lax" — use "lax" if external-link navigation breaks
     INITIAL_ADMIN_PASSWORD: str = ""  # REQUIRED — must be set in .env
     SSL_VERIFY_DEVICES: bool = True  # Set False only if your devices use self-signed certs
     ALLOW_REGISTRATION: bool = False  # Set True to allow public self-registration
@@ -72,6 +75,7 @@ settings = Settings()
 # --- Production safety checks ---
 
 import secrets as _secrets
+import sys as _sys
 import warnings as _warnings
 
 # INITIAL_ADMIN_PASSWORD must be set explicitly
@@ -81,7 +85,8 @@ if not settings.INITIAL_ADMIN_PASSWORD:
     print(
         f"\n[EDQ SECURITY] INITIAL_ADMIN_PASSWORD was not set. "
         f"Generated one-time password: {_generated}\n"
-        f"Set INITIAL_ADMIN_PASSWORD in your .env file for future starts.\n"
+        f"Set INITIAL_ADMIN_PASSWORD in your .env file for future starts.\n",
+        file=_sys.stderr,
     )
 
 # Warn/error if placeholder secrets are still in use
@@ -100,6 +105,23 @@ for _name, _value in _SECRET_FIELDS.items():
         if not settings.DEBUG:
             raise RuntimeError(_msg)
         _warnings.warn(_msg, stacklevel=2)
+
+if not settings.TOOLS_API_KEY:
+    _msg = (
+        "[EDQ SECURITY] TOOLS_API_KEY is not set. The tools sidecar will accept "
+        "unauthenticated requests. Generate a key with: openssl rand -hex 32"
+    )
+    if not settings.DEBUG:
+        raise RuntimeError(_msg)
+    _warnings.warn(_msg, stacklevel=2)
+
+_localhost_origins = [o for o in settings.CORS_ORIGINS if "localhost" in o or "127.0.0.1" in o]
+if _localhost_origins and not settings.DEBUG:
+    _warnings.warn(
+        "[EDQ SECURITY] CORS_ORIGINS contains localhost entries in production mode: "
+        f"{_localhost_origins}. Update CORS_ORIGINS to your production domain(s).",
+        stacklevel=2,
+    )
 
 if not settings.COOKIE_SECURE:
     _warnings.warn(

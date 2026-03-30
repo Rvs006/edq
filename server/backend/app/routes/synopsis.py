@@ -1,5 +1,7 @@
 """AI Synopsis Generator routes."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -11,8 +13,12 @@ from app.models.test_run import TestRun
 from app.models.test_result import TestResult
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
+from app.models.user import UserRole
+from app.middleware.rate_limit import check_rate_limit
 from app.config import settings
 from app.utils.audit import log_action
+
+logger = logging.getLogger("edq.routes.synopsis")
 
 router = APIRouter()
 
@@ -35,14 +41,18 @@ async def generate_synopsis(
     user: User = Depends(get_current_active_user),
 ):
     """Generate an AI draft synopsis for a test run."""
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="synopsis_generate")
+
     if not settings.AI_API_KEY:
         raise HTTPException(status_code=503, detail="AI synopsis feature is not configured. Set AI_API_KEY in environment.")
 
-    # Get test run and results
+    # Get test run and verify ownership
     run_result = await db.execute(select(TestRun).where(TestRun.id == data.test_run_id))
     test_run = run_result.scalar_one_or_none()
     if not test_run:
         raise HTTPException(status_code=404, detail="Test run not found")
+    if user.role == UserRole.ENGINEER and test_run.engineer_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     results = await db.execute(
         select(TestResult).where(TestResult.test_run_id == data.test_run_id).order_by(TestResult.test_id)
@@ -71,8 +81,9 @@ async def generate_synopsis(
             response.raise_for_status()
             ai_response = response.json()
             synopsis_text = ai_response["content"][0]["text"]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI synopsis generation failed: {str(e)}")
+    except Exception:
+        logger.exception("AI synopsis generation failed for run %s", data.test_run_id)
+        raise HTTPException(status_code=500, detail="AI synopsis generation failed")
 
     # Update test run with draft
     test_run.synopsis = f"[AI-DRAFTED] {synopsis_text}"

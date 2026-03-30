@@ -20,6 +20,7 @@ services:
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///./data/edq.db
       - TOOLS_SIDECAR_URL=http://tools:8001
+      - TOOLS_API_KEY=${TOOLS_API_KEY}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -76,6 +77,8 @@ services:
       - "127.0.0.1:8001:8001"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    environment:
+      - TOOLS_API_KEY=${TOOLS_API_KEY}
     # Required for nmap raw socket scans (SYN scan, OS detection, etc.)
     cap_add:
       - NET_ADMIN

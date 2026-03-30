@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -19,10 +19,12 @@ from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.security.auth import get_current_active_user
+from app.middleware.rate_limit import check_rate_limit
 from app.services.tools_client import tools_client
 from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
 from app.services.parsers.nmap_parser import nmap_parser
+from app.utils.audit import log_action
 
 logger = logging.getLogger("edq.routes.network_scan")
 
@@ -98,9 +100,12 @@ async def list_network_scans(
 @router.post("/discover", response_model=NetworkScanResponse)
 async def discover_devices(
     data: DiscoverRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="network_discover")
+
     if not CIDR_RE.match(data.cidr):
         raise HTTPException(status_code=400, detail="Invalid CIDR format. Expected e.g. 192.168.1.0/24")
 
@@ -133,12 +138,15 @@ async def discover_devices(
         scan.status = NetworkScanStatus.PENDING
         await db.flush()
         await db.refresh(scan)
-    except Exception as exc:
-        logger.exception("Discovery failed for %s: %s", data.cidr, exc)
+    except Exception:
+        logger.exception("Discovery failed for %s", data.cidr)
         scan.status = NetworkScanStatus.ERROR
-        scan.error_message = str(exc)[:500]
+        scan.error_message = "Discovery scan failed"
         await db.flush()
         await db.refresh(scan)
+
+    await log_action(db, user, "network_scan.discover", "network_scan", scan.id,
+                     {"cidr": data.cidr, "status": scan.status.value}, request)
 
     return scan
 
@@ -146,9 +154,12 @@ async def discover_devices(
 @router.post("/start", response_model=NetworkScanResponse)
 async def start_batch_scan(
     data: StartBatchRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="network_start")
+
     result = await db.execute(select(NetworkScan).where(NetworkScan.id == data.scan_id))
     scan = result.scalar_one_or_none()
     if not scan:
@@ -232,6 +243,9 @@ async def start_batch_scan(
         _running_scan_tasks[rid] = task
 
     asyncio.create_task(_monitor_batch(scan_id, run_ids))
+
+    await log_action(db, user, "network_scan.start", "network_scan", scan.id,
+                     {"device_count": len(data.device_ips), "test_count": len(test_ids)}, request)
 
     return scan
 
