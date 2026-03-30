@@ -1,15 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Network, Search, Play, CheckCircle2, XCircle, AlertTriangle,
   Loader2, ChevronRight, ChevronDown, RotateCcw, Wifi, WifiOff,
   Info, ArrowRight, Shield, Monitor, Server, LayoutGrid, List,
-  Clock, Circle, Terminal, Minus
+  Clock, Circle, Terminal, Minus, Eye, EyeOff
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { networkScanApi, templatesApi, authorizedNetworksApi } from '@/lib/api'
 import { UNIVERSAL_TESTS, TEST_CATEGORIES } from '@/lib/universal-tests'
+import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import toast from 'react-hot-toast'
+
+const LiveTerminal = lazy(() => import('@/components/testing/LiveTerminal'))
 
 const SCENARIO_PRESELECTS: Record<string, string[]> = {
   test_lab: ['U01', 'U02', 'U06', 'U07', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19', 'U34'],
@@ -855,7 +858,11 @@ function getTestRelevance(testId: string, deviceCategory: string | null): 'high'
 function DeviceTestDashboard({ result, navigate, selectedTests }: { result: ScanResult; navigate: (path: string) => void; selectedTests: Set<string> }) {
   const [expanded, setExpanded] = useState(true)
   const [expandedOutput, setExpandedOutput] = useState<string | null>(null)
+  const [liveOutputTestId, setLiveOutputTestId] = useState<string | null>(null)
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
+  const isRunning = result.status === 'running'
+  const { terminalOutput, lastProgress } = useTestRunWebSocket(isRunning ? result.run_id : undefined)
+  const runningTestId = isRunning && lastProgress?.type === 'test_start' ? lastProgress.data.test_number : null
   const pct = Math.round(result.progress_pct || 0)
   const isComplete = result.status === 'completed' || result.status === 'awaiting_manual'
   const isError = result.status === 'failed' || result.status === 'error'
@@ -969,15 +976,21 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
                             const relevance = getTestRelevance(test.id, result.device_category)
                             const isOutputExpanded = expandedOutput === test.id
                             const hasOutput = detail?.raw_output || detail?.comment
+                            const isTestRunning = verdict === 'running' || runningTestId === test.id
+                            const isLiveOpen = liveOutputTestId === test.id
+                            const liveOutput = terminalOutput[test.id] || ''
+                            const canExpand = (hasOutput && verdict !== 'pending') || isTestRunning
 
                             return (
                               <div key={test.id}>
                                 <div
                                   className={`flex items-center gap-3 px-4 py-2 border-b border-zinc-50 dark:border-slate-700/20 transition-colors ${
-                                    hasOutput && (verdict !== 'pending') ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-slate-800/50' : ''
+                                    canExpand ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-slate-800/50' : ''
                                   } ${relevance === 'low' ? 'opacity-40' : ''}`}
                                   onClick={() => {
-                                    if (hasOutput && verdict !== 'pending') {
+                                    if (isTestRunning) {
+                                      setLiveOutputTestId(isLiveOpen ? null : test.id)
+                                    } else if (hasOutput && verdict !== 'pending') {
                                       setExpandedOutput(isOutputExpanded ? null : test.id)
                                     }
                                   }}
@@ -993,14 +1006,50 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
                                   <div className="flex items-center gap-2 shrink-0">
                                     {detail?.tool && <span className="text-[10px] text-zinc-400 dark:text-slate-500 font-mono">{detail.tool}</span>}
                                     {detail?.duration_seconds && <span className="text-[10px] text-zinc-400 dark:text-slate-500 tabular-nums">{formatDuration(detail.duration_seconds)}</span>}
-                                    {hasOutput && verdict !== 'pending' && (
+                                    {isTestRunning && (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setLiveOutputTestId(isLiveOpen ? null : test.id) }}
+                                        className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                                          isLiveOpen
+                                            ? 'bg-brand-500/20 text-brand-400'
+                                            : 'bg-zinc-700/50 text-zinc-400 hover:bg-zinc-600/50 hover:text-zinc-300'
+                                        }`}
+                                        title={isLiveOpen ? 'Hide live output' : 'Show live output'}
+                                      >
+                                        {isLiveOpen ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                        <span>Live</span>
+                                      </button>
+                                    )}
+                                    {!isTestRunning && hasOutput && verdict !== 'pending' && (
                                       <Terminal className={`w-3 h-3 ${isOutputExpanded ? 'text-brand-500' : 'text-zinc-300 dark:text-slate-600'}`} />
                                     )}
                                   </div>
                                 </div>
-                                {/* Expandable raw output */}
+                                {/* Live terminal output for running tests */}
                                 <AnimatePresence>
-                                  {isOutputExpanded && (
+                                  {isLiveOpen && (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.15 }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="px-4 py-3 bg-zinc-900 dark:bg-black/40 border-b border-zinc-200 dark:border-slate-700/30">
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                          <span className="text-[11px] text-zinc-400 font-mono">Live output — {test.id}</span>
+                                        </div>
+                                        <Suspense fallback={<div className="h-[200px] bg-zinc-900 rounded-lg animate-pulse" />}>
+                                          <LiveTerminal output={liveOutput} className="h-[240px]" />
+                                        </Suspense>
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                                {/* Expandable raw output for completed tests */}
+                                <AnimatePresence>
+                                  {isOutputExpanded && !isLiveOpen && (
                                     <motion.div
                                       initial={{ height: 0, opacity: 0 }}
                                       animate={{ height: 'auto', opacity: 1 }}

@@ -312,8 +312,8 @@ function SidebarContent({
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-slate-800">
         <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
-          <img src="/icon-white.png" alt="" className="h-[32px] w-auto shrink-0 hidden dark:block" />
-          <img src="/icon-white.png" alt="" className="h-[32px] w-auto shrink-0 dark:hidden" style={{ filter: 'brightness(0)' }} />
+          <img src="/icon-white.png" alt="" className="h-[38px] w-auto shrink-0 hidden dark:block" />
+          <img src="/icon-white.png" alt="" className="h-[38px] w-auto shrink-0 dark:hidden" style={{ filter: 'brightness(0)' }} />
           <ElectracomLogo size="md" />
         </Link>
         {onClose && (

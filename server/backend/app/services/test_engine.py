@@ -464,20 +464,32 @@ class TestEngine:
             logger.warning("Fingerprint phase failed for run %s: %s", test_run_id, exc)
             return None
 
+    def _stdout_callback(self, run_id: str, test_id: str):
+        """Create an async callback that broadcasts stdout lines via WebSocket."""
+        async def on_line(line: str):
+            await manager.broadcast(f"test-run:{run_id}", {
+                "type": "stdout_line",
+                "data": {"test_number": test_id, "stdout_line": line},
+            })
+        return on_line
+
     async def _dispatch_test(
         self, test_id: str, device_ip: str, run_id: str
     ) -> tuple[dict[str, Any], str | None]:
         """Dispatch a test to the appropriate tool and parser.
 
         Returns (parsed_data, raw_stdout).
+        Uses streaming tool calls to broadcast live stdout via WebSocket.
         """
+        on_line = self._stdout_callback(run_id, test_id)
+
         if test_id == "U01":
             raw = await tools_client.ping(device_ip)
             parsed = nmap_parser.parse_ping(raw)
             return (parsed, raw.get("stdout"))
 
         if test_id == "U02":
-            raw = await tools_client.nmap(device_ip, ["-sn", "-oX", "-"], timeout=60)
+            raw = await tools_client.nmap_stream(device_ip, ["-sn", "-oX", "-"], timeout=60, on_line=on_line)
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             # Fallback: if nmap couldn't see the MAC (Docker network hop), try ARP table
             if not parsed.get("mac_address"):
@@ -502,13 +514,13 @@ class TestEngine:
             return ({"dhcp_enabled": None}, None)
 
         if test_id == "U05":
-            raw = await tools_client.nmap(device_ip, ["-6", "-sn"], timeout=60)
+            raw = await tools_client.nmap_stream(device_ip, ["-6", "-sn"], timeout=60, on_line=on_line)
             parsed = nmap_parser.parse_ipv6(raw)
             return (parsed, raw.get("stdout"))
 
         if test_id == "U06":
-            raw = await tools_client.nmap(
-                device_ip, ["-sS", "-p-", "-T4", "--open", "-oX", "-"], timeout=600
+            raw = await tools_client.nmap_stream(
+                device_ip, ["-sS", "-p-", "-T4", "--open", "-oX", "-"], timeout=600, on_line=on_line
             )
             if raw.get("exit_code") not in (None, 0):
                 logger.warning("U06 nmap exited %s: %s", raw.get("exit_code"), raw.get("stderr", ""))
@@ -518,15 +530,15 @@ class TestEngine:
             return (parsed, xml_out)
 
         if test_id == "U07":
-            raw = await tools_client.nmap(
-                device_ip, ["-sU", "--top-ports", "100", "--open", "-oX", "-"], timeout=300
+            raw = await tools_client.nmap_stream(
+                device_ip, ["-sU", "--top-ports", "100", "--open", "-oX", "-"], timeout=300, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             return (parsed, raw.get("stdout"))
 
         if test_id == "U08":
-            raw = await tools_client.nmap(
-                device_ip, ["-sV", "--open", "-oX", "-"], timeout=300
+            raw = await tools_client.nmap_stream(
+                device_ip, ["-sV", "--open", "-oX", "-"], timeout=300, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             # Store U08 data as fallback for U09 when U06 cache is empty
@@ -555,7 +567,7 @@ class TestEngine:
             cached = _TESTSSL_CACHE.get(run_id)
             if cached:
                 return (cached, None)
-            raw = await tools_client.testssl(device_ip, [], timeout=300)
+            raw = await tools_client.testssl_stream(device_ip, [], timeout=300, on_line=on_line)
             output_file = raw.get("output_file", "")
             if output_file:
                 parsed = testssl_parser.parse(output_file)
@@ -565,20 +577,21 @@ class TestEngine:
             return (parsed, raw.get("stdout"))
 
         if test_id == "U14":
-            raw = await tools_client.nikto(device_ip, ["-host", device_ip], timeout=300)
+            raw = await tools_client.nikto_stream(device_ip, ["-host", device_ip], timeout=300, on_line=on_line)
             parsed = {"raw": raw.get("stdout", ""), "stdout": raw.get("stdout", "")}
             return (parsed, raw.get("stdout"))
 
         if test_id == "U15":
-            raw = await tools_client.ssh_audit(device_ip, [], timeout=120)
+            raw = await tools_client.ssh_audit_stream(device_ip, [], timeout=120, on_line=on_line)
             parsed = ssh_audit_parser.parse(raw)
             return (parsed, raw.get("stdout"))
 
         if test_id == "U16":
-            raw = await tools_client.hydra(
+            raw = await tools_client.hydra_stream(
                 device_ip,
                 ["-l", "admin", "-P", "/usr/share/wordlists/common.txt", device_ip, "http-get"],
                 timeout=120,
+                on_line=on_line,
             )
             parsed = hydra_parser.parse(raw)
             return (parsed, raw.get("stdout"))
@@ -592,7 +605,7 @@ class TestEngine:
             return (parsed, None)
 
         if test_id == "U19":
-            raw = await tools_client.nmap(device_ip, ["-O", "-oX", "-"], timeout=120)
+            raw = await tools_client.nmap_stream(device_ip, ["-O", "-oX", "-"], timeout=120, on_line=on_line)
             parsed = nmap_parser.parse_os_fingerprint(raw.get("stdout", ""))
             return (parsed, raw.get("stdout"))
 
@@ -618,22 +631,22 @@ class TestEngine:
             return ({"dns_open": False}, None)
 
         if test_id == "U31":
-            raw = await tools_client.nmap(
-                device_ip, ["-sU", "-p", "161,162", "-sV", "--script", "snmp-info", "-oX", "-"], timeout=120
+            raw = await tools_client.nmap_stream(
+                device_ip, ["-sU", "-p", "161,162", "-sV", "--script", "snmp-info", "-oX", "-"], timeout=120, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             return (parsed, raw.get("stdout"))
 
         if test_id == "U32":
-            raw = await tools_client.nmap(
-                device_ip, ["-sU", "-p", "1900", "-sV", "--script", "upnp-info", "-oX", "-"], timeout=120
+            raw = await tools_client.nmap_stream(
+                device_ip, ["-sU", "-p", "1900", "-sV", "--script", "upnp-info", "-oX", "-"], timeout=120, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             return (parsed, raw.get("stdout"))
 
         if test_id == "U33":
-            raw = await tools_client.nmap(
-                device_ip, ["-sU", "-p", "5353", "-sV", "-oX", "-"], timeout=120
+            raw = await tools_client.nmap_stream(
+                device_ip, ["-sU", "-p", "5353", "-sV", "-oX", "-"], timeout=120, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             return (parsed, raw.get("stdout"))
@@ -653,13 +666,13 @@ class TestEngine:
             return ({"telnet_open": 23 in open_ports, "ftp_open": 21 in open_ports, "insecure_ports": sorted(open_ports)}, raw.get("stdout"))
 
         if test_id == "U35":
-            raw = await tools_client.nikto(device_ip, ["-host", device_ip], timeout=300)
+            raw = await tools_client.nikto_stream(device_ip, ["-host", device_ip], timeout=300, on_line=on_line)
             parsed = {"raw": raw.get("stdout", ""), "stdout": raw.get("stdout", "")}
             return (parsed, raw.get("stdout"))
 
         if test_id == "U36":
-            raw = await tools_client.nmap(
-                device_ip, ["-sV", "--script", "banner", "--open", "-oX", "-"], timeout=180
+            raw = await tools_client.nmap_stream(
+                device_ip, ["-sV", "--script", "banner", "--open", "-oX", "-"], timeout=180, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             return (parsed, raw.get("stdout"))

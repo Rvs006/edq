@@ -1,8 +1,9 @@
 """Async HTTP client for the EDQ tools sidecar container."""
 
 import asyncio
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Callable, Coroutine, Dict, List, Optional
 
 import httpx
 
@@ -53,6 +54,126 @@ class ToolsClient:
                     continue
                 raise
         raise last_exc or RuntimeError("Unexpected retry exhaustion")
+
+    async def _post_stream(
+        self,
+        path: str,
+        payload: Dict[str, Any],
+        timeout: int = 300,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> Dict[str, Any]:
+        """POST to a streaming SSE endpoint, calling on_line for each stdout line.
+
+        Returns the final result dict (same shape as _post).
+        Falls back to the non-streaming endpoint if SSE fails.
+        """
+        result: Dict[str, Any] = {}
+        try:
+            async with httpx.AsyncClient(timeout=timeout + 30) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}{path}",
+                    json=payload,
+                    headers=self._headers,
+                ) as resp:
+                    resp.raise_for_status()
+                    async for raw_line in resp.aiter_lines():
+                        if not raw_line.startswith("data: "):
+                            continue
+                        try:
+                            event = json.loads(raw_line[6:])
+                        except json.JSONDecodeError:
+                            continue
+                        if event.get("type") == "stdout" and on_line:
+                            await on_line(event.get("line", ""))
+                        elif event.get("type") == "result":
+                            result = event.get("data", {})
+        except Exception as exc:
+            logger.warning("Streaming failed for %s, falling back to sync: %s", path, exc)
+            # Fall back to non-streaming endpoint
+            sync_path = path.replace("/stream/", "/scan/")
+            return await self._post(sync_path, payload, timeout=timeout)
+
+        if not result:
+            sync_path = path.replace("/stream/", "/scan/")
+            return await self._post(sync_path, payload, timeout=timeout)
+
+        return result
+
+    async def nmap_stream(
+        self,
+        target: str,
+        args: Optional[List[str]] = None,
+        timeout: int = 300,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> Dict[str, Any]:
+        """Run nmap with line-by-line streaming."""
+        return await self._post_stream(
+            "/stream/nmap",
+            {"target": target, "args": args or [], "timeout": timeout},
+            timeout=timeout,
+            on_line=on_line,
+        )
+
+    async def testssl_stream(
+        self,
+        target: str,
+        args: Optional[List[str]] = None,
+        timeout: int = 300,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> Dict[str, Any]:
+        """Run testssl.sh with line-by-line streaming."""
+        return await self._post_stream(
+            "/stream/testssl",
+            {"target": target, "args": args or [], "timeout": timeout},
+            timeout=timeout,
+            on_line=on_line,
+        )
+
+    async def ssh_audit_stream(
+        self,
+        target: str,
+        args: Optional[List[str]] = None,
+        timeout: int = 120,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> Dict[str, Any]:
+        """Run ssh-audit with line-by-line streaming."""
+        return await self._post_stream(
+            "/stream/ssh-audit",
+            {"target": target, "args": args or [], "timeout": timeout},
+            timeout=timeout,
+            on_line=on_line,
+        )
+
+    async def hydra_stream(
+        self,
+        target: str,
+        args: Optional[List[str]] = None,
+        timeout: int = 120,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> Dict[str, Any]:
+        """Run hydra with line-by-line streaming."""
+        return await self._post_stream(
+            "/stream/hydra",
+            {"target": target, "args": args or [], "timeout": timeout},
+            timeout=timeout,
+            on_line=on_line,
+        )
+
+    async def nikto_stream(
+        self,
+        target: str,
+        args: Optional[List[str]] = None,
+        timeout: int = 300,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> Dict[str, Any]:
+        """Run nikto with line-by-line streaming."""
+        return await self._post_stream(
+            "/stream/nikto",
+            {"target": target, "args": args or [], "timeout": timeout},
+            timeout=timeout,
+            on_line=on_line,
+        )
 
     async def health(self) -> Dict[str, Any]:
         """Check sidecar health and tool availability."""

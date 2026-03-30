@@ -381,5 +381,147 @@ def rotate_key() -> Union[Response, Tuple[Response, int]]:
     return jsonify({"message": "Key rotated successfully"})
 
 
+def _run_tool_stream(cmd: list, timeout: int):
+    """Generator yielding SSE events: stdout lines then final result JSON."""
+    import json as _json
+    start = time.time()
+    stdout_lines: list[str] = []
+    stderr_text = ""
+    exit_code = -1
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            bufsize=1,  # line-buffered
+        )
+        # Read stdout line by line
+        for line in proc.stdout:
+            stdout_lines.append(line)
+            yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
+        proc.wait(timeout=timeout)
+        exit_code = proc.returncode
+        stderr_text = proc.stderr.read() if proc.stderr else ""
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        stderr_text = f"Command timed out after {timeout}s"
+    except Exception as e:
+        stderr_text = str(e)
+
+    duration = round(time.time() - start, 2)
+    result = {
+        "exit_code": exit_code,
+        "stdout": "".join(stdout_lines),
+        "stderr": stderr_text,
+        "duration_seconds": duration,
+        "output_file": None,
+    }
+    yield f"data: {_json.dumps({'type': 'result', 'data': result})}\n\n"
+
+
+@app.route("/stream/nmap", methods=["POST"])
+@require_api_key
+def stream_nmap() -> Union[Response, Tuple[Response, int]]:
+    target, args, timeout, err = _parse_scan_request(tool_name="nmap")
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    if not _tool_available("nmap"):
+        return jsonify({"error": "nmap not available"}), 503
+    cmd = ["nmap"] + args + [target]
+    return Response(_run_tool_stream(cmd, timeout), mimetype="text/event-stream")
+
+
+@app.route("/stream/testssl", methods=["POST"])
+@require_api_key
+def stream_testssl() -> Union[Response, Tuple[Response, int]]:
+    target, args, timeout, err = _parse_scan_request(tool_name="testssl")
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    if not _tool_available("testssl.sh"):
+        return jsonify({"error": "testssl.sh not available"}), 503
+
+    # Create temp file for JSON output like the sync endpoint
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+        json_output_path = tmp.name
+
+    def _stream_testssl_gen():
+        import json as _json
+        start = time.time()
+        stdout_lines = []
+        stderr_text = ""
+        exit_code = -1
+        try:
+            cmd = ["testssl.sh", "--jsonfile", json_output_path] + args + [target]
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            for line in proc.stdout:
+                stdout_lines.append(line)
+                yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
+            proc.wait(timeout=timeout)
+            exit_code = proc.returncode
+            stderr_text = proc.stderr.read() if proc.stderr else ""
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            stderr_text = f"Command timed out after {timeout}s"
+        except Exception as e:
+            stderr_text = str(e)
+
+        duration = round(time.time() - start, 2)
+        result = {
+            "exit_code": exit_code,
+            "stdout": "".join(stdout_lines),
+            "stderr": stderr_text,
+            "duration_seconds": duration,
+            "output_file": None,
+        }
+        # Attach JSON output file if generated
+        try:
+            if os.path.isfile(json_output_path) and os.path.getsize(json_output_path) > 0:
+                with open(json_output_path, "rb") as f:
+                    result["output_file"] = base64.b64encode(f.read()).decode("utf-8")
+        finally:
+            if os.path.isfile(json_output_path):
+                os.unlink(json_output_path)
+
+        yield f"data: {_json.dumps({'type': 'result', 'data': result})}\n\n"
+
+    return Response(_stream_testssl_gen(), mimetype="text/event-stream")
+
+
+@app.route("/stream/ssh-audit", methods=["POST"])
+@require_api_key
+def stream_ssh_audit() -> Union[Response, Tuple[Response, int]]:
+    target, args, timeout, err = _parse_scan_request(tool_name="ssh-audit")
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    if not _tool_available("ssh-audit"):
+        return jsonify({"error": "ssh-audit not available"}), 503
+    cmd = ["ssh-audit"] + args + [target]
+    return Response(_run_tool_stream(cmd, timeout), mimetype="text/event-stream")
+
+
+@app.route("/stream/hydra", methods=["POST"])
+@require_api_key
+def stream_hydra() -> Union[Response, Tuple[Response, int]]:
+    target, args, timeout, err = _parse_scan_request(tool_name="hydra")
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    if not _tool_available("hydra"):
+        return jsonify({"error": "hydra not available"}), 503
+    cmd = ["hydra"] + args + [target]
+    return Response(_run_tool_stream(cmd, timeout), mimetype="text/event-stream")
+
+
+@app.route("/stream/nikto", methods=["POST"])
+@require_api_key
+def stream_nikto() -> Union[Response, Tuple[Response, int]]:
+    target, args, timeout, err = _parse_scan_request(tool_name="nikto")
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    if not _tool_available("nikto"):
+        return jsonify({"error": "nikto not available"}), 503
+    cmd = ["nikto"] + args + ["-h", target]
+    return Response(_run_tool_stream(cmd, timeout), mimetype="text/event-stream")
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8001, debug=False)
