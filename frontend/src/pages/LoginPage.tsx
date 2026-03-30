@@ -113,8 +113,8 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
             <div className="flex items-center gap-2.5">
-              <img src="/icon.png" alt="" className="w-11 h-11 shrink-0 dark:hidden" />
-              <img src="/icon-white.png" alt="" className="w-11 h-11 shrink-0 hidden dark:block" />
+              <img src="/icon.png" alt="" className="h-[72px] w-auto shrink-0 dark:hidden" />
+              <img src="/icon-white.png" alt="" className="h-[72px] w-auto shrink-0 hidden dark:block" />
               <ElectracomLogo size="lg" />
             </div>
           </div>
