@@ -164,3 +164,9 @@ uploads/
 .agents/
 NEXT_SESSION_PROMPT.md
 .claude/
+
+# Electron build artifacts
+electron/dist/
+electron/build-output/
+electron/out/
+electron/package-lock.json
