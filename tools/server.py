@@ -256,19 +256,24 @@ def detect_networks() -> Response:
         pass
 
     if host_ip and host_ip.startswith("192.168.65."):
-        # Docker Desktop VM gateway — need to discover actual host subnets
-        # Try common private ranges via nmap quick ping sweep of gateway/host
-        for candidate in ["192.168.1.0/24", "192.168.0.0/24", "10.0.0.0/24", "172.16.0.0/24"]:
+        # Docker Desktop VM gateway — probe gateway IPs to find reachable subnets
+        # Use TCP connect on common ports since ICMP doesn't work through NAT
+        candidates = [
+            ("192.168.1.0/24", ["192.168.1.1", "192.168.1.254"]),
+            ("192.168.0.0/24", ["192.168.0.1", "192.168.0.254"]),
+            ("10.0.0.0/24", ["10.0.0.1", "10.0.0.254"]),
+            ("172.16.0.0/24", ["172.16.0.1", "172.16.0.254"]),
+        ]
+        for cidr, probe_ips in candidates:
             try:
+                # Quick TCP connect probe on common gateway ports
                 result = subprocess.run(
-                    ["nmap", "-sn", "-Pn", "--max-retries", "1", "-T4",
-                     "--max-hostgroup", "64", candidate],
-                    capture_output=True, text=True, timeout=15,
+                    ["nmap", "-sT", "-Pn", "--top-ports", "5", "-T4",
+                     "--max-retries", "1", "--host-timeout", "3s"] + probe_ips,
+                    capture_output=True, text=True, timeout=12,
                 )
-                # Count hosts found (lines containing "Nmap scan report for")
-                hosts_found = result.stdout.count("Nmap scan report for")
-                if hosts_found > 0:
-                    # Extract individual IPs found
+                # Check if any port was open (means subnet is reachable)
+                if "open" in result.stdout:
                     found_ips = []
                     for line in result.stdout.splitlines():
                         if "Nmap scan report for" in line:
@@ -277,19 +282,15 @@ def detect_networks() -> Response:
                             if _is_valid_target(ip_part):
                                 found_ips.append(ip_part)
 
-                    # Guess interface type from subnet
-                    iface_type = "ethernet"
-                    label = f"Network {candidate}"
-                    if candidate.startswith("192.168."):
-                        label = f"Local Network ({candidate})"
-                    elif candidate.startswith("10."):
-                        label = f"Office/VPN ({candidate})"
+                    label = f"Local Network ({cidr})"
+                    if cidr.startswith("10."):
+                        label = f"Office/VPN ({cidr})"
 
                     interfaces.append({
                         "label": label,
-                        "type": iface_type,
-                        "cidr": candidate,
-                        "hosts_found": hosts_found,
+                        "type": "ethernet",
+                        "cidr": cidr,
+                        "hosts_found": len(found_ips),
                         "sample_hosts": found_ips[:5],
                         "reachable": True,
                     })
