@@ -107,7 +107,7 @@ volumes:
     driver: local
 
 networks:
-  # Internal network: backend ↔ tools only
+  # Internal network: backend ↔ tools (not internal — tools needs outbound for device scanning)
   edq-internal:
     driver: bridge
     internal: false

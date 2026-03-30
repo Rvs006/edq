@@ -182,8 +182,20 @@ class DockerManager {
           `JWT_SECRET=${crypto.randomBytes(32).toString('hex')}`
         )
         .replace(
+          /^JWT_REFRESH_SECRET=.*$/m,
+          `JWT_REFRESH_SECRET=${crypto.randomBytes(32).toString('hex')}`
+        )
+        .replace(
           /^SECRET_KEY=.*$/m,
           `SECRET_KEY=${crypto.randomBytes(16).toString('hex')}`
+        )
+        .replace(
+          /^TOOLS_API_KEY=.*$/m,
+          `TOOLS_API_KEY=${crypto.randomBytes(16).toString('hex')}`
+        )
+        .replace(
+          /^INITIAL_ADMIN_PASSWORD=.*$/m,
+          `INITIAL_ADMIN_PASSWORD=${crypto.randomBytes(12).toString('base64url')}`
         );
       fs.writeFileSync(envPath, patched, 'utf-8');
     }

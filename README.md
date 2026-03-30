@@ -5,7 +5,7 @@
   <p>
     <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
     <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python">
-    <img src="https://img.shields.io/badge/react-18-61DAFB" alt="React">
+    <img src="https://img.shields.io/badge/react-19-61DAFB" alt="React">
     <img src="https://img.shields.io/badge/docker-compose-2496ED" alt="Docker">
     <img src="https://img.shields.io/badge/license-proprietary-red" alt="License">
   </p>
@@ -166,7 +166,7 @@ WebSocket-powered live updates during test execution:
 
 **Backend (FastAPI + Python 3.12)** — The core application server. Handles authentication (JWT in httpOnly cookies with CSRF protection), all REST API endpoints, WebSocket connections for real-time progress, database operations via SQLAlchemy 2.0 async ORM, and report generation (Excel via openpyxl, Word via python-docx, PDF via LibreOffice).
 
-**Tools Sidecar (Ubuntu 22.04)** — A lightweight container running security scanning tools with a REST API wrapper on port 8001. The backend calls this service to execute nmap, testssl.sh, ssh-audit, hydra, and nikto scans. Requires `NET_ADMIN` and `NET_RAW` capabilities for Layer 2 network scanning. Runs in host network mode to access devices on the engineer's physical network.
+**Tools Sidecar (Ubuntu 22.04)** — A lightweight container running security scanning tools with a REST API wrapper on port 8001. The backend calls this service to execute nmap, testssl.sh, ssh-audit, hydra, and nikto scans. Requires `NET_ADMIN` and `NET_RAW` capabilities for Layer 2 network scanning. Communicates with the backend via a Docker bridge network and reaches devices on the engineer's physical network via outbound routing.
 
 **SQLite Database** — Stores all application data in WAL mode for concurrent read access. Persisted via a Docker volume at `/data/edq.db`. Schema includes 11 tables covering users, devices, test templates, test runs, test results, attachments, protocol whitelists, device profiles, report configs, audit logs, and Nessus findings.
 
@@ -191,7 +191,7 @@ docker compose up --build
 
 Open [http://localhost](http://localhost) in your browser.
 
-**Default login:** `admin@electracom.co.uk` / `Admin123!`
+**Default login:** username `admin` / password set via `INITIAL_ADMIN_PASSWORD` in `.env` (if not set, a random password is printed to the backend container logs on first start)
 
 ### Stop
 
@@ -305,17 +305,21 @@ edq/
 
 ## API Reference
 
-The backend serves interactive API documentation at:
+When running with `DEBUG=true`, the backend serves interactive API documentation at:
 - **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+> API docs are disabled in production (`DEBUG=false`) for security.
 
 ### Authentication
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/auth/login` | Authenticate and receive session cookie |
 | POST | `/api/auth/logout` | Clear session cookies |
-| POST | `/api/auth/register` | Create new user (admin only) |
+| POST | `/api/auth/register` | Create new user (when registration enabled) |
+| POST | `/api/auth/refresh` | Rotate refresh token |
 | GET | `/api/auth/me` | Get current user info |
+| PATCH | `/api/auth/me` | Update profile (name, email) |
 | POST | `/api/auth/change-password` | Change current user password |
 
 ### Devices
@@ -324,49 +328,55 @@ The backend serves interactive API documentation at:
 | GET | `/api/devices/` | List all registered devices (paginated) |
 | POST | `/api/devices/` | Register a new device |
 | GET | `/api/devices/{id}` | Get device detail |
-| PUT | `/api/devices/{id}` | Update device metadata |
-| DELETE | `/api/devices/{id}` | Soft-delete a device |
-| POST | `/api/devices/discover` | Trigger auto-discovery scan |
+| PATCH | `/api/devices/{id}` | Update device metadata (admin only) |
+| DELETE | `/api/devices/{id}` | Delete a device (admin only) |
+| GET | `/api/devices/stats` | Device statistics by status and category |
 
 ### Test Runs
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/runs/` | List test runs (with filters) |
-| POST | `/api/runs/` | Create a new test run |
-| GET | `/api/runs/{id}` | Get run detail with all results |
-| POST | `/api/runs/{id}/start` | Begin automated testing |
-| POST | `/api/runs/{id}/pause` | Pause test execution |
-| POST | `/api/runs/{id}/resume` | Resume paused test run |
+| GET | `/api/test-runs/` | List test runs (with filters, scoped by role) |
+| POST | `/api/test-runs/` | Create a new test run |
+| GET | `/api/test-runs/{id}` | Get run detail with all results |
+| PATCH | `/api/test-runs/{id}` | Update test run metadata |
+| POST | `/api/test-runs/{id}/start` | Begin automated testing |
+| POST | `/api/test-runs/{id}/complete` | Mark test run as complete |
+| GET | `/api/test-runs/stats` | Test run statistics |
 
 ### Test Results
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/runs/{run_id}/results` | Get all results for a run |
-| PUT | `/api/runs/{run_id}/results/{test_id}` | Submit manual test verdict |
-| POST | `/api/runs/{run_id}/results/{test_id}/override` | Reviewer override verdict |
-| POST | `/api/runs/{run_id}/results/{test_id}/rerun` | Re-execute an automated test |
+| GET | `/api/test-results/` | List results (filter by test run) |
+| GET | `/api/test-results/{id}` | Get individual test result |
+| PATCH | `/api/test-results/{id}` | Submit manual test verdict |
+| POST | `/api/test-results/{id}/override` | Reviewer override with justification |
+| POST | `/api/test-results/batch` | Batch update multiple results |
 
 ### Reports
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/runs/{run_id}/report/excel` | Generate and download Excel report |
-| POST | `/api/runs/{run_id}/report/word` | Generate and download Word report |
-| POST | `/api/runs/{run_id}/report/pdf` | Generate and download PDF report |
-| GET | `/api/runs/{run_id}/report/preview` | Preview report data as JSON |
+| POST | `/api/reports/generate` | Generate report (Excel, Word, or PDF) |
+| GET | `/api/reports/download/{filename}` | Download a generated report |
+| GET | `/api/reports/configs` | List report configurations |
+| GET | `/api/reports/templates` | List available report templates |
 
-### Nessus Integration
+### Network Scanning
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/runs/{run_id}/nessus/upload` | Upload `.nessus` XML file |
-| GET | `/api/runs/{run_id}/nessus/findings` | List parsed vulnerability findings |
+| POST | `/api/network-scan/discover` | Discover devices on a subnet |
+| POST | `/api/network-scan/start` | Start scanning discovered devices |
+| GET | `/api/network-scan/{id}` | Get scan status |
+| GET | `/api/network-scan/{id}/results` | Get scan results |
 
 ### Administration
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/admin/users` | List all users |
-| PUT | `/api/admin/users/{id}` | Update user role or status |
-| GET | `/api/admin/audit-logs` | View audit trail |
-| GET | `/api/admin/stats` | Dashboard statistics |
+| GET | `/api/users/` | List all users (admin only) |
+| PATCH | `/api/users/{id}` | Update user role or status |
+| GET | `/api/admin/dashboard` | Dashboard statistics |
+| GET | `/api/admin/system-info` | System information |
+| GET | `/api/audit-logs/` | View audit trail |
+| GET | `/api/audit-logs/export` | Export audit logs as CSV |
 
 ---
 
@@ -374,12 +384,12 @@ The backend serves interactive API documentation at:
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18, Vite, Tailwind CSS, Zustand, TanStack Query, xterm.js, Recharts |
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Alembic |
+| Frontend | React 19, Vite 6, Tailwind CSS, Zustand, TanStack Query, xterm.js, Recharts |
+| Backend | Python 3.12, FastAPI 0.121, SQLAlchemy 2.0 (async), Pydantic v2, Alembic |
 | Database | SQLite with WAL mode, persisted via Docker volume |
-| Security Tools | nmap 7.94, testssl.sh 3.0, ssh-audit 3.1, hydra 9.5, nikto 2.5 |
+| Security Tools | nmap, testssl.sh 3.2.3, ssh-audit 3.1.0, hydra, nikto |
 | Reports | openpyxl (Excel), python-docx (Word), LibreOffice (PDF conversion) |
-| Desktop | Electron 28, electron-builder, electron-updater |
+| Desktop | Electron 33, electron-builder, electron-updater |
 | Infrastructure | Docker Compose, NGINX (reverse proxy + static serving) |
 
 ---

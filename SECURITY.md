@@ -106,18 +106,10 @@ Every response includes an `X-Request-ID` header for tracing.
 3. **Impact**: CSRF tokens are invalidated
 
 ### TOOLS_API_KEY
-**Option A — Automated rotation (no downtime):**
-1. `POST /api/admin/rotate-tools-key` (admin only)
-2. The backend generates a new key, pushes it to the tools sidecar via `/rotate-key`, and returns the new key once
-3. **Important**: update `TOOLS_API_KEY` in both `.env` files to persist across restarts
-4. **Impact**: zero downtime — both services update in memory immediately
-
-**Option B — Manual rotation:**
 1. Generate a new key: `openssl rand -hex 32`
-2. Update `TOOLS_API_KEY` in the backend `.env`
-3. Update the same key in the tools sidecar `.env`
-4. Restart both containers
-5. **Impact**: tools sidecar requests fail until both services have the new key
+2. Update `TOOLS_API_KEY` in the `.env` file (shared by both services via docker-compose)
+3. Restart both containers: `docker compose restart backend tools`
+4. **Impact**: tools sidecar requests fail until both services have the new key
 
 ### INITIAL_ADMIN_PASSWORD
 - Only used on first database initialization (`init_db.py`)

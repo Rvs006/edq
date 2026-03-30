@@ -31,11 +31,15 @@ cd edq
 ```powershell
 copy .env.example .env
 ```
-Edit `.env` and set a strong secret:
+Edit `.env` and set all required secrets:
 ```
-JWT_SECRET=<generate-with: openssl rand -hex 32>
+JWT_SECRET=<generate-with: openssl rand -hex 64>
+JWT_REFRESH_SECRET=<generate-with: openssl rand -hex 64>
 SECRET_KEY=<generate-with: openssl rand -hex 32>
+TOOLS_API_KEY=<generate-with: openssl rand -hex 32>
+INITIAL_ADMIN_PASSWORD=<your-strong-admin-password>
 ```
+> **Tip:** If you use the Electron desktop app, these are auto-generated on first launch.
 
 ### 3. Build and Start
 ```powershell
@@ -57,10 +61,15 @@ Open http://localhost in your browser.
 
 | Field | Value |
 |-------|-------|
-| Email | admin |
-| Password | Admin123! |
+| Username | `admin` |
+| Password | Value of `INITIAL_ADMIN_PASSWORD` from your `.env` file |
 
-**⚠️ Change this password immediately after first login via the Admin panel.**
+If `INITIAL_ADMIN_PASSWORD` was not set, a random password is printed to the backend container logs on first start:
+```powershell
+docker compose logs backend | findstr "INITIAL_ADMIN_PASSWORD"
+```
+
+**Change this password immediately after first login via your profile settings.**
 
 ---
 
@@ -123,7 +132,7 @@ docker compose down
 docker compose logs -f
 
 # Specific service
-docker compose logs -f api
+docker compose logs -f backend
 docker compose logs -f tools
 docker compose logs -f frontend
 ```
@@ -150,12 +159,12 @@ EDQ uses [Alembic](https://alembic.sqlalchemy.org/) for database schema migratio
 
 ### Apply Pending Migrations
 ```powershell
-docker compose exec api alembic upgrade head
+docker compose exec backend alembic upgrade head
 ```
 
 ### Check Current Migration Status
 ```powershell
-docker compose exec api alembic current
+docker compose exec backend alembic current
 ```
 
 ### Create a New Migration (Developers)
@@ -184,7 +193,7 @@ EDQ runs as 3 Docker containers:
 | Container | Port | Purpose |
 |-----------|------|---------|
 | `frontend` (nginx) | 80 | Serves React SPA, proxies /api/* to backend |
-| `api` (FastAPI) | 8000 | REST API, WebSocket, database, reports |
+| `backend` (FastAPI) | 8000 | REST API, WebSocket, database, reports |
 | `tools` (Ubuntu) | 8001 | Security scanning tools (nmap, testssl.sh, ssh-audit, hydra, nikto) |
 
 Data is stored in a SQLite database mounted at `./data/edq.db`.
