@@ -222,6 +222,7 @@ class TestEngine:
             except asyncio.CancelledError:
                 pass
             _PORT_SCAN_CACHE.pop(test_run_id, None)
+            _PORT_SCAN_CACHE.pop(f"{test_run_id}_u08", None)
             _TESTSSL_CACHE.pop(test_run_id, None)
 
         await self._finalize_run(test_run_id)
@@ -280,6 +281,8 @@ class TestEngine:
             raw = await tools_client.nmap(
                 device_ip, ["-sS", "-p-", "-T4", "--open", "-oX", "-"], timeout=600
             )
+            if raw.get("exit_code") not in (None, 0):
+                logger.warning("U06 nmap exited %s: %s", raw.get("exit_code"), raw.get("stderr", ""))
             xml_out = raw.get("stdout", "")
             parsed = nmap_parser.parse_xml(xml_out)
             _PORT_SCAN_CACHE[run_id] = parsed
@@ -297,15 +300,24 @@ class TestEngine:
                 device_ip, ["-sV", "--open", "-oX", "-"], timeout=300
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            # Store U08 data as fallback for U09 when U06 cache is empty
+            _PORT_SCAN_CACHE[f"{run_id}_u08"] = parsed
             return (parsed, raw.get("stdout"))
 
         if test_id == "U09":
             cached = _PORT_SCAN_CACHE.get(run_id)
-            if cached:
+            if cached and cached.get("open_ports"):
                 return (cached, None)
+            # Fallback: use U08 service detection data if U06 full scan was empty
+            u08_cached = _PORT_SCAN_CACHE.get(f"{run_id}_u08")
+            if u08_cached and u08_cached.get("open_ports"):
+                logger.info("U09: using U08 service scan data as fallback (U06 cache empty)")
+                return (u08_cached, None)
             raw = await tools_client.nmap(
                 device_ip, ["-sS", "-p-", "-T4", "--open", "-oX", "-"], timeout=600
             )
+            if raw.get("exit_code") not in (None, 0):
+                logger.warning("U09 nmap exited %s: %s", raw.get("exit_code"), raw.get("stderr", ""))
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             _PORT_SCAN_CACHE[run_id] = parsed
             return (parsed, raw.get("stdout"))

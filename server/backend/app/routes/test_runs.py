@@ -146,6 +146,7 @@ async def create_test_run(
                 test_name=test_def["name"],
                 tier=TestTier(test_def["tier"]),
                 tool=test_def.get("tool"),
+                verdict=TestVerdict.PENDING,
                 is_essential="yes" if test_def["is_essential"] else "no",
                 compliance_map=test_def.get("compliance_map", []),
             )

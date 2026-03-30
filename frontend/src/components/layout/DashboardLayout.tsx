@@ -278,8 +278,8 @@ function SidebarContent({
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between h-14 px-4 border-b border-slate-800">
         <Link to="/" className="flex items-center gap-2" onClick={onClose}>
-          <img src="/icon-white.png" alt="" className="w-7 h-7 shrink-0" />
-          <img src="/electracom-logo.png" alt="Electracom" className="h-10" style={{ filter: 'brightness(2) saturate(1.3)' }} />
+          <img src="/icon-white.png" alt="" className="w-8 h-8 shrink-0" />
+          <img src="/electracom-logo.png" alt="Electracom" className="h-14" style={{ filter: 'brightness(2) saturate(1.3)' }} />
         </Link>
         {onClose && (
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-800 lg:hidden">

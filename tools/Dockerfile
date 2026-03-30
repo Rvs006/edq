@@ -24,6 +24,11 @@ RUN git clone --depth 1 --branch v3.2.3 https://github.com/drwetter/testssl.sh.g
 # Pin Python tool versions
 RUN pip3 install --no-cache-dir "ssh-audit==3.1.0" "flask==3.0.*"
 
+# Grant nmap raw-socket capabilities so it works as non-root (SYN scan, UDP scan, OS detection)
+RUN apt-get update && apt-get install -y --no-install-recommends libcap2-bin \
+    && setcap cap_net_raw,cap_net_admin+ep /usr/bin/nmap \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user (tools still need NET_RAW/NET_ADMIN via cap_add)
 RUN groupadd -r edqtools && useradd -r -g edqtools -d /app -s /sbin/nologin edqtools
 

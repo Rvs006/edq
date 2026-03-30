@@ -3,8 +3,11 @@
 Parses nmap's XML output (-oX) into structured dicts with host/port/service/OS data.
 """
 
+import logging
 from typing import Any
 from defusedxml import ElementTree
+
+logger = logging.getLogger("edq.parsers.nmap")
 
 
 class NmapParser:
@@ -31,11 +34,13 @@ class NmapParser:
         }
 
         if not xml_output or not xml_output.strip():
+            logger.warning("Empty XML output received for nmap scan")
             return result
 
         try:
             root = ElementTree.fromstring(xml_output)
         except Exception:
+            logger.error("Failed to parse nmap XML: %s", xml_output[:200])
             return result
 
         scaninfo = root.find("scaninfo")

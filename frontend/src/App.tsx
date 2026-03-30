@@ -86,6 +86,35 @@ function AppShell() {
         onSkip={tour.skipTour}
         onComplete={tour.completeTour}
       />
+      {tour.showWelcomeBanner && (
+        <div className="fixed bottom-4 right-4 z-[8000] bg-white dark:bg-dark-card rounded-xl shadow-2xl border border-zinc-200 dark:border-slate-700 p-5 max-w-sm animate-fade-in">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg bg-brand-50 dark:bg-brand-950/40 flex items-center justify-center flex-shrink-0">
+              <span className="text-lg">🚀</span>
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-1">Welcome to EDQ!</h3>
+              <p className="text-sm text-zinc-600 dark:text-slate-400 mb-3 leading-relaxed">
+                Take a quick guided tour to learn about the testing workflow.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={tour.startTour}
+                  className="px-3 py-1.5 text-xs font-medium bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors"
+                >
+                  Start Tour
+                </button>
+                <button
+                  onClick={tour.dismissTour}
+                  className="px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

@@ -45,10 +45,16 @@ _HOSTNAME_LABEL_RE = re.compile(r"^(?!-)[a-zA-Z0-9-]{1,63}(?<!-)$")
 
 
 def _is_valid_target(target: str) -> bool:
-    """Return True if target is a valid IPv4, IPv6, or hostname."""
+    """Return True if target is a valid IPv4, IPv6, CIDR range, or hostname."""
     # Try IPv4 / IPv6 first
     try:
         ipaddress.ip_address(target)
+        return True
+    except ValueError:
+        pass
+    # Try CIDR notation (e.g. 192.168.1.0/24)
+    try:
+        ipaddress.ip_network(target, strict=False)
         return True
     except ValueError:
         pass

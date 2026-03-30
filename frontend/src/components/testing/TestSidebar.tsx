@@ -119,12 +119,12 @@ export default function TestSidebar({
 
   return (
     <div ref={containerRef} className={`flex flex-col h-full bg-white dark:bg-dark-card border-r border-zinc-200 dark:border-slate-700/50 ${className}`}>
-      <div className="px-3 pt-3 pb-2 border-b border-zinc-100 space-y-2">
+      <div className="px-3 pt-3 pb-2 border-b border-zinc-100 dark:border-slate-700/50 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+          <span className="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider">
             Tests
           </span>
-          <span className="text-xs text-zinc-400 font-mono">
+          <span className="text-xs text-zinc-400 dark:text-slate-500 font-mono">
             {completedCount}/{results.length}
           </span>
         </div>
@@ -135,8 +135,8 @@ export default function TestSidebar({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Filter tests..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-50 border border-zinc-200 rounded-md
-                       text-zinc-700 placeholder-zinc-400
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-50 dark:bg-slate-800 border border-zinc-200 dark:border-slate-600 rounded-md
+                       text-zinc-700 dark:text-slate-200 placeholder-zinc-400 dark:placeholder-slate-500
                        focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500"
           />
         </div>
@@ -199,7 +199,7 @@ function SidebarSection({
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-1.5 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider
-                   text-zinc-500 hover:bg-zinc-50 transition-colors"
+                   text-zinc-500 dark:text-slate-400 hover:bg-zinc-50 dark:hover:bg-slate-700/40 transition-colors"
       >
         {collapsed ? (
           <ChevronRight className="w-3 h-3" />
@@ -231,8 +231,8 @@ function SidebarItem({
     <button
       onClick={onClick}
       className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors group relative
-        ${isSelected ? 'bg-brand-50 text-brand-700' : 'hover:bg-zinc-50 text-zinc-700'}
-        ${isRunning ? 'bg-blue-50/50' : ''}`}
+        ${isSelected ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-300' : 'hover:bg-zinc-50 dark:hover:bg-slate-700/40 text-zinc-700 dark:text-slate-200'}
+        ${isRunning ? 'bg-blue-50/50 dark:bg-blue-950/30' : ''}`}
     >
       {isRunning && (
         <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-blue-500 rounded-r animate-pulse" />
@@ -251,12 +251,12 @@ function SidebarItem({
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-mono text-zinc-400 flex-shrink-0">
+          <span className="text-[11px] font-mono text-zinc-400 dark:text-slate-500 flex-shrink-0">
             {result.test_number}
           </span>
           <span
             className={`text-xs truncate ${
-              isSelected ? 'font-medium text-brand-700' : 'text-zinc-700'
+              isSelected ? 'font-medium text-brand-700 dark:text-brand-300' : 'text-zinc-700 dark:text-slate-200'
             }`}
           >
             {result.test_name}
