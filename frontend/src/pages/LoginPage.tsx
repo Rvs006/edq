@@ -43,11 +43,7 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center px-4 pb-16">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 flex items-center justify-center mb-3">
-              <img src="/icon.png" alt="Electracom" className="w-12 h-12 dark:hidden" />
-              <img src="/icon-white.png" alt="Electracom" className="w-12 h-12 hidden dark:block" />
-            </div>
-            <img src="/electracom-logo.png" alt="Electracom" className="h-12 dark:brightness-0 dark:invert" />
+            <img src="/electracom-logo.png" alt="Electracom" className="h-20 mb-2" />
             <p className="text-sm text-zinc-500 dark:text-slate-400 mt-1.5">Device Qualifier</p>
           </div>
 
