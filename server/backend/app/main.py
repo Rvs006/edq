@@ -56,6 +56,7 @@ CSRF_EXEMPT_PATHS = {
     "/api/health", "/api/health/",
     "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh",
     "/api/v1/health", "/api/v1/health/",
+    "/api/client-errors",
 }
 
 
@@ -245,6 +246,22 @@ def create_app() -> FastAPI:
     for rtr, suffix, tag in _api_routes:
         app.include_router(rtr, prefix=f"/api{suffix}", tags=[tag])
         app.include_router(rtr, prefix=f"/api/v1{suffix}", tags=[f"v1 - {tag}"])
+
+    @app.post("/api/client-errors", include_in_schema=False)
+    async def receive_client_error(request: Request):
+        """Receive frontend error reports via navigator.sendBeacon."""
+        try:
+            body = await request.body()
+            import json
+            data = json.loads(body)
+            logger.warning(
+                "Frontend error at %s: %s",
+                data.get("url", "unknown"),
+                data.get("message", "unknown"),
+            )
+        except Exception:
+            pass
+        return Response(status_code=204)
 
     if os.path.isdir(FRONTEND_DIR):
         assets_dir = os.path.join(FRONTEND_DIR, "assets")

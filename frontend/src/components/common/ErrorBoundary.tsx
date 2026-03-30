@@ -24,8 +24,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    if (import.meta.env.DEV) {
-      console.error('[ErrorBoundary] Caught error:', error, errorInfo)
+    console.error('[ErrorBoundary] Caught error:', error, errorInfo)
+    // Log to backend for production visibility
+    try {
+      const payload = {
+        message: error.message,
+        stack: error.stack?.slice(0, 2000),
+        componentStack: errorInfo.componentStack?.slice(0, 2000),
+        url: window.location.href,
+        timestamp: new Date().toISOString(),
+      }
+      navigator.sendBeacon?.('/api/client-errors', JSON.stringify(payload))
+    } catch {
+      // Swallow — error reporting should never break the app
     }
     this.props.onError?.(error, errorInfo)
   }

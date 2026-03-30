@@ -173,10 +173,13 @@ async def generate_report(
             "download_url": f"/api/reports/download/{filename}",
             "message": "Report generated successfully",
         }
-    except Exception:
+    except RuntimeError as exc:
+        logger.exception("Report generation failed for run %s", data.test_run_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:
         logger.exception("Report generation failed for run %s", data.test_run_id)
         raise HTTPException(
-            status_code=500, detail="Report generation failed"
+            status_code=500, detail=f"Report generation failed: {type(exc).__name__}"
         )
 
 

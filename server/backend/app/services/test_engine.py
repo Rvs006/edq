@@ -264,6 +264,20 @@ class TestEngine:
         if test_id == "U02":
             raw = await tools_client.nmap(device_ip, ["-sn", "-oX", "-"], timeout=60)
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            # Fallback: if nmap couldn't see the MAC (Docker network hop), try ARP table
+            if not parsed.get("mac_address"):
+                try:
+                    arp_raw = await tools_client._post(
+                        "/scan/nmap",
+                        {"target": device_ip, "args": ["-sn", "--send-ip"], "timeout": 30},
+                        timeout=40,
+                    )
+                    arp_parsed = nmap_parser.parse_xml(arp_raw.get("stdout", ""))
+                    if arp_parsed.get("mac_address"):
+                        parsed["mac_address"] = arp_parsed["mac_address"]
+                        parsed["oui_vendor"] = arp_parsed.get("oui_vendor", "")
+                except Exception:
+                    logger.debug("U02: ARP fallback failed for %s", device_ip)
             return (parsed, raw.get("stdout"))
 
         if test_id == "U03":
@@ -442,22 +456,68 @@ class TestEngine:
         return ({}, None)
 
     async def _test_brute_force_protection(self, device_ip: str) -> dict[str, Any]:
-        """Test brute force protection by sending rapid login attempts."""
+        """Test brute force protection by sending rapid login attempts.
+
+        First detects whether the device uses form-based or HTTP basic auth,
+        then runs Hydra with the appropriate module.
+        """
+        import httpx
+
+        auth_type = "http-get"
+        form_path = "/"
+        form_fields = ""
+
+        # Detect auth type by checking for a login form
+        try:
+            async with httpx.AsyncClient(timeout=10, verify=False, follow_redirects=True) as client:
+                resp = await client.get(f"http://{device_ip}/")
+                body = resp.text.lower()
+                # Look for common login form patterns
+                if "<form" in body and ("password" in body or "passwd" in body or "login" in body):
+                    auth_type = "http-post-form"
+                    # Try common login paths
+                    for path in ["/login", "/auth", "/user/login", "/api/login", "/"]:
+                        try:
+                            r = await client.get(f"http://{device_ip}{path}")
+                            if "<form" in r.text.lower() and "password" in r.text.lower():
+                                form_path = path
+                                break
+                        except Exception:
+                            continue
+                    form_fields = f"{form_path}:username=^USER^&password=^PASS^:F=incorrect:H=Content-Type: application/x-www-form-urlencoded"
+                elif resp.status_code == 401:
+                    auth_type = "http-get"
+        except Exception:
+            pass
+
         lockout_detected = False
         error_msg = ""
         try:
-            raw = await tools_client.hydra(
-                device_ip,
-                [
+            if auth_type == "http-post-form":
+                args = [
+                    "-l", "admin",
+                    "-p", "wrongpassword",
+                    "-t", "16",
+                    "-f",
+                    device_ip,
+                    f"http-post-form",
+                ]
+                # Hydra http-post-form needs the form spec as the last positional arg
+                # Format: /path:user=^USER^&pass=^PASS^:F=failure_string
+                if form_fields:
+                    args[-1] = f"http-post-form"
+                    args.append(form_fields)
+            else:
+                args = [
                     "-l", "admin",
                     "-p", "wrongpassword",
                     "-t", "16",
                     "-f",
                     device_ip,
                     "http-get",
-                ],
-                timeout=60,
-            )
+                ]
+
+            raw = await tools_client.hydra(device_ip, args, timeout=60)
             stdout = raw.get("stdout", "")
             exit_code = raw.get("exit_code", 1)
 
@@ -472,7 +532,7 @@ class TestEngine:
             if "refused" in error_msg.lower() or "timeout" in error_msg.lower():
                 lockout_detected = True
 
-        return {"lockout_detected": lockout_detected, "error": error_msg}
+        return {"lockout_detected": lockout_detected, "auth_type": auth_type, "error": error_msg}
 
     async def _test_http_redirect(self, device_ip: str) -> dict[str, Any]:
         """Check if HTTP redirects to HTTPS."""

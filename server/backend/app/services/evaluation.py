@@ -182,20 +182,15 @@ def _eval_u14(data: dict, _wl: list) -> tuple[str, str]:
     if not stdout:
         return ("na", "No HTTP service detected or nikto could not connect")
 
-    issues = []
-    stdout_lower = stdout.lower()
-    if "x-frame-options" in stdout_lower:
-        issues.append("X-Frame-Options issue")
-    if "x-content-type" in stdout_lower:
-        issues.append("X-Content-Type-Options issue")
-    if "content-security-policy" not in stdout_lower:
-        pass
+    issues = _extract_nikto_findings(stdout)
+    vuln_count = len(issues)
 
-    vuln_count = stdout_lower.count("+ osvdb-")
     if vuln_count > 5:
-        return ("fail", f"Nikto found {vuln_count} potential issues")
+        details = "; ".join(issues[:5]) + f" (+{vuln_count - 5} more)"
+        return ("fail", f"Nikto found {vuln_count} issues: {details}")
     if vuln_count > 0:
-        return ("advisory", f"Nikto found {vuln_count} potential issue(s)")
+        details = "; ".join(issues)
+        return ("advisory", f"Nikto found {vuln_count} issue(s): {details}")
     return ("pass", "No significant HTTP security header issues found")
 
 
@@ -352,14 +347,19 @@ def _eval_u35(data: dict, _wl: list) -> tuple[str, str]:
     stdout = data.get("raw", data.get("stdout", ""))
     if not stdout:
         return ("na", "No HTTP service detected or nikto could not connect")
-    stdout_lower = stdout.lower()
-    vuln_count = stdout_lower.count("+ osvdb-")
+
+    issues = _extract_nikto_findings(stdout)
+    vuln_count = len(issues)
+
     if vuln_count > 10:
-        return ("fail", f"Nikto found {vuln_count} potential vulnerabilities — critical review needed")
+        details = "; ".join(issues[:5]) + f" (+{vuln_count - 5} more)"
+        return ("fail", f"Nikto found {vuln_count} vulnerabilities — critical review needed: {details}")
     if vuln_count > 3:
-        return ("advisory", f"Nikto found {vuln_count} potential issue(s) — review recommended")
+        details = "; ".join(issues[:5])
+        return ("advisory", f"Nikto found {vuln_count} issue(s): {details}")
     if vuln_count > 0:
-        return ("advisory", f"Nikto found {vuln_count} minor issue(s)")
+        details = "; ".join(issues)
+        return ("advisory", f"Nikto found {vuln_count} minor issue(s): {details}")
     return ("pass", "No significant web server vulnerabilities found")
 
 
@@ -389,6 +389,28 @@ def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
     if auth_required:
         return ("pass", "RTSP streams require authentication")
     return ("fail", "RTSP streams accessible without authentication")
+
+
+import re
+
+_NIKTO_FINDING_RE = re.compile(r"\+ (OSVDB-\d+): (.+)")
+
+
+def _extract_nikto_findings(stdout: str) -> list[str]:
+    """Extract structured findings from nikto output.
+
+    Returns list of strings like "OSVDB-3092: /admin/: Directory indexing found"
+    """
+    findings: list[str] = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        m = _NIKTO_FINDING_RE.match(line)
+        if m:
+            findings.append(f"{m.group(1)}: {m.group(2).strip()}")
+        elif line.startswith("+ ") and "osvdb" in line.lower():
+            # Fallback for non-standard OSVDB references
+            findings.append(line[2:].strip())
+    return findings
 
 
 _EVALUATORS: dict[str, Any] = {
