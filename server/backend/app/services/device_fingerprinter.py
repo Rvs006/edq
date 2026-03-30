@@ -38,49 +38,97 @@ class FingerprintResult:
 # ---------------------------------------------------------------------------
 
 HEURISTIC_RULES: list[dict[str, Any]] = [
+    # --- BAS / Building Controllers ---
     {
         "category": "controller",
-        "match_any_port": [47808],  # BACnet
-        "match_any_vendor": [
-            "easyio", "tridium", "honeywell", "johnson controls",
-            "schneider", "siemens", "distech", "reliable controls",
-        ],
+        "match_any_port": [47808],  # BACnet — strongest signal
         "confidence": "high",
     },
     {
+        "category": "controller",
+        "match_any_vendor": [
+            "easyio", "tridium", "niagara", "honeywell", "johnson controls",
+            "schneider", "siemens", "distech", "reliable controls",
+            "trane", "carrier", "daikin", "belimo", "sauter",
+            "loytec", "wago", "beckhoff", "delta controls",
+        ],
+        "confidence": "high",
+    },
+    # --- IP Cameras ---
+    {
         "category": "camera",
         "match_any_port": [554],  # RTSP
-        "match_any_vendor": [
-            "axis", "hikvision", "dahua", "pelco", "hanwha",
-            "bosch", "vivotek", "mobotix", "uniview",
-        ],
         "match_any_service": ["rtsp"],
         "confidence": "high",
     },
     {
-        "category": "intercom",
-        "match_any_port": [5060, 5061],  # SIP
+        "category": "camera",
         "match_any_vendor": [
-            "2n", "aiphone", "comelit", "doorbird", "grandstream",
+            "axis", "hikvision", "dahua", "pelco", "hanwha", "samsung techwin",
+            "bosch", "vivotek", "mobotix", "uniview", "acti", "arecont",
+            "flir", "milestone", "geovision", "reolink", "amcrest",
         ],
         "confidence": "high",
     },
+    # --- Intercoms / VoIP ---
+    {
+        "category": "intercom",
+        "match_any_port": [5060, 5061],  # SIP / SIPS
+        "match_any_vendor": [
+            "2n", "aiphone", "comelit", "doorbird", "grandstream",
+            "zenitel", "commend", "baudisch", "mobotix",
+        ],
+        "confidence": "high",
+    },
+    # --- Access Control ---
     {
         "category": "access_panel",
         "match_any_vendor": [
             "hid", "gallagher", "lenel", "genetec", "paxton",
-            "inner range", "honeywell", "assa abloy",
+            "inner range", "assa abloy", "dormakaba", "salto",
+            "suprema", "zkteco", "brivo", "keri",
         ],
         "confidence": "high",
     },
+    # --- Lighting ---
     {
-        "category": "iot_sensor",
-        "match_any_port": [1883, 8883],  # MQTT
+        "category": "lighting",
+        "match_any_vendor": [
+            "lutron", "philips lighting", "signify", "dali",
+            "crestron", "control4", "helvar",
+        ],
         "confidence": "medium",
     },
+    # --- HVAC ---
+    {
+        "category": "hvac",
+        "match_any_vendor": [
+            "trane", "daikin", "carrier", "mitsubishi electric",
+            "lg electronics", "fujitsu",
+        ],
+        "match_any_port": [502],  # Modbus
+        "confidence": "medium",
+    },
+    # --- Meters ---
+    {
+        "category": "meter",
+        "match_any_vendor": [
+            "schneider electric", "accuenergy", "continental control",
+            "obvius", "leviton",
+        ],
+        "match_any_port": [502],  # Modbus
+        "confidence": "medium",
+    },
+    # --- IoT Sensors ---
+    {
+        "category": "iot_sensor",
+        "match_any_port": [1883, 8883],  # MQTT / MQTTS
+        "confidence": "medium",
+    },
+    # --- Fallback: anything with a web UI ---
     {
         "category": "unknown",
-        "match_any_port": [80, 443],  # Has a web UI — generic fallback
+        "match_any_port": [80, 443],
         "confidence": "low",
     },
 ]
