@@ -31,6 +31,15 @@ class User(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    # TOTP Two-Factor Authentication
+    totp_secret = Column(String(32), nullable=True)
+    totp_provisional_secret = Column(String(32), nullable=True)
+
+    # OIDC / SSO (set when user authenticates via external identity provider)
+    oidc_provider = Column(String(64), nullable=True)   # e.g. "google", "microsoft", "keycloak"
+    oidc_subject = Column(String(256), nullable=True)    # unique ID from the IdP
+    oidc_email = Column(String(320), nullable=True)
+
     # Relationships
     test_runs = relationship("TestRun", back_populates="engineer", foreign_keys="TestRun.engineer_id")
     audit_logs = relationship("AuditLog", back_populates="user")

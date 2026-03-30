@@ -1,8 +1,8 @@
-"""Background task to clean up expired and revoked refresh tokens."""
+"""Background task to clean up expired tokens and old audit logs."""
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, and_, or_
 
@@ -38,16 +38,48 @@ async def _cleanup_expired_tokens(session_factory=None) -> int:
         return result.rowcount  # type: ignore[return-value]
 
 
+async def _cleanup_old_audit_logs(session_factory=None) -> int:
+    """Delete audit log entries older than AUDIT_LOG_RETENTION_DAYS. Returns count deleted."""
+    from app.config import settings
+    from app.models.audit_log import AuditLog
+
+    retention_days = settings.AUDIT_LOG_RETENTION_DAYS
+    if retention_days <= 0:
+        return 0
+
+    factory = session_factory or async_session
+    async with factory() as db:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        result = await db.execute(
+            delete(AuditLog).where(AuditLog.created_at < cutoff)
+        )
+        await db.commit()
+        return result.rowcount  # type: ignore[return-value]
+
+
 async def _cleanup_loop() -> None:
-    """Main cleanup loop — runs hourly."""
-    logger.info("Refresh token cleanup started (interval=%ds)", CLEANUP_INTERVAL_SECONDS)
+    """Main cleanup loop — runs hourly for tokens, daily for audit logs."""
+    logger.info("Cleanup started (token interval=%ds)", CLEANUP_INTERVAL_SECONDS)
+    audit_counter = 0
     while True:
         try:
             deleted = await _cleanup_expired_tokens()
             if deleted:
                 logger.info("Cleaned up %d expired/revoked refresh tokens", deleted)
         except Exception:
-            logger.exception("Error in token cleanup loop")
+            logger.exception("Error in token cleanup")
+
+        # Run audit log cleanup once every 24 iterations (every 24 hours)
+        audit_counter += 1
+        if audit_counter >= 24:
+            audit_counter = 0
+            try:
+                deleted = await _cleanup_old_audit_logs()
+                if deleted:
+                    logger.info("Cleaned up %d old audit log entries", deleted)
+            except Exception:
+                logger.exception("Error in audit log cleanup")
+
         await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
 

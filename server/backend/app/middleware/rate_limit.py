@@ -112,3 +112,23 @@ def check_rate_limit(request: Request, max_requests: int, window_seconds: int = 
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many requests. Please try again later.",
         )
+
+
+def check_user_rate_limit(
+    request: Request,
+    user_id: str,
+    max_requests: int,
+    window_seconds: int = 60,
+    action: str = "default",
+) -> None:
+    """Rate limit by authenticated user ID (prevents abuse from a single account).
+
+    This runs in addition to IP-based rate limiting, catching cases where a
+    single user has multiple IPs (VPN rotation, proxies).
+    """
+    key = f"user:{user_id}:{action}"
+    if not rate_limiter.check(key, max_requests, window_seconds):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests for this account. Please try again later.",
+        )

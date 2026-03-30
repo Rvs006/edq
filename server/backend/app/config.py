@@ -63,10 +63,20 @@ class Settings(BaseSettings):
     ACCOUNT_LOCKOUT_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15
 
+    # OIDC / SSO (optional — Google, Microsoft, Keycloak, or any OIDC provider)
+    OIDC_PROVIDER: str = ""  # "google", "microsoft", or "custom"
+    OIDC_CLIENT_ID: str = ""
+    OIDC_CLIENT_SECRET: str = ""
+    OIDC_DISCOVERY_URL: str = ""  # Required for "custom" provider
+    OIDC_ALLOWED_DOMAINS: str = ""  # Comma-separated: "electracom.com,example.com"
+
     # Sentry (optional — error tracking & performance monitoring)
     SENTRY_DSN: str = ""
     SENTRY_ENVIRONMENT: str = "production"
     SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+
+    # Audit log retention
+    AUDIT_LOG_RETENTION_DAYS: int = 365  # Auto-delete audit logs older than this
 
     # Logging
     LOG_LEVEL: str = "INFO"

@@ -14,7 +14,7 @@ interface AuthContextType {
   user: User | null
   loading: boolean
   isAuthenticated: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string, totpCode?: string) => Promise<{ requires_2fa?: boolean }>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -40,9 +40,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchUser()
   }, [fetchUser])
 
-  const login = async (username: string, password: string) => {
-    await authApi.login({ username, password })
+  const login = async (username: string, password: string, totpCode?: string) => {
+    const { data } = await authApi.login({ username, password, totp_code: totpCode })
+    if (data.requires_2fa) {
+      return { requires_2fa: true }
+    }
     await fetchUser()
+    return {}
   }
 
   const logout = async () => {

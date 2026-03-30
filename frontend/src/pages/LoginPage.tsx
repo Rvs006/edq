@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { authApi } from '@/lib/api'
+import { Eye, EyeOff, Loader2, Shield, ExternalLink } from 'lucide-react'
 import ThemeToggle from '@/components/common/ThemeToggle'
 import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 import toast from 'react-hot-toast'
@@ -11,19 +12,87 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [requires2FA, setRequires2FA] = useState(false)
+  const [totpCode, setTotpCode] = useState('')
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
+  // OIDC config
+  const [oidcConfig, setOidcConfig] = useState<{
+    enabled: boolean
+    provider?: string
+    client_id?: string
+    authorization_endpoint?: string
+  } | null>(null)
+
+  useEffect(() => {
+    authApi.oidcConfig().then(res => setOidcConfig(res.data)).catch(() => {})
+  }, [])
+
+  // Handle OIDC callback
+  useEffect(() => {
+    const code = searchParams.get('code')
+    const state = searchParams.get('state')
+    if (code && state) {
+      handleOIDCCallback(code, state)
+    }
+  }, [searchParams])
+
+  const handleOIDCCallback = async (code: string, state: string) => {
+    setLoading(true)
+    try {
+      const provider = localStorage.getItem('edq_oidc_provider') || ''
+      const res = await authApi.oidcCallback({
+        code,
+        redirect_uri: `${window.location.origin}/login`,
+        provider,
+      })
+      if (res.data.user) {
+        toast.success('Welcome!')
+        // Refresh user context
+        window.location.href = '/'
+      }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'SSO login failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSSO = () => {
+    if (!oidcConfig?.authorization_endpoint || !oidcConfig.client_id) return
+    localStorage.setItem('edq_oidc_provider', oidcConfig.provider || '')
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: oidcConfig.client_id,
+      redirect_uri: `${window.location.origin}/login`,
+      scope: 'openid email profile',
+      state: crypto.randomUUID(),
+    })
+    window.location.href = `${oidcConfig.authorization_endpoint}?${params}`
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     try {
-      await login(username, password)
+      const result = await login(username, password, requires2FA ? totpCode : undefined)
+
+      // Check if server requires 2FA
+      if (result?.requires_2fa) {
+        setRequires2FA(true)
+        setLoading(false)
+        return
+      }
+
       toast.success('Welcome back!')
       navigate('/', { replace: true })
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } }
       toast.error(axiosErr.response?.data?.detail || 'Invalid credentials')
+      if (requires2FA) setTotpCode('')
     } finally {
       setLoading(false)
     }
@@ -52,48 +121,105 @@ export default function LoginPage() {
 
           <div className="card p-6">
             <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-1">Sign in</h2>
-            <p className="text-sm text-zinc-500 dark:text-slate-400 mb-6">Enter your credentials to continue</p>
+            <p className="text-sm text-zinc-500 dark:text-slate-400 mb-6">
+              {requires2FA ? 'Enter your authentication code' : 'Enter your credentials to continue'}
+            </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="label">Username</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="input"
-                  placeholder="Enter your username"
-                  required
-                  autoFocus
-                />
-              </div>
+              {!requires2FA ? (
+                <>
+                  <div>
+                    <label className="label">Username</label>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="input"
+                      placeholder="Enter your username"
+                      required
+                      autoFocus
+                    />
+                  </div>
 
-              <div>
-                <label className="label">Password</label>
-                <div className="relative">
+                  <div>
+                    <label className="label">Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="input pr-10"
+                        placeholder="Enter your password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <div className="flex items-center gap-2 mb-3 text-brand-500">
+                    <Shield className="w-5 h-5" />
+                    <span className="text-sm font-medium">Two-Factor Authentication</span>
+                  </div>
+                  <label className="label">Authentication Code</label>
                   <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="input pr-10"
-                    placeholder="Enter your password"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                    className="input text-center text-2xl tracking-[0.5em] font-mono"
+                    placeholder="000000"
                     required
+                    autoFocus
+                    autoComplete="one-time-code"
                   />
+                  <p className="text-xs text-zinc-400 mt-2">
+                    Enter the 6-digit code from your authenticator app
+                  </p>
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300"
+                    onClick={() => { setRequires2FA(false); setTotpCode('') }}
+                    className="text-xs text-brand-500 hover:text-brand-600 mt-2"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    Back to login
                   </button>
                 </div>
-              </div>
+              )}
 
               <button type="submit" disabled={loading} className="btn-primary w-full">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {loading ? 'Signing in...' : 'Sign In'}
+                {loading ? 'Signing in...' : requires2FA ? 'Verify & Sign In' : 'Sign In'}
               </button>
             </form>
+
+            {/* SSO / OIDC login */}
+            {oidcConfig?.enabled && !requires2FA && (
+              <>
+                <div className="flex items-center gap-3 my-5">
+                  <div className="flex-1 border-t border-zinc-200 dark:border-slate-700" />
+                  <span className="text-xs text-zinc-400">or</span>
+                  <div className="flex-1 border-t border-zinc-200 dark:border-slate-700" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSSO}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-zinc-200 dark:border-slate-700 text-sm font-medium text-zinc-700 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Sign in with {oidcConfig.provider === 'google' ? 'Google' : oidcConfig.provider === 'microsoft' ? 'Microsoft' : 'SSO'}
+                </button>
+              </>
+            )}
           </div>
 
           <p className="mt-6 text-center text-xs text-zinc-400 dark:text-slate-500">

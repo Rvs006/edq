@@ -18,6 +18,7 @@ def _validate_password_strength(password: str) -> str:
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=8, max_length=128)
+    totp_code: Optional[str] = Field(None, min_length=6, max_length=6)
 
 
 class RegisterRequest(BaseModel):

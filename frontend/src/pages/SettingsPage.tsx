@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { useNavigate } from 'react-router-dom'
 import { authApi, healthApi, brandingApi } from '@/lib/api'
 import type { TourState } from '@/lib/types'
-import { User, Lock, Sun, Moon, Loader2, Server, RotateCcw, Save, Palette, Upload } from 'lucide-react'
+import { User, Lock, Sun, Moon, Loader2, Server, RotateCcw, Save, Palette, Upload, Shield, ShieldCheck, ShieldOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function SettingsPage({ tourState }: { tourState?: TourState }) {
@@ -46,7 +46,11 @@ export default function SettingsPage({ tourState }: { tourState?: TourState }) {
 
         <div className="flex-1" data-tour="settings-section">
           {activeTab === 'profile' && <ProfileSettings user={user} />}
-          {activeTab === 'security' && <SecuritySettings />}
+          {activeTab === 'security' && <>
+            <TwoFactorSettings />
+            <div className="mt-5" />
+            <SecuritySettings />
+          </>}
           {activeTab === 'appearance' && <AppearanceSettings />}
           {activeTab === 'branding' && <BrandingSettings />}
           {activeTab === 'system' && <SystemStatus />}
@@ -138,6 +142,171 @@ function ProfileSettings({ user }: { user: { full_name?: string | null; username
 
         {!editing && <p className="text-xs text-zinc-400">Click "Edit Profile" to update your name or email.</p>}
       </div>
+    </div>
+  )
+}
+
+function TwoFactorSettings() {
+  const [status, setStatus] = useState<{ enabled: boolean } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [setupData, setSetupData] = useState<{ secret: string; qr_code_base64: string } | null>(null)
+  const [verifyCode, setVerifyCode] = useState('')
+  const [disableCode, setDisableCode] = useState('')
+  const [disablePassword, setDisablePassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    authApi.twoFactorStatus().then(res => setStatus(res.data)).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  const handleSetup = async () => {
+    setSubmitting(true)
+    try {
+      const res = await authApi.twoFactorSetup()
+      setSetupData(res.data)
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } }
+      toast.error(e.response?.data?.detail || 'Failed to start 2FA setup')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleVerify = async () => {
+    if (verifyCode.length !== 6) return
+    setSubmitting(true)
+    try {
+      await authApi.twoFactorVerify(verifyCode)
+      toast.success('Two-factor authentication enabled!')
+      setSetupData(null)
+      setVerifyCode('')
+      setStatus({ enabled: true })
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } }
+      toast.error(e.response?.data?.detail || 'Invalid code')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDisable = async () => {
+    if (disableCode.length !== 6 || !disablePassword) return
+    setSubmitting(true)
+    try {
+      await authApi.twoFactorDisable(disableCode, disablePassword)
+      toast.success('Two-factor authentication disabled')
+      setDisableCode('')
+      setDisablePassword('')
+      setStatus({ enabled: false })
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } }
+      toast.error(e.response?.data?.detail || 'Failed to disable 2FA')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="card p-5">
+        <div className="py-6 text-center">
+          <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mx-auto" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Shield className="w-5 h-5 text-brand-500" />
+        <h2 className="font-semibold text-zinc-900 dark:text-slate-100">Two-Factor Authentication</h2>
+      </div>
+
+      {status?.enabled ? (
+        <div>
+          <div className="flex items-center gap-2 mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/50 rounded-lg">
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+            <span className="text-sm text-emerald-700 dark:text-emerald-300 font-medium">2FA is enabled</span>
+          </div>
+
+          <p className="text-xs text-zinc-500 mb-3">To disable 2FA, enter your current TOTP code and password:</p>
+          <div className="space-y-3 max-w-sm">
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={disableCode}
+              onChange={e => setDisableCode(e.target.value.replace(/\D/g, ''))}
+              className="input text-center font-mono tracking-widest"
+              placeholder="6-digit code"
+            />
+            <input
+              type="password"
+              value={disablePassword}
+              onChange={e => setDisablePassword(e.target.value)}
+              className="input"
+              placeholder="Your password"
+            />
+            <button onClick={handleDisable} disabled={submitting || disableCode.length !== 6 || !disablePassword} className="btn-secondary text-sm py-1.5 px-3 text-red-500 border-red-200 hover:bg-red-50">
+              {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
+              Disable 2FA
+            </button>
+          </div>
+        </div>
+      ) : setupData ? (
+        <div>
+          <p className="text-sm text-zinc-600 dark:text-slate-400 mb-3">
+            Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password):
+          </p>
+          <div className="flex flex-col items-center gap-4 mb-4">
+            <img
+              src={`data:image/png;base64,${setupData.qr_code_base64}`}
+              alt="2FA QR Code"
+              className="w-48 h-48 rounded-lg border border-zinc-200 dark:border-slate-700 bg-white p-2"
+            />
+            <div className="text-center">
+              <p className="text-[11px] text-zinc-400 mb-1">Or enter this key manually:</p>
+              <code className="text-xs font-mono bg-zinc-100 dark:bg-slate-800 px-2 py-1 rounded select-all">
+                {setupData.secret}
+              </code>
+            </div>
+          </div>
+          <div className="max-w-sm space-y-3">
+            <div>
+              <label className="label">Verification Code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={verifyCode}
+                onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ''))}
+                className="input text-center text-xl font-mono tracking-[0.4em]"
+                placeholder="000000"
+                autoFocus
+              />
+            </div>
+            <button onClick={handleVerify} disabled={submitting || verifyCode.length !== 6} className="btn-primary w-full">
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              Verify & Enable 2FA
+            </button>
+            <button onClick={() => { setSetupData(null); setVerifyCode('') }} className="text-xs text-zinc-500 hover:text-zinc-600">
+              Cancel setup
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <p className="text-sm text-zinc-600 dark:text-slate-400 mb-4">
+            Add an extra layer of security to your account. You'll need an authenticator app like
+            Google Authenticator, Authy, or 1Password.
+          </p>
+          <button onClick={handleSetup} disabled={submitting} className="btn-primary text-sm">
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+            Set Up Two-Factor Authentication
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -107,6 +107,19 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated")
 
+    # Enforce 2FA if enabled on the account
+    if user.totp_secret:
+        if not data.totp_code:
+            # Signal the frontend that 2FA is required
+            return {"requires_2fa": True, "message": "Two-factor authentication code required"}
+        from app.routes.two_factor import verify_totp_for_user
+        if not verify_totp_for_user(user, data.totp_code):
+            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+            await log_security_event(db, "auth.2fa_failed", user_id=user.id,
+                                     details={"username": data.username}, request=request)
+            await db.commit()
+            raise HTTPException(status_code=401, detail="Invalid two-factor authentication code")
+
     # Reset failed attempts on successful login
     user.failed_login_attempts = 0
     user.locked_until = None

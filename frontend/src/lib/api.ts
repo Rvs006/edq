@@ -49,12 +49,20 @@ api.interceptors.response.use(
 export default api
 
 export const authApi = {
-  login: (data: { username: string; password: string }) => api.post('/auth/login', data),
+  login: (data: { username: string; password: string; totp_code?: string }) => api.post('/auth/login', data),
   register: (data: { username: string; email: string; password: string; full_name?: string }) => api.post('/auth/register', data),
   logout: () => api.post('/auth/logout'),
   me: () => api.get<UserProfile>('/auth/me'),
   updateProfile: (data: { full_name?: string; email?: string }) => api.patch<UserProfile>('/auth/me', data),
   changePassword: (data: { current_password: string; new_password: string }) => api.post('/auth/change-password', data),
+  // Two-Factor Authentication
+  twoFactorStatus: () => api.get('/auth/2fa/status'),
+  twoFactorSetup: () => api.post('/auth/2fa/setup'),
+  twoFactorVerify: (code: string) => api.post('/auth/2fa/verify', { code }),
+  twoFactorDisable: (code: string, password: string) => api.post('/auth/2fa/disable', { code, password }),
+  // OIDC / SSO
+  oidcConfig: () => api.get('/auth/oidc/config'),
+  oidcCallback: (data: { code: string; redirect_uri: string; provider: string }) => api.post('/auth/oidc/callback', data),
 }
 
 export const devicesApi = {
