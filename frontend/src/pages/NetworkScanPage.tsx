@@ -54,21 +54,49 @@ interface ScanResult {
   overall_verdict: string | null
 }
 
+// Persist active scan across page navigations so leaving and returning resumes monitoring
+function _loadScanState(): { scanId: string | null; step: Step } {
+  try {
+    const raw = sessionStorage.getItem('edq_active_scan')
+    if (raw) {
+      const s = JSON.parse(raw)
+      if (s.scanId && (s.step === 'monitor' || s.step === 'results')) {
+        return { scanId: s.scanId, step: s.step }
+      }
+    }
+  } catch { /* ignore */ }
+  return { scanId: null, step: 'configure' }
+}
+
+function _saveScanState(scanId: string | null, step: Step) {
+  if (scanId && (step === 'monitor' || step === 'results')) {
+    sessionStorage.setItem('edq_active_scan', JSON.stringify({ scanId, step }))
+  } else {
+    sessionStorage.removeItem('edq_active_scan')
+  }
+}
+
 export default function NetworkScanPage() {
   const navigate = useNavigate()
-  const [step, setStep] = useState<Step>('configure')
+  const saved = _loadScanState()
+  const [step, setStep] = useState<Step>(saved.step)
   const [cidr, setCidr] = useState('192.168.1.0/24')
   const [scenario, setScenario] = useState('test_lab')
   const [selectedTests, setSelectedTests] = useState<Set<string>>(new Set(SCENARIO_PRESELECTS.test_lab))
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Network']))
   const [discovering, setDiscovering] = useState(false)
-  const [scanId, setScanId] = useState<string | null>(null)
+  const [scanId, setScanId] = useState<string | null>(saved.scanId)
   const [devices, setDevices] = useState<DiscoveredDevice[]>([])
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set())
   const [starting, setStarting] = useState(false)
   const [results, setResults] = useState<ScanResult[]>([])
-  const [scanStatus, setScanStatus] = useState<string>('pending')
+  const [scanStatus, setScanStatus] = useState<string>(saved.scanId ? 'running' : 'pending')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Persist scan state whenever it changes
+  useEffect(() => {
+    _saveScanState(scanId, step)
+  }, [scanId, step])
 
   const [authorizedNets, setAuthorizedNets] = useState<{ cidr: string; label: string | null }[]>([])
   const [authNetsLoaded, setAuthNetsLoaded] = useState(false)
