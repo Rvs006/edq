@@ -971,7 +971,22 @@ test_engine = TestEngine()
 
 
 async def recover_orphaned_runs() -> None:
-    """On startup, reset any runs left in 'running' state from a crash/restart."""
+    """On startup, reset any runs left in 'running' state from a crash/restart.
+
+    Also kills any lingering tool processes on the sidecar to prevent
+    resource waste from previous runs.
+    """
+    from app.services.tools_client import tools_client
+
+    # Kill all lingering sidecar processes from previous server instance
+    try:
+        kill_result = await tools_client.kill_all()
+        killed = kill_result.get("killed", 0)
+        if killed:
+            logger.info("Killed %d orphaned sidecar process(es) on startup", killed)
+    except Exception as exc:
+        logger.warning("Could not clean sidecar processes on startup: %s", exc)
+
     async with async_session() as db:
         result = await db.execute(
             select(TestRun).where(TestRun.status == TestRunStatus.RUNNING)

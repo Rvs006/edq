@@ -284,6 +284,36 @@ class ToolsClient:
         )
 
 
+    async def kill_target(self, target: str) -> Dict[str, Any]:
+        """Kill all running tool processes for a target IP on the sidecar."""
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"{self.base_url}/kill",
+                    json={"target": target},
+                    headers=self._headers,
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as exc:
+            logger.warning("Failed to kill sidecar processes for %s: %s", target, exc)
+            return {"killed": 0, "error": str(exc)}
+
+    async def kill_all(self) -> Dict[str, Any]:
+        """Kill ALL running tool processes on the sidecar. Used during orphan recovery."""
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"{self.base_url}/kill-all",
+                    json={},
+                    headers=self._headers,
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as exc:
+            logger.warning("Failed to kill all sidecar processes: %s", exc)
+            return {"killed": 0, "error": str(exc)}
+
     async def rotate_key(self, new_key: str) -> Dict[str, Any]:
         """Push a new API key to the sidecar, then update local headers."""
         async with httpx.AsyncClient(timeout=10) as client:

@@ -6,8 +6,10 @@ import ipaddress
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 import time
 
 from typing import Tuple, Union
@@ -17,6 +19,47 @@ from functools import wraps
 from flask import Flask, Response, jsonify, request
 
 app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# Active process tracking — maps target IP → set of Popen objects
+# ---------------------------------------------------------------------------
+_active_procs: dict[str, set[subprocess.Popen]] = {}
+_procs_lock = threading.Lock()
+
+
+def _track_proc(target: str, proc: subprocess.Popen) -> None:
+    """Register a running subprocess for a given target."""
+    # Normalise target to just the first IP/host token
+    key = target.split()[0].strip()
+    with _procs_lock:
+        _active_procs.setdefault(key, set()).add(proc)
+
+
+def _untrack_proc(target: str, proc: subprocess.Popen) -> None:
+    """Remove a finished subprocess from tracking."""
+    key = target.split()[0].strip()
+    with _procs_lock:
+        procs = _active_procs.get(key)
+        if procs:
+            procs.discard(proc)
+            if not procs:
+                del _active_procs[key]
+
+
+def _kill_procs_for_target(target: str) -> int:
+    """Kill all tracked processes for a target. Returns count killed."""
+    key = target.split()[0].strip()
+    killed = 0
+    with _procs_lock:
+        procs = _active_procs.pop(key, set())
+    for proc in procs:
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+            killed += 1
+        except Exception:
+            pass
+    return killed
 
 # Shared secret for authenticating requests from the backend
 TOOLS_API_KEY = os.environ.get("TOOLS_API_KEY", "")
@@ -153,24 +196,31 @@ def _validate_args_for_tool(args: list, tool_name: str) -> list:
     return sanitised
 
 
-def _run_tool(cmd: list, timeout: int) -> dict:
+def _run_tool(cmd: list, timeout: int, target: str = "") -> dict:
     start = time.time()
+    proc = None
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
         )
+        if target:
+            _track_proc(target, proc)
+        stdout, stderr = proc.communicate(timeout=timeout)
         duration = round(time.time() - start, 2)
         return {
-            "exit_code": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
+            "exit_code": proc.returncode,
+            "stdout": stdout,
+            "stderr": stderr,
             "duration_seconds": duration,
             "output_file": None,
         }
     except subprocess.TimeoutExpired:
+        if proc:
+            proc.kill()
+            proc.wait()
         duration = round(time.time() - start, 2)
         return {
             "exit_code": -1,
@@ -180,6 +230,9 @@ def _run_tool(cmd: list, timeout: int) -> dict:
             "output_file": None,
         }
     except Exception as e:
+        if proc and proc.poll() is None:
+            proc.kill()
+            proc.wait()
         duration = round(time.time() - start, 2)
         return {
             "exit_code": -1,
@@ -188,6 +241,9 @@ def _run_tool(cmd: list, timeout: int) -> dict:
             "duration_seconds": duration,
             "output_file": None,
         }
+    finally:
+        if proc and target:
+            _untrack_proc(target, proc)
 
 
 def _parse_scan_request(tool_name=None):
@@ -359,7 +415,7 @@ def scan_nmap() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "nmap not available"}), 503
 
     cmd = ["nmap"] + args + [target]
-    result = _run_tool(cmd, timeout)
+    result = _run_tool(cmd, timeout, target=target)
     return jsonify(result)
 
 
@@ -378,7 +434,7 @@ def scan_testssl() -> Union[Response, Tuple[Response, int]]:
 
     try:
         cmd = ["testssl.sh", "--jsonfile", json_output_path] + args + [target]
-        result = _run_tool(cmd, timeout)
+        result = _run_tool(cmd, timeout, target=target)
 
         if os.path.isfile(json_output_path) and os.path.getsize(json_output_path) > 0:
             with open(json_output_path, "rb") as f:
@@ -401,7 +457,7 @@ def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "ssh-audit not available"}), 503
 
     cmd = ["ssh-audit"] + args + [target]
-    result = _run_tool(cmd, timeout)
+    result = _run_tool(cmd, timeout, target=target)
     return jsonify(result)
 
 
@@ -416,7 +472,7 @@ def scan_hydra() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "hydra not available"}), 503
 
     cmd = ["hydra"] + args + [target]
-    result = _run_tool(cmd, timeout)
+    result = _run_tool(cmd, timeout, target=target)
     return jsonify(result)
 
 
@@ -431,7 +487,7 @@ def scan_nikto() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "nikto not available"}), 503
 
     cmd = ["nikto"] + args + ["-h", target]
-    result = _run_tool(cmd, timeout)
+    result = _run_tool(cmd, timeout, target=target)
     return jsonify(result)
 
 
@@ -480,6 +536,41 @@ def tool_versions() -> Response:
     return jsonify({"versions": versions})
 
 
+@app.route("/kill", methods=["POST"])
+@require_api_key
+def kill_processes() -> Union[Response, Tuple[Response, int]]:
+    """Kill all running tool processes for a given target IP."""
+    data = request.get_json(force=True, silent=True)
+    if not data or not data.get("target"):
+        return jsonify({"error": "Missing 'target' field"}), 400
+    target = data["target"].strip()
+    killed = _kill_procs_for_target(target)
+    return jsonify({"killed": killed, "target": target})
+
+
+@app.route("/kill-all", methods=["POST"])
+@require_api_key
+def kill_all_processes() -> Union[Response, Tuple[Response, int]]:
+    """Kill ALL running tool processes. Used during orphan recovery."""
+    total_killed = 0
+    with _procs_lock:
+        all_targets = list(_active_procs.keys())
+    for t in all_targets:
+        total_killed += _kill_procs_for_target(t)
+    return jsonify({"killed": total_killed})
+
+
+@app.route("/active-processes", methods=["GET"])
+@require_api_key
+def active_processes() -> Response:
+    """List active processes grouped by target."""
+    with _procs_lock:
+        summary = {
+            target: len(procs) for target, procs in _active_procs.items()
+        }
+    return jsonify(summary)
+
+
 @app.route("/rotate-key", methods=["POST"])
 @require_api_key
 def rotate_key() -> Union[Response, Tuple[Response, int]]:
@@ -495,18 +586,21 @@ def rotate_key() -> Union[Response, Tuple[Response, int]]:
     return jsonify({"message": "Key rotated successfully"})
 
 
-def _run_tool_stream(cmd: list, timeout: int):
+def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
     """Generator yielding SSE events: stdout lines then final result JSON."""
     import json as _json
     start = time.time()
     stdout_lines: list[str] = []
     stderr_text = ""
     exit_code = -1
+    proc = None
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             bufsize=1,  # line-buffered
         )
+        if target:
+            _track_proc(target, proc)
         # Read stdout line by line
         for line in proc.stdout:
             stdout_lines.append(line)
@@ -515,11 +609,18 @@ def _run_tool_stream(cmd: list, timeout: int):
         exit_code = proc.returncode
         stderr_text = proc.stderr.read() if proc.stderr else ""
     except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+        if proc:
+            proc.kill()
+            proc.wait()
         stderr_text = f"Command timed out after {timeout}s"
     except Exception as e:
+        if proc and proc.poll() is None:
+            proc.kill()
+            proc.wait()
         stderr_text = str(e)
+    finally:
+        if proc and target:
+            _untrack_proc(target, proc)
 
     duration = round(time.time() - start, 2)
     result = {
@@ -541,7 +642,7 @@ def stream_nmap() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("nmap"):
         return jsonify({"error": "nmap not available"}), 503
     cmd = ["nmap"] + args + [target]
-    return Response(_run_tool_stream(cmd, timeout), mimetype="text/event-stream")
+    return Response(_run_tool_stream(cmd, timeout, target=target), mimetype="text/event-stream")
 
 
 @app.route("/stream/testssl", methods=["POST"])
@@ -563,9 +664,11 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
         stdout_lines = []
         stderr_text = ""
         exit_code = -1
+        proc = None
         try:
             cmd = ["testssl.sh", "--jsonfile", json_output_path] + args + [target]
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            _track_proc(target, proc)
             for line in proc.stdout:
                 stdout_lines.append(line)
                 yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
@@ -573,11 +676,18 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
             exit_code = proc.returncode
             stderr_text = proc.stderr.read() if proc.stderr else ""
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+            if proc:
+                proc.kill()
+                proc.wait()
             stderr_text = f"Command timed out after {timeout}s"
         except Exception as e:
+            if proc and proc.poll() is None:
+                proc.kill()
+                proc.wait()
             stderr_text = str(e)
+        finally:
+            if proc:
+                _untrack_proc(target, proc)
 
         duration = round(time.time() - start, 2)
         result = {

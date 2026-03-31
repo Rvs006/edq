@@ -330,6 +330,43 @@ async def start_test_run(
     return {"status": "running", "message": "Test execution started", "run_id": run_id}
 
 
+@router.post("/{run_id}/cancel")
+async def cancel_test_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Cancel a running or paused test run and kill its sidecar processes."""
+    from app.services.tools_client import tools_client
+
+    run = await _get_authorized_test_run(run_id, user, db)
+
+    if run.status not in (TestRunStatus.RUNNING, TestRunStatus.PAUSED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel run in '{run.status.value}' status. Must be 'running' or 'paused'.",
+        )
+
+    # 1. Cancel the asyncio task (stops test engine loop)
+    task = _running_tasks.get(run_id)
+    if task and not task.done():
+        task.cancel()
+
+    # 2. Kill sidecar tool processes for this device
+    device = await db.get(Device, run.device_id)
+    if device and device.ip_address:
+        kill_result = await tools_client.kill_target(device.ip_address)
+        logger.info("Cancelled run %s — killed %s sidecar process(es) for %s",
+                     run_id, kill_result.get("killed", 0), device.ip_address)
+
+    # 3. Mark run as cancelled
+    run.status = TestRunStatus.CANCELLED
+    run.completed_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return {"status": "cancelled", "message": "Test run cancelled", "run_id": run_id}
+
+
 @router.post("/{run_id}/pause")
 async def pause_test_run(
     run_id: str,
