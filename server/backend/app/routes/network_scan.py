@@ -107,7 +107,13 @@ async def detect_networks(
             return resp.json()
     except Exception as exc:
         logger.warning("Network detection failed: %s", exc)
-        return {"interfaces": [], "host_ip": None, "in_docker": True, "scan_recommendation": None}
+        return {
+            "interfaces": [],
+            "host_ip": None,
+            "in_docker": True,
+            "scan_recommendation": None,
+            "debug": {"error": str(exc)},
+        }
 
 
 @router.get("/", response_model=List[NetworkScanResponse])

@@ -234,6 +234,58 @@ def health() -> Response:
     return jsonify({"status": overall, "tools": tools_status})
 
 
+def _tcp_probe(ip: str, ports: tuple = (80, 443, 53, 22, 8080, 8443), timeout: float = 1.5) -> bool:
+    """Quick TCP connect probe — returns True if any port responds."""
+    import socket as _sock
+    for port in ports:
+        try:
+            s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect((ip, port))
+            s.close()
+            return True
+        except (OSError, _sock.timeout):
+            try:
+                s.close()
+            except Exception:
+                pass
+    return False
+
+
+def _get_container_subnets() -> list[dict]:
+    """Discover subnets reachable from this container via ip route / ip addr."""
+    subnets: list[dict] = []
+    seen_cidrs: set[str] = set()
+    try:
+        result = subprocess.run(
+            ["ip", "route"], capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            # e.g. "192.168.1.0/24 via 172.17.0.1 dev eth0"
+            # or   "default via 172.17.0.1 dev eth0"
+            parts = line.split()
+            if not parts or parts[0] == "default":
+                continue
+            cidr = parts[0]
+            try:
+                net = ipaddress.ip_network(cidr, strict=False)
+            except ValueError:
+                continue
+            # Skip Docker-internal and loopback subnets
+            if (net.is_private and str(net).startswith(("172.17.", "172.18.", "172.19.",
+                "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25."))) \
+                    or net.is_loopback or str(net) in seen_cidrs:
+                continue
+            seen_cidrs.add(str(net))
+            subnets.append({
+                "cidr": str(net),
+                "gateway": parts[2] if len(parts) > 2 and parts[1] == "via" else None,
+            })
+    except Exception:
+        pass
+    return subnets
+
+
 @app.route("/detect-networks", methods=["GET"])
 @require_api_key
 def detect_networks() -> Response:
@@ -241,23 +293,27 @@ def detect_networks() -> Response:
 
     Works from inside Docker by:
     1. Resolving host.docker.internal to find the host IP
-    2. Running nmap -sn on likely subnets to find live hosts
-    3. Detecting direct-connected devices (link-local)
+    2. Probing common subnets via TCP connect (socket + nmap)
+    3. Falling back to container route table if DNS resolution fails
+    4. Detecting direct-connected devices (link-local)
     """
     import socket
 
     interfaces: list[dict] = []
     host_ip = None
+    debug_info: dict = {}
 
-    # Resolve the Docker host IP
+    # ── Step 1: Resolve the Docker host IP ──
     try:
         host_ip = socket.gethostbyname("host.docker.internal")
-    except socket.gaierror:
-        pass
+        debug_info["host_docker_internal"] = host_ip
+    except socket.gaierror as e:
+        debug_info["host_docker_internal_error"] = str(e)
 
+    # ── Step 2: Detect subnets based on host IP ──
     if host_ip and host_ip.startswith("192.168.65."):
-        # Docker Desktop VM gateway — probe gateway IPs to find reachable subnets
-        # Use TCP connect on common ports since ICMP doesn't work through NAT
+        # Docker Desktop VM gateway — probe common LAN subnets
+        debug_info["mode"] = "docker_desktop_gateway"
         candidates = [
             ("192.168.1.0/24", ["192.168.1.1", "192.168.1.254"]),
             ("192.168.0.0/24", ["192.168.0.1", "192.168.0.254"]),
@@ -265,14 +321,28 @@ def detect_networks() -> Response:
             ("172.16.0.0/24", ["172.16.0.1", "172.16.0.254"]),
         ]
         for cidr, probe_ips in candidates:
+            # Fast path: try Python socket probe first (faster than nmap)
+            reachable_via_socket = any(_tcp_probe(ip) for ip in probe_ips)
+            if reachable_via_socket:
+                found_ips = [ip for ip in probe_ips if _tcp_probe(ip)]
+                label = f"Office/VPN ({cidr})" if cidr.startswith("10.") else f"Local Network ({cidr})"
+                interfaces.append({
+                    "label": label,
+                    "type": "ethernet",
+                    "cidr": cidr,
+                    "hosts_found": len(found_ips),
+                    "sample_hosts": found_ips[:5],
+                    "reachable": True,
+                })
+                continue
+
+            # Slow path: try nmap TCP connect if socket probe failed
             try:
-                # Quick TCP connect probe on common gateway ports
                 result = subprocess.run(
-                    ["nmap", "-sT", "-Pn", "--top-ports", "5", "-T4",
-                     "--max-retries", "1", "--host-timeout", "3s"] + probe_ips,
-                    capture_output=True, text=True, timeout=12,
+                    ["nmap", "-sT", "-Pn", "--top-ports", "10", "-T4",
+                     "--max-retries", "1", "--host-timeout", "5s"] + probe_ips,
+                    capture_output=True, text=True, timeout=15,
                 )
-                # Check if any port was open (means subnet is reachable)
                 if "open" in result.stdout:
                     found_ips = []
                     for line in result.stdout.splitlines():
@@ -281,11 +351,7 @@ def detect_networks() -> Response:
                             ip_part = parts[-1].strip("()")
                             if _is_valid_target(ip_part):
                                 found_ips.append(ip_part)
-
-                    label = f"Local Network ({cidr})"
-                    if cidr.startswith("10."):
-                        label = f"Office/VPN ({cidr})"
-
+                    label = f"Office/VPN ({cidr})" if cidr.startswith("10.") else f"Local Network ({cidr})"
                     interfaces.append({
                         "label": label,
                         "type": "ethernet",
@@ -297,20 +363,74 @@ def detect_networks() -> Response:
             except (subprocess.TimeoutExpired, Exception):
                 continue
     elif host_ip:
-        # Direct host IP — derive /24 subnet
-        parts = host_ip.split(".")
-        if len(parts) == 4:
-            subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
-            interfaces.append({
-                "label": f"Host Network ({subnet})",
-                "type": "ethernet",
-                "cidr": subnet,
-                "hosts_found": 1,
-                "sample_hosts": [host_ip],
-                "reachable": True,
-            })
+        # Direct host IP — check it's not a Docker/WSL internal IP
+        debug_info["mode"] = "direct_host_ip"
+        try:
+            addr = ipaddress.ip_address(host_ip)
+            net = ipaddress.ip_network(f"{host_ip}/24", strict=False)
+            is_docker_internal = str(net).startswith(("172.17.", "172.18.", "172.19.",
+                "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25."))
+            if not is_docker_internal and addr.is_private:
+                subnet = str(net)
+                interfaces.append({
+                    "label": f"Host Network ({subnet})",
+                    "type": "ethernet",
+                    "cidr": subnet,
+                    "hosts_found": 1,
+                    "sample_hosts": [host_ip],
+                    "reachable": True,
+                })
+            elif is_docker_internal:
+                # host.docker.internal resolved to a Docker-internal IP (WSL2)
+                # Fall through to container subnet detection below
+                debug_info["host_ip_is_docker_internal"] = True
+        except ValueError:
+            pass
 
-    # Check for link-local (direct Cat6 cable connection — 169.254.x.x)
+    # ── Step 3: Fallback — detect via container route table ──
+    if not interfaces:
+        debug_info["fallback"] = "container_routes"
+        container_subnets = _get_container_subnets()
+        for sub in container_subnets:
+            cidr = sub["cidr"]
+            gateway = sub.get("gateway")
+            # Verify the gateway is reachable via TCP probe
+            if gateway and _tcp_probe(gateway):
+                label = f"Local Network ({cidr})"
+                if cidr.startswith("10."):
+                    label = f"Office/VPN ({cidr})"
+                interfaces.append({
+                    "label": label,
+                    "type": "ethernet",
+                    "cidr": cidr,
+                    "hosts_found": 1,
+                    "sample_hosts": [gateway],
+                    "reachable": True,
+                })
+
+        # Last resort: probe the Docker host IP itself on the most common subnets
+        if not interfaces and not host_ip:
+            debug_info["fallback"] = "blind_probe"
+            for cidr, gateways in [
+                ("192.168.1.0/24", ["192.168.1.1"]),
+                ("192.168.0.0/24", ["192.168.0.1"]),
+                ("10.0.0.0/24", ["10.0.0.1"]),
+            ]:
+                for gw in gateways:
+                    if _tcp_probe(gw, timeout=2.0):
+                        interfaces.append({
+                            "label": f"Local Network ({cidr})",
+                            "type": "ethernet",
+                            "cidr": cidr,
+                            "hosts_found": 1,
+                            "sample_hosts": [gw],
+                            "reachable": True,
+                        })
+                        break
+                if interfaces:
+                    break
+
+    # ── Step 4: Link-local detection (direct Cat6 cable — 169.254.x.x) ──
     try:
         result = subprocess.run(
             ["nmap", "-sn", "169.254.0.0/16", "--max-retries", "0", "-T5"],
@@ -345,6 +465,7 @@ def detect_networks() -> Response:
         "host_ip": host_ip,
         "in_docker": in_docker,
         "scan_recommendation": "Use TCP connect scan (-sT -Pn) when running in Docker" if in_docker else None,
+        "debug": debug_info,
     })
 
 

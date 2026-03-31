@@ -360,7 +360,15 @@ function ConfigureStep({
       const nets = res.data.interfaces || []
       setDetectedNets(nets)
       if (nets.length === 0) {
-        toast('No networks detected. Enter a CIDR range manually.', { icon: '📡' })
+        const debug = res.data.debug || {}
+        const hint = debug.host_docker_internal_error
+          ? 'Could not reach Docker host.'
+          : debug.host_ip_is_docker_internal
+          ? 'Host resolved to internal Docker IP.'
+          : debug.fallback === 'blind_probe'
+          ? 'No routable subnets found.'
+          : ''
+        toast(`No networks detected. ${hint} Enter a CIDR range manually.`.trim(), { icon: '📡' })
       }
     } catch {
       toast.error('Network detection failed')
