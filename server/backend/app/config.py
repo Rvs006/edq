@@ -58,7 +58,7 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
-    LOGIN_RATE_LIMIT_PER_MINUTE: int = 5
+    LOGIN_RATE_LIMIT_PER_MINUTE: int = 15
     REDIS_URL: str = ""  # Optional: redis://host:6379/0 for persistent rate limiting across instances
     ACCOUNT_LOCKOUT_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15

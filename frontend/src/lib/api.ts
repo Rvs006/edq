@@ -38,7 +38,10 @@ api.interceptors.response.use(
   async (error) => {
     if (error.response?.status === 401) {
       const path = window.location.pathname
-      if (path !== '/login') {
+      const requestUrl = error.config?.url || ''
+      // Don't redirect on auth check (/auth/me) or when already on login/landing —
+      // let AuthContext handle the unauthenticated state naturally
+      if (path !== '/login' && path !== '/' && !requestUrl.includes('/auth/me')) {
         window.location.href = '/login'
       }
     }
