@@ -1,66 +1,67 @@
 import { Link } from 'react-router-dom'
-import { Zap, FileSpreadsheet, Wifi, WifiOff, ArrowRight, Cpu, ScanLine, ClipboardCheck, FileDown, Shield } from 'lucide-react'
+import {
+  Shield, Network, ClipboardCheck, FileDown, Terminal,
+  Wifi, Monitor, ScanLine, ArrowRight,
+} from 'lucide-react'
 import ThemeToggle from '@/components/common/ThemeToggle'
 import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 
-const stats = [
-  { value: '43', label: 'Security Tests', icon: Shield, color: 'text-blue-600', bg: 'bg-blue-50' },
-  { value: '60%', label: 'Automated', icon: Zap, color: 'text-amber-600', bg: 'bg-amber-50' },
-  { value: '3', label: 'Report Formats', icon: FileSpreadsheet, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-  { value: '100%', label: 'Offline', icon: WifiOff, color: 'text-purple-600', bg: 'bg-purple-50' },
+const capabilities = [
+  {
+    icon: Network,
+    title: 'Network Discovery',
+    description: 'Scan subnets to discover devices. Auto-detects IP, MAC, OUI vendor, open ports, and OS fingerprint via nmap.',
+  },
+  {
+    icon: ScanLine,
+    title: 'Automated Security Scans',
+    description: '25 automated tests using nmap, testssl.sh, ssh-audit, hydra, and snmpwalk. Runs against the device under test.',
+  },
+  {
+    icon: ClipboardCheck,
+    title: 'Guided Manual Tests',
+    description: '18 guided manual checks for physical inspection, web UI review, and configuration verification with single-click verdicts.',
+  },
+  {
+    icon: FileDown,
+    title: 'Report Generation',
+    description: 'Export Excel and Word reports mapped to Electracom client templates. PDF export planned.',
+  },
+  {
+    icon: Terminal,
+    title: 'Tools Sidecar',
+    description: 'Dockerized sidecar runs nmap, testssl.sh, ssh-audit, hydra, snmpwalk. No local install needed.',
+  },
+  {
+    icon: Shield,
+    title: 'Review & Audit',
+    description: 'QA review queue for overriding test results. Full audit log of who did what and when.',
+  },
 ]
 
-const steps = [
-  {
-    step: 1,
-    title: 'Connect Device',
-    description: 'Plug in the device under test via Ethernet. EDQ auto-discovers it on the network.',
-    icon: Cpu,
-    color: 'from-blue-500 to-blue-600',
-  },
-  {
-    step: 2,
-    title: 'Run Automated Scans',
-    description: 'EDQ executes 25+ security tests automatically using nmap, testssl.sh, ssh-audit, and more.',
-    icon: ScanLine,
-    color: 'from-amber-500 to-amber-600',
-  },
-  {
-    step: 3,
-    title: 'Complete Manual Checks',
-    description: 'Guided forms walk you through 18 physical and UI-based tests with single-click verdicts.',
-    icon: ClipboardCheck,
-    color: 'from-emerald-500 to-emerald-600',
-  },
-  {
-    step: 4,
-    title: 'Generate Reports',
-    description: 'Export pixel-perfect Excel or Word reports that match Electracom client formats exactly.',
-    icon: FileDown,
-    color: 'from-purple-500 to-purple-600',
-  },
+const tools = [
+  'nmap', 'testssl.sh', 'ssh-audit', 'hydra', 'snmpwalk', 'nikto',
 ]
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-dark-bg flex flex-col pt-1">
-      {/* Rainbow accent bar — full width fixed */}
-      <div
-        className="fixed top-0 left-0 right-0 z-[60] h-[3px] rainbow-bar"
-      />
-      <header className="sticky top-1 z-30 bg-white/80 dark:bg-dark-surface/80 backdrop-blur-md border-b border-zinc-200 dark:border-slate-700/50">
-        <div className="max-w-6xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="" className="h-[38px] w-auto shrink-0 dark:hidden" />
-            <img src="/icon-white.png" alt="" className="h-[38px] w-auto shrink-0 hidden dark:block" />
-            <ElectracomLogo size="md" />
+    <div className="min-h-screen bg-zinc-50 dark:bg-dark-bg flex flex-col pt-[3px]">
+      <div className="fixed top-0 left-0 right-0 z-[60] h-[3px] rainbow-bar" />
+
+      <header className="sticky top-[3px] z-30 bg-white/80 dark:bg-dark-surface/80 backdrop-blur-md border-b border-zinc-200 dark:border-slate-700/50">
+        <div className="max-w-5xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <img src="/icon.png" alt="" className="h-8 w-auto shrink-0 dark:hidden" />
+            <img src="/icon-white.png" alt="" className="h-8 w-auto shrink-0 hidden dark:block" />
+            <div className="flex flex-col">
+              <img src="/electracom-logo.png" alt="Electracom" className="h-[28px] object-contain dark:hidden" />
+              <img src="/electracom-logo.png" alt="Electracom" className="h-[28px] object-contain hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
+              <span className="text-[8px] font-medium tracking-wide text-zinc-400 dark:text-slate-500">Device Qualifier</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link
-              to="/login"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors"
-            >
+            <Link to="/login" className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
               Sign In
             </Link>
           </div>
@@ -68,117 +69,86 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1">
-        <section className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-dark-bg dark:via-dark-surface dark:to-dark-bg" />
-          <div className="absolute top-20 -right-32 w-96 h-96 bg-brand-500/5 rounded-full blur-3xl" />
-          <div className="absolute -bottom-16 -left-16 w-72 h-72 bg-purple-500/5 rounded-full blur-3xl" />
-
-          <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-20 sm:pt-24 sm:pb-28">
-            <div className="max-w-2xl mx-auto text-center">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-brand-50 text-brand-500 rounded-full text-xs font-semibold mb-6 border border-brand-100">
-                <Shield className="w-3 h-3" />
-                Electracom Device Qualifier
-              </div>
-
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-zinc-900 dark:text-white leading-[1.1]">
-                <span className="bg-gradient-to-r from-brand-500 via-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Automated Security
-                </span>
-                <br />
-                <span>Qualification for</span>
-                <br />
-                <span>Smart Building Devices</span>
+        {/* Hero — simple, no fluff */}
+        <section className="bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+            <div className="max-w-xl">
+              <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900 dark:text-white leading-tight">
+                EDQ — Device Qualifier
               </h1>
-
-              <p className="mt-5 text-lg text-zinc-600 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
-                Reduce device qualification from a full working day to 1&ndash;2 hours.
-                43 security tests. Automated reports. Completely offline.
+              <p className="mt-3 text-sm sm:text-base text-zinc-600 dark:text-slate-400 leading-relaxed">
+                Internal tool for security qualification of IP devices on Electracom projects.
+                43 tests (25 automated + 18 guided manual). Runs offline on Docker.
               </p>
-
-              <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-                <Link
-                  to="/login"
-                  className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors shadow-lg shadow-brand-500/20"
-                >
-                  Get Started <ArrowRight className="w-4 h-4" />
+              <div className="mt-5 flex items-center gap-3">
+                <Link to="/login" className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
+                  Sign In <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="relative -mt-8 z-10">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              {stats.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-4 sm:p-5 shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <div className={`w-9 h-9 rounded-lg ${stat.bg} flex items-center justify-center mb-3`}>
-                    <stat.icon className={`w-4.5 h-4.5 ${stat.color}`} />
-                  </div>
-                  <p className="text-2xl sm:text-3xl font-bold text-zinc-900 dark:text-slate-100">{stat.value}</p>
-                  <p className="text-xs sm:text-sm text-zinc-500 dark:text-slate-400 mt-0.5">{stat.label}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="max-w-5xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
-          <div className="text-center mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold text-zinc-900 dark:text-white">How It Works</h2>
-            <p className="text-sm text-zinc-500 dark:text-slate-400 mt-2 max-w-md mx-auto">
-              Four simple steps to qualify any IP device on your network
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {steps.map((step) => (
-              <div key={step.step} className="relative group">
-                <div className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-5 h-full hover:border-zinc-300 dark:hover:border-slate-600 hover:shadow-md transition-all">
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${step.color} flex items-center justify-center mb-4 shadow-sm`}>
-                    <step.icon className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="text-xs font-semibold text-zinc-400 dark:text-slate-500 mb-1">Step {step.step}</div>
-                  <h3 className="text-base font-semibold text-zinc-900 dark:text-slate-100 mb-1.5">{step.title}</h3>
-                  <p className="text-sm text-zinc-500 dark:text-slate-400 leading-relaxed">{step.description}</p>
-                </div>
+        {/* What it actually does */}
+        <section className="max-w-5xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-6">What EDQ Does</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {capabilities.map((cap) => (
+              <div key={cap.title} className="bg-white dark:bg-dark-card rounded-lg border border-zinc-200 dark:border-slate-700/50 p-4">
+                <cap.icon className="w-5 h-5 text-brand-500 mb-2" />
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 mb-1">{cap.title}</h3>
+                <p className="text-xs text-zinc-500 dark:text-slate-400 leading-relaxed">{cap.description}</p>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="bg-zinc-900 dark:bg-dark-surface text-white">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* Tools & workflow */}
+        <section className="bg-white dark:bg-dark-surface border-y border-zinc-200 dark:border-slate-700/50">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div>
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center mb-3">
-                  <Wifi className="w-5 h-5 text-blue-400" />
-                </div>
-                <h3 className="font-semibold text-white mb-1">Fully Offline</h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Runs entirely on Docker. No cloud, no internet. Perfect for isolated test environments.
-                </p>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-3">Workflow</h2>
+                <ol className="space-y-3 text-sm text-zinc-600 dark:text-slate-400">
+                  <li className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+                    <span><strong className="text-zinc-900 dark:text-slate-200">Register or discover device</strong> — add manually or scan a subnet</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+                    <span><strong className="text-zinc-900 dark:text-slate-200">Create test run</strong> — select device and template, start automated scans</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+                    <span><strong className="text-zinc-900 dark:text-slate-200">Complete manual checks</strong> — guided forms for physical and UI tests</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">4</span>
+                    <span><strong className="text-zinc-900 dark:text-slate-200">Generate report</strong> — export Excel or Word in Electracom format</span>
+                  </li>
+                </ol>
               </div>
               <div>
-                <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center mb-3">
-                  <Zap className="w-5 h-5 text-amber-400" />
-                </div>
-                <h3 className="font-semibold text-white mb-1">Saves 6+ Hours</h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Automates 60% of tests and generates reports instantly. What took a day now takes hours.
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-3">Security Tools</h2>
+                <p className="text-xs text-zinc-500 dark:text-slate-400 mb-3">
+                  All tools run inside the Docker sidecar container. No local installation required.
                 </p>
-              </div>
-              <div>
-                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center mb-3">
-                  <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+                <div className="flex flex-wrap gap-2">
+                  {tools.map(t => (
+                    <span key={t} className="inline-flex items-center gap-1 px-2.5 py-1 bg-zinc-100 dark:bg-slate-800 text-zinc-700 dark:text-slate-300 rounded text-xs font-mono">
+                      <Terminal className="w-3 h-3 text-zinc-400" />
+                      {t}
+                    </span>
+                  ))}
                 </div>
-                <h3 className="font-semibold text-white mb-1">Client-Ready Reports</h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Pixel-perfect Excel and Word reports matching Electracom&rsquo;s existing client formats.
-                </p>
+                <div className="mt-4 flex items-start gap-2 text-xs text-zinc-500 dark:text-slate-400">
+                  <Wifi className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
+                  <span>Runs entirely offline — no cloud, no internet. Docker Compose stack on any machine.</span>
+                </div>
+                <div className="mt-2 flex items-start gap-2 text-xs text-zinc-500 dark:text-slate-400">
+                  <Monitor className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
+                  <span>Supports cameras, controllers, intercoms, access panels, HVAC, IoT sensors, meters.</span>
+                </div>
               </div>
             </div>
           </div>
@@ -186,14 +156,14 @@ export default function LandingPage() {
       </main>
 
       <footer className="bg-white dark:bg-dark-card border-t border-zinc-200 dark:border-slate-700/50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="" className="h-[24px] w-auto shrink-0 dark:hidden" />
-            <img src="/icon-white.png" alt="" className="h-[24px] w-auto shrink-0 hidden dark:block" />
+            <img src="/icon.png" alt="" className="h-5 w-auto shrink-0 dark:hidden" />
+            <img src="/icon-white.png" alt="" className="h-5 w-auto shrink-0 hidden dark:block" />
             <ElectracomLogo size="sm" />
           </div>
-          <p className="text-xs text-zinc-400 dark:text-slate-500">
-            Electracom Projects Ltd &mdash; A Sauter Group Company
+          <p className="text-[11px] text-zinc-400 dark:text-slate-500">
+            Electracom Projects Ltd &mdash; Internal Use Only
           </p>
         </div>
       </footer>

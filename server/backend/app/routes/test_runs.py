@@ -53,21 +53,59 @@ _running_tasks: dict[str, asyncio.Task] = {}
 
 
 async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
-    """Add device_name, device_ip, template_name to a TestRun for the response."""
+    """Add device info, template_name, and confidence score to a TestRun for the response."""
     data = TestRunResponse.model_validate(run).model_dump()
 
     device = await db.get(Device, run.device_id)
     if device:
         data["device_name"] = device.hostname or device.manufacturer or device.ip_address
         data["device_ip"] = device.ip_address
+        data["device_manufacturer"] = device.manufacturer
+        data["device_model"] = device.model
+        data["device_category"] = device.category.value if device.category else None
     else:
         data["device_name"] = None
         data["device_ip"] = None
+        data["device_manufacturer"] = None
+        data["device_model"] = None
+        data["device_category"] = None
 
     template = await db.get(TestTemplate, run.template_id)
     data["template_name"] = template.name if template else None
 
+    # Confidence score (1-10)
+    data["confidence"] = _calc_confidence(run)
+
     return data
+
+
+def _calc_confidence(run: TestRun) -> int:
+    """Calculate a 1-10 confidence score for a test run."""
+    total = run.total_tests or 0
+    completed = run.completed_tests or 0
+    passed = run.passed_tests or 0
+    failed = run.failed_tests or 0
+    advisory = run.advisory_tests or 0
+
+    if total == 0:
+        return 1
+
+    # Completion ratio (40% weight) — how many tests finished
+    completion = completed / total
+
+    # Pass rate of completed (30% weight)
+    pass_rate = passed / completed if completed > 0 else 0
+
+    # Low failure penalty (20% weight) — fewer failures = higher confidence
+    fail_rate = failed / total
+    low_fail = 1.0 - fail_rate
+
+    # Advisory moderation (10% weight) — advisories are partial concerns
+    advisory_rate = advisory / total
+    advisory_score = 1.0 - (advisory_rate * 0.5)
+
+    raw = (completion * 0.4) + (pass_rate * 0.3) + (low_fail * 0.2) + (advisory_score * 0.1)
+    return max(1, min(10, round(raw * 10)))
 
 
 @router.get("/", response_model=List[TestRunResponse])
@@ -118,6 +156,43 @@ async def test_run_stats(
         "total": total.scalar() or 0,
         "by_status": {str(row[0]): row[1] for row in by_status.all()},
         "by_verdict": {str(row[0]): row[1] for row in by_verdict.all()},
+    }
+
+
+@router.get("/check-duplicate")
+async def check_duplicate_runs(
+    device_id: str = Query(...),
+    template_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Check if there are existing runs for the same device+template combo."""
+    query = (
+        select(TestRun)
+        .where(TestRun.device_id == device_id, TestRun.template_id == template_id)
+        .order_by(TestRun.created_at.desc())
+        .limit(5)
+    )
+    result = await db.execute(query)
+    existing = result.scalars().all()
+
+    runs_info = []
+    for r in existing:
+        runs_info.append({
+            "id": r.id,
+            "status": r.status.value if hasattr(r.status, 'value') else str(r.status),
+            "overall_verdict": r.overall_verdict,
+            "completed_tests": r.completed_tests,
+            "total_tests": r.total_tests,
+            "confidence": _calc_confidence(r),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+        })
+
+    return {
+        "has_duplicates": len(runs_info) > 0,
+        "count": len(runs_info),
+        "existing_runs": runs_info,
     }
 
 
@@ -238,10 +313,10 @@ async def start_test_run(
 ):
     run = await _get_authorized_test_run(run_id, user, db)
 
-    if run.status not in (TestRunStatus.PENDING, TestRunStatus.FAILED):
+    if run.status not in (TestRunStatus.PENDING, TestRunStatus.FAILED, TestRunStatus.CANCELLED):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot start run in '{run.status.value}' status. Must be 'pending' or 'failed'.",
+            detail=f"Cannot start run in '{run.status.value}' status. Must be 'pending', 'failed', or 'cancelled'.",
         )
 
     if run_id in _running_tasks and not _running_tasks[run_id].done():

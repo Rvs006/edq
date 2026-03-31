@@ -98,7 +98,9 @@ export const testRunsApi = {
   create: (data: { device_id: string; plan_id?: string; template_id?: string }) => api.post<TestRun>('/test-runs/', data),
   update: (id: string, data: Partial<TestRun>) => api.patch<TestRun>(`/test-runs/${id}`, data),
   start: (id: string) => api.post(`/test-runs/${id}/start`),
+  resume: (id: string) => api.post(`/test-runs/${id}/resume`),
   complete: (id: string) => api.post(`/test-runs/${id}/complete`),
+  checkDuplicate: (deviceId: string, templateId: string) => api.get<{ has_duplicates: boolean; count: number; existing_runs: { id: string; status: string; overall_verdict: string | null; completed_tests: number; total_tests: number; confidence: number; created_at: string; completed_at: string | null }[] }>('/test-runs/check-duplicate', { params: { device_id: deviceId, template_id: templateId } }),
   stats: () => api.get<{ total: number; by_status: Record<string, number>; by_verdict?: Record<string, number>; completed_this_week?: number }>('/test-runs/stats'),
 }
 

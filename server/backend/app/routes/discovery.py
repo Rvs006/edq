@@ -2,6 +2,7 @@
 
 import base64
 import logging
+import socket
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -62,6 +63,18 @@ def _decode_output_file(raw: Dict[str, Any]) -> str:
 
 
 
+def _resolve_hostname(ip: str) -> Optional[str]:
+    """Attempt reverse DNS lookup for an IP address."""
+    try:
+        hostname, _, _ = socket.gethostbyaddr(ip)
+        # Ignore generic PTR records that are just the IP reversed
+        if hostname and not hostname.startswith(ip.replace(".", "-")):
+            return hostname
+    except (socket.herror, socket.gaierror, OSError):
+        pass
+    return None
+
+
 async def _upsert_device(
     db: AsyncSession,
     ip: str,
@@ -74,6 +87,10 @@ async def _upsert_device(
     category: DeviceCategory,
 ) -> tuple[Device, bool]:
     """Create or update a device record. Returns (device, is_new)."""
+    # Active reverse DNS if nmap didn't provide hostname
+    if not hostname:
+        hostname = _resolve_hostname(ip)
+
     result = await db.execute(select(Device).where(Device.ip_address == ip))
     device = result.scalar_one_or_none()
     is_new = device is None

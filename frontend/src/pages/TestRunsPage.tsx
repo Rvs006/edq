@@ -1,12 +1,54 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { testRunsApi, devicesApi, templatesApi } from '@/lib/api'
 import type { TestRun, Device, TestTemplate } from '@/lib/types'
-import { Play, Plus, Loader2, X, Activity } from 'lucide-react'
+import {
+  Play, Plus, Loader2, X, Activity, RotateCcw, AlertTriangle,
+  Clock, Pause, Eye, CheckCircle2, XCircle, AlertOctagon, Ban,
+  Monitor, Cpu, Shield,
+} from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
+
+/* ── Status filter config with labels, icons, groups, tooltips ── */
+
+interface FilterDef {
+  key: string
+  label: string
+  icon: React.ElementType
+  tooltip: string
+  pulse?: boolean
+}
+
+const filterGroups: { label: string; filters: FilterDef[] }[] = [
+  {
+    label: 'Active',
+    filters: [
+      { key: 'running', label: 'Running', icon: Activity, tooltip: 'Tests currently executing', pulse: true },
+      { key: 'pending', label: 'Pending', icon: Clock, tooltip: 'Waiting to start' },
+      { key: 'paused_manual', label: 'Paused', icon: Pause, tooltip: 'Manually paused by engineer' },
+    ],
+  },
+  {
+    label: 'Review',
+    filters: [
+      { key: 'awaiting_review', label: 'Awaiting Review', icon: Eye, tooltip: 'Completed, waiting for QA review' },
+    ],
+  },
+  {
+    label: 'Done',
+    filters: [
+      { key: 'completed', label: 'Complete', icon: CheckCircle2, tooltip: 'All tests finished' },
+      { key: 'failed', label: 'Failed', icon: XCircle, tooltip: 'Run failed due to error during execution' },
+      { key: 'cancelled', label: 'Cancelled', icon: Ban, tooltip: 'Cancelled before completion — can be resumed' },
+      { key: 'error', label: 'Error', icon: AlertOctagon, tooltip: 'System error during test execution' },
+    ],
+  },
+]
+
+const allFilterKeys = filterGroups.flatMap(g => g.filters.map(f => f.key))
 
 function formatRunName(run: TestRun) {
   const device = run.device_name || run.device_ip || `Device ${run.device_id?.slice(0, 8)}`
@@ -16,21 +58,74 @@ function formatRunName(run: TestRun) {
   return `${device} — ${date}`
 }
 
+function ConfidenceBadge({ score }: { score: number | null }) {
+  if (score == null) return <span className="text-xs text-zinc-400">—</span>
+  const color =
+    score <= 3 ? 'text-red-600 bg-red-50 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800'
+    : score <= 6 ? 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800'
+    : 'text-green-600 bg-green-50 border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800'
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${color}`}>
+      {score}/10
+    </span>
+  )
+}
+
+function CategoryIcon({ category }: { category: string | null }) {
+  if (!category || category === 'unknown') return <Monitor className="w-4 h-4 text-zinc-400" />
+  const icons: Record<string, React.ElementType> = {
+    camera: Monitor, controller: Cpu, intercom: Monitor, access_panel: Shield,
+    lighting: Monitor, hvac: Monitor, iot_sensor: Cpu, meter: Cpu,
+  }
+  const Icon = icons[category] || Monitor
+  return <Icon className="w-4 h-4 text-zinc-400" />
+}
+
 export default function TestRunsPage() {
   const [searchParams] = useSearchParams()
   const [statusFilter, setStatusFilter] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const deviceId = searchParams.get('device_id') || undefined
+  const navigate = useNavigate()
 
   const { data: runs, isLoading } = useQuery({
     queryKey: ['test-runs', statusFilter, deviceId],
     queryFn: () => testRunsApi.list({ status: statusFilter || undefined, device_id: deviceId }).then(r => r.data),
     refetchInterval: (query) => {
       const data = query.state.data as TestRun[] | undefined
-      const hasRunning = data?.some(r => r.status === 'running')
-      return hasRunning ? 3000 : false
+      const hasActive = data?.some(r => ['running', 'pending', 'discovering'].includes(r.status))
+      return hasActive ? 3000 : false
     },
   })
+
+  // Count runs per status for badges
+  const { data: allRuns } = useQuery({
+    queryKey: ['test-runs-all-for-counts'],
+    queryFn: () => testRunsApi.list({ limit: 200 }).then(r => r.data),
+    refetchInterval: 10000,
+  })
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    if (allRuns) {
+      for (const r of allRuns as TestRun[]) {
+        const s = r.status
+        counts[s] = (counts[s] || 0) + 1
+      }
+    }
+    return counts
+  }, [allRuns])
+
+  const handleResume = async (runId: string) => {
+    try {
+      await testRunsApi.start(runId)
+      toast.success('Test run resumed')
+      navigate(`/test-runs/${runId}`)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to resume')
+    }
+  }
 
   return (
     <div className="page-container">
@@ -44,19 +139,61 @@ export default function TestRunsPage() {
         </button>
       </div>
 
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-        {['', 'pending', 'running', 'paused_manual', 'awaiting_review', 'complete', 'failed', 'error'].map(s => (
-          <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-              statusFilter === s
-                ? 'bg-brand-500 text-white'
-                : 'bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hover:bg-zinc-200 dark:hover:bg-slate-700'
-            }`}
-          >
-            {s ? s.replace(/_/g, ' ') : 'All'}
-          </button>
+      {/* Status filter bar — grouped with labels */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-5">
+        <button
+          onClick={() => setStatusFilter('')}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+            statusFilter === ''
+              ? 'bg-brand-500 text-white'
+              : 'bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hover:bg-zinc-200 dark:hover:bg-slate-700'
+          }`}
+        >
+          All{allRuns ? ` (${(allRuns as TestRun[]).length})` : ''}
+        </button>
+
+        {filterGroups.map((group, gi) => (
+          <div key={group.label} className="flex items-center gap-1">
+            {gi > 0 && <div className="w-px h-5 bg-zinc-200 dark:bg-slate-700 mx-1" />}
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-slate-600 mr-0.5 hidden sm:block">
+              {group.label}
+            </span>
+            {group.filters.map((f) => {
+              const count = statusCounts[f.key] || 0
+              const active = statusFilter === f.key
+              const Icon = f.icon
+              return (
+                <button
+                  key={f.key}
+                  onClick={() => setStatusFilter(active ? '' : f.key)}
+                  className={`group relative inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    active
+                      ? 'bg-brand-500 text-white'
+                      : 'bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hover:bg-zinc-200 dark:hover:bg-slate-700'
+                  }`}
+                  title={f.tooltip}
+                >
+                  <Icon className={`w-3 h-3 ${f.pulse && count > 0 ? 'animate-pulse' : ''}`} />
+                  <span className="hidden sm:inline">{f.label}</span>
+                  {count > 0 && (
+                    <span className={`text-[9px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full ${
+                      active
+                        ? 'bg-white/25 text-white'
+                        : f.pulse && count > 0
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400'
+                          : 'bg-zinc-200 text-zinc-600 dark:bg-slate-700 dark:text-slate-400'
+                    }`}>
+                      {count}
+                    </span>
+                  )}
+                  {/* Tooltip on hover */}
+                  <span className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] text-white bg-zinc-800 dark:bg-slate-700 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                    {f.tooltip}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         ))}
       </div>
 
@@ -71,17 +208,20 @@ export default function TestRunsPage() {
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50/50 dark:bg-slate-800/50">
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Device</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">IP</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden md:table-cell">Template</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Status</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">Progress</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Verdict</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Confidence</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Started</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
                 {runs.map((run: TestRun) => {
                   const isRunning = run.status === 'running'
+                  const isCancelled = run.status === 'cancelled'
+                  const isFailed = run.status === 'failed'
                   return (
                     <tr
                       key={run.id}
@@ -91,13 +231,33 @@ export default function TestRunsPage() {
                           : 'hover:bg-zinc-50 dark:hover:bg-slate-800'
                       }`}
                     >
+                      {/* Device — rich info */}
                       <td className="py-3 px-4">
-                        <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-slate-100 hover:text-brand-500">
-                          {formatRunName(run)}
+                        <Link to={`/test-runs/${run.id}`} className="group block">
+                          <div className="flex items-center gap-2.5">
+                            <CategoryIcon category={run.device_category} />
+                            <div className="min-w-0">
+                              <div className="font-medium text-zinc-900 dark:text-slate-100 group-hover:text-brand-500 truncate">
+                                {formatRunName(run)}
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px] text-zinc-400 dark:text-slate-500">
+                                <span className="font-mono">{run.device_ip || '—'}</span>
+                                {run.device_manufacturer && (
+                                  <>
+                                    <span className="text-zinc-300 dark:text-slate-600">&middot;</span>
+                                    <span>{run.device_manufacturer}</span>
+                                  </>
+                                )}
+                                {run.device_model && (
+                                  <>
+                                    <span className="text-zinc-300 dark:text-slate-600">&middot;</span>
+                                    <span>{run.device_model}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         </Link>
-                      </td>
-                      <td className="py-3 px-4 font-mono text-xs text-zinc-500 hidden sm:table-cell">
-                        {run.device_ip || '—'}
                       </td>
                       <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
                         {run.template_name || '—'}
@@ -134,8 +294,22 @@ export default function TestRunsPage() {
                       <td className="py-3 px-4">
                         {run.overall_verdict ? <VerdictBadge verdict={run.overall_verdict} /> : <span className="text-xs text-zinc-400">&mdash;</span>}
                       </td>
+                      <td className="py-3 px-4 hidden lg:table-cell">
+                        <ConfidenceBadge score={run.confidence ?? null} />
+                      </td>
                       <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
                         {run.started_at ? new Date(run.started_at).toLocaleString() : new Date(run.created_at).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4">
+                        {(isCancelled || isFailed) && (
+                          <button
+                            onClick={() => handleResume(run.id)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 rounded transition-colors"
+                            title="Resume this test run from where it stopped"
+                          >
+                            <RotateCcw className="w-3 h-3" /> Resume
+                          </button>
+                        )}
                       </td>
                     </tr>
                   )
@@ -162,10 +336,18 @@ export default function TestRunsPage() {
   )
 }
 
+/* ── Create Run Modal with duplicate detection ── */
+
 function CreateRunModal({ onClose }: { onClose: () => void }) {
   const [deviceId, setDeviceId] = useState('')
   const [templateId, setTemplateId] = useState('')
   const [loading, setLoading] = useState(false)
+  const [duplicateInfo, setDuplicateInfo] = useState<{
+    has_duplicates: boolean
+    count: number
+    existing_runs: { id: string; status: string; overall_verdict: string | null; completed_tests: number; total_tests: number; confidence: number; created_at: string }[]
+  } | null>(null)
+  const [duplicateAck, setDuplicateAck] = useState(false)
   const queryClient = useQueryClient()
 
   const { data: devices } = useQuery({
@@ -178,12 +360,30 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
   })
 
   const defaultTemplate = (templates as TestTemplate[] | undefined)?.find(t => t.is_default)
+  const effectiveTemplateId = templateId || defaultTemplate?.id || ''
+
+  // Check for duplicates when device+template selection changes
+  useEffect(() => {
+    setDuplicateInfo(null)
+    setDuplicateAck(false)
+    if (!deviceId || !effectiveTemplateId) return
+
+    let cancelled = false
+    testRunsApi.checkDuplicate(deviceId, effectiveTemplateId).then(res => {
+      if (!cancelled) setDuplicateInfo(res.data)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [deviceId, effectiveTemplateId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (duplicateInfo?.has_duplicates && !duplicateAck) {
+      toast.error('Please acknowledge the existing runs first')
+      return
+    }
     setLoading(true)
     try {
-      await testRunsApi.create({ device_id: deviceId, template_id: templateId || defaultTemplate?.id || '' })
+      await testRunsApi.create({ device_id: deviceId, template_id: effectiveTemplateId })
       queryClient.invalidateQueries({ queryKey: ['test-runs'] })
       toast.success('Test run created')
       onClose()
@@ -215,7 +415,11 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
             <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="input" required>
               <option value="">Select a device...</option>
               {devices?.map((d: Device) => (
-                <option key={d.id} value={d.id}>{d.ip_address} — {d.hostname || d.manufacturer || 'Unknown'}</option>
+                <option key={d.id} value={d.id}>
+                  {d.hostname || d.manufacturer || d.ip_address}
+                  {d.manufacturer && d.hostname ? ` (${d.manufacturer})` : ''}
+                  {' — '}{d.ip_address}
+                </option>
               ))}
             </select>
           </div>
@@ -235,9 +439,47 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
               ))}
             </select>
           </div>
+
+          {/* Duplicate warning */}
+          {duplicateInfo?.has_duplicates && (
+            <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                <div className="text-xs">
+                  <p className="font-semibold text-amber-800 dark:text-amber-300 mb-1">
+                    {duplicateInfo.count} existing run{duplicateInfo.count > 1 ? 's' : ''} for this device + template
+                  </p>
+                  <div className="space-y-1 mb-2">
+                    {duplicateInfo.existing_runs.slice(0, 3).map(r => (
+                      <div key={r.id} className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                        <StatusBadge status={r.status} />
+                        <span>{r.completed_tests}/{r.total_tests} tests</span>
+                        <ConfidenceBadge score={r.confidence} />
+                        <span className="text-amber-500">{new Date(r.created_at).toLocaleDateString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={duplicateAck}
+                      onChange={(e) => setDuplicateAck(e.target.checked)}
+                      className="rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span className="text-amber-700 dark:text-amber-400">I understand, create a new run anyway</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={loading} className="btn-primary">
+            <button
+              type="submit"
+              disabled={loading || (duplicateInfo?.has_duplicates && !duplicateAck)}
+              className="btn-primary"
+            >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
               Create Run
             </button>

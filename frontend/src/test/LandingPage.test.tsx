@@ -15,30 +15,27 @@ describe('LandingPage', () => {
   it('renders the main heading', () => {
     renderLandingPage()
 
-    expect(screen.getByText('Automated Security')).toBeInTheDocument()
-    expect(screen.getByText(/Smart Building Devices/)).toBeInTheDocument()
+    expect(screen.getByText('EDQ — Device Qualifier')).toBeInTheDocument()
   })
 
-  it('displays the four stat cards', () => {
+  it('displays the capability cards', () => {
     renderLandingPage()
 
-    expect(screen.getByText('43')).toBeInTheDocument()
-    expect(screen.getByText('Security Tests')).toBeInTheDocument()
-    expect(screen.getByText('60%')).toBeInTheDocument()
-    expect(screen.getByText('Automated')).toBeInTheDocument()
-    expect(screen.getByText('3')).toBeInTheDocument()
-    expect(screen.getByText('Report Formats')).toBeInTheDocument()
-    expect(screen.getByText('100%')).toBeInTheDocument()
-    expect(screen.getByText('Offline')).toBeInTheDocument()
+    expect(screen.getByText('Network Discovery')).toBeInTheDocument()
+    expect(screen.getByText('Automated Security Scans')).toBeInTheDocument()
+    expect(screen.getByText('Guided Manual Tests')).toBeInTheDocument()
+    expect(screen.getByText('Report Generation')).toBeInTheDocument()
+    expect(screen.getByText('Tools Sidecar')).toBeInTheDocument()
+    expect(screen.getByText('Review & Audit')).toBeInTheDocument()
   })
 
-  it('displays the four workflow steps', () => {
+  it('displays the workflow steps', () => {
     renderLandingPage()
 
-    expect(screen.getByText('Connect Device')).toBeInTheDocument()
-    expect(screen.getByText('Run Automated Scans')).toBeInTheDocument()
-    expect(screen.getByText('Complete Manual Checks')).toBeInTheDocument()
-    expect(screen.getByText('Generate Reports')).toBeInTheDocument()
+    expect(screen.getByText(/Register or discover device/)).toBeInTheDocument()
+    expect(screen.getByText(/Create test run/)).toBeInTheDocument()
+    expect(screen.getByText(/Complete manual checks/)).toBeInTheDocument()
+    expect(screen.getByText(/Generate report/)).toBeInTheDocument()
   })
 
   it('has a Sign In link that navigates to /login', () => {
@@ -51,26 +48,28 @@ describe('LandingPage', () => {
     expect(headerLink).toHaveAttribute('href', '/login')
   })
 
-  it('has a Get Started link that navigates to /login', () => {
+  it('lists the security tools', () => {
     renderLandingPage()
 
-    const getStartedLink = screen.getByText('Get Started').closest('a')
-    expect(getStartedLink).toHaveAttribute('href', '/login')
+    expect(screen.getByText('nmap')).toBeInTheDocument()
+    expect(screen.getByText('testssl.sh')).toBeInTheDocument()
+    expect(screen.getByText('ssh-audit')).toBeInTheDocument()
+    expect(screen.getByText('hydra')).toBeInTheDocument()
+    expect(screen.getByText('snmpwalk')).toBeInTheDocument()
+    expect(screen.getByText('nikto')).toBeInTheDocument()
   })
 
-  it('displays feature highlights section', () => {
+  it('shows What EDQ Does section', () => {
     renderLandingPage()
 
-    expect(screen.getByText('Fully Offline')).toBeInTheDocument()
-    expect(screen.getByText('Saves 6+ Hours')).toBeInTheDocument()
-    expect(screen.getByText('Client-Ready Reports')).toBeInTheDocument()
+    expect(screen.getByText('What EDQ Does')).toBeInTheDocument()
   })
 
-  it('shows the How It Works section', () => {
+  it('shows the workflow section', () => {
     renderLandingPage()
 
-    expect(screen.getByText('How It Works')).toBeInTheDocument()
-    expect(screen.getByText('Four simple steps to qualify any IP device on your network')).toBeInTheDocument()
+    expect(screen.getByText('Workflow')).toBeInTheDocument()
+    expect(screen.getByText('Security Tools')).toBeInTheDocument()
   })
 
   it('displays the footer with Electracom branding', () => {
@@ -78,5 +77,6 @@ describe('LandingPage', () => {
 
     expect(screen.getAllByAltText('Electracom').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/Electracom Projects Ltd/)).toBeInTheDocument()
+    expect(screen.getByText(/Internal Use Only/)).toBeInTheDocument()
   })
 })

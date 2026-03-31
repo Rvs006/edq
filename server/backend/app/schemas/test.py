@@ -84,6 +84,9 @@ class TestRunResponse(BaseModel):
     device_id: str
     device_name: Optional[str] = None
     device_ip: Optional[str] = None
+    device_manufacturer: Optional[str] = None
+    device_model: Optional[str] = None
+    device_category: Optional[str] = None
     template_id: str
     template_name: Optional[str] = None
     engineer_id: str
@@ -103,6 +106,7 @@ class TestRunResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     run_metadata: Optional[Any] = None
+    confidence: int = 1
     created_at: datetime
     updated_at: datetime
 

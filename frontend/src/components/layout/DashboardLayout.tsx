@@ -147,7 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
       <aside
-        className={`fixed top-1 inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#0f172a] flex flex-col transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed top-[3px] inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#0f172a] flex flex-col transition-transform duration-200 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -159,8 +159,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       </aside>
 
-      <div className="lg:pl-64 flex flex-col min-h-screen pt-1">
-        <header className="sticky top-1 z-20 bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
+      <div className="lg:pl-64 flex flex-col min-h-screen pt-[3px]">
+        <header className="sticky top-[3px] z-20 bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
           <div className="flex items-center justify-between h-14 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <button
@@ -310,11 +310,26 @@ function SidebarContent({
 }) {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-slate-800">
+      <div className="flex items-center justify-between px-4 h-14 border-b border-zinc-200 dark:border-slate-700/50">
         <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
-          <img src="/icon-white.png" alt="" className="h-[38px] w-auto shrink-0 hidden dark:block" />
-          <img src="/icon-white.png" alt="" className="h-[38px] w-auto shrink-0 dark:hidden" style={{ filter: 'brightness(0)' }} />
-          <ElectracomLogo size="md" />
+          <img src="/icon-white.png" alt="" className="h-8 w-auto shrink-0 hidden dark:block" />
+          <img src="/icon-white.png" alt="" className="h-8 w-auto shrink-0 dark:hidden" style={{ filter: 'brightness(0)' }} />
+          <div className="flex flex-col">
+            <img
+              src="/electracom-logo.png"
+              alt="Electracom"
+              className="h-[28px] object-contain dark:hidden"
+            />
+            <img
+              src="/electracom-logo.png"
+              alt="Electracom"
+              className="h-[28px] object-contain hidden dark:block"
+              style={{ filter: 'brightness(2) saturate(1.3)' }}
+            />
+            <span className="text-[8px] font-medium tracking-wide text-zinc-400 dark:text-slate-500">
+              Device Qualifier
+            </span>
+          </div>
         </Link>
         {onClose && (
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 lg:hidden" title="Close menu">

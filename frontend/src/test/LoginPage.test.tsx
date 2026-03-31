@@ -81,7 +81,7 @@ describe('LoginPage', () => {
     await user.type(screen.getByPlaceholderText('Enter your password'), 'TestPass1!')
     await user.click(screen.getByRole('button', { name: /sign in/i }))
 
-    expect(mockLogin).toHaveBeenCalledWith('admin', 'TestPass1!')
+    expect(mockLogin).toHaveBeenCalledWith('admin', 'TestPass1!', undefined)
   })
 
   it('shows Electracom branding in footer', () => {

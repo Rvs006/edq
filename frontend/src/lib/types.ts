@@ -38,6 +38,9 @@ export interface TestRun {
   device_id: string
   device_name: string | null
   device_ip: string | null
+  device_manufacturer: string | null
+  device_model: string | null
+  device_category: string | null
   template_id: string | null
   template_name: string | null
   status: string
@@ -54,6 +57,7 @@ export interface TestRun {
   user_id: string | null
   user_name: string | null
   created_at: string
+  confidence: number | null
   started_at: string | null
   updated_at: string | null
   completed_at: string | null
