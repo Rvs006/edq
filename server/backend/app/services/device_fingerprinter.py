@@ -29,6 +29,7 @@ class FingerprintResult:
     matched_profile_id: str | None = None
     matched_profile_name: str | None = None
     skip_test_ids: list[str] = field(default_factory=list)
+    skip_reasons: dict[str, str] = field(default_factory=dict)
     confidence: str = "low"  # high / medium / low
     reason: str = ""
 
@@ -169,8 +170,13 @@ class DeviceFingerprinter:
             result = self._heuristic_classify(open_ports, services, vendor)
 
         # 3. Compute which tests to skip based on detected ports
-        port_skips = self._compute_port_skips(open_ports)
-        all_skips = list(set(result.skip_test_ids + port_skips))
+        port_skip_reasons = self._compute_port_skips(open_ports)
+        # Merge profile-level skips (no specific reason) with port-based skips
+        for tid in result.skip_test_ids:
+            if tid not in port_skip_reasons:
+                port_skip_reasons[tid] = "Skipped — not applicable for this device profile."
+        result.skip_reasons = port_skip_reasons
+        all_skips = list(set(result.skip_test_ids) | set(port_skip_reasons.keys()))
         result.skip_test_ids = sorted(all_skips, key=lambda x: (x[0], int(x[1:])))
 
         # 4. Update Device record
@@ -317,37 +323,44 @@ class DeviceFingerprinter:
     # Port-based test skips
     # ------------------------------------------------------------------
 
-    def _compute_port_skips(self, open_ports: set[int]) -> list[str]:
-        """Determine which tests to skip based on absent ports/services."""
-        skips: list[str] = []
+    def _compute_port_skips(self, open_ports: set[int]) -> dict[str, str]:
+        """Determine which tests to skip based on absent ports/services.
+
+        Returns a dict mapping test_id → human-readable skip reason.
+        """
+        skips: dict[str, str] = {}
 
         # No HTTPS (443) → skip TLS tests
         if 443 not in open_ports:
-            skips.extend(["U10", "U11", "U12", "U13"])
+            reason = "Skipped — port 443 (HTTPS) is not open on this device, so TLS tests cannot run."
+            for tid in ("U10", "U11", "U12", "U13"):
+                skips[tid] = reason
 
         # No SSH (22) → skip SSH audit
         if 22 not in open_ports:
-            skips.append("U15")
+            skips["U15"] = "Skipped — port 22 (SSH) is not open on this device."
 
         # No RTSP (554) → skip RTSP auth test
         if 554 not in open_ports:
-            skips.append("U37")
+            skips["U37"] = "Skipped — port 554 (RTSP) is not open on this device. No video stream to test."
 
         # No HTTP at all → skip HTTP-specific tests
         if 80 not in open_ports and 443 not in open_ports:
-            skips.extend(["U14", "U16", "U17", "U18", "U35"])
+            reason = "Skipped — no HTTP/HTTPS service detected (ports 80 and 443 both closed)."
+            for tid in ("U14", "U16", "U17", "U18", "U35"):
+                skips[tid] = reason
 
         # No SNMP → skip SNMP version check
         if 161 not in open_ports and 162 not in open_ports:
-            skips.append("U31")
+            skips["U31"] = "Skipped — ports 161/162 (SNMP) are not open on this device."
 
         # No UPnP → skip UPnP check
         if 1900 not in open_ports:
-            skips.append("U32")
+            skips["U32"] = "Skipped — port 1900 (UPnP/SSDP) is not open on this device."
 
         # No mDNS → skip mDNS check
         if 5353 not in open_ports:
-            skips.append("U33")
+            skips["U33"] = "Skipped — port 5353 (mDNS/Bonjour) is not open on this device."
 
         return skips
 

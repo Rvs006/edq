@@ -120,6 +120,7 @@ class TestEngine:
             # Discovery test IDs — these run first, before fingerprinting
             DISCOVERY_TESTS = {"U01", "U02", "U03", "U04", "U05", "U06", "U07", "U08"}
             skip_test_ids: set[str] = set()
+            skip_reasons: dict[str, str] = {}
             fingerprint_done = False
             fingerprint_result: FingerprintResult | None = None
 
@@ -141,6 +142,7 @@ class TestEngine:
                     )
                     if fingerprint_result:
                         skip_test_ids = set(fingerprint_result.skip_test_ids)
+                        skip_reasons = dict(fingerprint_result.skip_reasons)
                         logger.info(
                             "Fingerprint phase complete for run %s: category=%s, skipping %s",
                             test_run_id, fingerprint_result.category, skip_test_ids,
@@ -148,11 +150,15 @@ class TestEngine:
 
                 # --- Skip tests flagged by fingerprinter ---
                 if test_result.test_id in skip_test_ids:
+                    reason = skip_reasons.get(
+                        test_result.test_id,
+                        "Skipped — required service not detected on this device.",
+                    )
                     async with async_session() as db:
                         result_row = await db.get(TestResult, test_result.id)
                         if result_row:
                             result_row.verdict = TestVerdict.NA
-                            result_row.comment = "Not applicable — service not detected on device"
+                            result_row.comment = reason
                             result_row.completed_at = datetime.now(timezone.utc)
                             await db.commit()
 
@@ -163,7 +169,7 @@ class TestEngine:
                             "test_id": test_result.test_id,
                             "test_name": test_result.test_name,
                             "verdict": "na",
-                            "comment": "Not applicable — service not detected on device",
+                            "comment": reason,
                             "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
                         },
                     })
