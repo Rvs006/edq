@@ -1,25 +1,41 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Mock axios before importing api module
-vi.mock('axios', () => {
-  const mockAxios = {
-    create: vi.fn(() => mockAxios),
-    interceptors: {
-      request: { use: vi.fn() },
-      response: { use: vi.fn() },
+let requestInterceptor: ((config: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>) | undefined
+let responseErrorInterceptor: ((error: { response?: { status?: number }; config?: Record<string, unknown> }) => Promise<unknown>) | undefined
+
+const mockAxios = {
+  create: vi.fn(),
+  interceptors: {
+    request: {
+      use: vi.fn((handler: typeof requestInterceptor) => {
+        requestInterceptor = handler
+      }),
     },
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    patch: vi.fn(),
-    delete: vi.fn(),
-  }
-  return { default: mockAxios }
-})
+    response: {
+      use: vi.fn((_: unknown, errorHandler: typeof responseErrorInterceptor) => {
+        responseErrorInterceptor = errorHandler
+      }),
+    },
+  },
+  get: vi.fn(),
+  post: vi.fn(),
+  put: vi.fn(),
+  patch: vi.fn(),
+  delete: vi.fn(),
+  request: vi.fn(),
+}
+
+mockAxios.create.mockImplementation(() => mockAxios)
+
+vi.mock('axios', () => ({ default: mockAxios }))
 
 describe('API module', () => {
   beforeEach(() => {
     vi.resetModules()
+    vi.clearAllMocks()
+    requestInterceptor = undefined
+    responseErrorInterceptor = undefined
+    document.cookie = 'edq_csrf=test-csrf'
   })
 
   it('exports all expected API namespaces', async () => {
@@ -48,6 +64,7 @@ describe('API module', () => {
     expect(typeof authApi.login).toBe('function')
     expect(typeof authApi.register).toBe('function')
     expect(typeof authApi.logout).toBe('function')
+    expect(typeof authApi.refresh).toBe('function')
     expect(typeof authApi.me).toBe('function')
     expect(typeof authApi.changePassword).toBe('function')
   })
@@ -68,5 +85,68 @@ describe('API module', () => {
 
     expect(typeof healthApi.check).toBe('function')
     expect(typeof healthApi.toolVersions).toBe('function')
+  })
+
+  it('normalizes test run responses returned through the API wrapper', async () => {
+    const { testRunsApi } = await import('@/lib/api')
+    mockAxios.get.mockResolvedValueOnce({
+      data: {
+        id: 'run-1',
+        device_id: 'device-1',
+        user_id: 'engineer-1',
+        user_name: 'Engineer One',
+        status: 'complete',
+        created_at: '2026-04-01T00:00:00Z',
+      },
+    })
+
+    const response = await testRunsApi.get('run-1')
+
+    expect(response.data.engineer_id).toBe('engineer-1')
+    expect(response.data.engineer_name).toBe('Engineer One')
+    expect(response.data.status).toBe('completed')
+  })
+
+  it('normalizes test result responses returned through the API wrapper', async () => {
+    const { testResultsApi } = await import('@/lib/api')
+    mockAxios.get.mockResolvedValueOnce({
+      data: {
+        id: 'result-1',
+        test_run_id: 'run-1',
+        test_number: 'U01',
+        test_name: 'Ping',
+        tool_used: 'ping',
+        raw_stdout: 'output',
+        parsed_findings: { reachable: true },
+        created_at: '2026-04-01T00:00:00Z',
+      },
+    })
+
+    const response = await testResultsApi.get('result-1')
+
+    expect(response.data.test_id).toBe('U01')
+    expect(response.data.tool).toBe('ping')
+    expect(response.data.raw_output).toBe('output')
+    expect(response.data.findings).toEqual({ reachable: true })
+  })
+
+  it('refreshes once and retries the original request after a 401', async () => {
+    await import('@/lib/api')
+    mockAxios.post.mockResolvedValueOnce({ data: { message: 'Token refreshed' } })
+    mockAxios.request.mockResolvedValueOnce({ data: { ok: true } })
+
+    const response = await responseErrorInterceptor?.({
+      response: { status: 401 },
+      config: { url: '/devices/', headers: {} },
+    })
+
+    expect(mockAxios.post).toHaveBeenCalledWith('/auth/refresh')
+    expect(mockAxios.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/devices/',
+        _retry: true,
+      }),
+    )
+    expect(response).toEqual({ data: { ok: true } })
   })
 })

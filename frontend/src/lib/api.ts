@@ -1,8 +1,12 @@
-import axios from 'axios'
+import axios, { type AxiosResponse } from 'axios'
 import type {
   Device, TestRun, TestResult, TestTemplate, TestLibraryItem,
   TestPlan, Whitelist, AuditLogEntry, PaginatedResponse, UserProfile,
 } from './types'
+import {
+  normalizeTestResult,
+  normalizeTestRun,
+} from './testContracts'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -19,6 +23,34 @@ const api = axios.create({
 
 // Endpoints that don't require CSRF (no session exists yet)
 const CSRF_EXEMPT = ['/auth/login', '/auth/register', '/auth/refresh']
+const AUTH_RETRY_EXEMPT = ['/auth/login', '/auth/register', '/auth/refresh']
+
+type RetryableRequestConfig = {
+  _retry?: boolean
+  url?: string
+  [key: string]: unknown
+}
+
+let refreshPromise: Promise<void> | null = null
+
+function withNormalizedData<TInput, TOutput>(
+  promise: Promise<AxiosResponse<TInput>>,
+  normalizer: (data: TInput) => TOutput,
+) {
+  return promise.then((response) => ({
+    ...response,
+    data: normalizer(response.data),
+  }))
+}
+
+async function refreshSession() {
+  if (!refreshPromise) {
+    refreshPromise = api.post('/auth/refresh').then(() => undefined).finally(() => {
+      refreshPromise = null
+    })
+  }
+  return refreshPromise
+}
 
 api.interceptors.request.use((config) => {
   if (config.method && ['post', 'put', 'patch', 'delete'].includes(config.method)) {
@@ -36,11 +68,30 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status
+    const originalRequest = (error.config || {}) as RetryableRequestConfig
+    const requestUrl = String(originalRequest.url || '')
+
+    if (
+      status === 401
+      && !originalRequest._retry
+      && !AUTH_RETRY_EXEMPT.some((path) => requestUrl.endsWith(path))
+    ) {
+      originalRequest._retry = true
+      try {
+        await refreshSession()
+        return api.request(originalRequest)
+      } catch (refreshError) {
+        const path = window.location.pathname
+        if (path !== '/login' && path !== '/' && !requestUrl.includes('/auth/me')) {
+          window.location.href = '/login'
+        }
+        return Promise.reject(refreshError)
+      }
+    }
+
+    if (status === 401) {
       const path = window.location.pathname
-      const requestUrl = error.config?.url || ''
-      // Don't redirect on auth check (/auth/me) or when already on login/landing —
-      // let AuthContext handle the unauthenticated state naturally
       if (path !== '/login' && path !== '/' && !requestUrl.includes('/auth/me')) {
         window.location.href = '/login'
       }
@@ -55,6 +106,7 @@ export const authApi = {
   login: (data: { username: string; password: string; totp_code?: string }) => api.post('/auth/login', data),
   register: (data: { username: string; email: string; password: string; full_name?: string }) => api.post('/auth/register', data),
   logout: () => api.post('/auth/logout'),
+  refresh: () => api.post('/auth/refresh'),
   me: () => api.get<UserProfile>('/auth/me'),
   updateProfile: (data: { full_name?: string; email?: string }) => api.patch<UserProfile>('/auth/me', data),
   changePassword: (data: { current_password: string; new_password: string }) => api.post('/auth/change-password', data),
@@ -65,7 +117,7 @@ export const authApi = {
   twoFactorDisable: (code: string, password: string) => api.post('/auth/2fa/disable', { code, password }),
   // OIDC / SSO
   oidcConfig: () => api.get('/auth/oidc/config'),
-  oidcCallback: (data: { code: string; redirect_uri: string; provider: string }) => api.post('/auth/oidc/callback', data),
+  oidcCallback: (data: { code: string; redirect_uri: string; nonce: string; provider?: string; code_verifier?: string }) => api.post('/auth/oidc/callback', data),
 }
 
 export const devicesApi = {
@@ -96,23 +148,35 @@ export const templatesApi = {
 }
 
 export const testRunsApi = {
-  list: (params?: { status?: string; device_id?: string; skip?: number; limit?: number }) => api.get<TestRun[]>('/test-runs/', { params }),
-  get: (id: string) => api.get<TestRun>(`/test-runs/${id}`),
-  create: (data: { device_id: string; plan_id?: string; template_id?: string }) => api.post<TestRun>('/test-runs/', data),
-  update: (id: string, data: Partial<TestRun>) => api.patch<TestRun>(`/test-runs/${id}`, data),
+  list: (params?: { status?: string; device_id?: string; skip?: number; limit?: number }) =>
+    withNormalizedData(api.get<Record<string, unknown>[]>('/test-runs/', { params }), (data) => data.map(normalizeTestRun)),
+  get: (id: string) =>
+    withNormalizedData(api.get<Record<string, unknown>>(`/test-runs/${id}`), normalizeTestRun),
+  create: (data: { device_id: string; plan_id?: string; template_id?: string }) =>
+    withNormalizedData(api.post<Record<string, unknown>>('/test-runs/', data), normalizeTestRun),
+  update: (id: string, data: { connection_scenario?: string; synopsis?: string; synopsis_status?: string }) =>
+    withNormalizedData(api.patch<Record<string, unknown>>(`/test-runs/${id}`, data), normalizeTestRun),
   start: (id: string) => api.post(`/test-runs/${id}/start`),
+  pause: (id: string) => api.post(`/test-runs/${id}/pause`),
+  pauseCable: (id: string) => api.post(`/test-runs/${id}/pause-cable`),
   resume: (id: string) => api.post(`/test-runs/${id}/resume`),
-  complete: (id: string) => api.post(`/test-runs/${id}/complete`),
+  requestReview: (id: string) =>
+    withNormalizedData(api.post<Record<string, unknown>>(`/test-runs/${id}/request-review`), normalizeTestRun),
+  complete: (id: string) =>
+    withNormalizedData(api.post<Record<string, unknown>>(`/test-runs/${id}/complete`), normalizeTestRun),
   checkDuplicate: (deviceId: string, templateId: string) => api.get<{ has_duplicates: boolean; count: number; existing_runs: { id: string; status: string; overall_verdict: string | null; completed_tests: number; total_tests: number; confidence: number; created_at: string; completed_at: string | null }[] }>('/test-runs/check-duplicate', { params: { device_id: deviceId, template_id: templateId } }),
   stats: () => api.get<{ total: number; by_status: Record<string, number>; by_verdict?: Record<string, number>; completed_this_week?: number }>('/test-runs/stats'),
 }
 
 export const testResultsApi = {
-  list: (params?: { test_run_id?: string; skip?: number; limit?: number }) => api.get<TestResult[]>('/test-results/', { params }),
-  get: (id: string) => api.get<TestResult>(`/test-results/${id}`),
-  update: (id: string, data: { verdict?: string; comment?: string; findings?: string; raw_output?: string; tier?: string; engineer_notes?: string; engineer_selection?: string }) => api.patch<TestResult>(`/test-results/${id}`, data),
-  override: (id: string, data: { verdict: string; comment?: string; override_reason?: string }) => api.post(`/test-results/${id}/override`, data),
-  batch: (data: { id: string; verdict?: string; comment?: string }[]) => api.post('/test-results/batch', data),
+  list: (params?: { test_run_id?: string; skip?: number; limit?: number }) =>
+    withNormalizedData(api.get<Record<string, unknown>[]>('/test-results/', { params }), (data) => data.map(normalizeTestResult)),
+  get: (id: string) =>
+    withNormalizedData(api.get<Record<string, unknown>>(`/test-results/${id}`), normalizeTestResult),
+  update: (id: string, data: { verdict?: string; comment?: string; findings?: unknown; raw_output?: string; engineer_notes?: string }) =>
+    withNormalizedData(api.patch<Record<string, unknown>>(`/test-results/${id}`, data), normalizeTestResult),
+  override: (id: string, data: { verdict: string; comment?: string; override_reason: string }) =>
+    withNormalizedData(api.post<Record<string, unknown>>(`/test-results/${id}/override`, data), normalizeTestResult),
 }
 
 export const reportsApi = {

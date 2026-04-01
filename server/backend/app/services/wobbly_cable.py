@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.models.database import async_session
-from app.models.test_run import TestRun, TestRunStatus
+from app.models.test_run import TestRun, TestRunStatus, normalize_test_run_status
 
 logger = logging.getLogger("edq.wobbly_cable")
 
@@ -93,8 +93,8 @@ class WobblyCableHandler:
                     select(TestRun).where(TestRun.id == self.run_id)
                 )
                 run = result.scalar_one_or_none()
-                if run and run.status == TestRunStatus.RUNNING:
-                    run.status = TestRunStatus.PAUSED
+                if run and normalize_test_run_status(run.status) == TestRunStatus.RUNNING.value:
+                    run.status = TestRunStatus.PAUSED_CABLE
                     await session.commit()
         except Exception as exc:
             logger.error("Failed to update run status to paused: %s", exc)
@@ -154,7 +154,7 @@ class WobblyCableHandler:
                     select(TestRun).where(TestRun.id == self.run_id)
                 )
                 run = result.scalar_one_or_none()
-                if run and run.status == TestRunStatus.PAUSED:
+                if run and normalize_test_run_status(run.status) == TestRunStatus.PAUSED_CABLE.value:
                     run.status = TestRunStatus.RUNNING
                     await session.commit()
         except Exception as exc:
@@ -191,7 +191,7 @@ class WobblyCableHandler:
                 )
                 run = result.scalar_one_or_none()
                 if run:
-                    run.status = TestRunStatus.PAUSED
+                    run.status = TestRunStatus.PAUSED_CABLE
                     await session.commit()
         except Exception as exc:
             logger.error("Failed to update run status to paused (timeout): %s", exc)

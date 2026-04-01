@@ -14,11 +14,51 @@ class TestRunStatus(str, enum.Enum):
     SELECTING_INTERFACE = "selecting_interface"
     SYNCING = "syncing"
     RUNNING = "running"
-    PAUSED = "paused"
+    PAUSED_MANUAL = "paused_manual"
+    PAUSED_CABLE = "paused_cable"
     AWAITING_MANUAL = "awaiting_manual"
+    AWAITING_REVIEW = "awaiting_review"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    PAUSED = "paused"  # Legacy alias retained for safe reads during migration
+
+
+LEGACY_TEST_RUN_STATUS_ALIASES = {
+    TestRunStatus.PAUSED.value: TestRunStatus.PAUSED_MANUAL.value,
+    "complete": TestRunStatus.COMPLETED.value,
+    "error": TestRunStatus.FAILED.value,
+}
+
+CANONICAL_TEST_RUN_STATUSES = (
+    TestRunStatus.PENDING.value,
+    TestRunStatus.SELECTING_INTERFACE.value,
+    TestRunStatus.SYNCING.value,
+    TestRunStatus.RUNNING.value,
+    TestRunStatus.PAUSED_MANUAL.value,
+    TestRunStatus.PAUSED_CABLE.value,
+    TestRunStatus.AWAITING_MANUAL.value,
+    TestRunStatus.AWAITING_REVIEW.value,
+    TestRunStatus.COMPLETED.value,
+    TestRunStatus.FAILED.value,
+    TestRunStatus.CANCELLED.value,
+)
+
+
+def normalize_test_run_status(status: "TestRunStatus | str | None") -> str:
+    """Return the canonical public-facing status string for a run."""
+    if status is None:
+        return TestRunStatus.PENDING.value
+    raw = status.value if isinstance(status, TestRunStatus) else str(status)
+    return LEGACY_TEST_RUN_STATUS_ALIASES.get(raw, raw)
+
+
+def is_paused_test_run_status(status: "TestRunStatus | str | None") -> bool:
+    """Return True when a run is paused for any supported reason."""
+    return normalize_test_run_status(status) in {
+        TestRunStatus.PAUSED_MANUAL.value,
+        TestRunStatus.PAUSED_CABLE.value,
+    }
 
 
 class TestRunVerdict(str, enum.Enum):

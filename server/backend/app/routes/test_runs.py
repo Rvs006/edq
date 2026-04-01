@@ -1,6 +1,5 @@
 """Test Run management routes."""
 
-import asyncio
 import logging
 import os
 import uuid
@@ -10,10 +9,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
 
 from app.models.database import get_db
-from app.models.test_run import TestRun, TestRunStatus
+from app.models.test_run import (
+    TestRun,
+    TestRunStatus,
+    is_paused_test_run_status,
+    normalize_test_run_status,
+)
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.test_template import TestTemplate
 from app.models.device import Device
@@ -22,7 +25,7 @@ from app.models.nessus_finding import NessusFinding
 from app.schemas.test import TestRunCreate, TestRunUpdate, TestRunResponse
 from app.security.auth import get_current_active_user
 from app.services.test_library import get_test_by_id
-from app.services.test_engine import test_engine
+from app.services.test_run_launcher import cancel_test_run, is_run_executing, launch_test_run
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
 from app.utils.audit import log_action
@@ -49,12 +52,10 @@ async def _get_authorized_test_run(
         raise HTTPException(status_code=403, detail="Access denied")
     return run
 
-_running_tasks: dict[str, asyncio.Task] = {}
-
-
 async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
     """Add device info, template_name, and confidence score to a TestRun for the response."""
     data = TestRunResponse.model_validate(run).model_dump()
+    data["status"] = normalize_test_run_status(run.status)
 
     device = await db.get(Device, run.device_id)
     if device:
@@ -73,10 +74,74 @@ async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
     template = await db.get(TestTemplate, run.template_id)
     data["template_name"] = template.name if template else None
 
+    engineer = await db.get(User, run.engineer_id)
+    data["engineer_name"] = (
+        (engineer.full_name or engineer.username) if engineer else None
+    )
+
     # Confidence score (1-10)
     data["confidence"] = _calc_confidence(run)
 
     return data
+
+
+def _status_filter_values(status: str) -> list[str]:
+    normalized = normalize_test_run_status(status)
+    values = [normalized]
+    if normalized == TestRunStatus.PAUSED_MANUAL.value:
+        values.append(TestRunStatus.PAUSED.value)
+    return values
+
+
+async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int | bool]:
+    results = await db.execute(select(TestResult).where(TestResult.test_run_id == run_id))
+    all_results = results.scalars().all()
+
+    passed = sum(1 for r in all_results if r.verdict == TestVerdict.PASS)
+    failed = sum(1 for r in all_results if r.verdict == TestVerdict.FAIL)
+    advisory = sum(1 for r in all_results if r.verdict == TestVerdict.ADVISORY)
+    na = sum(1 for r in all_results if r.verdict == TestVerdict.NA)
+    errors = sum(1 for r in all_results if r.verdict == TestVerdict.ERROR)
+    pending_manual = sum(
+        1 for r in all_results
+        if r.verdict == TestVerdict.PENDING and r.tier == TestTier.GUIDED_MANUAL
+    )
+    essential_failed = any(
+        r for r in all_results
+        if r.verdict == TestVerdict.FAIL and r.is_essential == "yes"
+    )
+
+    return {
+        "passed": passed,
+        "failed": failed,
+        "advisory": advisory,
+        "na": na,
+        "errors": errors,
+        "pending_manual": pending_manual,
+        "completed": passed + failed + advisory + na + errors,
+        "essential_failed": essential_failed,
+        "total": len(all_results),
+    }
+
+
+def _overall_verdict_from_summary(summary: dict[str, int | bool]) -> str | None:
+    if summary["essential_failed"] or summary["failed"]:
+        return "fail"
+    if summary["advisory"]:
+        return "qualified_pass"
+    if summary["completed"]:
+        return "pass"
+    return None
+
+
+def _apply_summary_to_run(run: TestRun, summary: dict[str, int | bool]) -> None:
+    run.passed_tests = int(summary["passed"])
+    run.failed_tests = int(summary["failed"])
+    run.advisory_tests = int(summary["advisory"])
+    run.na_tests = int(summary["na"])
+    run.completed_tests = int(summary["completed"])
+    if run.total_tests:
+        run.progress_pct = round((run.completed_tests / run.total_tests) * 100, 1)
 
 
 def _calc_confidence(run: TestRun) -> int:
@@ -124,7 +189,7 @@ async def list_test_runs(
     if device_id:
         query = query.where(TestRun.device_id == device_id)
     if status:
-        query = query.where(TestRun.status == status)
+        query = query.where(TestRun.status.in_(_status_filter_values(status)))
     result = await db.execute(
         query.order_by(TestRun.created_at.desc()).offset(skip).limit(limit)
     )
@@ -180,7 +245,7 @@ async def check_duplicate_runs(
     for r in existing:
         runs_info.append({
             "id": r.id,
-            "status": r.status.value if hasattr(r.status, 'value') else str(r.status),
+            "status": normalize_test_run_status(r.status),
             "overall_verdict": r.overall_verdict,
             "completed_tests": r.completed_tests,
             "total_tests": r.total_tests,
@@ -280,29 +345,20 @@ async def update_test_run(
 ):
     run = await _get_authorized_test_run(run_id, user, db)
     updates = data.model_dump(exclude_unset=True)
-    if "status" in updates:
-        run.status = updates["status"]
-    if "overall_verdict" in updates:
-        run.overall_verdict = updates["overall_verdict"]
-    if "progress_pct" in updates:
-        run.progress_pct = updates["progress_pct"]
-    if "completed_tests" in updates:
-        run.completed_tests = updates["completed_tests"]
-    if "passed_tests" in updates:
-        run.passed_tests = updates["passed_tests"]
-    if "failed_tests" in updates:
-        run.failed_tests = updates["failed_tests"]
-    if "advisory_tests" in updates:
-        run.advisory_tests = updates["advisory_tests"]
-    if "na_tests" in updates:
-        run.na_tests = updates["na_tests"]
+    if "connection_scenario" in updates:
+        if normalize_test_run_status(run.status) != TestRunStatus.PENDING.value:
+            raise HTTPException(
+                status_code=400,
+                detail="Connection scenario can only be changed before a run starts",
+            )
+        run.connection_scenario = updates["connection_scenario"]
     if "synopsis" in updates:
         run.synopsis = updates["synopsis"]
     if "synopsis_status" in updates:
         run.synopsis_status = updates["synopsis_status"]
     await db.flush()
     await db.refresh(run)
-    return run
+    return await _enrich_run(run, db)
 
 
 @router.post("/{run_id}/start")
@@ -312,20 +368,22 @@ async def start_test_run(
     user: User = Depends(get_current_active_user),
 ):
     run = await _get_authorized_test_run(run_id, user, db)
+    run_status = normalize_test_run_status(run.status)
 
-    if run.status not in (TestRunStatus.PENDING, TestRunStatus.FAILED, TestRunStatus.CANCELLED):
+    if run_status not in (
+        TestRunStatus.PENDING.value,
+        TestRunStatus.FAILED.value,
+        TestRunStatus.CANCELLED.value,
+    ):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot start run in '{run.status.value}' status. Must be 'pending', 'failed', or 'cancelled'.",
+            detail=f"Cannot start run in '{run_status}' status. Must be 'pending', 'failed', or 'cancelled'.",
         )
 
-    if run_id in _running_tasks and not _running_tasks[run_id].done():
+    if is_run_executing(run_id):
         raise HTTPException(status_code=409, detail="Test run is already executing")
 
-    task = asyncio.create_task(test_engine.run(run_id))
-    _running_tasks[run_id] = task
-
-    task.add_done_callback(lambda t: _running_tasks.pop(run_id, None))
+    launch_test_run(run_id)
 
     return {"status": "running", "message": "Test execution started", "run_id": run_id}
 
@@ -340,17 +398,22 @@ async def cancel_test_run(
     from app.services.tools_client import tools_client
 
     run = await _get_authorized_test_run(run_id, user, db)
+    run_status = normalize_test_run_status(run.status)
 
-    if run.status not in (TestRunStatus.RUNNING, TestRunStatus.PAUSED):
+    if run_status not in (
+        TestRunStatus.RUNNING.value,
+        TestRunStatus.SELECTING_INTERFACE.value,
+        TestRunStatus.SYNCING.value,
+        TestRunStatus.PAUSED_MANUAL.value,
+        TestRunStatus.PAUSED_CABLE.value,
+    ):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot cancel run in '{run.status.value}' status. Must be 'running' or 'paused'.",
+            detail=f"Cannot cancel run in '{run_status}' status. Must be active or paused.",
         )
 
     # 1. Cancel the asyncio task (stops test engine loop)
-    task = _running_tasks.get(run_id)
-    if task and not task.done():
-        task.cancel()
+    cancel_test_run(run_id)
 
     # 2. Kill sidecar tool processes for this device
     device = await db.get(Device, run.device_id)
@@ -374,18 +437,41 @@ async def pause_test_run(
     user: User = Depends(get_current_active_user),
 ):
     run = await _get_authorized_test_run(run_id, user, db)
+    run_status = normalize_test_run_status(run.status)
 
-    if run.status != TestRunStatus.RUNNING:
+    if run_status != TestRunStatus.RUNNING.value:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot pause run in '{run.status.value}' status. Must be 'running'.",
+            detail=f"Cannot pause run in '{run_status}' status. Must be 'running'.",
         )
 
-    run.status = TestRunStatus.PAUSED
+    run.status = TestRunStatus.PAUSED_MANUAL
     await db.flush()
     await db.refresh(run)
 
-    return {"status": "paused", "message": "Test execution paused", "run_id": run_id}
+    return {"status": TestRunStatus.PAUSED_MANUAL.value, "message": "Test execution paused", "run_id": run_id}
+
+
+@router.post("/{run_id}/pause-cable")
+async def pause_test_run_for_cable(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    run = await _get_authorized_test_run(run_id, user, db)
+    run_status = normalize_test_run_status(run.status)
+
+    if run_status != TestRunStatus.RUNNING.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot flag cable issue in '{run_status}' status. Must be 'running'.",
+        )
+
+    run.status = TestRunStatus.PAUSED_CABLE
+    await db.flush()
+    await db.refresh(run)
+
+    return {"status": TestRunStatus.PAUSED_CABLE.value, "message": "Cable issue flagged", "run_id": run_id}
 
 
 @router.post("/{run_id}/resume")
@@ -395,11 +481,15 @@ async def resume_test_run(
     user: User = Depends(get_current_active_user),
 ):
     run = await _get_authorized_test_run(run_id, user, db)
+    run_status = normalize_test_run_status(run.status)
 
-    if run.status != TestRunStatus.PAUSED:
+    if run_status not in (
+        TestRunStatus.PAUSED_MANUAL.value,
+        TestRunStatus.PAUSED_CABLE.value,
+    ):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot resume run in '{run.status.value}' status. Must be 'paused'.",
+            detail=f"Cannot resume run in '{run_status}' status. Must be paused.",
         )
 
     run.status = TestRunStatus.RUNNING
@@ -416,41 +506,46 @@ async def complete_test_run(
     user: User = Depends(get_current_active_user),
 ):
     run = await _get_authorized_test_run(run_id, user, db)
+    summary = await _summarize_run_results(db, run_id)
+    if summary["pending_manual"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot complete run while manual tests are still pending",
+        )
 
-    results = await db.execute(select(TestResult).where(TestResult.test_run_id == run_id))
-    all_results = results.scalars().all()
-
-    passed = sum(1 for r in all_results if r.verdict == TestVerdict.PASS)
-    failed = sum(1 for r in all_results if r.verdict == TestVerdict.FAIL)
-    advisory = sum(1 for r in all_results if r.verdict == TestVerdict.ADVISORY)
-    na = sum(1 for r in all_results if r.verdict == TestVerdict.NA)
-
-    essential_failed = any(
-        r for r in all_results
-        if r.verdict == TestVerdict.FAIL and r.is_essential == "yes"
-    )
-
-    run.completed_tests = passed + failed + advisory + na
-    run.passed_tests = passed
-    run.failed_tests = failed
-    run.advisory_tests = advisory
-    run.na_tests = na
-    run.progress_pct = 100.0
+    _apply_summary_to_run(run, summary)
+    run.progress_pct = 100.0 if run.total_tests else 0.0
     run.status = TestRunStatus.COMPLETED
     run.completed_at = datetime.now(timezone.utc)
-
-    if essential_failed:
-        run.overall_verdict = "fail"
-    elif failed > 0:
-        run.overall_verdict = "fail"
-    elif advisory > 0:
-        run.overall_verdict = "qualified_pass"
-    else:
-        run.overall_verdict = "pass"
+    run.overall_verdict = _overall_verdict_from_summary(summary)
 
     await db.flush()
     await db.refresh(run)
-    return run
+    return await _enrich_run(run, db)
+
+
+@router.post("/{run_id}/request-review", response_model=TestRunResponse)
+async def request_review_for_test_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    run = await _get_authorized_test_run(run_id, user, db)
+    summary = await _summarize_run_results(db, run_id)
+    if summary["pending_manual"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot request review while manual tests are still pending",
+        )
+
+    _apply_summary_to_run(run, summary)
+    run.progress_pct = 100.0 if run.total_tests else 0.0
+    run.status = TestRunStatus.AWAITING_REVIEW
+    run.completed_at = datetime.now(timezone.utc)
+    run.overall_verdict = _overall_verdict_from_summary(summary)
+    await db.flush()
+    await db.refresh(run)
+    return await _enrich_run(run, db)
 
 
 @router.post("/{run_id}/nessus/upload")

@@ -122,6 +122,11 @@ def _run_migrations(db: Session) -> None:
         "ALTER TABLE report_configs ADD COLUMN branding_colours TEXT",
         "ALTER TABLE test_runs ADD COLUMN connection_scenario TEXT DEFAULT 'direct'",
         "ALTER TABLE test_results ADD COLUMN engineer_notes TEXT",
+        "ALTER TABLE test_results ADD COLUMN override_reason TEXT",
+        "ALTER TABLE test_results ADD COLUMN override_verdict TEXT",
+        "ALTER TABLE test_results ADD COLUMN overridden_by_user_id TEXT",
+        "ALTER TABLE test_results ADD COLUMN overridden_by_username TEXT",
+        "ALTER TABLE test_results ADD COLUMN overridden_at DATETIME",
     ]
     for sql in migrations:
         try:

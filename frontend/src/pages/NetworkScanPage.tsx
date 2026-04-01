@@ -919,7 +919,7 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const isRunning = result.status === 'running'
   const { terminalOutput, lastProgress } = useTestRunWebSocket(isRunning ? result.run_id : undefined)
-  const runningTestId = isRunning && lastProgress?.type === 'test_start' ? lastProgress.data.test_number : null
+  const runningTestId = isRunning && lastProgress?.type === 'test_start' ? lastProgress.data.test_id : null
   const pct = Math.round(result.progress_pct || 0)
   const isComplete = result.status === 'completed' || result.status === 'awaiting_manual'
   const isError = result.status === 'failed' || result.status === 'error'

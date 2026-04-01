@@ -21,6 +21,7 @@ import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
 import SessionControls from '@/components/testing/SessionControls'
 import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDialog'
 import type { TestResult } from '@/lib/types'
+import { isActiveTestRunStatus } from '@/lib/testContracts'
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -39,7 +40,7 @@ export default function TestRunDetailPage() {
     enabled: !!id,
     refetchInterval: (query) => {
       const d = query.state.data as Record<string, unknown> | undefined
-      return d?.status === 'running' || d?.status === 'discovering' ? 3000 : false
+      return isActiveTestRunStatus(d?.status) ? 3000 : false
     },
   })
 
@@ -53,7 +54,7 @@ export default function TestRunDetailPage() {
   })
 
   const ws = useTestRunWebSocket(
-    run?.status === 'running' || run?.status === 'discovering' ? id : undefined
+    run && isActiveTestRunStatus(run.status) ? id : undefined
   )
 
   useEffect(() => {
@@ -65,20 +66,20 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
     }
 
-    if (msg.type === 'test_start' && msg.data.test_number) {
-      const running = (results as TestResult[]).find((r) => r.test_number === msg.data.test_number)
+    if (msg.type === 'test_start' && msg.data.test_id) {
+      const running = (results as TestResult[]).find((r) => r.test_id === msg.data.test_id)
       if (running) {
         setSelectedTestId(running.id)
       }
     }
   }, [ws.lastProgress, id, queryClient, results])
 
-  const runningTestNumber = useMemo(() => {
+  const runningTestId = useMemo(() => {
     if (!ws.lastProgress) return null
     const msg = ws.lastProgress
-    if (msg.type === 'test_start') return msg.data.test_number || null
+    if (msg.type === 'test_start') return msg.data.test_id || null
     if (msg.type === 'test_progress' && msg.data.status === 'running')
-      return msg.data.test_number || null
+      return msg.data.test_id || null
     return null
   }, [ws.lastProgress])
 
@@ -86,13 +87,12 @@ export default function TestRunDetailPage() {
     () =>
       (results as TestResult[]).map((r) => ({
         id: r.id,
-        test_number: r.test_number || r.test_id || '',
+        test_id: r.test_id || '',
         test_name: r.test_name || '',
         tier: (r.tier || 'automatic') as 'automatic' | 'guided_manual' | 'auto_na',
         verdict: r.verdict || null,
-        status: r.status ?? undefined,
-        tool_used: r.tool_used || null,
-        essential_pass: r.essential_pass ?? false,
+        tool: r.tool || null,
+        is_essential: r.is_essential === 'yes',
       })),
     [results]
   )
@@ -103,28 +103,24 @@ export default function TestRunDetailPage() {
     if (!r) return null
     return {
       id: r.id,
-      test_number: r.test_number || r.test_id || '',
+      test_id: r.test_id || '',
       test_name: r.test_name || '',
       tier: (r.tier || 'automatic') as 'automatic' | 'guided_manual' | 'auto_na',
-      tool_used: r.tool_used || null,
-      tool_command: r.tool_command || null,
-      raw_stdout: r.raw_stdout || null,
-      raw_stderr: r.raw_stderr || null,
-      parsed_findings: r.parsed_findings || null,
+      tool: r.tool || null,
+      raw_output: r.raw_output || null,
+      parsed_data: r.parsed_data || null,
+      findings: r.findings || null,
       verdict: r.verdict || null,
-      auto_comment: r.auto_comment || r.comment || null,
-      engineer_selection: r.engineer_selection || null,
+      comment: r.comment || null,
       engineer_notes: r.engineer_notes || null,
       is_overridden: r.is_overridden ?? false,
       override_reason: r.override_reason || null,
-      overridden_by: r.overridden_by || null,
-      script_flag: r.script_flag || 'No',
+      override_verdict: r.override_verdict || null,
+      overridden_by_username: r.overridden_by_username || null,
       started_at: r.started_at || null,
       completed_at: r.completed_at || null,
       duration_seconds: r.duration_seconds ?? undefined,
-      essential_pass: r.essential_pass ?? false,
-      test_description: r.test_description ?? undefined,
-      pass_criteria: r.pass_criteria ?? undefined,
+      is_essential: r.is_essential === 'yes',
     }
   }, [selectedTestId, results])
 
@@ -149,11 +145,11 @@ export default function TestRunDetailPage() {
       if (v === 'pass' || v === 'qualified_pass') segs.pass++
       else if (v === 'fail') segs.fail++
       else if (v === 'advisory') segs.advisory++
-      else if (runningTestNumber && r.test_number === runningTestNumber) segs.running++
+      else if (runningTestId && r.test_id === runningTestId) segs.running++
       else segs.pending++
     }
     return segs
-  }, [results, runningTestNumber])
+  }, [results, runningTestId])
 
   const handleStartTests = () => {
     setScenarioDialogOpen(true)
@@ -180,7 +176,7 @@ export default function TestRunDetailPage() {
   const handlePause = async () => {
     setIsActioning(true)
     try {
-      await testRunsApi.update(id!, { status: 'paused_manual' })
+      await testRunsApi.pause(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run paused')
     } catch (err: unknown) {
@@ -194,7 +190,7 @@ export default function TestRunDetailPage() {
   const handleResume = async () => {
     setIsActioning(true)
     try {
-      await testRunsApi.start(id!)
+      await testRunsApi.resume(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run resumed')
     } catch (err: unknown) {
@@ -207,7 +203,7 @@ export default function TestRunDetailPage() {
 
   const handleFlagCable = async () => {
     try {
-      await testRunsApi.update(id!, { status: 'paused_cable' })
+      await testRunsApi.pauseCable(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Cable disconnect flagged')
     } catch (err: unknown) {
@@ -256,7 +252,7 @@ export default function TestRunDetailPage() {
   const handleRequestReview = async () => {
     setIsActioning(true)
     try {
-      await testRunsApi.update(id!, { status: 'awaiting_review' })
+      await testRunsApi.requestReview(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Submitted for review')
     } catch (err: unknown) {
@@ -294,7 +290,6 @@ export default function TestRunDetailPage() {
       await testResultsApi.update(resultId, {
         verdict,
         engineer_notes: notes,
-        engineer_selection: verdict,
       })
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
@@ -323,8 +318,8 @@ export default function TestRunDetailPage() {
   }
 
   const fingerprint = useMemo(() => {
-    const meta = (run as any)?.metadata || (run as any)?.run_metadata
-    return meta?.fingerprint || null
+    const value = run?.run_metadata?.fingerprint
+    return value && typeof value === 'object' ? (value as Record<string, any>) : null
   }, [run])
 
   const handleSaveProfile = async () => {
@@ -343,19 +338,19 @@ export default function TestRunDetailPage() {
     }
   }
 
-  const isOwner = user?.id === run?.user_id
+  const isOwner = user?.id === run?.engineer_id
   const canSelfApprove =
     user?.role === 'admin' || (isOwner && (user?.role === 'engineer' || user?.role === 'reviewer'))
 
   const pendingManualCount = useMemo(() => {
-    return (results as any[]).filter(
-      (r: any) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
+    return (results as TestResult[]).filter(
+      (r) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
     ).length
   }, [results])
 
   const firstPendingManualId = useMemo(() => {
-    const found = (results as any[]).find(
-      (r: any) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
+    const found = (results as TestResult[]).find(
+      (r) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
     )
     return found?.id || null
   }, [results])
@@ -383,8 +378,8 @@ export default function TestRunDetailPage() {
   }
 
   const liveOutput =
-    selectedResult && runningTestNumber === selectedResult.test_number
-      ? ws.terminalOutput[selectedResult.test_number] || ''
+    selectedResult && runningTestId === selectedResult.test_id
+      ? ws.terminalOutput[selectedResult.test_id] || ''
       : ''
 
   return (
@@ -507,7 +502,7 @@ export default function TestRunDetailPage() {
         </div>
       )}
 
-      {pendingManualCount > 0 && run.status !== 'pending' && run.status !== 'error' && (
+      {pendingManualCount > 0 && run.status !== 'pending' && run.status !== 'failed' && (
         <div className="flex-shrink-0 px-4 pt-3">
           <SmartPrompt
             variant="warning"
@@ -555,7 +550,7 @@ export default function TestRunDetailPage() {
           <TestSidebar
             results={sidebarResults}
             selectedTestId={selectedTestId}
-            runningTestNumber={runningTestNumber}
+            runningTestId={runningTestId}
             onSelectTest={(testId) => {
               setSelectedTestId(testId)
               setSidebarOpen(false)
@@ -570,9 +565,8 @@ export default function TestRunDetailPage() {
               key={selectedResult.id}
               result={selectedResult}
               liveOutput={liveOutput}
-              isRunning={runningTestNumber === selectedResult.test_number}
+              isRunning={runningTestId === selectedResult.test_id}
               userRole={user?.role || 'engineer'}
-              userId={user?.id || ''}
               onSubmitManual={handleSubmitManual}
               onOverride={handleOverride}
               isSubmitting={isSubmitting}
@@ -615,8 +609,8 @@ export default function TestRunDetailPage() {
           onRequestReview={handleRequestReview}
           isActioning={isActioning}
           runningTestName={
-            runningTestNumber
-              ? (results as any[]).find((r: any) => r.test_number === runningTestNumber || r.test_id === runningTestNumber)?.test_name || runningTestNumber
+            runningTestId
+              ? (results as TestResult[]).find((r) => r.test_id === runningTestId)?.test_name || runningTestId
               : null
           }
           progressPct={run.progress_pct ?? progressPct}

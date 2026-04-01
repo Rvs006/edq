@@ -7,26 +7,24 @@ import TestExplainer from '@/components/common/TestExplainer'
 
 export interface TestResultDetail {
   id: string
-  test_number: string
+  test_id: string
   test_name: string
   tier: 'automatic' | 'guided_manual' | 'auto_na'
-  tool_used: string | null
-  tool_command: string | null
-  raw_stdout: string | null
-  raw_stderr: string | null
-  parsed_findings: Record<string, unknown> | unknown[] | null
+  tool: string | null
+  raw_output: string | null
+  parsed_data: Record<string, unknown> | unknown[] | null
+  findings: Record<string, unknown> | unknown[] | null
   verdict: string | null
-  auto_comment: string | null
-  engineer_selection: string | null
+  comment: string | null
   engineer_notes: string | null
   is_overridden: boolean
   override_reason: string | null
-  overridden_by: string | null
-  script_flag: string
+  override_verdict: string | null
+  overridden_by_username: string | null
   started_at: string | null
   completed_at: string | null
   duration_seconds?: number
-  essential_pass?: boolean
+  is_essential?: boolean
   test_description?: string
   pass_criteria?: string
 }
@@ -36,7 +34,6 @@ interface TestDetailProps {
   liveOutput: string
   isRunning: boolean
   userRole: string
-  userId: string
   onSubmitManual: (resultId: string, verdict: string, notes: string) => Promise<void>
   onOverride: (resultId: string, verdict: string, reason: string) => Promise<void>
   isSubmitting: boolean
@@ -47,7 +44,6 @@ export default function TestDetail({
   liveOutput,
   isRunning,
   userRole,
-  userId,
   onSubmitManual,
   onOverride,
   isSubmitting,
@@ -59,7 +55,8 @@ export default function TestDetail({
 
   const canOverride = userRole === 'admin' || userRole === 'reviewer'
   const isManual = result.tier === 'guided_manual'
-  const termOutput = liveOutput || result.raw_stdout || ''
+  const termOutput = liveOutput || result.raw_output || ''
+  const structuredOutput = result.findings || result.parsed_data
 
   const tierLabel =
     result.tier === 'automatic' ? 'Automatic' : result.tier === 'guided_manual' ? 'Manual' : 'Auto N/A'
@@ -77,27 +74,22 @@ export default function TestDetail({
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-sm font-mono font-bold text-zinc-500">
-                {result.test_number}
+                {result.test_id}
               </span>
               <h2 className="text-base font-semibold text-zinc-900 truncate">
                 {result.test_name}
               </h2>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {result.tool_used && (
+              {result.tool && (
                 <span className="badge text-[10px] bg-violet-50 text-violet-700 border border-violet-200">
-                  {result.tool_used}
+                  {result.tool}
                 </span>
               )}
               <span className={`badge text-[10px] border ${tierBg}`}>{tierLabel}</span>
-              {result.essential_pass && (
+              {result.is_essential && (
                 <span className="badge text-[10px] bg-red-50 text-red-700 border border-red-200">
                   Essential
-                </span>
-              )}
-              {result.script_flag === 'Yes' && (
-                <span className="badge text-[10px] bg-zinc-100 text-zinc-500 border border-zinc-200">
-                  Scripted
                 </span>
               )}
               {result.duration_seconds != null && (
@@ -121,11 +113,11 @@ export default function TestDetail({
         </div>
 
         <TestExplainer
-          testNumber={result.test_number}
+          testNumber={result.test_id}
           testName={result.test_name}
           description={result.test_description}
           passCriteria={result.pass_criteria}
-          toolUsed={result.tool_used}
+          toolUsed={result.tool}
         />
       </div>
 
@@ -137,17 +129,12 @@ export default function TestDetail({
               <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                 Terminal Output
               </h3>
-              {result.tool_command && (
-                <code className="text-[10px] font-mono text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded ml-auto truncate max-w-[50%]">
-                  {result.tool_command}
-                </code>
-              )}
             </div>
             <LiveTerminal output={termOutput} className="h-[240px]" />
           </div>
         )}
 
-        {!isManual && result.parsed_findings && (
+        {!isManual && structuredOutput && (
           <div>
             <div className="flex items-center gap-2 mb-2">
               <FileSearch className="w-4 h-4 text-zinc-400" />
@@ -156,15 +143,15 @@ export default function TestDetail({
               </h3>
             </div>
             <div className="bg-zinc-50 rounded-lg border border-zinc-200 p-3">
-              <FindingsDisplay findings={result.parsed_findings} />
+              <FindingsDisplay findings={structuredOutput} />
             </div>
           </div>
         )}
 
-        {!isManual && result.auto_comment && (
+        {!isManual && result.comment && (
           <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-100">
-            <p className="text-xs font-medium text-zinc-500 mb-1">Auto-Generated Comment</p>
-            <p className="text-sm text-zinc-700">{result.auto_comment}</p>
+            <p className="text-xs font-medium text-zinc-500 mb-1">Comment</p>
+            <p className="text-sm text-zinc-700">{result.comment}</p>
           </div>
         )}
 
@@ -178,7 +165,7 @@ export default function TestDetail({
             </div>
             <ManualTestForm
               testId={result.id}
-              testNumber={result.test_number}
+              testNumber={result.test_id}
               testName={result.test_name}
               currentVerdict={result.verdict}
               currentNotes={result.engineer_notes}
@@ -229,7 +216,7 @@ export default function TestDetail({
                   <option value="pass">Pass</option>
                   <option value="fail">Fail</option>
                   <option value="advisory">Advisory</option>
-                  <option value="n/a">N/A</option>
+                  <option value="na">N/A</option>
                   <option value="info">Info</option>
                 </select>
                 <textarea
@@ -260,6 +247,7 @@ export default function TestDetail({
               <div className="mt-2 p-2.5 bg-amber-50 rounded-lg border border-amber-200">
                 <p className="text-xs text-amber-800">
                   <span className="font-medium">Overridden:</span> {result.override_reason}
+                  {result.overridden_by_username ? ` by ${result.overridden_by_username}` : ''}
                 </p>
               </div>
             )}

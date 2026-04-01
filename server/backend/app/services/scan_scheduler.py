@@ -17,6 +17,7 @@ from app.models.test_run import TestRun, TestRunStatus
 from app.models.test_result import TestResult, TestTier
 from app.models.test_template import TestTemplate
 from app.services.test_library import get_test_by_id
+from app.services.test_run_launcher import launch_test_run
 
 logger = logging.getLogger("edq.scheduler")
 
@@ -145,6 +146,18 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 logger.warning("Template %s not found for schedule %s", schedule.template_id, schedule_id)
                 return
 
+            raw_ids = template.test_ids
+            if isinstance(raw_ids, str):
+                import json as _json
+                raw_ids = _json.loads(raw_ids)
+
+            seen_ids: set[str] = set()
+            deduped_ids: list[str] = []
+            for test_id in raw_ids or []:
+                if test_id not in seen_ids:
+                    seen_ids.add(test_id)
+                    deduped_ids.append(test_id)
+
             # Create a new test run with total_tests
             new_run = TestRun(
                 device_id=schedule.device_id,
@@ -152,13 +165,14 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 engineer_id=schedule.created_by,
                 status=TestRunStatus.PENDING,
                 connection_scenario="direct",
-                total_tests=len(template.test_ids),
+                total_tests=len(deduped_ids),
+                run_metadata={"scheduled_scan_id": schedule.id},
             )
             db.add(new_run)
             await db.flush()
 
             # Create TestResult entries for each test in the template
-            for test_id in template.test_ids:
+            for test_id in deduped_ids:
                 test_def = get_test_by_id(test_id)
                 if test_def:
                     tr = TestResult(
@@ -194,6 +208,18 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 "Scheduled scan triggered: schedule=%s device=%s run=%s",
                 schedule.id, schedule.device_id, new_run.id,
             )
+
+            try:
+                launch_test_run(new_run.id)
+            except RuntimeError:
+                logger.warning("Scheduled run %s was already executing", new_run.id)
+            except Exception:
+                logger.exception("Failed to launch scheduled run %s", new_run.id)
+                async with async_session() as retry_db:
+                    failed_run = await retry_db.get(TestRun, new_run.id)
+                    if failed_run:
+                        failed_run.status = TestRunStatus.FAILED
+                        await retry_db.commit()
 
         except Exception:
             logger.exception("Failed to execute scheduled scan %s", schedule_id)

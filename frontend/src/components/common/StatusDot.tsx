@@ -4,7 +4,8 @@ const dotColors: Record<string, string> = {
   online: 'bg-emerald-500',
   connected: 'bg-emerald-500',
   running: 'bg-blue-500',
-  discovering: 'bg-purple-500',
+  selecting_interface: 'bg-purple-500',
+  syncing: 'bg-sky-500',
   offline: 'bg-zinc-300',
   idle: 'bg-zinc-300',
   warning: 'bg-amber-500',
@@ -24,7 +25,7 @@ interface StatusDotProps {
 
 export default function StatusDot({ status, pulse, size = 'md', label, className = '' }: StatusDotProps) {
   const color = dotColors[status?.toLowerCase()] || 'bg-zinc-300'
-  const shouldPulse = pulse ?? ['online', 'running', 'discovering', 'connected'].includes(status?.toLowerCase())
+  const shouldPulse = pulse ?? ['online', 'running', 'selecting_interface', 'syncing', 'connected'].includes(status?.toLowerCase())
   const sizeClass = size === 'sm' ? 'w-2 h-2' : size === 'lg' ? 'w-3.5 h-3.5' : 'w-2.5 h-2.5'
 
   return (

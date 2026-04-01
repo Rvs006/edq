@@ -14,7 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import async_session
-from app.models.test_run import TestRun, TestRunStatus
+from app.models.test_run import (
+    TestRun,
+    TestRunStatus,
+    is_paused_test_run_status,
+    normalize_test_run_status,
+)
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.device import Device
 from app.models.test_template import TestTemplate
@@ -168,6 +173,7 @@ class TestEngine:
                         "data": {
                             "test_id": test_result.test_id,
                             "test_name": test_result.test_name,
+                            "status": "completed",
                             "verdict": "na",
                             "comment": reason,
                             "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
@@ -195,6 +201,7 @@ class TestEngine:
                     "data": {
                         "test_id": test_result.test_id,
                         "test_name": test_result.test_name,
+                        "status": "running",
                         "progress_pct": round((i / total) * 100, 1) if total else 0,
                     },
                 })
@@ -211,6 +218,7 @@ class TestEngine:
                         "data": {
                             "test_id": test_result.test_id,
                             "test_name": test_result.test_name,
+                            "status": TestRunStatus.AWAITING_MANUAL.value,
                             "verdict": "pending",
                             "tier": "guided_manual",
                             "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
@@ -251,6 +259,7 @@ class TestEngine:
                     "data": {
                         "test_id": test_result.test_id,
                         "test_name": test_result.test_name,
+                        "status": "completed",
                         "verdict": verdict,
                         "comment": comment,
                         "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
@@ -475,7 +484,7 @@ class TestEngine:
         async def on_line(line: str):
             await manager.broadcast(f"test-run:{run_id}", {
                 "type": "stdout_line",
-                "data": {"test_number": test_id, "stdout_line": line},
+                "data": {"test_id": test_id, "stdout_line": line},
             })
         return on_line
 
@@ -831,7 +840,7 @@ class TestEngine:
         while True:
             async with async_session() as db:
                 run = await db.get(TestRun, run_id)
-                if run is None or run.status != TestRunStatus.PAUSED:
+                if run is None or not is_paused_test_run_status(run.status):
                     return
             await asyncio.sleep(2)
 
@@ -871,6 +880,7 @@ class TestEngine:
             if pending_manual > 0:
                 run.status = TestRunStatus.AWAITING_MANUAL
                 run.overall_verdict = None
+                run.completed_at = None
             else:
                 run.status = TestRunStatus.COMPLETED
                 run.completed_at = datetime.now(timezone.utc)
@@ -890,7 +900,7 @@ class TestEngine:
             "type": "run_complete",
             "data": {
                 "run_id": run_id,
-                "status": run.status.value if hasattr(run.status, "value") else str(run.status),
+                "status": normalize_test_run_status(run.status),
                 "overall_verdict": run.overall_verdict,
                 "passed": passed,
                 "failed": failed,
@@ -963,7 +973,7 @@ class TestEngine:
 
         await manager.broadcast(f"test-run:{run.id if run else 'unknown'}", {
             "type": "run_error",
-            "data": {"message": message},
+            "data": {"message": message, "status": TestRunStatus.FAILED.value},
         })
 
 
@@ -989,7 +999,11 @@ async def recover_orphaned_runs() -> None:
 
     async with async_session() as db:
         result = await db.execute(
-            select(TestRun).where(TestRun.status == TestRunStatus.RUNNING)
+            select(TestRun).where(TestRun.status.in_([
+                TestRunStatus.SELECTING_INTERFACE,
+                TestRunStatus.SYNCING,
+                TestRunStatus.RUNNING,
+            ]))
         )
         orphans = result.scalars().all()
         for run in orphans:
