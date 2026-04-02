@@ -17,6 +17,7 @@ from app.models.refresh_token import RefreshToken
 
 SESSION_COOKIE = "edq_session"
 CSRF_COOKIE = "edq_csrf"
+REFRESH_COOKIE = "edq_refresh"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
@@ -127,7 +128,12 @@ def verify_token(token: str, token_type: str = "access") -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
 
-def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> None:
+def set_auth_cookies(
+    response: Response,
+    access_token: str,
+    csrf_token: str,
+    refresh_token: str | None = None,
+) -> None:
     samesite = settings.COOKIE_SAMESITE
     response.set_cookie(
         key=SESSION_COOKIE,
@@ -138,6 +144,16 @@ def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> 
         max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
     )
+    if refresh_token:
+        response.set_cookie(
+            key=REFRESH_COOKIE,
+            value=refresh_token,
+            httponly=True,
+            secure=settings.COOKIE_SECURE,
+            samesite=samesite,
+            max_age=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            path="/api",
+        )
     response.set_cookie(
         key=CSRF_COOKIE,
         value=csrf_token,
@@ -152,6 +168,8 @@ def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> 
 def clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(key=SESSION_COOKIE, path="/")
     response.delete_cookie(key=CSRF_COOKIE, path="/")
+    response.delete_cookie(key=REFRESH_COOKIE, path="/api")
+    response.delete_cookie(key=REFRESH_COOKIE, path="/")
 
 
 async def get_current_user(

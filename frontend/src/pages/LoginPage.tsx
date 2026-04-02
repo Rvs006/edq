@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { authApi } from '@/lib/api'
@@ -6,6 +6,32 @@ import { Eye, EyeOff, Loader2, Shield, ExternalLink } from 'lucide-react'
 import ThemeToggle from '@/components/common/ThemeToggle'
 import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 import toast from 'react-hot-toast'
+
+const OIDC_STATE_KEY = 'edq_oidc_state'
+const OIDC_NONCE_KEY = 'edq_oidc_nonce'
+const OIDC_CODE_VERIFIER_KEY = 'edq_oidc_code_verifier'
+
+function clearOidcSession() {
+  sessionStorage.removeItem(OIDC_STATE_KEY)
+  sessionStorage.removeItem(OIDC_NONCE_KEY)
+  sessionStorage.removeItem(OIDC_CODE_VERIFIER_KEY)
+}
+
+function base64UrlEncode(bytes: Uint8Array) {
+  const bin = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function randomUrlSafe(size = 32) {
+  const bytes = new Uint8Array(size)
+  crypto.getRandomValues(bytes)
+  return base64UrlEncode(bytes)
+}
+
+async function createPkceChallenge(verifier: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+  return base64UrlEncode(new Uint8Array(digest))
+}
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -17,6 +43,7 @@ export default function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const oidcHandledRef = useRef(false)
 
   // OIDC config
   const [oidcConfig, setOidcConfig] = useState<{
@@ -34,44 +61,89 @@ export default function LoginPage() {
   useEffect(() => {
     const code = searchParams.get('code')
     const state = searchParams.get('state')
-    if (code && state) {
-      handleOIDCCallback(code, state)
+    const error = searchParams.get('error')
+    if (error && !oidcHandledRef.current) {
+      oidcHandledRef.current = true
+      clearOidcSession()
+      toast.error(searchParams.get('error_description') || 'SSO login failed')
+      navigate('/login', { replace: true })
+      return
     }
-  }, [searchParams])
+    if (code && state && !oidcHandledRef.current) {
+      oidcHandledRef.current = true
+      void handleOIDCCallback(code, state)
+    }
+  }, [navigate, searchParams])
 
   const handleOIDCCallback = async (code: string, state: string) => {
+    const expectedState = sessionStorage.getItem(OIDC_STATE_KEY)
+    const expectedNonce = sessionStorage.getItem(OIDC_NONCE_KEY)
+    const codeVerifier = sessionStorage.getItem(OIDC_CODE_VERIFIER_KEY)
+
+    if (!expectedState || expectedState !== state) {
+      clearOidcSession()
+      toast.error('SSO state validation failed')
+      navigate('/login', { replace: true })
+      return
+    }
+
+    if (!expectedNonce) {
+      clearOidcSession()
+      toast.error('SSO nonce is missing or expired')
+      navigate('/login', { replace: true })
+      return
+    }
+
     setLoading(true)
     try {
-      const provider = localStorage.getItem('edq_oidc_provider') || ''
       const res = await authApi.oidcCallback({
         code,
         redirect_uri: `${window.location.origin}/login`,
-        provider,
+        nonce: expectedNonce,
+        code_verifier: codeVerifier || undefined,
       })
       if (res.data.user) {
+        clearOidcSession()
         toast.success('Welcome!')
-        // Refresh user context
         window.location.href = '/'
       }
     } catch (err: unknown) {
+      clearOidcSession()
       const axiosErr = err as { response?: { data?: { detail?: string } } }
       toast.error(axiosErr.response?.data?.detail || 'SSO login failed')
+      navigate('/login', { replace: true })
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSSO = () => {
+  const handleSSO = async () => {
     if (!oidcConfig?.authorization_endpoint || !oidcConfig.client_id) return
-    localStorage.setItem('edq_oidc_provider', oidcConfig.provider || '')
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: oidcConfig.client_id,
-      redirect_uri: `${window.location.origin}/login`,
-      scope: 'openid email profile',
-      state: crypto.randomUUID(),
-    })
-    window.location.href = `${oidcConfig.authorization_endpoint}?${params}`
+    try {
+      const state = randomUrlSafe(32)
+      const nonce = randomUrlSafe(32)
+      const codeVerifier = randomUrlSafe(64)
+      const codeChallenge = await createPkceChallenge(codeVerifier)
+
+      sessionStorage.setItem(OIDC_STATE_KEY, state)
+      sessionStorage.setItem(OIDC_NONCE_KEY, nonce)
+      sessionStorage.setItem(OIDC_CODE_VERIFIER_KEY, codeVerifier)
+
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: oidcConfig.client_id,
+        redirect_uri: `${window.location.origin}/login`,
+        scope: 'openid email profile',
+        state,
+        nonce,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+      })
+      window.location.href = `${oidcConfig.authorization_endpoint}?${params}`
+    } catch {
+      clearOidcSession()
+      toast.error('Unable to start SSO login')
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -87,6 +159,7 @@ export default function LoginPage() {
         return
       }
 
+      clearOidcSession()
       toast.success('Welcome back!')
       navigate('/', { replace: true })
     } catch (err: unknown) {
@@ -112,11 +185,7 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center px-4 pb-16">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-8">
-            <div className="flex items-center gap-2.5">
-              <img src="/icon.png" alt="" className="h-[48px] w-auto shrink-0 dark:hidden" />
-              <img src="/icon-white.png" alt="" className="h-[48px] w-auto shrink-0 hidden dark:block" />
-              <ElectracomLogo size="lg" />
-            </div>
+            <ElectracomLogo size="lg" />
           </div>
 
           <div className="card p-6">

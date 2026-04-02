@@ -4,19 +4,18 @@ import { motion } from 'framer-motion'
 
 export interface TestResultItem {
   id: string
-  test_number: string
+  test_id: string
   test_name: string
   tier: 'automatic' | 'guided_manual' | 'auto_na'
   verdict: string | null
-  status?: string
-  tool_used?: string | null
-  essential_pass?: boolean
+  tool?: string | null
+  is_essential?: boolean
 }
 
 interface TestSidebarProps {
   results: TestResultItem[]
   selectedTestId: string | null
-  runningTestNumber: string | null
+  runningTestId: string | null
   onSelectTest: (id: string) => void
   className?: string
 }
@@ -55,7 +54,7 @@ function getStatusDisplay(result: TestResultItem, isRunning: boolean) {
 export default function TestSidebar({
   results,
   selectedTestId,
-  runningTestNumber,
+  runningTestId,
   onSelectTest,
   className = '',
 }: TestSidebarProps) {
@@ -80,9 +79,9 @@ export default function TestSidebar({
     const q = searchQuery.toLowerCase()
     return tests.filter(
       (t) =>
-        t.test_number.toLowerCase().includes(q) ||
+        t.test_id.toLowerCase().includes(q) ||
         t.test_name.toLowerCase().includes(q) ||
-        (t.tool_used && t.tool_used.toLowerCase().includes(q))
+        (t.tool && t.tool.toLowerCase().includes(q))
     )
   }
 
@@ -97,7 +96,7 @@ export default function TestSidebar({
     if (runningItemRef.current && scrollContainerRef.current) {
       runningItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
-  }, [runningTestNumber])
+  }, [runningTestId])
 
   const handleKeyNav = useCallback(
     (e: KeyboardEvent) => {
@@ -157,10 +156,10 @@ export default function TestSidebar({
           {filteredAuto.map((t) => (
             <SidebarItem
               key={t.id}
-              ref={t.test_number === runningTestNumber ? runningItemRef : undefined}
+              ref={t.test_id === runningTestId ? runningItemRef : undefined}
               result={t}
               isSelected={t.id === selectedTestId}
-              isRunning={t.test_number === runningTestNumber}
+              isRunning={t.test_id === runningTestId}
               onClick={() => onSelectTest(t.id)}
             />
           ))}
@@ -169,10 +168,10 @@ export default function TestSidebar({
           {filteredManual.map((t) => (
             <SidebarItem
               key={t.id}
-              ref={t.test_number === runningTestNumber ? runningItemRef : undefined}
+              ref={t.test_id === runningTestId ? runningItemRef : undefined}
               result={t}
               isSelected={t.id === selectedTestId}
-              isRunning={t.test_number === runningTestNumber}
+              isRunning={t.test_id === runningTestId}
               onClick={() => onSelectTest(t.id)}
             />
           ))}
@@ -233,7 +232,7 @@ const SidebarItem = forwardRef<HTMLButtonElement, {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-mono text-zinc-400 dark:text-slate-500 flex-shrink-0">{result.test_number}</span>
+          <span className="text-[11px] font-mono text-zinc-400 dark:text-slate-500 flex-shrink-0">{result.test_id}</span>
           <span className={`text-xs truncate ${isSelected ? 'font-medium text-brand-700 dark:text-brand-300' : ''}`}>
             {result.test_name}
           </span>
@@ -250,7 +249,7 @@ const SidebarItem = forwardRef<HTMLButtonElement, {
         )}
       </div>
 
-      {result.essential_pass && (
+      {result.is_essential && (
         <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-red-400" title="Essential pass" />
       )}
     </button>

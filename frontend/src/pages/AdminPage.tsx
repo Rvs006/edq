@@ -4,6 +4,7 @@ import { adminApi } from '@/lib/api'
 import type { UserProfile } from '@/lib/types'
 import { Users, Server, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('users')
@@ -152,6 +153,7 @@ function UsersTab() {
 }
 
 function SystemTab() {
+  const { frontendHealthy } = useOnlineStatus()
   const { data: info, isLoading } = useQuery({
     queryKey: ['system-info'],
     queryFn: () => adminApi.systemInfo().then(r => r.data),
@@ -167,42 +169,60 @@ function SystemTab() {
 
   const systemInfo = info || {}
   const tools = systemInfo.tools || {}
+  const hasTool = (key: string) => Boolean(tools[key] && tools[key] !== 'unavailable')
   const sections = [
+    {
+      title: 'Services',
+      items: [
+        ['Frontend UI', frontendHealthy ? 'Loaded' : 'Unavailable'],
+        ['Backend API', systemInfo.api_status || 'Unavailable'],
+        ['Database', systemInfo.database || 'Unavailable'],
+        ['Tools Sidecar', systemInfo.tools_sidecar_status || 'Unavailable'],
+      ],
+    },
     {
       title: 'Application',
       items: [
-        ['Version', systemInfo.version || '1.0.0'],
-        ['Database', systemInfo.database || 'SQLite'],
-        ['API Status', systemInfo.api_status || 'Connected'],
+        ['Version', systemInfo.version || systemInfo.app_version || '1.0.0'],
+        ['Overall Status', systemInfo.status || 'unknown'],
+        ['AI Features', systemInfo.ai_enabled ? 'Enabled' : 'Disabled'],
       ],
     },
     {
       title: 'Security Tools',
       items: [
-        ['Nmap', tools.nmap ? 'Available' : 'Not Found'],
-        ['testssl.sh', tools.testssl ? 'Available' : 'Not Found'],
-        ['ssh-audit', tools.ssh_audit ? 'Available' : 'Not Found'],
-        ['Hydra', tools.hydra ? 'Available' : 'Not Found'],
-        ['Nikto', tools.nikto ? 'Available' : 'Not Found'],
+        ['Nmap', hasTool('nmap') ? 'Available' : 'Not Found'],
+        ['testssl.sh', hasTool('testssl') ? 'Available' : 'Not Found'],
+        ['ssh-audit', hasTool('ssh_audit') ? 'Available' : 'Not Found'],
+        ['Hydra', hasTool('hydra') ? 'Available' : 'Not Found'],
+        ['Nikto', hasTool('nikto') ? 'Available' : 'Not Found'],
+        ['snmpwalk', hasTool('snmpwalk') ? 'Available' : 'Not Found'],
       ],
     },
   ]
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-      {sections.map(section => (
-        <div key={section.title} className="card p-5">
-          <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-4">{section.title}</h3>
-          <dl className="space-y-3">
-            {section.items.map(([label, value]) => (
-              <div key={label} className="flex justify-between text-sm">
-                <dt className="text-zinc-500 dark:text-slate-400">{label}</dt>
-                <dd className="text-zinc-900 dark:text-slate-100 font-medium">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      ))}
+    <div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        {sections.map(section => (
+          <div key={section.title} className="card p-5">
+            <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-4">{section.title}</h3>
+            <dl className="space-y-3">
+              {section.items.map(([label, value]) => (
+                <div key={label} className="flex justify-between text-sm">
+                  <dt className="text-zinc-500 dark:text-slate-400">{label}</dt>
+                  <dd className="text-zinc-900 dark:text-slate-100 font-medium">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+      </div>
+      {systemInfo.checked_at && (
+        <p className="text-[11px] text-zinc-400 dark:text-slate-500 mt-3">
+          Last checked: {new Date(systemInfo.checked_at).toLocaleTimeString()}
+        </p>
+      )}
     </div>
   )
 }

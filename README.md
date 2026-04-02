@@ -90,12 +90,14 @@ Each manual test presents single-click verdict buttons (Pass / Fail / Info / N/A
 
 Monitors device connectivity in real time during testing. If the Ethernet cable is accidentally disconnected or the device reboots mid-test:
 
-1. **Detects loss** after 3 consecutive ping failures
-2. **Pauses** all running tests immediately
-3. **Alerts** the engineer via a real-time WebSocket notification in the UI
-4. **Retries** connectivity every 30 seconds
-5. **Auto-resumes** testing when the connection returns (with a 10-second stability wait)
-6. **Escalates** after 5 minutes of no connectivity — marks the test run as `paused_cable`
+1. **Checks connectivity before automated tests begin** and holds the run in `paused_cable` if the device is not reachable yet
+2. **Detects loss** after repeated reachability failures while tests are running
+3. **Pauses** all running tests immediately
+4. **Stops active scans** for that device so the interrupted test can retry cleanly later
+5. **Alerts** the engineer via a real-time WebSocket notification in the UI
+6. **Retries** connectivity every 30 seconds
+7. **Auto-resumes** testing when the connection returns (with a 10-second stability wait)
+8. **Escalates** after 5 minutes of no connectivity — marks the test run as `paused_cable`
 
 ### 🖥️ Desktop Application
 
@@ -198,6 +200,20 @@ Open [http://localhost](http://localhost) in your browser.
 ```bash
 docker compose down
 ```
+
+### Update Safely
+
+Engineers should stay on the official `main` branch and update from there.
+
+```bash
+git pull --ff-only origin main
+docker compose up --build -d
+```
+
+Or use the helper scripts in the repo root:
+
+- Windows: `update.bat`
+- macOS / Linux: `./update.sh`
 
 ### Troubleshooting
 

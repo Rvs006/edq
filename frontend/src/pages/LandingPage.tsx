@@ -9,8 +9,8 @@ import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 const capabilities = [
   {
     icon: Network,
-    title: 'Network Discovery',
-    description: 'Scan subnets to discover devices. Auto-detects IP, MAC, OUI vendor, open ports, and OS fingerprint via nmap.',
+    title: 'Device Discovery',
+    description: 'Find one device by IP or survey a subnet. Auto-detects IP, MAC, vendor, open ports, and OS fingerprint via nmap.',
   },
   {
     icon: ScanLine,
@@ -49,17 +49,12 @@ export default function LandingPage() {
       <div className="fixed top-0 left-0 right-0 z-[60] h-[3px] rainbow-bar" />
 
       <header className="sticky top-[3px] z-30 bg-white/80 dark:bg-dark-surface/80 backdrop-blur-md border-b border-zinc-200 dark:border-slate-700/50">
-        <div className="max-w-5xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <img src="/icon.png" alt="" className="h-8 w-auto shrink-0 dark:hidden" />
-            <img src="/icon-white.png" alt="" className="h-8 w-auto shrink-0 hidden dark:block" />
-            <div className="flex flex-col">
-              <img src="/electracom-logo.png" alt="Electracom" className="h-[28px] object-contain dark:hidden" />
-              <img src="/electracom-logo.png" alt="Electracom" className="h-[28px] object-contain hidden dark:block" style={{ filter: 'brightness(2) saturate(1.3)' }} />
-              <span className="text-[8px] font-medium tracking-wide text-zinc-400 dark:text-slate-500">Device Qualifier</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+        <div className="max-w-5xl mx-auto grid grid-cols-[1fr_auto_1fr] items-center min-h-[84px] px-4 sm:px-6">
+          <div />
+          <Link to="/" className="justify-self-center py-3">
+            <ElectracomLogo size="md" />
+          </Link>
+          <div className="justify-self-end flex items-center gap-2">
             <ThemeToggle />
             <Link to="/login" className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
               Sign In
@@ -112,7 +107,7 @@ export default function LandingPage() {
                 <ol className="space-y-3 text-sm text-zinc-600 dark:text-slate-400">
                   <li className="flex items-start gap-2">
                     <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
-                    <span><strong className="text-zinc-900 dark:text-slate-200">Register or discover device</strong> — add manually or scan a subnet</span>
+                    <span><strong className="text-zinc-900 dark:text-slate-200">Register or discover device</strong> — add a known IP, or use bulk discovery when the address is unknown</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
@@ -156,12 +151,8 @@ export default function LandingPage() {
       </main>
 
       <footer className="bg-white dark:bg-dark-card border-t border-zinc-200 dark:border-slate-700/50">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="" className="h-5 w-auto shrink-0 dark:hidden" />
-            <img src="/icon-white.png" alt="" className="h-5 w-auto shrink-0 hidden dark:block" />
-            <ElectracomLogo size="sm" />
-          </div>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 flex flex-col items-center gap-3 text-center">
+          <ElectracomLogo size="sm" />
           <p className="text-[11px] text-zinc-400 dark:text-slate-500">
             Electracom Projects Ltd &mdash; Internal Use Only
           </p>

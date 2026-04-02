@@ -1,12 +1,12 @@
 import { Download } from 'lucide-react'
 
 interface CsvRow {
-  test_number: string
+  test_id: string
   test_name: string
   tier: string
   verdict: string | null
-  tool_used?: string | null
-  essential_pass?: boolean
+  tool?: string | null
+  is_essential?: boolean
 }
 
 interface CsvExportButtonProps {
@@ -19,12 +19,12 @@ export default function CsvExportButton({ results, deviceName, className = '' }:
   const handleExport = () => {
     const headers = ['Test Number', 'Test Name', 'Tier', 'Verdict', 'Tool Used', 'Essential']
     const rows = results.map((r) => [
-      r.test_number,
+      r.test_id,
       `"${(r.test_name || '').replace(/"/g, '""')}"`,
       r.tier,
       r.verdict || 'pending',
-      r.tool_used || '',
-      r.essential_pass ? 'Yes' : 'No',
+      r.tool || '',
+      r.is_essential ? 'Yes' : 'No',
     ])
 
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')

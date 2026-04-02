@@ -74,6 +74,21 @@ docker logs edq-frontend --tail 50
 docker logs edq-tools --tail 50
 ```
 
+### Recommended Update Flow
+
+Keep engineer installs on the official `main` branch only.
+
+```bash
+git switch main
+git pull --ff-only origin main
+docker compose up --build -d
+```
+
+Helper scripts are included in the repo root:
+
+- Windows: `update.bat`
+- macOS / Linux: `./update.sh`
+
 ### Authorize Scan Networks (Required First Step)
 
 Before anyone can run network scans, an admin must authorize which subnets EDQ is allowed to scan.
@@ -97,7 +112,8 @@ Common ranges:
 2. Click **Add Device** — enter IP address, hostname, and category
 3. Go to **Test Runs** → **New Test Run**
 4. Select device, choose test template, and start
-5. Monitor progress via the live progress bar
+5. If the device is not reachable yet, the run will pause in `paused_cable` instead of starting blindly
+6. Monitor progress via the live progress bar; if the cable is disconnected mid-run, EDQ pauses and retries automatically after reconnection
 
 ### Generating Reports
 

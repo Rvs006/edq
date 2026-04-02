@@ -20,6 +20,7 @@ from app.schemas.auth import (
 )
 from app.schemas.user import UserResponse
 from app.security.auth import (
+    REFRESH_COOKIE,
     clear_auth_cookies,
     create_access_token,
     create_refresh_token,
@@ -132,7 +133,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     await store_refresh_token(db, user.id, refresh_token, expires_at)
 
-    set_auth_cookies(response, access_token, csrf_token)
+    set_auth_cookies(response, access_token, csrf_token, refresh_token)
     await log_security_event(db, "auth.login", user_id=user.id,
                              details={"username": user.username}, request=request)
 
@@ -165,14 +166,24 @@ async def logout(
 
 
 @router.post("/refresh")
-async def refresh(data: RefreshRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+async def refresh(
+    request: Request,
+    response: Response,
+    data: RefreshRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
     check_rate_limit(request, max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE, window_seconds=60, action="refresh")
+    refresh_token_input = (
+        data.refresh_token if data and data.refresh_token else request.cookies.get(REFRESH_COOKIE)
+    )
+    if not refresh_token_input:
+        raise HTTPException(status_code=401, detail="Refresh token missing")
 
     # Verify JWT signature/expiry first
-    verify_token(data.refresh_token, token_type="refresh")
+    verify_token(refresh_token_input, token_type="refresh")
 
     # Validate against DB — revokes the old token (single-use rotation)
-    user_id = await validate_and_rotate_refresh_token(db, data.refresh_token)
+    user_id = await validate_and_rotate_refresh_token(db, refresh_token_input)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -187,7 +198,7 @@ async def refresh(data: RefreshRequest, request: Request, response: Response, db
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     await store_refresh_token(db, user.id, refresh_token, expires_at)
 
-    set_auth_cookies(response, access_token, csrf_token)
+    set_auth_cookies(response, access_token, csrf_token, refresh_token)
     await log_security_event(db, "auth.token_refresh", user_id=user.id, request=request)
 
     return {

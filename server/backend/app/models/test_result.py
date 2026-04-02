@@ -44,6 +44,11 @@ class TestResult(Base):
     raw_output = Column(Text, nullable=True)  # Raw tool output
     parsed_data = Column(JSON, nullable=True)  # Structured parsed results
     findings = Column(JSON, nullable=True)  # Detailed findings array
+    override_reason = Column(Text, nullable=True)
+    override_verdict = Column(String(32), nullable=True)
+    overridden_by_user_id = Column(String(36), nullable=True)
+    overridden_by_username = Column(String(64), nullable=True)
+    overridden_at = Column(DateTime, nullable=True)
     evidence_files = Column(JSON, nullable=True)  # Attachment IDs
     compliance_map = Column(JSON, nullable=True)  # ["ISO 27001 A.x.y", "SOC2 CCx.x"]
     duration_seconds = Column(Float, nullable=True)
@@ -54,3 +59,7 @@ class TestResult(Base):
 
     # Relationships
     test_run = relationship("TestRun", back_populates="results")
+
+    @property
+    def is_overridden(self) -> bool:
+        return bool(self.overridden_at or self.override_reason or self.override_verdict)

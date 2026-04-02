@@ -96,7 +96,8 @@ After installation, verify these flows work:
 2. Ensure the laptop and device are on the **same subnet** (e.g. 192.168.1.x)
 3. In EDQ, create a new device with the device's IP address
 4. Start a test run — automated scans will execute via the tools sidecar container
-5. The **Wobbly Cable Handler** will detect if the cable is disconnected and pause testing
+5. If the device is not connected yet, EDQ will **pause before tests begin** and wait for the cable or device to come back
+6. If the Cat6 cable comes loose during testing, the **Wobbly Cable Handler** will pause the run automatically and resume when the device is reachable again
 
 ---
 
@@ -139,8 +140,21 @@ docker compose logs -f frontend
 
 ### Update to Latest Version
 ```powershell
-git pull
+git switch main
+git pull --ff-only origin main
 docker compose up --build -d
+```
+
+Or on Windows:
+
+```powershell
+.\update.bat
+```
+
+On macOS / Linux:
+
+```bash
+./update.sh
 ```
 
 ### Reset Database

@@ -14,7 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import async_session
-from app.models.test_run import TestRun, TestRunStatus
+from app.models.test_run import (
+    TestRun,
+    TestRunStatus,
+    is_paused_test_run_status,
+    normalize_test_run_status,
+)
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.device import Device
 from app.models.test_template import TestTemplate
@@ -26,9 +31,11 @@ from app.services.parsers.testssl_parser import testssl_parser
 from app.services.parsers.ssh_audit_parser import ssh_audit_parser
 from app.services.parsers.hydra_parser import hydra_parser
 from app.services.evaluation import evaluate_result
+from app.services.connectivity_probe import extract_probe_ports
 from app.services.wobbly_cable import WobblyCableHandler
 from app.services.test_library import get_test_by_id
 from app.services.device_fingerprinter import fingerprinter, FingerprintResult
+from app.services.discovery_service import guess_manufacturer, guess_model
 from app.routes.websocket_routes import manager
 
 logger = logging.getLogger("edq.test_engine")
@@ -85,21 +92,41 @@ class TestEngine:
 
             whitelist_entries = await self._load_whitelist(db, template.whitelist_id)
 
-            run.status = TestRunStatus.RUNNING
-            run.started_at = datetime.now(timezone.utc)
             existing_meta = run.run_metadata or {}
             if isinstance(existing_meta, dict):
                 existing_meta["tool_versions"] = tool_versions
             run.run_metadata = existing_meta
             await db.commit()
 
-        await manager.broadcast(f"test-run:{test_run_id}", {
-            "type": "run_started",
-            "data": {"run_id": test_run_id, "status": "running"},
-        })
-
-        cable_handler = WobblyCableHandler(device.ip_address, test_run_id, manager)
+        probe_ports = extract_probe_ports(device.open_ports)
+        cable_handler = WobblyCableHandler(
+            device.ip_address,
+            test_run_id,
+            manager,
+            probe_ports=probe_ports,
+        )
+        initial_reachable = await cable_handler.check_connectivity()
         cable_task = asyncio.create_task(cable_handler.monitor())
+        run_started_broadcasted = initial_reachable
+
+        if initial_reachable:
+            async with async_session() as db:
+                run = await db.get(TestRun, test_run_id)
+                if run:
+                    run.status = TestRunStatus.RUNNING
+                    if not run.started_at:
+                        run.started_at = datetime.now(timezone.utc)
+                    await db.commit()
+
+            await manager.broadcast(f"test-run:{test_run_id}", {
+                "type": "run_started",
+                "data": {"run_id": test_run_id, "status": "running"},
+            })
+        else:
+            await cable_handler.pause_for_disconnect(
+                message="Device not reachable - waiting for connection before tests start",
+                kill_tools=False,
+            )
 
         try:
             run_cache_key = test_run_id
@@ -168,6 +195,7 @@ class TestEngine:
                         "data": {
                             "test_id": test_result.test_id,
                             "test_name": test_result.test_name,
+                            "status": "completed",
                             "verdict": "na",
                             "comment": reason,
                             "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
@@ -184,20 +212,18 @@ class TestEngine:
 
                 await self._wait_while_paused(test_run_id)
 
+                if not run_started_broadcasted:
+                    run_started_broadcasted = True
+                    await manager.broadcast(f"test-run:{test_run_id}", {
+                        "type": "run_started",
+                        "data": {"run_id": test_run_id, "status": "running"},
+                    })
+
                 effective_tier = test_def["tier"]
                 if plan_configs:
                     cfg = plan_configs.get(test_result.test_id)
                     if cfg and cfg.get("tier_override"):
                         effective_tier = cfg["tier_override"]
-
-                await manager.broadcast(f"test-run:{test_run_id}", {
-                    "type": "test_start",
-                    "data": {
-                        "test_id": test_result.test_id,
-                        "test_name": test_result.test_name,
-                        "progress_pct": round((i / total) * 100, 1) if total else 0,
-                    },
-                })
 
                 if effective_tier == "guided_manual":
                     async with async_session() as db:
@@ -211,6 +237,7 @@ class TestEngine:
                         "data": {
                             "test_id": test_result.test_id,
                             "test_name": test_result.test_name,
+                            "status": TestRunStatus.AWAITING_MANUAL.value,
                             "verdict": "pending",
                             "tier": "guided_manual",
                             "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
@@ -218,9 +245,31 @@ class TestEngine:
                     })
                     continue
 
-                verdict, comment, parsed, raw_out, duration = await self._run_single_test(
-                    test_def, device.ip_address, test_run_id, whitelist_entries
-                )
+                while True:
+                    await self._wait_while_paused(test_run_id)
+
+                    await manager.broadcast(f"test-run:{test_run_id}", {
+                        "type": "test_start",
+                        "data": {
+                            "test_id": test_result.test_id,
+                            "test_name": test_result.test_name,
+                            "status": "running",
+                            "progress_pct": round((i / total) * 100, 1) if total else 0,
+                        },
+                    })
+
+                    verdict, comment, parsed, raw_out, duration = await self._run_single_test(
+                        test_def, device.ip_address, test_run_id, whitelist_entries
+                    )
+
+                    if not await self._is_run_paused_for_cable(test_run_id):
+                        break
+
+                    logger.info(
+                        "Retrying test %s for run %s after cable reconnection",
+                        test_result.test_id,
+                        test_run_id,
+                    )
 
                 async with async_session() as db:
                     result_row = await db.get(TestResult, test_result.id)
@@ -251,6 +300,7 @@ class TestEngine:
                     "data": {
                         "test_id": test_result.test_id,
                         "test_name": test_result.test_name,
+                        "status": "completed",
                         "verdict": verdict,
                         "comment": comment,
                         "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
@@ -335,13 +385,24 @@ class TestEngine:
         elif test_id == "U08":
             # Service version detection — extract model/firmware from banners
             ports = parsed.get("open_ports", [])
+            guessed_manufacturer = guess_manufacturer(device_row.oui_vendor, ports)
+            guessed_model = guess_model(ports, device_row.os_fingerprint)
+
+            if guessed_manufacturer and not device_row.manufacturer:
+                device_row.manufacturer = guessed_manufacturer
+                changed = True
+
+            if guessed_model and not device_row.model:
+                device_row.model = guessed_model
+                changed = True
+
             for p in ports:
                 service = (p.get("service") or "").lower()
                 version = (p.get("version") or "").strip()
                 product = (p.get("product") or "").strip()
 
                 # Use HTTP server header as model hint
-                if service in ("http", "https") and version and not device_row.model:
+                if service in ("http", "https") and version and not device_row.model and not guessed_model:
                     device_row.model = version
                     changed = True
 
@@ -475,7 +536,7 @@ class TestEngine:
         async def on_line(line: str):
             await manager.broadcast(f"test-run:{run_id}", {
                 "type": "stdout_line",
-                "data": {"test_number": test_id, "stdout_line": line},
+                "data": {"test_id": test_id, "stdout_line": line},
             })
         return on_line
 
@@ -831,9 +892,16 @@ class TestEngine:
         while True:
             async with async_session() as db:
                 run = await db.get(TestRun, run_id)
-                if run is None or run.status != TestRunStatus.PAUSED:
+                if run is None or not is_paused_test_run_status(run.status):
                     return
             await asyncio.sleep(2)
+
+    async def _is_run_paused_for_cable(self, run_id: str) -> bool:
+        async with async_session() as db:
+            run = await db.get(TestRun, run_id)
+            if run is None:
+                return False
+            return normalize_test_run_status(run.status) == TestRunStatus.PAUSED_CABLE.value
 
     async def _finalize_run(self, run_id: str) -> None:
         """Calculate overall verdict and update the test run."""
@@ -871,6 +939,7 @@ class TestEngine:
             if pending_manual > 0:
                 run.status = TestRunStatus.AWAITING_MANUAL
                 run.overall_verdict = None
+                run.completed_at = None
             else:
                 run.status = TestRunStatus.COMPLETED
                 run.completed_at = datetime.now(timezone.utc)
@@ -890,7 +959,7 @@ class TestEngine:
             "type": "run_complete",
             "data": {
                 "run_id": run_id,
-                "status": run.status.value if hasattr(run.status, "value") else str(run.status),
+                "status": normalize_test_run_status(run.status),
                 "overall_verdict": run.overall_verdict,
                 "passed": passed,
                 "failed": failed,
@@ -963,7 +1032,7 @@ class TestEngine:
 
         await manager.broadcast(f"test-run:{run.id if run else 'unknown'}", {
             "type": "run_error",
-            "data": {"message": message},
+            "data": {"message": message, "status": TestRunStatus.FAILED.value},
         })
 
 
@@ -989,7 +1058,11 @@ async def recover_orphaned_runs() -> None:
 
     async with async_session() as db:
         result = await db.execute(
-            select(TestRun).where(TestRun.status == TestRunStatus.RUNNING)
+            select(TestRun).where(TestRun.status.in_([
+                TestRunStatus.SELECTING_INTERFACE,
+                TestRunStatus.SYNCING,
+                TestRunStatus.RUNNING,
+            ]))
         )
         orphans = result.scalars().all()
         for run in orphans:

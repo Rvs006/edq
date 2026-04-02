@@ -20,6 +20,7 @@ from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit
+from app.services.discovery_service import build_device_display_name
 from app.services.tools_client import tools_client
 from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
@@ -484,9 +485,16 @@ async def get_scan_results(
             "run_id": run.id,
             "device_ip": device.ip_address if device else "unknown",
             "device_id": run.device_id,
+            "device_name": build_device_display_name(
+                device.ip_address if device else None,
+                device.hostname if device else None,
+                device.manufacturer if device else None,
+                device.model if device else None,
+            ) if device else None,
             "device_category": device.category.value if device and device.category and hasattr(device.category, "value") else str(device.category) if device and device.category else None,
             "vendor": device.manufacturer or device.oui_vendor if device else None,
             "hostname": device.hostname if device else None,
+            "model": device.model if device else None,
             "status": run.status.value if hasattr(run.status, "value") else str(run.status),
             "progress_pct": run.progress_pct,
             "total_tests": run.total_tests,

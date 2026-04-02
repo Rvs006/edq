@@ -36,14 +36,14 @@ export default function VerdictBadge({ verdict, size = 'sm', showIcon = false }:
 export function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     pending: 'badge-pending',
-    discovering: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800',
+    selecting_interface: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800',
+    syncing: 'bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-800',
     running: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
     paused_manual: 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800',
     paused_cable: 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800',
+    awaiting_manual: 'bg-yellow-50 text-yellow-700 border border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-400 dark:border-yellow-800',
     awaiting_review: 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800',
-    complete: 'badge-pass',
     completed: 'badge-pass',
-    error: 'badge-fail',
     failed: 'badge-fail',
     cancelled: 'badge-na',
   }

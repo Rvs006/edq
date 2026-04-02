@@ -14,6 +14,7 @@ from app.models.device import Device
 from app.models.test_run import TestRun
 from app.models.agent import Agent
 from app.security.auth import require_role
+from app.services.system_status import get_system_status
 from app.utils.audit import log_security_event
 
 logger = logging.getLogger("edq.routes.admin")
@@ -43,11 +44,19 @@ async def admin_dashboard(
 @router.get("/system-info")
 async def system_info(_: User = Depends(require_role(["admin"]))):
     """Get system information."""
+    status = await get_system_status(include_tool_versions=True)
     return {
         "app_name": settings.APP_NAME,
+        "version": settings.APP_VERSION,
         "app_version": settings.APP_VERSION,
         "debug": settings.DEBUG,
         "ai_enabled": bool(settings.AI_API_KEY),
+        "status": status["status"],
+        "checked_at": status["checked_at"],
+        "api_status": "Connected" if status["backend"]["status"] == "ok" else "Unavailable",
+        "database": "Connected" if status["database"]["status"] == "ok" else "Unavailable",
+        "tools_sidecar_status": "Connected" if status["tools_sidecar"]["status"] == "ok" else "Unavailable",
+        "tools": status.get("tools", {}),
     }
 
 

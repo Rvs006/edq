@@ -171,6 +171,29 @@ async def test_refresh_token_rotation(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_refresh_token_cookie_rotation(client: AsyncClient):
+    """The frontend cookie-based refresh path should rotate without a JSON body."""
+    await client.post("/api/auth/register", json={
+        "email": "cookie-refresh@example.com",
+        "username": "cookierefreshuser",
+        "password": "TestPass1",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "cookierefreshuser",
+        "password": "TestPass1",
+    })
+    assert login_resp.status_code == 200
+    original_cookie = client.cookies.get("edq_refresh")
+    assert original_cookie
+
+    refresh_resp = await client.post("/api/auth/refresh")
+    assert refresh_resp.status_code == 200
+    assert refresh_resp.json()["refresh_token"]
+    assert client.cookies.get("edq_refresh")
+    assert client.cookies.get("edq_refresh") != original_cookie
+
+
+@pytest.mark.asyncio
 async def test_refresh_token_reuse_revokes_family(client: AsyncClient):
     """Reusing a revoked refresh token should revoke ALL tokens for that user."""
     await client.post("/api/auth/register", json={

@@ -1,36 +1,15 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-export interface TestProgressData {
-  test_number?: string
-  test_name?: string
-  status?: string
-  verdict?: string
-  progress_pct?: number
-  stdout_line?: string
-  elapsed_seconds?: number
-  parsed_findings?: Record<string, unknown> | unknown[]
-  auto_comment?: string
-  error?: string
-}
-
-export interface TestProgressMessage {
-  type:
-    | 'test_start'
-    | 'test_complete'
-    | 'run_complete'
-    | 'run_error'
-    | 'cable_disconnected'
-    | 'cable_reconnected'
-    | 'stdout_line'
-    | 'test_progress'
-  data: TestProgressData
-}
+import {
+  normalizeTestRunProgressMessage,
+  type TestRunProgressMessage,
+} from '@/lib/testContracts'
 
 type CableStatus = 'connected' | 'disconnected' | 'reconnecting'
 
 export function useTestRunWebSocket(runId: string | undefined) {
-  const [messages, setMessages] = useState<TestProgressMessage[]>([])
-  const [lastProgress, setLastProgress] = useState<TestProgressMessage | null>(null)
+  const [messages, setMessages] = useState<TestRunProgressMessage[]>([])
+  const [lastProgress, setLastProgress] = useState<TestRunProgressMessage | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [cableStatus, setCableStatus] = useState<CableStatus>('connected')
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string>>({})
@@ -56,29 +35,36 @@ export function useTestRunWebSocket(runId: string | undefined) {
       }
 
       ws.onmessage = (event) => {
+        let msg: TestRunProgressMessage | null = null
         try {
-          const msg: TestProgressMessage = JSON.parse(event.data)
-          setMessages((prev) => [...prev, msg])
-          setLastProgress(msg)
-
-          if (msg.type === 'stdout_line' && msg.data.test_number) {
-            setTerminalOutput((prev) => ({
-              ...prev,
-              [msg.data.test_number!]:
-                (prev[msg.data.test_number!] || '') + (msg.data.stdout_line || '') + '\n',
-            }))
-          }
-
-          if (msg.type === 'cable_disconnected') {
-            setCableStatus('disconnected')
-          }
-
-          if (msg.type === 'cable_reconnected') {
-            setCableStatus('reconnecting')
-            setTimeout(() => setCableStatus('connected'), 5000)
-          }
+          msg = normalizeTestRunProgressMessage(JSON.parse(event.data))
         } catch {
-          // ignore malformed messages
+          msg = null
+        }
+        if (!msg) return
+
+        setMessages((prev) => [...prev, msg])
+        setLastProgress(msg)
+
+        if (msg.type === 'stdout_line' && msg.data.test_id) {
+          setTerminalOutput((prev) => ({
+            ...prev,
+            [msg.data.test_id!]:
+              (prev[msg.data.test_id!] || '') + (msg.data.stdout_line || '') + '\n',
+          }))
+        }
+
+        if (msg.type === 'cable_disconnected') {
+          setCableStatus('disconnected')
+        }
+
+        if (msg.type === 'cable_timeout') {
+          setCableStatus('disconnected')
+        }
+
+        if (msg.type === 'cable_reconnected') {
+          setCableStatus('reconnecting')
+          setTimeout(() => setCableStatus('connected'), 5000)
         }
       }
 
@@ -89,7 +75,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
         if (reconnectAttempts.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000)
           reconnectTimer.current = setTimeout(() => {
-            reconnectAttempts.current++
+            reconnectAttempts.current += 1
             connect()
           }, delay)
         }
@@ -99,7 +85,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
         ws.close()
       }
     } catch {
-      // connection failed
+      // Connection failed.
     }
   }, [runId])
 
@@ -114,10 +100,10 @@ export function useTestRunWebSocket(runId: string | undefined) {
     }
   }, [connect])
 
-  const clearTerminalOutput = useCallback((testNumber: string) => {
+  const clearTerminalOutput = useCallback((testId: string) => {
     setTerminalOutput((prev) => {
       const next = { ...prev }
-      delete next[testNumber]
+      delete next[testId]
       return next
     })
   }, [])

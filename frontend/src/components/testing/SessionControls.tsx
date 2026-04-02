@@ -39,10 +39,10 @@ export default function SessionControls({
   completedCount = 0,
   totalCount = 0,
 }: SessionControlsProps) {
-  const isRunning = runStatus === 'running'
+  const isRunning = runStatus === 'running' || runStatus === 'selecting_interface' || runStatus === 'syncing'
   const isPaused = runStatus === 'paused_manual' || runStatus === 'paused_cable'
   const isPending = runStatus === 'pending'
-  const isComplete = runStatus === 'complete' || runStatus === 'completed'
+  const isComplete = runStatus === 'completed'
   const isAwaitingReview = runStatus === 'awaiting_review'
   const isAwaitingManual = runStatus === 'awaiting_manual'
 

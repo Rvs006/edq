@@ -1,19 +1,121 @@
-"""Test Result routes — per-test verdicts with findings."""
+"""Test Result routes with run-aware authorization and reviewer overrides."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from datetime import datetime, timezone
 from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.database import get_db
-from app.models.test_result import TestResult
-from app.models.user import User
-from app.schemas.test import TestResultCreate, TestResultUpdate, TestResultResponse
-from app.security.auth import get_current_active_user
-from app.utils.sanitize import sanitize_dict
+from app.models.test_result import TestResult, TestTier, TestVerdict
+from app.models.test_run import TestRun, TestRunStatus, normalize_test_run_status
+from app.models.user import User, UserRole
+from app.routes.test_runs import _get_authorized_test_run
+from app.schemas.test import (
+    TestResultOverrideRequest,
+    TestResultResponse,
+    TestResultUpdate,
+)
+from app.security.auth import get_current_active_user, require_role
 from app.utils.audit import log_action
+from app.utils.sanitize import sanitize_dict
 
 router = APIRouter()
+
+
+async def _get_authorized_result(
+    result_id: str,
+    user: User,
+    db: AsyncSession,
+) -> tuple[TestResult, TestRun]:
+    query = (
+        select(TestResult, TestRun)
+        .join(TestRun, TestRun.id == TestResult.test_run_id)
+        .where(TestResult.id == result_id)
+    )
+    result = await db.execute(query)
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Test result not found")
+
+    test_result, test_run = row
+    if user.role == UserRole.ENGINEER and test_run.engineer_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return test_result, test_run
+
+
+def _parse_verdict(value: str) -> TestVerdict:
+    try:
+        return TestVerdict(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Unsupported verdict '{value}'") from exc
+
+
+def _overall_verdict(passed: int, failed: int, advisory: int, essential_failed: bool) -> str | None:
+    if essential_failed or failed:
+        return "fail"
+    if advisory:
+        return "qualified_pass"
+    if passed:
+        return "pass"
+    return None
+
+
+async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
+    result = await db.execute(select(TestResult).where(TestResult.test_run_id == run.id))
+    rows = result.scalars().all()
+
+    passed = sum(1 for row in rows if row.verdict == TestVerdict.PASS)
+    failed = sum(1 for row in rows if row.verdict == TestVerdict.FAIL)
+    advisory = sum(1 for row in rows if row.verdict == TestVerdict.ADVISORY)
+    na = sum(1 for row in rows if row.verdict == TestVerdict.NA)
+    errors = sum(1 for row in rows if row.verdict == TestVerdict.ERROR)
+    pending_manual = sum(
+        1 for row in rows
+        if row.verdict == TestVerdict.PENDING and row.tier == TestTier.GUIDED_MANUAL
+    )
+    essential_failed = any(
+        row for row in rows
+        if row.verdict == TestVerdict.FAIL and row.is_essential == "yes"
+    )
+
+    run.passed_tests = passed
+    run.failed_tests = failed
+    run.advisory_tests = advisory
+    run.na_tests = na
+    run.completed_tests = passed + failed + advisory + na + errors
+    if run.total_tests:
+        run.progress_pct = round((run.completed_tests / run.total_tests) * 100, 1)
+
+    current_status = normalize_test_run_status(run.status)
+    active_statuses = {
+        TestRunStatus.PENDING.value,
+        TestRunStatus.SELECTING_INTERFACE.value,
+        TestRunStatus.SYNCING.value,
+        TestRunStatus.RUNNING.value,
+        TestRunStatus.PAUSED_MANUAL.value,
+        TestRunStatus.PAUSED_CABLE.value,
+        TestRunStatus.CANCELLED.value,
+        TestRunStatus.FAILED.value,
+    }
+    if current_status in active_statuses:
+        return
+
+    if pending_manual:
+        run.status = TestRunStatus.AWAITING_MANUAL
+        run.completed_at = None
+        run.overall_verdict = None
+        return
+
+    if current_status == TestRunStatus.AWAITING_REVIEW.value:
+        run.status = TestRunStatus.AWAITING_REVIEW
+    else:
+        run.status = TestRunStatus.COMPLETED
+
+    if run.completed_at is None:
+        run.completed_at = datetime.now(timezone.utc)
+    run.overall_verdict = _overall_verdict(passed, failed, advisory, essential_failed)
 
 
 @router.get("/", response_model=List[TestResultResponse])
@@ -24,15 +126,23 @@ async def list_results(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
     query = select(TestResult)
+
+    if user.role == UserRole.ENGINEER:
+        query = query.join(TestRun, TestRun.id == TestResult.test_run_id)
+        if test_run_id:
+            await _get_authorized_test_run(test_run_id, user, db)
+        query = query.where(TestRun.engineer_id == user.id)
+
     if test_run_id:
         query = query.where(TestResult.test_run_id == test_run_id)
     if verdict:
         query = query.where(TestResult.verdict == verdict)
     if tier:
         query = query.where(TestResult.tier == tier)
+
     result = await db.execute(query.order_by(TestResult.test_id).offset(skip).limit(limit))
     return result.scalars().all()
 
@@ -41,12 +151,9 @@ async def list_results(
 async def get_result(
     result_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestResult).where(TestResult.id == result_id))
-    test_result = result.scalar_one_or_none()
-    if not test_result:
-        raise HTTPException(status_code=404, detail="Test result not found")
+    test_result, _ = await _get_authorized_result(result_id, user, db)
     return test_result
 
 
@@ -58,13 +165,25 @@ async def update_result(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(TestResult).where(TestResult.id == result_id))
-    test_result = result.scalar_one_or_none()
-    if not test_result:
-        raise HTTPException(status_code=404, detail="Test result not found")
-    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["comment", "comment_override", "engineer_notes"])
+    test_result, test_run = await _get_authorized_result(result_id, user, db)
+    updates = sanitize_dict(
+        data.model_dump(exclude_unset=True),
+        ["comment", "comment_override", "engineer_notes"],
+    )
+
+    if user.role in {UserRole.ADMIN, UserRole.REVIEWER} and "verdict" in updates:
+        raise HTTPException(
+            status_code=400,
+            detail="Reviewers and admins must use the override endpoint to change verdicts",
+        )
+
     if "verdict" in updates:
-        test_result.verdict = updates["verdict"]
+        test_result.verdict = _parse_verdict(updates["verdict"])
+        if test_result.started_at is None:
+            test_result.started_at = datetime.now(timezone.utc)
+        test_result.completed_at = (
+            None if test_result.verdict == TestVerdict.PENDING else datetime.now(timezone.utc)
+        )
     if "comment" in updates:
         test_result.comment = updates["comment"]
     if "comment_override" in updates:
@@ -81,25 +200,57 @@ async def update_result(
         test_result.evidence_files = updates["evidence_files"]
     if "duration_seconds" in updates:
         test_result.duration_seconds = updates["duration_seconds"]
+
+    await _refresh_parent_run(db, test_run)
     await db.flush()
     await db.refresh(test_result)
     await log_action(db, user, "update", "test_result", result_id, {"fields": list(updates.keys())}, request)
     return test_result
 
 
-@router.post("/batch", response_model=List[TestResultResponse])
-async def batch_update_results(
-    updates: List[TestResultCreate],
+@router.post("/{result_id}/override", response_model=TestResultResponse)
+async def override_result(
+    result_id: str,
+    data: TestResultOverrideRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(require_role(["reviewer", "admin"])),
 ):
-    """Batch create/update test results (used by agents)."""
-    created = []
-    for data in updates:
-        result = TestResult(**data.model_dump())
-        db.add(result)
-        created.append(result)
+    test_result, test_run = await _get_authorized_result(result_id, user, db)
+
+    override_verdict = _parse_verdict(data.verdict)
+    now = datetime.now(timezone.utc)
+    sanitized = sanitize_dict(
+        {"comment": data.comment, "override_reason": data.override_reason},
+        ["comment", "override_reason"],
+    )
+
+    test_result.verdict = override_verdict
+    if "comment" in sanitized:
+        test_result.comment = sanitized["comment"]
+    test_result.override_reason = sanitized["override_reason"]
+    test_result.override_verdict = override_verdict.value
+    test_result.overridden_by_user_id = user.id
+    test_result.overridden_by_username = user.full_name or user.username
+    test_result.overridden_at = now
+    if test_result.started_at is None:
+        test_result.started_at = now
+    test_result.completed_at = now
+
+    await _refresh_parent_run(db, test_run)
     await db.flush()
-    for r in created:
-        await db.refresh(r)
-    return created
+    await db.refresh(test_result)
+    await log_action(
+        db,
+        user,
+        "override",
+        "test_result",
+        result_id,
+        {
+            "override_reason": test_result.override_reason,
+            "override_verdict": test_result.override_verdict,
+            "test_run_id": test_run.id,
+        },
+        request,
+    )
+    return test_result

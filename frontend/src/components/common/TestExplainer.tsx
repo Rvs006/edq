@@ -283,14 +283,14 @@ export default function TestExplainer({ testNumber, testName, description, passC
   if (!what && !pass) return null
 
   return (
-    <div className={`border border-zinc-200 rounded-lg overflow-hidden ${className}`}>
+    <div className={`border border-zinc-200 dark:border-slate-700/50 rounded-lg overflow-hidden ${className}`}>
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left bg-zinc-50 hover:bg-zinc-100 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left bg-zinc-50 dark:bg-slate-800 hover:bg-zinc-100 dark:hover:bg-slate-700 transition-colors"
       >
         <HelpCircle className="w-4 h-4 text-zinc-400 shrink-0" />
-        <span className="text-xs font-medium text-zinc-700 flex-1">
+        <span className="text-xs font-medium text-zinc-700 dark:text-slate-300 flex-1">
           What does this test do?
         </span>
         {expanded ? (
@@ -301,13 +301,13 @@ export default function TestExplainer({ testNumber, testName, description, passC
       </button>
 
       {expanded && (
-        <div className="p-3 space-y-3 text-xs bg-white">
+        <div className="p-3 space-y-3 text-xs bg-white dark:bg-slate-900/40">
           {what && (
             <div className="flex gap-2">
               <Target className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
               <div>
-                <span className="font-medium text-zinc-700">What: </span>
-                <span className="text-zinc-600">{what}</span>
+                <span className="font-medium text-zinc-700 dark:text-slate-200">What: </span>
+                <span className="text-zinc-600 dark:text-slate-400">{what}</span>
               </div>
             </div>
           )}
@@ -315,8 +315,8 @@ export default function TestExplainer({ testNumber, testName, description, passC
             <div className="flex gap-2">
               <HelpCircle className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-0.5" />
               <div>
-                <span className="font-medium text-zinc-700">Why: </span>
-                <span className="text-zinc-600">{why}</span>
+                <span className="font-medium text-zinc-700 dark:text-slate-200">Why: </span>
+                <span className="text-zinc-600 dark:text-slate-400">{why}</span>
               </div>
             </div>
           )}
@@ -324,8 +324,8 @@ export default function TestExplainer({ testNumber, testName, description, passC
             <div className="flex gap-2">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
               <div>
-                <span className="font-medium text-zinc-700">Pass: </span>
-                <span className="text-zinc-600">{pass}</span>
+                <span className="font-medium text-zinc-700 dark:text-slate-200">Pass: </span>
+                <span className="text-zinc-600 dark:text-slate-400">{pass}</span>
               </div>
             </div>
           )}
@@ -333,8 +333,8 @@ export default function TestExplainer({ testNumber, testName, description, passC
             <div className="flex gap-2">
               <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
               <div>
-                <span className="font-medium text-zinc-700">Fail: </span>
-                <span className="text-zinc-600">{fail}</span>
+                <span className="font-medium text-zinc-700 dark:text-slate-200">Fail: </span>
+                <span className="text-zinc-600 dark:text-slate-400">{fail}</span>
               </div>
             </div>
           )}

@@ -86,6 +86,42 @@ def guess_model(services: List[Dict[str, Any]], os_fp: Optional[str]) -> Optiona
     return None
 
 
+def build_device_display_name(
+    ip_address: Optional[str],
+    hostname: Optional[str],
+    manufacturer: Optional[str],
+    model: Optional[str],
+) -> Optional[str]:
+    """Return the most useful user-facing label for a device."""
+    host = (hostname or "").strip()
+    host_lower = host.lower()
+    ip = (ip_address or "").strip()
+    combined = " ".join(
+        part.strip()
+        for part in (manufacturer, model)
+        if part and part.strip()
+    ).strip()
+
+    generic_hosts = {
+        "",
+        "localhost",
+        "unknown",
+        "device",
+        "e2e run device",
+    }
+
+    if combined:
+        return combined
+
+    if host_lower not in generic_hosts and host_lower != ip.lower():
+        return host
+
+    if manufacturer:
+        return manufacturer
+
+    return ip_address
+
+
 def guess_category(os_fp: Optional[str], services: List[Dict[str, Any]]) -> DeviceCategory:
     """Heuristic: guess device category from OS fingerprint and service list."""
     service_names = " ".join(s.get("service", "") + " " + s.get("version", "") for s in services).lower()

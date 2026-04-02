@@ -5,12 +5,14 @@ import { testRunsApi, devicesApi, templatesApi } from '@/lib/api'
 import type { TestRun, Device, TestTemplate } from '@/lib/types'
 import {
   Play, Plus, Loader2, X, Activity, RotateCcw, AlertTriangle,
-  Clock, Pause, Eye, CheckCircle2, XCircle, AlertOctagon, Ban,
+  Clock, Pause, Eye, CheckCircle2, XCircle, Ban,
   Monitor, Cpu, Shield,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
+import { isActiveTestRunStatus } from '@/lib/testContracts'
+import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
 /* ── Status filter config with labels, icons, groups, tooltips ── */
 
@@ -28,7 +30,11 @@ const filterGroups: { label: string; filters: FilterDef[] }[] = [
     filters: [
       { key: 'running', label: 'Running', icon: Activity, tooltip: 'Tests currently executing', pulse: true },
       { key: 'pending', label: 'Pending', icon: Clock, tooltip: 'Waiting to start' },
+      { key: 'selecting_interface', label: 'Selecting', icon: Play, tooltip: 'Selecting the interface or connection path' },
+      { key: 'syncing', label: 'Syncing', icon: RotateCcw, tooltip: 'Preparing the run before tests start' },
       { key: 'paused_manual', label: 'Paused', icon: Pause, tooltip: 'Manually paused by engineer' },
+      { key: 'paused_cable', label: 'Cable Pause', icon: AlertTriangle, tooltip: 'Paused because device connectivity dropped' },
+      { key: 'awaiting_manual', label: 'Manual Input', icon: Eye, tooltip: 'Automatic tests finished and manual checks remain' },
     ],
   },
   {
@@ -43,15 +49,12 @@ const filterGroups: { label: string; filters: FilterDef[] }[] = [
       { key: 'completed', label: 'Complete', icon: CheckCircle2, tooltip: 'All tests finished' },
       { key: 'failed', label: 'Failed', icon: XCircle, tooltip: 'Run failed due to error during execution' },
       { key: 'cancelled', label: 'Cancelled', icon: Ban, tooltip: 'Cancelled before completion — can be resumed' },
-      { key: 'error', label: 'Error', icon: AlertOctagon, tooltip: 'System error during test execution' },
     ],
   },
 ]
 
-const allFilterKeys = filterGroups.flatMap(g => g.filters.map(f => f.key))
-
 function formatRunName(run: TestRun) {
-  const device = run.device_name || run.device_ip || `Device ${run.device_id?.slice(0, 8)}`
+  const device = getPreferredDeviceName(run)
   const date = run.started_at
     ? new Date(run.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : new Date(run.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -93,7 +96,7 @@ export default function TestRunsPage() {
     queryFn: () => testRunsApi.list({ status: statusFilter || undefined, device_id: deviceId }).then(r => r.data),
     refetchInterval: (query) => {
       const data = query.state.data as TestRun[] | undefined
-      const hasActive = data?.some(r => ['running', 'pending', 'discovering'].includes(r.status))
+      const hasActive = data?.some((r) => isActiveTestRunStatus(r.status))
       return hasActive ? 3000 : false
     },
   })
@@ -219,7 +222,7 @@ export default function TestRunsPage() {
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
                 {runs.map((run: TestRun) => {
-                  const isRunning = run.status === 'running'
+                  const isRunning = ['running', 'selecting_interface', 'syncing'].includes(run.status)
                   const isCancelled = run.status === 'cancelled'
                   const isFailed = run.status === 'failed'
                   return (
@@ -242,16 +245,10 @@ export default function TestRunsPage() {
                               </div>
                               <div className="flex items-center gap-2 text-[11px] text-zinc-400 dark:text-slate-500">
                                 <span className="font-mono">{run.device_ip || '—'}</span>
-                                {run.device_manufacturer && (
+                                {getDeviceMetaSummary(run, { includeMac: true }) && (
                                   <>
                                     <span className="text-zinc-300 dark:text-slate-600">&middot;</span>
-                                    <span>{run.device_manufacturer}</span>
-                                  </>
-                                )}
-                                {run.device_model && (
-                                  <>
-                                    <span className="text-zinc-300 dark:text-slate-600">&middot;</span>
-                                    <span>{run.device_model}</span>
+                                    <span>{getDeviceMetaSummary(run, { includeMac: true })}</span>
                                   </>
                                 )}
                               </div>
@@ -416,9 +413,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
               <option value="">Select a device...</option>
               {devices?.map((d: Device) => (
                 <option key={d.id} value={d.id}>
-                  {d.hostname || d.manufacturer || d.ip_address}
-                  {d.manufacturer && d.hostname ? ` (${d.manufacturer})` : ''}
-                  {' — '}{d.ip_address}
+                  {getPreferredDeviceName(d)} — {d.ip_address}
                 </option>
               ))}
             </select>

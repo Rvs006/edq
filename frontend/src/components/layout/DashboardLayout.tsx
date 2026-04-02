@@ -7,7 +7,7 @@ import { ElectracomLogo } from '@/components/common/ElectracomLogo'
 import {
   LayoutDashboard, Monitor, Play, FileText, Shield, ClipboardList,
   ListChecks, Settings, LogOut, Menu, X, ChevronDown, User,
-  Bell, Search, Users, Eye, Network, Wifi, Activity, CalendarClock, Cpu, ShieldCheck
+  Bell, Search, Users, Eye, Network, Activity, CalendarClock, Cpu, ShieldCheck
 } from 'lucide-react'
 
 const pageDescriptions: Record<string, string> = {
@@ -15,13 +15,13 @@ const pageDescriptions: Record<string, string> = {
   '/devices': 'Register, discover, and manage all IP devices under test',
   '/device-profiles': 'Fingerprint rules that auto-identify device types and skip irrelevant tests',
   '/test-runs': 'Security qualification sessions — 43 checks per device (25 automated, 18 guided manual)',
-  '/network-scan': 'Scan a subnet to discover and bulk-test multiple devices at once',
+  '/network-scan': 'Bulk discovery for unknown IPs and multi-device subnet surveys',
   '/templates': 'Define which tests to include and map results to report cells',
   '/test-plans': 'Saved test configurations that can be reused across devices',
   '/scan-schedules': 'Schedule recurring network scans to run automatically',
   '/whitelists': 'Approved port/protocol lists — open ports are checked against these',
   '/reports': 'Generate Excel, Word, or PDF qualification reports from completed test sessions',
-  '/agents': 'Tools sidecar instances that execute security scans (nmap, testssl, hydra, etc.)',
+  '/agents': 'Optional distributed runner registrations. Normal local-laptop use does not need this page.',
   '/review': 'QA review queue — approve, override, or request retests on flagged results',
   '/admin': 'Manage user accounts, roles, and permissions',
   '/audit-log': 'Full history of actions — who did what and when',
@@ -31,29 +31,23 @@ const pageDescriptions: Record<string, string> = {
 
 const navSections = [
   {
-    label: 'Main',
+    label: 'Workflow',
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Devices', href: '/devices', icon: Monitor },
       { name: 'Device Profiles', href: '/device-profiles', icon: Cpu },
       { name: 'Test Runs', href: '/test-runs', icon: Play },
-      { name: 'Network Scan', href: '/network-scan', icon: Network },
+      { name: 'Bulk Discovery', href: '/network-scan', icon: Network },
+      { name: 'Reports', href: '/reports', icon: ClipboardList },
     ],
   },
   {
-    label: 'Tools',
+    label: 'Setup',
     items: [
       { name: 'Templates', href: '/templates', icon: FileText },
       { name: 'Test Plans', href: '/test-plans', icon: ListChecks },
       { name: 'Scan Schedules', href: '/scan-schedules', icon: CalendarClock },
       { name: 'Whitelists', href: '/whitelists', icon: Shield },
-      { name: 'Reports', href: '/reports', icon: ClipboardList },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { name: 'Agents', href: '/agents', icon: Wifi },
     ],
   },
   {
@@ -68,6 +62,10 @@ const navSections = [
   },
 ]
 
+const hiddenPageTitles: Record<string, string> = {
+  '/agents': 'Distributed Agents',
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -76,8 +74,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const statusRef = useRef<HTMLDivElement>(null)
   const { user, logout } = useAuth()
   const location = useLocation()
-  const { backendHealthy, toolsHealthy } = useOnlineStatus()
-  const systemOk = backendHealthy && toolsHealthy
+  const {
+    frontendHealthy,
+    backendHealthy,
+    databaseHealthy,
+    toolsHealthy,
+    lastChecked,
+  } = useOnlineStatus()
+  const systemOk = frontendHealthy && backendHealthy && databaseHealthy && toolsHealthy
 
   // Close all dropdowns on route change
   useEffect(() => {
@@ -122,6 +126,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       for (const item of section.items) {
         if (isActive(item.href)) return item.name
       }
+    }
+    for (const [path, title] of Object.entries(hiddenPageTitles)) {
+      if (path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)) return title
     }
     return 'EDQ'
   })()
@@ -205,14 +212,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </button>
                 {statusTooltipOpen && (
                   <>
-                    <div className="absolute right-0 mt-1 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 p-3 z-50">
+                    <div className="absolute right-0 mt-1 w-72 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 p-3 z-50">
                       <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">System Status</p>
                       <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-zinc-700 dark:text-slate-300">Frontend UI</span>
+                          <span className={`flex items-center gap-1.5 text-xs font-medium ${frontendHealthy ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${frontendHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
+                            {frontendHealthy ? 'Loaded' : 'Unavailable'}
+                          </span>
+                        </div>
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-zinc-700 dark:text-slate-300">Backend API</span>
                           <span className={`flex items-center gap-1.5 text-xs font-medium ${backendHealthy ? 'text-green-600' : 'text-red-600'}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${backendHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
                             {backendHealthy ? 'Healthy' : 'Unavailable'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-zinc-700 dark:text-slate-300">Database</span>
+                          <span className={`flex items-center gap-1.5 text-xs font-medium ${databaseHealthy ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${databaseHealthy ? 'bg-green-500' : 'bg-red-500'}`} />
+                            {databaseHealthy ? 'Healthy' : 'Unavailable'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -223,6 +244,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           </span>
                         </div>
                       </div>
+                      {lastChecked && (
+                        <p className="text-[11px] text-zinc-400 dark:text-slate-500 mt-2">
+                          Last checked: {lastChecked.toLocaleTimeString()}
+                        </p>
+                      )}
                       {!toolsHealthy && backendHealthy && (
                         <p className="text-[11px] text-amber-600 mt-2 leading-tight">
                           Security tools sidecar is unreachable. Automated tests will not run.
@@ -231,6 +257,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       {!backendHealthy && (
                         <p className="text-[11px] text-red-600 mt-2 leading-tight">
                           Backend service unavailable. Check that Docker services are running.
+                        </p>
+                      )}
+                      {backendHealthy && !databaseHealthy && (
+                        <p className="text-[11px] text-red-600 mt-2 leading-tight">
+                          The backend is reachable, but the database is unavailable.
                         </p>
                       )}
                     </div>
@@ -310,29 +341,12 @@ function SidebarContent({
 }) {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 h-14 border-b border-zinc-200 dark:border-slate-700/50">
-        <Link to="/" className="flex items-center gap-2.5" onClick={onClose}>
-          <img src="/icon-white.png" alt="" className="h-8 w-auto shrink-0 hidden dark:block" />
-          <img src="/icon-white.png" alt="" className="h-8 w-auto shrink-0 dark:hidden" style={{ filter: 'brightness(0)' }} />
-          <div className="flex flex-col">
-            <img
-              src="/electracom-logo.png"
-              alt="Electracom"
-              className="h-[28px] object-contain dark:hidden"
-            />
-            <img
-              src="/electracom-logo.png"
-              alt="Electracom"
-              className="h-[28px] object-contain hidden dark:block"
-              style={{ filter: 'brightness(2) saturate(1.3)' }}
-            />
-            <span className="text-[8px] font-medium tracking-wide text-zinc-400 dark:text-slate-500">
-              Device Qualifier
-            </span>
-          </div>
+      <div className="relative flex items-center justify-center px-4 min-h-[84px] border-b border-zinc-200 dark:border-slate-700/50">
+        <Link to="/" className="py-3" onClick={onClose}>
+          <ElectracomLogo size="md" />
         </Link>
         {onClose && (
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 lg:hidden" title="Close menu">
+          <button onClick={onClose} className="absolute right-4 p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 lg:hidden" title="Close menu">
             <X className="w-5 h-5 text-zinc-400" />
           </button>
         )}

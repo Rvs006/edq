@@ -1,5 +1,18 @@
 /** Shared TypeScript interfaces for the EDQ frontend. */
 
+export type TestRunStatus =
+  | 'pending'
+  | 'selecting_interface'
+  | 'syncing'
+  | 'running'
+  | 'paused_manual'
+  | 'paused_cable'
+  | 'awaiting_manual'
+  | 'awaiting_review'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
 export interface Device {
   id: string
   ip_address: string
@@ -38,12 +51,16 @@ export interface TestRun {
   device_id: string
   device_name: string | null
   device_ip: string | null
+  device_mac_address: string | null
   device_manufacturer: string | null
   device_model: string | null
   device_category: string | null
   template_id: string | null
   template_name: string | null
-  status: string
+  engineer_id: string
+  engineer_name: string | null
+  agent_id: string | null
+  status: TestRunStatus
   overall_verdict: string | null
   progress_pct: number | null
   total_tests: number | null
@@ -53,9 +70,9 @@ export interface TestRun {
   advisory_tests: number | null
   na_tests: number | null
   synopsis: string | null
+  synopsis_status: string | null
   connection_scenario: string | null
-  user_id: string | null
-  user_name: string | null
+  run_metadata: Record<string, unknown> | null
   created_at: string
   confidence: number | null
   started_at: string | null
@@ -67,34 +84,26 @@ export interface TestResult {
   id: string
   test_run_id: string
   test_id: string
-  test_number: string | null
   test_name: string
   verdict: string | null
-  status: string | null
   comment: string | null
   comment_override: string | null
   engineer_notes: string | null
-  engineer_selection: string | null
-  findings: string | null
+  findings: Record<string, unknown> | unknown[] | null
   raw_output: string | null
-  raw_stdout: string | null
-  raw_stderr: string | null
-  parsed_findings: Record<string, unknown> | string[] | null
-  tool_used: string | null
-  tool_command: string | null
+  parsed_data: Record<string, unknown> | unknown[] | null
+  tool: string | null
   tier: string
   is_essential: string | null
-  essential_pass: boolean
   is_overridden: boolean
   override_reason: string | null
-  overridden_by: string | null
-  script_flag: string
-  auto_comment: string | null
+  override_verdict: string | null
+  overridden_by_user_id: string | null
+  overridden_by_username: string | null
+  overridden_at: string | null
   duration_seconds: number | null
   evidence_files: string[] | null
-  parsed_data: Record<string, unknown> | null
-  test_description: string | null
-  pass_criteria: string | null
+  compliance_map: string[] | null
   started_at: string | null
   completed_at: string | null
   created_at: string
@@ -234,6 +243,8 @@ export interface DiscoveredDevice {
   ip_address: string
   hostname: string | null
   manufacturer: string | null
+  model: string | null
+  predicted_name: string | null
   category: string
   is_new: boolean
 }

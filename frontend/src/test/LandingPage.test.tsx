@@ -21,7 +21,7 @@ describe('LandingPage', () => {
   it('displays the capability cards', () => {
     renderLandingPage()
 
-    expect(screen.getByText('Network Discovery')).toBeInTheDocument()
+    expect(screen.getByText('Device Discovery')).toBeInTheDocument()
     expect(screen.getByText('Automated Security Scans')).toBeInTheDocument()
     expect(screen.getByText('Guided Manual Tests')).toBeInTheDocument()
     expect(screen.getByText('Report Generation')).toBeInTheDocument()

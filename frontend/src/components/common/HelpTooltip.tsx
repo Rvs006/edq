@@ -27,18 +27,18 @@ export default function HelpTooltip({ content, title, className = '' }: HelpTool
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="p-0.5 rounded-full text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+        className="p-0.5 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-200 hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
         aria-label={title || 'Help'}
       >
         <HelpCircle className="w-4 h-4" />
       </button>
 
       {open && (
-        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-white rounded-lg shadow-lg border border-zinc-200 text-left">
-          {title && <p className="text-xs font-semibold text-zinc-900 mb-1">{title}</p>}
-          <p className="text-xs text-zinc-600 leading-relaxed">{content}</p>
+        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-white dark:bg-slate-900 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 text-left">
+          {title && <p className="text-xs font-semibold text-zinc-900 dark:text-slate-100 mb-1">{title}</p>}
+          <p className="text-xs text-zinc-600 dark:text-slate-300 leading-relaxed">{content}</p>
           <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
-            <div className="w-2.5 h-2.5 bg-white border-b border-r border-zinc-200 rotate-45 -translate-y-1/2" />
+            <div className="w-2.5 h-2.5 bg-white dark:bg-slate-900 border-b border-r border-zinc-200 dark:border-slate-700 rotate-45 -translate-y-1/2" />
           </div>
         </div>
       )}

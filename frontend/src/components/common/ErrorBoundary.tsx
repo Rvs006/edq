@@ -52,12 +52,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       }
 
       return (
-        <div className="flex flex-col items-center justify-center p-8 text-center">
-          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
+        <div className="flex flex-col items-center justify-center p-8 text-center text-zinc-900 dark:text-slate-100">
+          <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center mb-4">
             <AlertTriangle className="w-6 h-6 text-red-600" />
           </div>
-          <h2 className="text-lg font-semibold text-zinc-900 mb-2">Something went wrong</h2>
-          <p className="text-sm text-zinc-500 mb-4 max-w-md">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-2">Something went wrong</h2>
+          <p className="text-sm text-zinc-500 dark:text-slate-400 mb-4 max-w-md">
             {this.state.error?.message || 'An unexpected error occurred.'}
           </p>
           <button
@@ -82,12 +82,12 @@ export function PageErrorBoundary({ children }: { children: ReactNode }) {
     <ErrorBoundary
       key={location.pathname}
       fallback={
-        <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-4">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center text-zinc-900 dark:text-slate-100">
+          <div className="w-16 h-16 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center mb-4">
             <AlertTriangle className="w-8 h-8 text-red-600" />
           </div>
-          <h2 className="text-xl font-semibold text-zinc-900 mb-2">Page Error</h2>
-          <p className="text-sm text-zinc-500 mb-6 max-w-md">
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-slate-100 mb-2">Page Error</h2>
+          <p className="text-sm text-zinc-500 dark:text-slate-400 mb-6 max-w-md">
             This page encountered an error. Try refreshing or navigating to another page.
           </p>
           <div className="flex gap-3">
@@ -100,7 +100,7 @@ export function PageErrorBoundary({ children }: { children: ReactNode }) {
             </button>
             <a
               href="/"
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-lg hover:bg-zinc-200 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-slate-200 bg-zinc-100 dark:bg-slate-800 rounded-lg hover:bg-zinc-200 dark:hover:bg-slate-700 transition-colors"
             >
               Go to Dashboard
             </a>

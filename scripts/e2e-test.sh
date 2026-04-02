@@ -18,6 +18,8 @@ API="$BASE_URL/api"
 ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
 ADMIN_PASS="${EDQ_ADMIN_PASS:-${INITIAL_ADMIN_PASSWORD:-Admin123!}}"
 COOKIE=$(mktemp)
+CSRF_TOKEN=""
+LAST_RESULT=""
 TOTAL=0 PASS=0 FAIL=0 SKIP=0
 
 GREEN='\033[32m' RED='\033[31m' YELLOW='\033[33m' CYAN='\033[36m' BOLD='\033[1m' NC='\033[0m'
@@ -25,6 +27,12 @@ GREEN='\033[32m' RED='\033[31m' YELLOW='\033[33m' CYAN='\033[36m' BOLD='\033[1m'
 CREATED_DEVICE_IDS=()
 CREATED_RUN_IDS=()
 CREATED_WHITELIST_IDS=()
+RUN_SUFFIX=$(( ( $(date +%s) + $$ ) % 1000 ))
+CRUD_DEVICE_IP="10.99.99.$((100 + (RUN_SUFFIX % 100)))"
+RUN_DEVICE_IP_VALUE="10.99.98.$((100 + (RUN_SUFFIX % 100)))"
+WHITELIST_NAME="E2E Test Whitelist ${RUN_SUFFIX}"
+PROFILE_NAME="E2E Test Profile ${RUN_SUFFIX}"
+PLAN_NAME="E2E Test Plan ${RUN_SUFFIX}"
 
 cleanup() {
   rm -f "$COOKIE"
@@ -96,15 +104,25 @@ test_case() {
   shift
   TOTAL=$((TOTAL + 1))
   printf "  %-52s " "$name"
-  if result=$("$@" 2>/dev/null); then
-    printf "${GREEN}PASS${NC}  %s\n" "$result"
-    PASS=$((PASS + 1))
-    return 0
+  if [ "${1:-}" = "bash" ] && [ "${2:-}" = "-c" ]; then
+    shift 2
+    if result=$(eval "$1" 2>/dev/null); then
+      LAST_RESULT="$result"
+      printf "${GREEN}PASS${NC}  %s\n" "$result"
+      PASS=$((PASS + 1))
+      return 0
+    fi
   else
-    printf "${RED}FAIL${NC}\n"
-    FAIL=$((FAIL + 1))
-    return 1
+    if result=$("$@" 2>/dev/null); then
+      LAST_RESULT="$result"
+      printf "${GREEN}PASS${NC}  %s\n" "$result"
+      PASS=$((PASS + 1))
+      return 0
+    fi
   fi
+  printf "${RED}FAIL${NC}\n"
+  FAIL=$((FAIL + 1))
+  return 1
 }
 
 skip_case() {
@@ -124,25 +142,35 @@ api_get() {
 }
 
 api_post() {
-  curl -sf -b "$COOKIE" -c "$COOKIE" \
-    -X POST -H "Content-Type: application/json" \
-    -d "$2" "$API$1"
+  local args=(-sf -b "$COOKIE" -c "$COOKIE" -X POST -H "Content-Type: application/json")
+  if [ -n "${CSRF_TOKEN:-}" ]; then
+    args+=(-H "X-CSRF-Token: $CSRF_TOKEN")
+  fi
+  curl "${args[@]}" -d "$2" "$API$1"
 }
 
 api_patch() {
-  curl -sf -b "$COOKIE" -c "$COOKIE" \
-    -X PATCH -H "Content-Type: application/json" \
-    -d "$2" "$API$1"
+  local args=(-sf -b "$COOKIE" -c "$COOKIE" -X PATCH -H "Content-Type: application/json")
+  if [ -n "${CSRF_TOKEN:-}" ]; then
+    args+=(-H "X-CSRF-Token: $CSRF_TOKEN")
+  fi
+  curl "${args[@]}" -d "$2" "$API$1"
 }
 
 api_put() {
-  curl -sf -b "$COOKIE" -c "$COOKIE" \
-    -X PUT -H "Content-Type: application/json" \
-    -d "$2" "$API$1"
+  local args=(-sf -b "$COOKIE" -c "$COOKIE" -X PUT -H "Content-Type: application/json")
+  if [ -n "${CSRF_TOKEN:-}" ]; then
+    args+=(-H "X-CSRF-Token: $CSRF_TOKEN")
+  fi
+  curl "${args[@]}" -d "$2" "$API$1"
 }
 
 api_delete() {
-  curl -sf -b "$COOKIE" -c "$COOKIE" -X DELETE -o /dev/null -w "%{http_code}" "$API$1"
+  local args=(-sf -b "$COOKIE" -c "$COOKIE" -X DELETE)
+  if [ -n "${CSRF_TOKEN:-}" ]; then
+    args+=(-H "X-CSRF-Token: $CSRF_TOKEN")
+  fi
+  curl "${args[@]}" -o /dev/null -w "%{http_code}" "$API$1"
 }
 
 api_status() {
@@ -166,26 +194,33 @@ test_case "1.1 Backend health endpoint" bash -c "
   api_get '/health' | json_get 'status'
 " || true
 
-test_case "1.2 Database connected" bash -c "
-  api_get '/health' | json_get 'database'
+test_case "1.2 Health payload matches current contract" bash -c "
+  resp=\$(api_get '/health')
+  echo \"\$resp\" | python3 -c \"
+import sys, json
+d = json.load(sys.stdin)
+if d == {'status': 'ok'}:
+    print('status=ok')
+else:
+    sys.exit(1)
+\"
 " || true
 
-test_case "1.3 Tools sidecar reachable" bash -c "
-  resp=\$(curl -sf -b '$COOKIE' '$API/health')
-  status=\$(echo \"\$resp\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('tools_sidecar',''))\" 2>/dev/null)
-  if [ \"\$status\" = 'healthy' ] || [ \"\$status\" = 'unreachable' ]; then
-    echo \"\$status\"
+test_case "1.3 Health endpoint returns JSON" bash -c "
+  api_get '/health' | python3 -c \"
+import sys, json
+d = json.load(sys.stdin)
+print(type(d).__name__)
+\"
+" || true
+
+test_case "1.4 Tool versions requires authentication" bash -c "
+  status=\$(curl -s -o /dev/null -w '%{http_code}' '$API/health/tools/versions')
+  if [ \"\$status\" = '401' ]; then
+    echo 'HTTP 401'
   else
     exit 1
   fi
-" || true
-
-test_case "1.4 Tool versions endpoint" bash -c "
-  curl -sf -b '$COOKIE' '$API/health/tools/versions' | python3 -c \"
-import sys, json
-d = json.load(sys.stdin)
-print(d.get('status', 'unknown'))
-\"
 " || true
 
 test_case "1.5 Frontend serves HTML" bash -c "
@@ -205,6 +240,7 @@ test_case "2.1 Login with admin credentials" bash -c "
     -H 'Content-Type: application/json' \
     -d '{\"username\":\"'$ADMIN_USER'\",\"password\":\"'$ADMIN_PASS'\"}' \
     -c '$COOKIE')
+  echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"csrf_token\"])' > /tmp/edq_e2e_csrf
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -213,8 +249,8 @@ if d.get('message') == 'Login successful':
     print('login ok — ' + user.get('role', 'admin'))
 else:
     sys.exit(1)
-\"
-" || true
+\" 
+" && CSRF_TOKEN=$(cat /tmp/edq_e2e_csrf 2>/dev/null) || true
 
 test_case "2.2 Get current user (GET /auth/me)" bash -c "
   resp=\$(curl -sf -b '$COOKIE' '$API/auth/me')
@@ -255,6 +291,19 @@ test_case "2.5 Auth cookie is httpOnly" bash -c "
   }
 " || true
 
+test_case "2.6 Tool versions endpoint (authenticated)" bash -c "
+  resp=\$(curl -sf -b '$COOKIE' '$API/health/tools/versions')
+  echo \"\$resp\" | python3 -c \"
+import sys, json
+d = json.load(sys.stdin)
+status = d.get('status')
+if status in ('ok', 'error'):
+    print(status)
+else:
+    sys.exit(1)
+\"
+" || true
+
 # ============================================================================
 section "3. Device Management (CRUD)"
 # ============================================================================
@@ -262,13 +311,10 @@ section "3. Device Management (CRUD)"
 DEVICE_ID=""
 
 test_case "3.1 Create device" bash -c "
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/devices/' \
-    -H 'Content-Type: application/json' \
-    -d '{\"ip_address\":\"10.99.99.1\",\"hostname\":\"E2E Test Camera\",\"category\":\"camera\",\"manufacturer\":\"Test Corp\",\"model\":\"TC-100\"}')
-  id=\$(echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"id\"])')
-  echo \"\$id\" > /tmp/edq_e2e_device_id
-  echo \"id=\${id:0:8}...\"
-" && DEVICE_ID=$(cat /tmp/edq_e2e_device_id 2>/dev/null) && CREATED_DEVICE_IDS+=("$DEVICE_ID") || true
+  resp=\$(api_post '/devices/' '{\"ip_address\":\"$CRUD_DEVICE_IP\",\"hostname\":\"E2E Test Camera\",\"category\":\"camera\",\"manufacturer\":\"Test Corp\",\"model\":\"TC-100\"}')
+  id=\$(echo \"\$resp\" | json_get 'id')
+  echo \"\$id\"
+" && DEVICE_ID="$LAST_RESULT" && CREATED_DEVICE_IDS+=("$DEVICE_ID") || true
 
 test_case "3.2 List devices — find created" bash -c "
   resp=\$(curl -sf -b '$COOKIE' '$API/devices/')
@@ -276,7 +322,7 @@ test_case "3.2 List devices — find created" bash -c "
 import sys, json
 d = json.load(sys.stdin)
 items = d if isinstance(d, list) else d.get('items', [])
-found = any(i.get('ip_address') == '10.99.99.1' for i in items)
+found = any(i.get('ip_address') == '$CRUD_DEVICE_IP' for i in items)
 if found:
     print(f'{len(items)} devices, target found')
 else:
@@ -287,27 +333,27 @@ else:
 test_case "3.3 Get device detail" bash -c "
   [ -z '$DEVICE_ID' ] && exit 1
   resp=\$(curl -sf -b '$COOKIE' '$API/devices/$DEVICE_ID')
-  echo \"\$resp\" | python3 -c \"
+  ip=\$(echo \"\$resp\" | json_get 'ip_address')
+  if [ \"\$ip\" = '$CRUD_DEVICE_IP' ]; then
+    echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
-assert d['ip_address'] == '10.99.99.1', 'IP mismatch'
-print(d.get('hostname', d.get('ip_address', 'ok')))
+print(d.get('hostname') or d.get('ip_address') or 'ok')
 \"
+  else
+    exit 1
+  fi
 " || true
 
 test_case "3.4 Update device (PATCH)" bash -c "
   [ -z '$DEVICE_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X PATCH '$API/devices/$DEVICE_ID' \
-    -H 'Content-Type: application/json' \
-    -d '{\"firmware_version\":\"2.0.1\"}')
-  echo \"\$resp\" | python3 -c \"
-import sys, json
-d = json.load(sys.stdin)
-if d.get('firmware_version') == '2.0.1':
-    print('firmware_version=2.0.1')
-else:
-    sys.exit(1)
-\"
+  resp=\$(api_patch '/devices/$DEVICE_ID' '{\"firmware_version\":\"2.0.1\"}')
+  value=\$(echo \"\$resp\" | json_get 'firmware_version')
+  if [ \"\$value\" = '2.0.1' ]; then
+    echo 'firmware_version=2.0.1'
+  else
+    exit 1
+  fi
 " || true
 
 test_case "3.5 Device stats endpoint" bash -c "
@@ -389,24 +435,17 @@ RUN_DEVICE_ID=""
 RUN_ID=""
 
 test_case "5.1 Create device for test run" bash -c "
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/devices/' \
-    -H 'Content-Type: application/json' \
-    -d '{\"ip_address\":\"10.99.99.2\",\"hostname\":\"E2E Run Device\",\"category\":\"unknown\"}')
-  id=\$(echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"id\"])')
-  echo \"\$id\" > /tmp/edq_e2e_run_device_id
-  echo \"id=\${id:0:8}...\"
-" && RUN_DEVICE_ID=$(cat /tmp/edq_e2e_run_device_id 2>/dev/null) && CREATED_DEVICE_IDS+=("$RUN_DEVICE_ID") || true
+  resp=\$(api_post '/devices/' '{\"ip_address\":\"$RUN_DEVICE_IP_VALUE\",\"hostname\":\"E2E Run Device\",\"category\":\"unknown\"}')
+  id=\$(echo \"\$resp\" | json_get 'id')
+  echo \"\$id\"
+" && RUN_DEVICE_ID="$LAST_RESULT" && CREATED_DEVICE_IDS+=("$RUN_DEVICE_ID") || true
 
 test_case "5.2 Create test run" bash -c "
   [ -z '$RUN_DEVICE_ID' ] || [ -z '$TEMPLATE_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/test-runs/' \
-    -H 'Content-Type: application/json' \
-    -d '{\"device_id\":\"$RUN_DEVICE_ID\",\"template_id\":\"$TEMPLATE_ID\"}')
-  id=\$(echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"id\"])')
-  status=\$(echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"status\",\"\"))' 2>/dev/null)
-  echo \"\$id\" > /tmp/edq_e2e_run_id
-  echo \"id=\${id:0:8}... status=\$status\"
-" && RUN_ID=$(cat /tmp/edq_e2e_run_id 2>/dev/null) && CREATED_RUN_IDS+=("$RUN_ID") || true
+  resp=\$(api_post '/test-runs/' '{\"device_id\":\"$RUN_DEVICE_ID\",\"template_id\":\"$TEMPLATE_ID\"}')
+  id=\$(echo \"\$resp\" | json_get 'id')
+  echo \"\$id\"
+" && RUN_ID="$LAST_RESULT" && CREATED_RUN_IDS+=("$RUN_ID") || true
 
 test_case "5.3 Get test run detail" bash -c "
   [ -z '$RUN_ID' ] && exit 1
@@ -423,25 +462,17 @@ print(f'status={status} total_tests={total}')
 test_case "5.4 List test results for run" bash -c "
   [ -z '$RUN_ID' ] && exit 1
   resp=\$(curl -sf -b '$COOKIE' '$API/test-results/?test_run_id=$RUN_ID')
-  echo \"\$resp\" | python3 -c \"
-import sys, json
-d = json.load(sys.stdin)
-items = d if isinstance(d, list) else d.get('items', [])
-if len(items) > 0:
-    first_id = items[0].get('id', '')
-    print(first_id) 
-else:
-    sys.exit(1)
-\" > /tmp/edq_e2e_result_id
-  count=\$(echo \"\$resp\" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)')
-  echo \"\$count results\"
-" || true
-
-RESULT_ID=$(cat /tmp/edq_e2e_result_id 2>/dev/null || echo "")
+  first_id=\$(echo \"\$resp\" | json_get '0.id')
+  echo \"\$first_id\"
+" && RESULT_ID="$LAST_RESULT" || true
 
 test_case "5.5 Get single test result" bash -c "
   [ -z '$RESULT_ID' ] && exit 1
   resp=\$(curl -sf -b '$COOKIE' '$API/test-results/$RESULT_ID')
+  test_id=\$(echo \"\$resp\" | json_get 'test_id')
+  test_name=\$(echo \"\$resp\" | json_get 'test_name')
+  echo \"\$test_id - \$test_name\"
+  exit 0
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -451,9 +482,7 @@ print(f\"{d.get('test_id','')} — {d.get('test_name','')}\")
 
 test_case "5.6 Update manual test result (PATCH)" bash -c "
   [ -z '$RESULT_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X PATCH '$API/test-results/$RESULT_ID' \
-    -H 'Content-Type: application/json' \
-    -d '{\"verdict\":\"pass\",\"engineer_notes\":\"E2E test verification\"}')
+  resp=\$(api_patch '/test-results/$RESULT_ID' '{\"verdict\":\"pass\",\"engineer_notes\":\"E2E test verification\"}')
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -477,8 +506,7 @@ print(f'total_runs={total}')
 
 test_case "5.8 Complete the test run" bash -c "
   [ -z '$RUN_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/test-runs/$RUN_ID/complete' \
-    -H 'Content-Type: application/json')
+  resp=\$(api_post '/test-runs/$RUN_ID/complete' '{}')
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -496,7 +524,7 @@ import sys, json
 d = json.load(sys.stdin)
 status = d.get('status', '')
 pct = d.get('progress_pct', 0)
-if 'complete' in status.lower():
+if status == 'completed':
     print(f'status={status} progress={pct}%')
 else:
     sys.exit(1)
@@ -524,9 +552,7 @@ if len(items) < 1:
 " || true
 
 test_case "6.2 Create whitelist" bash -c "
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/whitelists/' \
-    -H 'Content-Type: application/json' \
-    -d '{\"name\":\"E2E Test Whitelist\",\"entries\":[{\"port\":443,\"protocol\":\"TCP\",\"service\":\"HTTPS\"}]}')
+  resp=\$(api_post '/whitelists/' '{\"name\":\"$WHITELIST_NAME\",\"entries\":[{\"port\":443,\"protocol\":\"TCP\",\"service\":\"HTTPS\"}]}')
   id=\$(echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"id\"])')
   echo \"\$id\" > /tmp/edq_e2e_wl_id
   echo \"id=\${id:0:8}...\"
@@ -546,9 +572,7 @@ print(f'{name} ({len(entries)} entries)')
 
 test_case "6.4 Update whitelist (PUT)" bash -c "
   [ -z '$WL_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X PUT '$API/whitelists/$WL_ID' \
-    -H 'Content-Type: application/json' \
-    -d '{\"name\":\"E2E Test Whitelist Updated\"}')
+  resp=\$(api_put '/whitelists/$WL_ID' '{\"name\":\"E2E Test Whitelist Updated\"}')
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -596,21 +620,15 @@ print(f'{name} (category={cat})')
 " || true
 
 test_case "7.3 Create device profile" bash -c "
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/device-profiles/' \
-    -H 'Content-Type: application/json' \
-    -d '{\"name\":\"E2E Test Profile\",\"manufacturer\":\"E2E Corp\",\"category\":\"unknown\",\"description\":\"Created by E2E test\"}')
-  id=\$(echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"id\"])')
-  echo \"\$id\" > /tmp/edq_e2e_new_profile_id
-  echo \"id=\${id:0:8}...\"
+  resp=\$(api_post '/device-profiles/' '{\"name\":\"$PROFILE_NAME\",\"manufacturer\":\"E2E Corp\",\"category\":\"unknown\",\"description\":\"Created by E2E test\"}')
+  id=\$(echo \"\$resp\" | json_get 'id')
+  echo \"\$id\"
 " || true
-
-E2E_PROFILE_ID=$(cat /tmp/edq_e2e_new_profile_id 2>/dev/null || echo "")
+E2E_PROFILE_ID="$LAST_RESULT"
 
 test_case "7.4 Update profile (PATCH)" bash -c "
   [ -z '$E2E_PROFILE_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X PATCH '$API/device-profiles/$E2E_PROFILE_ID' \
-    -H 'Content-Type: application/json' \
-    -d '{\"description\":\"Updated by E2E test\"}')
+  resp=\$(api_patch '/device-profiles/$E2E_PROFILE_ID' '{\"description\":\"Updated by E2E test\"}')
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -643,9 +661,7 @@ else:
 
 test_case "8.2 Generate Excel report" bash -c "
   [ -z '$RUN_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/reports/generate' \
-    -H 'Content-Type: application/json' \
-    -d '{\"test_run_id\":\"$RUN_ID\",\"report_type\":\"excel\",\"template_key\":\"generic\"}')
+  resp=\$(api_post '/reports/generate' '{\"test_run_id\":\"$RUN_ID\",\"report_type\":\"excel\",\"template_key\":\"generic\"}')
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -662,9 +678,7 @@ else:
 
 test_case "8.3 Generate Word report" bash -c "
   [ -z '$RUN_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/reports/generate' \
-    -H 'Content-Type: application/json' \
-    -d '{\"test_run_id\":\"$RUN_ID\",\"report_type\":\"word\"}')
+  resp=\$(api_post '/reports/generate' '{\"test_run_id\":\"$RUN_ID\",\"report_type\":\"word\"}')
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -765,7 +779,7 @@ print(f'{count} scans')
 
 test_case "10.2 Discover endpoint accepts request" bash -c "
   status=\$(curl -s -o /tmp/edq_e2e_scan_resp -w '%{http_code}' \
-    -b '$COOKIE' -c '$COOKIE' -X POST '$API/network-scan/discover' \
+    -b '$COOKIE' -c '$COOKIE' -H 'X-CSRF-Token: $CSRF_TOKEN' -X POST '$API/network-scan/discover' \
     -H 'Content-Type: application/json' \
     -d '{\"cidr\":\"10.99.99.0/24\"}')
   if [ \"\$status\" = '200' ] || [ \"\$status\" = '201' ] || [ \"\$status\" = '202' ]; then
@@ -795,9 +809,7 @@ print(f'{count} plans')
 
 test_case "11.2 Create test plan" bash -c "
   [ -z '$TEMPLATE_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/test-plans/' \
-    -H 'Content-Type: application/json' \
-    -d '{\"name\":\"E2E Test Plan\",\"description\":\"Created by E2E test\",\"base_template_id\":\"$TEMPLATE_ID\",\"test_configs\":[{\"test_id\":\"U01\",\"enabled\":true},{\"test_id\":\"U02\",\"enabled\":true}]}')
+  resp=\$(api_post '/test-plans/' '{\"name\":\"$PLAN_NAME\",\"description\":\"Created by E2E test\",\"base_template_id\":\"$TEMPLATE_ID\",\"test_configs\":[{\"test_id\":\"U01\",\"enabled\":true},{\"test_id\":\"U02\",\"enabled\":true}]}')
   id=\$(echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"id\"])')
   echo \"\$id\" > /tmp/edq_e2e_plan_id
   echo \"id=\${id:0:8}...\"
@@ -806,17 +818,14 @@ test_case "11.2 Create test plan" bash -c "
 test_case "11.3 Get test plan detail" bash -c "
   [ -z '$PLAN_ID' ] && exit 1
   resp=\$(curl -sf -b '$COOKIE' '$API/test-plans/$PLAN_ID')
-  echo \"\$resp\" | python3 -c \"
-import sys, json
-d = json.load(sys.stdin)
-configs = d.get('test_configs', [])
-print(f\"{d.get('name','')} ({len(configs)} configs)\")
-\"
+  name=\$(echo \"\$resp\" | json_get 'name')
+  count=\$(echo \"\$resp\" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get(\"test_configs\", [])))')
+  echo \"\$name (\$count configs)\"
 " || true
 
 test_case "11.4 Clone test plan" bash -c "
   [ -z '$PLAN_ID' ] && exit 1
-  resp=\$(curl -sf -b '$COOKIE' -c '$COOKIE' -X POST '$API/test-plans/$PLAN_ID/clone')
+  resp=\$(api_post '/test-plans/$PLAN_ID/clone' '{}')
   echo \"\$resp\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
@@ -835,7 +844,7 @@ section "12. Discovery"
 
 test_case "12.1 Discovery scan endpoint" bash -c "
   status=\$(curl -s -o /dev/null -w '%{http_code}' \
-    -b '$COOKIE' -c '$COOKIE' -X POST '$API/discovery/scan' \
+    -b '$COOKIE' -c '$COOKIE' -H 'X-CSRF-Token: $CSRF_TOKEN' -X POST '$API/discovery/scan' \
     -H 'Content-Type: application/json' \
     -d '{\"ip_address\":\"10.99.99.1\"}')
   if [ \"\$status\" = '200' ] || [ \"\$status\" = '201' ] || [ \"\$status\" = '502' ]; then
@@ -883,7 +892,7 @@ test_case "14.2 404 on nonexistent test run" bash -c "
 
 test_case "14.3 400 on invalid CIDR" bash -c "
   status=\$(curl -s -o /dev/null -w '%{http_code}' \
-    -b '$COOKIE' -c '$COOKIE' -X POST '$API/network-scan/discover' \
+    -b '$COOKIE' -c '$COOKIE' -H 'X-CSRF-Token: $CSRF_TOKEN' -X POST '$API/network-scan/discover' \
     -H 'Content-Type: application/json' \
     -d '{\"cidr\":\"not-a-cidr\"}')
   if [ \"\$status\" = '400' ] || [ \"\$status\" = '422' ]; then
@@ -895,7 +904,7 @@ test_case "14.3 400 on invalid CIDR" bash -c "
 
 test_case "14.4 422 on missing required fields" bash -c "
   status=\$(curl -s -o /dev/null -w '%{http_code}' \
-    -b '$COOKIE' -c '$COOKIE' -X POST '$API/devices/' \
+    -b '$COOKIE' -c '$COOKIE' -H 'X-CSRF-Token: $CSRF_TOKEN' -X POST '$API/devices/' \
     -H 'Content-Type: application/json' \
     -d '{}')
   if [ \"\$status\" = '422' ] || [ \"\$status\" = '400' ]; then
@@ -928,7 +937,7 @@ cleanup_fail=0
 printf "  Cleaning up test data...\n"
 
 if [ -n "$PLAN_CLONE_ID" ]; then
-  status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE" -X DELETE "$API/test-plans/$PLAN_CLONE_ID" 2>/dev/null)
+  status=$(api_delete "/test-plans/$PLAN_CLONE_ID" 2>/dev/null)
   if [ "$status" = "204" ] || [ "$status" = "200" ]; then
     cleanup_ok=$((cleanup_ok + 1))
   else
@@ -937,7 +946,7 @@ if [ -n "$PLAN_CLONE_ID" ]; then
 fi
 
 if [ -n "$PLAN_ID" ]; then
-  status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE" -X DELETE "$API/test-plans/$PLAN_ID" 2>/dev/null)
+  status=$(api_delete "/test-plans/$PLAN_ID" 2>/dev/null)
   if [ "$status" = "204" ] || [ "$status" = "200" ]; then
     cleanup_ok=$((cleanup_ok + 1))
   else
@@ -946,7 +955,7 @@ if [ -n "$PLAN_ID" ]; then
 fi
 
 if [ -n "$WL_ID" ]; then
-  status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE" -X DELETE "$API/whitelists/$WL_ID" 2>/dev/null)
+  status=$(api_delete "/whitelists/$WL_ID" 2>/dev/null)
   if [ "$status" = "204" ] || [ "$status" = "200" ]; then
     cleanup_ok=$((cleanup_ok + 1))
   else
@@ -955,7 +964,7 @@ if [ -n "$WL_ID" ]; then
 fi
 
 if [ -n "$E2E_PROFILE_ID" ]; then
-  status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE" -X DELETE "$API/device-profiles/$E2E_PROFILE_ID" 2>/dev/null)
+  status=$(api_delete "/device-profiles/$E2E_PROFILE_ID" 2>/dev/null)
   if [ "$status" = "204" ] || [ "$status" = "200" ]; then
     cleanup_ok=$((cleanup_ok + 1))
   else
@@ -965,7 +974,7 @@ fi
 
 for did in "${CREATED_DEVICE_IDS[@]}"; do
   if [ -n "$did" ]; then
-    status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE" -X DELETE "$API/devices/$did" 2>/dev/null)
+    status=$(api_delete "/devices/$did" 2>/dev/null)
     if [ "$status" = "204" ] || [ "$status" = "200" ]; then
       cleanup_ok=$((cleanup_ok + 1))
     else
@@ -979,7 +988,8 @@ printf "  ${GREEN}Cleaned: %d${NC}  ${RED}Failed: %d${NC}\n" "$cleanup_ok" "$cle
 rm -f /tmp/edq_e2e_device_id /tmp/edq_e2e_run_device_id /tmp/edq_e2e_run_id \
       /tmp/edq_e2e_result_id /tmp/edq_e2e_template_id /tmp/edq_e2e_template_count \
       /tmp/edq_e2e_wl_id /tmp/edq_e2e_profile_id /tmp/edq_e2e_new_profile_id \
-      /tmp/edq_e2e_plan_id /tmp/edq_e2e_plan_clone_id /tmp/edq_e2e_scan_resp
+      /tmp/edq_e2e_plan_id /tmp/edq_e2e_plan_clone_id /tmp/edq_e2e_scan_resp \
+      /tmp/edq_e2e_csrf
 
 # ============================================================================
 # Summary

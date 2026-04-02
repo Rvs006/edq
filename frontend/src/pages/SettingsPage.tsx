@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useNavigate } from 'react-router-dom'
-import { authApi, healthApi, brandingApi } from '@/lib/api'
+import { authApi, brandingApi } from '@/lib/api'
+import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import type { TourState } from '@/lib/types'
 import { User, Lock, Sun, Moon, Loader2, Server, RotateCcw, Save, Palette, Upload, Shield, ShieldCheck, ShieldOff } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -34,7 +35,7 @@ export default function SettingsPage({ tourState }: { tourState?: TourState }) {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
                 activeTab === tab.id
-                  ? 'bg-brand-50 text-brand-500'
+                  ? 'bg-brand-50 text-brand-500 dark:bg-brand-950/30 dark:text-brand-300'
                   : 'text-zinc-600 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-800'
               }`}
             >
@@ -115,7 +116,7 @@ function ProfileSettings({ user }: { user: { full_name?: string | null; username
           <div>
             <h3 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">{user?.full_name || user?.username}</h3>
             <p className="text-sm text-zinc-500">{user?.email}</p>
-            <span className="badge text-[10px] bg-brand-50 text-brand-500 border border-brand-100 capitalize mt-1">
+            <span className="badge text-[10px] bg-brand-50 text-brand-500 border border-brand-100 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800 capitalize mt-1">
               {user?.role}
             </span>
           </div>
@@ -417,26 +418,15 @@ function AppearanceSettings() {
 }
 
 function SystemStatus() {
-  const [versions, setVersions] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [checkedAt, setCheckedAt] = useState<Date | null>(null)
-
-  const fetchVersions = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await healthApi.toolVersions()
-      setVersions(res.data.tools || {})
-      setCheckedAt(new Date())
-    } catch {
-      setError('Failed to connect to tools sidecar')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { fetchVersions() }, [])
+  const {
+    isOnline,
+    frontendHealthy,
+    backendHealthy,
+    databaseHealthy,
+    toolsHealthy,
+    toolVersions,
+    lastChecked,
+  } = useOnlineStatus()
 
   const toolLabels: Record<string, string> = {
     nmap: 'Nmap',
@@ -444,30 +434,44 @@ function SystemStatus() {
     ssh_audit: 'ssh-audit',
     hydra: 'Hydra',
     nikto: 'Nikto',
+    snmpwalk: 'snmpwalk',
   }
 
   // Strip ANSI escape codes from tool version strings
   const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '').replace(/\u001b\[[0-9;]*m/g, '').replace(/\[[\d;]*m/g, '').trim()
 
+  const serviceRows = [
+    { label: 'Frontend UI', ok: frontendHealthy, detail: frontendHealthy ? 'Loaded in browser' : 'Unavailable' },
+    { label: 'Backend API', ok: backendHealthy, detail: backendHealthy ? 'Connected' : 'Unavailable' },
+    { label: 'Database', ok: databaseHealthy, detail: databaseHealthy ? 'Connected' : 'Unavailable' },
+    { label: 'Tools Sidecar', ok: toolsHealthy, detail: toolsHealthy ? 'Connected' : 'Unavailable' },
+  ]
+
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-semibold text-zinc-900 dark:text-slate-100">System Status</h2>
-        <button onClick={fetchVersions} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
-          Refresh
-        </button>
+        <span className={`badge border ${isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800'}`}>
+          {isOnline ? 'Browser Online' : 'Browser Offline'}
+        </span>
       </div>
 
-      {loading ? (
-        <div className="py-6 text-center">
-          <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mx-auto" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="space-y-2">
+          {serviceRows.map(({ label, ok, detail }) => (
+            <div key={label} className="flex items-center gap-3 py-2.5 px-3 rounded-lg bg-zinc-50 dark:bg-slate-800">
+              <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${ok ? 'bg-emerald-500' : 'bg-red-400'}`} />
+              <span className="text-sm font-medium text-zinc-700 dark:text-slate-300 w-28">{label}</span>
+              <span className={`text-xs flex-1 ${ok ? 'text-zinc-500 dark:text-slate-400' : 'text-red-600 dark:text-red-300'}`}>
+                {detail}
+              </span>
+            </div>
+          ))}
         </div>
-      ) : error ? (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{error}</div>
-      ) : (
+
         <div className="space-y-2">
           {Object.entries(toolLabels).map(([key, label]) => {
-            const version = versions[key]
+            const version = toolVersions[key]
             const available = version && version !== 'unavailable'
             return (
               <div key={key} className="flex items-center gap-3 py-2.5 px-3 rounded-lg bg-zinc-50 dark:bg-slate-800">
@@ -480,11 +484,11 @@ function SystemStatus() {
             )
           })}
         </div>
-      )}
+      </div>
 
-      {checkedAt && (
+      {lastChecked && (
         <p className="text-[11px] text-zinc-400 mt-3">
-          Last checked: {checkedAt.toLocaleTimeString()}
+          Last checked: {lastChecked.toLocaleTimeString()}
         </p>
       )}
     </div>
@@ -633,8 +637,8 @@ function HelpSection({ tourState }: { tourState?: TourState }) {
       <h2 className="font-semibold text-zinc-900 dark:text-slate-100 mb-4">Help</h2>
       <div className="space-y-3">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
-            <RotateCcw className="w-4 h-4 text-brand-500" />
+          <div className="w-9 h-9 rounded-lg bg-brand-50 dark:bg-brand-950/30 flex items-center justify-center shrink-0">
+            <RotateCcw className="w-4 h-4 text-brand-500 dark:text-brand-300" />
           </div>
           <div>
             <h3 className="text-sm font-medium text-zinc-900 dark:text-slate-100 mb-0.5">Guided Tour</h3>

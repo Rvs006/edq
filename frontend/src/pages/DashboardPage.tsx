@@ -9,6 +9,7 @@ import {
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import VerdictBadge from '@/components/common/VerdictBadge'
 import type { TestRun, TourState } from '@/lib/types'
+import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
 export default function DashboardPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
@@ -28,6 +29,16 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
   const passCount = runStats?.by_verdict?.pass || 0
   const totalCompleted = (runStats?.by_verdict?.pass || 0) + (runStats?.by_verdict?.fail || 0) + (runStats?.by_verdict?.advisory || 0)
   const passRate = totalCompleted > 0 ? Math.round((passCount / totalCompleted) * 100) : 0
+  const activeRunCount = [
+    'pending',
+    'selecting_interface',
+    'syncing',
+    'running',
+    'paused_manual',
+    'paused_cable',
+    'awaiting_manual',
+    'awaiting_review',
+  ].reduce((sum, key) => sum + Number(runStats?.by_status?.[key] || 0), 0)
 
   const stats = [
     {
@@ -39,7 +50,7 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
     },
     {
       label: 'Active Test Runs',
-      value: runStats?.by_status?.running || 0,
+      value: activeRunCount,
       icon: Play,
       iconColor: 'text-purple-600 dark:text-purple-400',
       iconBg: 'bg-purple-50 dark:bg-purple-950/50',
@@ -143,8 +154,13 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
                     <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
                       <td className="py-2.5 px-4">
                         <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-slate-100 hover:text-brand-500">
-                          {run.device_name || `Run ${run.id.slice(0, 8)}`}
+                          {getPreferredDeviceName(run)}
                         </Link>
+                        {getDeviceMetaSummary(run, { includeMac: true }) && (
+                          <p className="text-[11px] text-zinc-500 dark:text-slate-400 mt-0.5">
+                            {getDeviceMetaSummary(run, { includeMac: true })}
+                          </p>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-zinc-500 font-mono text-xs hidden sm:table-cell">
                         {run.device_ip || run.device_id?.slice(0, 8)}

@@ -78,7 +78,7 @@ export default function ReviewQueuePage() {
                       <p className="text-xs text-zinc-500 font-mono">{run.device_ip || run.device_id?.slice(0, 8)}</p>
                     </td>
                     <td className="py-3 px-4 text-zinc-600 dark:text-slate-400 text-xs hidden sm:table-cell">
-                      {run.user_name || (run.user_id ? run.user_id.slice(0, 8) : '\u2014')}
+                      {run.engineer_name || run.engineer_id.slice(0, 8)}
                     </td>
                     <td className="py-3 px-4"><StatusBadge status={run.status} /></td>
                     <td className="py-3 px-4">

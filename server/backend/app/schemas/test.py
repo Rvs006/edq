@@ -67,14 +67,7 @@ class TestRunCreate(BaseModel):
 
 
 class TestRunUpdate(BaseModel):
-    status: Optional[str] = None
-    overall_verdict: Optional[str] = None
-    progress_pct: Optional[float] = None
-    completed_tests: Optional[int] = None
-    passed_tests: Optional[int] = None
-    failed_tests: Optional[int] = None
-    advisory_tests: Optional[int] = None
-    na_tests: Optional[int] = None
+    connection_scenario: Optional[str] = Field(None, max_length=32)
     synopsis: Optional[str] = None
     synopsis_status: Optional[str] = None
 
@@ -84,12 +77,14 @@ class TestRunResponse(BaseModel):
     device_id: str
     device_name: Optional[str] = None
     device_ip: Optional[str] = None
+    device_mac_address: Optional[str] = None
     device_manufacturer: Optional[str] = None
     device_model: Optional[str] = None
     device_category: Optional[str] = None
     template_id: str
     template_name: Optional[str] = None
     engineer_id: str
+    engineer_name: Optional[str] = None
     agent_id: Optional[str] = None
     connection_scenario: str = "direct"
     status: str
@@ -126,7 +121,7 @@ class TestResultCreate(BaseModel):
     comment: Optional[str] = Field(None, max_length=4000)
     raw_output: Optional[str] = None
     parsed_data: Optional[Any] = None
-    findings: Optional[List[Any]] = None
+    findings: Optional[Any] = None
     compliance_map: Optional[List[str]] = None
     duration_seconds: Optional[float] = None
 
@@ -138,9 +133,15 @@ class TestResultUpdate(BaseModel):
     engineer_notes: Optional[str] = None
     raw_output: Optional[str] = None
     parsed_data: Optional[Any] = None
-    findings: Optional[List[Any]] = None
+    findings: Optional[Any] = None
     evidence_files: Optional[List[str]] = None
     duration_seconds: Optional[float] = None
+
+
+class TestResultOverrideRequest(BaseModel):
+    verdict: str = Field(..., min_length=2, max_length=32)
+    override_reason: str = Field(..., min_length=3, max_length=4000)
+    comment: Optional[str] = Field(None, max_length=4000)
 
 
 class TestResultResponse(BaseModel):
@@ -155,8 +156,15 @@ class TestResultResponse(BaseModel):
     comment: Optional[str] = None
     comment_override: Optional[str] = None
     engineer_notes: Optional[str] = None
+    raw_output: Optional[str] = None
     parsed_data: Optional[Any] = None
-    findings: Optional[List[Any]] = None
+    findings: Optional[Any] = None
+    is_overridden: bool = False
+    override_reason: Optional[str] = None
+    override_verdict: Optional[str] = None
+    overridden_by_user_id: Optional[str] = None
+    overridden_by_username: Optional[str] = None
+    overridden_at: Optional[datetime] = None
     evidence_files: Optional[List[str]] = None
     compliance_map: Optional[List[str]] = None
     duration_seconds: Optional[float] = None
