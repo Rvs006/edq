@@ -4,7 +4,7 @@ This document reflects the current application behavior in the repository. It is
 
 ## Authentication Model
 
-- Login is username-based, not email-based.
+- Login accepts either username or email.
 - `POST /api/auth/login` issues:
   - an access token cookie
   - a refresh token cookie

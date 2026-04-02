@@ -16,9 +16,17 @@ def _validate_password_strength(password: str) -> str:
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=64)
+    username: str = Field(..., min_length=3, max_length=320)
     password: str = Field(..., min_length=8, max_length=128)
     totp_code: Optional[str] = Field(None, min_length=6, max_length=6)
+
+    @field_validator("username")
+    @classmethod
+    def normalize_login_identifier(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 3:
+            raise ValueError("Username or email must be at least 3 characters")
+        return value
 
 
 class RegisterRequest(BaseModel):

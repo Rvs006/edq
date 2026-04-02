@@ -4,7 +4,7 @@
 >
 > This document reflects an earlier product and architecture plan. It does not
 > define the current repo handoff, setup flow, or deployed behavior. Use the
-> current docs in the repo root and `docs/README.md` first.
+> current docs in the repo root first.
 
 **V1.2 — Full Technical Specification for Development (Final)**
 

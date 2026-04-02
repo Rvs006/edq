@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -76,7 +76,14 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
 async def login(data: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     check_rate_limit(request, max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE, window_seconds=60, action="login")
 
-    result = await db.execute(select(User).where(User.username == data.username))
+    identity = data.username.strip()
+    normalized_identity = identity.casefold()
+    result = await db.execute(
+        select(User).where(
+            (func.lower(User.username) == normalized_identity)
+            | (func.lower(User.email) == normalized_identity)
+        )
+    )
     user = result.scalar_one_or_none()
 
     if not user:
@@ -99,9 +106,9 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
         if user.failed_login_attempts >= settings.ACCOUNT_LOCKOUT_ATTEMPTS:
             user.locked_until = _utcnow() + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
-            logger.warning("Account locked for user %s after %d failed attempts", data.username, user.failed_login_attempts)
+            logger.warning("Account locked for user %s after %d failed attempts", identity, user.failed_login_attempts)
         await log_security_event(db, "auth.login_failed", user_id=user.id,
-                                 details={"username": data.username}, request=request)
+                                 details={"username": identity}, request=request)
         await db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -117,7 +124,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         if not verify_totp_for_user(user, data.totp_code):
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
             await log_security_event(db, "auth.2fa_failed", user_id=user.id,
-                                     details={"username": data.username}, request=request)
+                                     details={"username": identity}, request=request)
             await db.commit()
             raise HTTPException(status_code=401, detail="Invalid two-factor authentication code")
 

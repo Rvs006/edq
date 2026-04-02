@@ -102,12 +102,11 @@ Windows PowerShell:
 | [DEPLOY.md](DEPLOY.md) | Shared and production deployment guidance |
 | [SECURITY.md](SECURITY.md) | Current security model, secret handling, and operational controls |
 | [CHANGELOG.md](CHANGELOG.md) | Curated history of major changes after the original v1.0 baseline |
-| [docs/README.md](docs/README.md) | Docs index and reader guide |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and contribution notes |
 
 ## Current Operational Notes
 
-- Local login is username-based. The seeded admin username is `admin`.
+- Local login accepts either username or email. The seeded admin username is `admin`.
 - `setup.sh` and `setup.bat` create the root `.env`, fill missing secrets, and generate an initial admin password if needed.
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.

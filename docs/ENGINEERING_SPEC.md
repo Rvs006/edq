@@ -4,7 +4,7 @@
 >
 > This document reflects an earlier planning state and is not the current setup,
 > deployment, or API guide for this repository. Use `README.md`, `INSTALL.md`,
-> `DEPLOY.md`, `SECURITY.md`, and `docs/README.md` for current guidance.
+> `DEPLOY.md`, and `SECURITY.md` for current guidance.
 
 ## CRITICAL: READ THIS ENTIRE FILE BEFORE WRITING ANY CODE
 

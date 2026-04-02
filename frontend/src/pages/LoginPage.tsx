@@ -45,6 +45,17 @@ export default function LoginPage() {
   const [searchParams] = useSearchParams()
   const oidcHandledRef = useRef(false)
 
+  const getLoginErrorMessage = (err: unknown) => {
+    const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string }
+    if (axiosErr.response?.data?.detail) {
+      return axiosErr.response.data.detail
+    }
+    if (axiosErr.message === 'Network Error') {
+      return 'Unable to reach the server. Check that EDQ is still running and try again.'
+    }
+    return 'Unable to sign in. Verify your details and try again.'
+  }
+
   // OIDC config
   const [oidcConfig, setOidcConfig] = useState<{
     enabled: boolean
@@ -163,8 +174,7 @@ export default function LoginPage() {
       toast.success('Welcome back!')
       navigate('/', { replace: true })
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Invalid credentials')
+      toast.error(getLoginErrorMessage(err))
       if (requires2FA) setTotpCode('')
     } finally {
       setLoading(false)
@@ -198,15 +208,16 @@ export default function LoginPage() {
               {!requires2FA ? (
                 <>
                   <div>
-                    <label className="label">Username</label>
+                    <label className="label">Username or Email</label>
                     <input
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       className="input"
-                      placeholder="Enter your username"
+                      placeholder="Enter your username or email"
                       required
                       autoFocus
+                      autoComplete="username"
                     />
                   </div>
 
@@ -220,6 +231,7 @@ export default function LoginPage() {
                         className="input pr-10"
                         placeholder="Enter your password"
                         required
+                        autoComplete="current-password"
                       />
                       <button
                         type="button"

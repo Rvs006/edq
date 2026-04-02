@@ -60,7 +60,7 @@ describe('LoginPage', () => {
     expect(screen.getAllByAltText('Electracom').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('Device Qualifier')).toBeInTheDocument()
     expect(screen.getByText('Sign in')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Enter your username')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Enter your username or email')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
   })
@@ -92,11 +92,25 @@ describe('LoginPage', () => {
     const user = userEvent.setup()
     await renderLoginPage()
 
-    await user.type(screen.getByPlaceholderText('Enter your username'), 'admin')
+    await user.type(screen.getByPlaceholderText('Enter your username or email'), 'admin')
     await user.type(screen.getByPlaceholderText('Enter your password'), 'TestPass1!')
     await user.click(screen.getByRole('button', { name: /sign in/i }))
 
     expect(mockLogin).toHaveBeenCalledWith('admin', 'TestPass1!', undefined)
+  })
+
+  it('shows a network-specific error message when the backend is unreachable', async () => {
+    mockLogin.mockRejectedValueOnce(new Error('Network Error'))
+    const user = userEvent.setup()
+    await renderLoginPage()
+
+    await user.type(screen.getByPlaceholderText('Enter your username or email'), 'admin')
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'TestPass1!')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Unable to reach the server. Check that EDQ is still running and try again.')
+    })
   })
 
   it('shows Electracom branding in footer', async () => {

@@ -40,6 +40,5 @@ Use current docs first:
 - [DEPLOY.md](DEPLOY.md)
 - [SECURITY.md](SECURITY.md)
 - [CHANGELOG.md](CHANGELOG.md)
-- [docs/README.md](docs/README.md)
 
 Historical specs remain in `docs/` for reference only. They are not the current operational guide for setup, deployment, or API behavior.

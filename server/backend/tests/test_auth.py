@@ -61,6 +61,24 @@ async def test_login_success(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_login_success_with_email_identifier(client: AsyncClient):
+    """Login should accept the account email in the username field."""
+    reg = await client.post("/api/auth/register", json={
+        "email": "email-login@example.com",
+        "username": "emailloginuser",
+        "password": "TestPass1",
+    })
+    assert reg.status_code == 201, f"Register failed: {reg.text}"
+
+    resp = await client.post("/api/auth/login", json={
+        "username": "email-login@example.com",
+        "password": "TestPass1",
+    })
+    assert resp.status_code == 200, f"Login failed: {resp.text}"
+    assert resp.json()["message"] == "Login successful"
+
+
+@pytest.mark.asyncio
 async def test_login_invalid_credentials(client: AsyncClient):
     """Login with wrong password should fail."""
     await client.post("/api/auth/register", json={
