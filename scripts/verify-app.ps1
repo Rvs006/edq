@@ -46,6 +46,14 @@ function Get-ListCount {
     return @($Value).Count
 }
 
+function Get-PropertyCount {
+    param([object]$Value)
+
+    if ($null -eq $Value) { return 0 }
+    if ($Value -is [System.Collections.IDictionary]) { return $Value.Count }
+    return @($Value.PSObject.Properties | Where-Object { $_.MemberType -eq "NoteProperty" }).Count
+}
+
 function Invoke-Check {
     param(
         [string]$Label,
@@ -133,7 +141,7 @@ Write-Host ""
 Write-Host "--- Tools Sidecar ---"
 Invoke-Check "Tool versions" {
     $response = Invoke-RestMethod -Uri "$apiUrl/health/tools/versions" -Method Get -WebSession $session
-    $toolCount = if ($response.tools) { $response.tools.PSObject.Properties.Count } else { 0 }
+    $toolCount = Get-PropertyCount $response.tools
     "{0} tools" -f $toolCount
 }
 

@@ -11,12 +11,14 @@ The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summariz
 - Reworked the repo documentation around current behavior instead of historical planning docs.
 - Added a dedicated engineer update guide and cleaned up the local verification flow.
 - Separated app overview, install flow, deploy guidance, security notes, and change history more clearly.
+- Added a dedicated local frontend or backend development guide for running outside the full Docker stack.
 
 ### Operations And Release Workflow
 
 - Improved the release and update workflow for local installs.
 - Added Windows and shell verification helpers for smoke tests and backend test runs.
 - Hardened local network detection with fallback probe behavior.
+- Corrected PowerShell smoke checks so tool-sidecar counts reflect the live response shape.
 
 ## 2026-03-31
 

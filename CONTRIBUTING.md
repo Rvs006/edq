@@ -2,9 +2,9 @@
 
 ## Local Development
 
-1. Clone the repository
-2. Create the root `.env` or run `setup.sh` / `setup.bat`
-3. Start the stack with `docker compose up --build`
+- Clone the repository.
+- For normal full-stack work, create the root `.env` or run `setup.sh` / `setup.bat`, then start the stack with `docker compose up --build`.
+- For frontend or backend development outside Docker, follow [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
 
 ## Code Standards
 
@@ -37,6 +37,7 @@ Use current docs first:
 
 - [README.md](README.md)
 - [INSTALL.md](INSTALL.md)
+- [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md)
 - [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
 - [DEPLOY.md](DEPLOY.md)
 - [SECURITY.md](SECURITY.md)

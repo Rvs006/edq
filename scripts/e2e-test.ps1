@@ -90,6 +90,14 @@ function Invoke-Check {
     }
 }
 
+function Get-PropertyCount {
+    param([object]$Value)
+
+    if ($null -eq $Value) { return 0 }
+    if ($Value -is [System.Collections.IDictionary]) { return $Value.Count }
+    return @($Value.PSObject.Properties | Where-Object { $_.MemberType -eq "NoteProperty" }).Count
+}
+
 function Get-CsrfHeaders {
     if (-not $csrfToken) {
         return @{}
@@ -149,7 +157,7 @@ Invoke-Check "Current user uses username auth" {
 
 Invoke-Check "Authenticated tool versions" {
     $response = Invoke-RestMethod -Uri "$apiUrl/health/tools/versions" -Method Get -WebSession $session
-    $toolCount = if ($response.tools) { $response.tools.PSObject.Properties.Count } else { 0 }
+    $toolCount = Get-PropertyCount $response.tools
     "{0} tools" -f $toolCount
 }
 

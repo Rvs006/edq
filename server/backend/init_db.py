@@ -162,21 +162,33 @@ def _dedup_template_test_ids(db: Session) -> None:
 
 def _seed_admin_user(db: Session) -> User:
     admin = db.query(User).filter(User.username == "admin").first()
-    if not admin:
-        from app.config import settings
-        initial_password = settings.INITIAL_ADMIN_PASSWORD
-        admin = User(
-            id=str(uuid.uuid4()),
-            username="admin",
-            email="admin@electracom.co.uk",
-            password_hash=hash_password(initial_password),
-            full_name="System Administrator",
-            role="admin",
-            is_active=True,
-        )
-        db.add(admin)
-        db.flush()
-        print(f"Created default admin user. Set INITIAL_ADMIN_PASSWORD in .env before first run.")
+    if admin:
+        updated = []
+        if str(admin.role) != "admin":
+            admin.role = "admin"
+            updated.append("role")
+        if not admin.is_active:
+            admin.is_active = True
+            updated.append("is_active")
+        if updated:
+            db.flush()
+            print(f"Updated default admin user fields: {', '.join(updated)}")
+        return admin
+
+    from app.config import settings
+    initial_password = settings.INITIAL_ADMIN_PASSWORD
+    admin = User(
+        id=str(uuid.uuid4()),
+        username="admin",
+        email="admin@electracom.co.uk",
+        password_hash=hash_password(initial_password),
+        full_name="System Administrator",
+        role="admin",
+        is_active=True,
+    )
+    db.add(admin)
+    db.flush()
+    print(f"Created default admin user. Set INITIAL_ADMIN_PASSWORD in .env before first run.")
     return admin
 
 

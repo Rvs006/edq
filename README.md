@@ -98,6 +98,7 @@ Windows PowerShell:
 | File | Purpose |
 | --- | --- |
 | [INSTALL.md](INSTALL.md) | Primary local install, validation, and troubleshooting guide |
+| [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) | Local frontend and backend development outside the full Docker stack |
 | [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md) | Update-only workflow for existing local installs |
 | [DEPLOY.md](DEPLOY.md) | Shared and production deployment guidance |
 | [SECURITY.md](SECURITY.md) | Current security model, secret handling, and operational controls |
@@ -110,6 +111,7 @@ Windows PowerShell:
 - `setup.sh` and `setup.bat` create the root `.env`, fill missing secrets, and generate an initial admin password if needed.
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.
+- Frontend and backend development can run locally outside Docker; the tools sidecar remains Docker-backed on Windows. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
 - Historical product and engineering specs remain in `docs/` as archive material only and should not be treated as the current operational guide.
 
 ## Archived Reference

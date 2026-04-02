@@ -133,6 +133,7 @@ dist
 
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
+.vscode/
 
 # yarn v2
 .yarn/cache
@@ -155,6 +156,9 @@ electron/out/
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+.venv-backend*/
+server/backend/.venv/
 
 # Database
 *.db

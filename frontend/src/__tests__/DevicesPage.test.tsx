@@ -76,7 +76,7 @@ describe('DevicesPage', () => {
 
   it('renders the subtitle', () => {
     renderWithProviders(<DevicesPage />)
-    expect(screen.getByText('Manage network devices for qualification testing')).toBeInTheDocument()
+    expect(screen.getByText('Manage known devices first, then use discovery when the address is unknown')).toBeInTheDocument()
   })
 
   it('renders search input', () => {
