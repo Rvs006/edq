@@ -1,21 +1,38 @@
 #!/bin/bash
-# EDQ Integration Verification Script (Quick Smoke Test)
-# Run after docker compose up
-#
-# For the comprehensive E2E test suite, use: ./scripts/e2e-test.sh
-# This script is the fast sanity check; e2e-test.sh covers full CRUD,
-# lifecycle, error handling, and cleanup.
+# EDQ integration verification script (quick smoke test)
+# Run after docker compose up.
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BASE_URL="${EDQ_URL:-http://localhost:80}"
 API_URL="$BASE_URL/api"
 ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
-ADMIN_PASS="${EDQ_ADMIN_PASS:-${INITIAL_ADMIN_PASSWORD:-Admin123!}}"
 COOKIE_FILE=$(mktemp)
 PASS=0
 FAIL=0
 SKIP=0
+
+resolve_admin_password() {
+  if [ -n "${EDQ_ADMIN_PASS:-}" ]; then
+    printf '%s\n' "$EDQ_ADMIN_PASS"
+    return 0
+  fi
+
+  if [ -f "$REPO_ROOT/.env" ]; then
+    grep -E '^INITIAL_ADMIN_PASSWORD=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\r'
+    return 0
+  fi
+
+  return 1
+}
+
+ADMIN_PASS="$(resolve_admin_password || true)"
+if [ -z "$ADMIN_PASS" ] || [[ "$ADMIN_PASS" == CHANGE_ME* ]] || [[ "$ADMIN_PASS" == change-me* ]]; then
+  echo "ERROR: Set EDQ_ADMIN_PASS or configure INITIAL_ADMIN_PASSWORD in $REPO_ROOT/.env" >&2
+  exit 1
+fi
 
 cleanup() {
   rm -f "$COOKIE_FILE"
@@ -60,7 +77,7 @@ check "Login (admin)" bash -c "curl -sf -X POST '$API_URL/auth/login' \
   -d '{\"username\":\"'$ADMIN_USER'\",\"password\":\"'$ADMIN_PASS'\"}' \
   -c '$COOKIE_FILE' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('token received')\""
 
-check "Get current user" bash -c "curl -sf '$API_URL/auth/me' -b '$COOKIE_FILE' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('email',''))\""
+check "Get current user" bash -c "curl -sf '$API_URL/auth/me' -b '$COOKIE_FILE' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('username',''))\""
 
 echo ""
 echo "--- Core Resources ---"

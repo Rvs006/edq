@@ -1,5 +1,8 @@
 # EDQ Design System — Tokens
 
+This file is a design reference for visual tokens and styling intent. It is not
+the current operational guide for setup, deployment, or backend behavior.
+
 ## Philosophy
 Apple-style minimal. Clean solid dark surfaces. No noise, no clutter, no gradients on backgrounds.
 Gradients reserved ONLY for accent elements (primary buttons, active indicators, key badges).

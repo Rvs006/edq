@@ -1,26 +1,22 @@
-# Engineer Update Guide
+# EDQ Engineer Update Guide
 
-This guide is for engineers who already have EDQ installed and just need the latest official version.
+Use this guide only if EDQ is already installed and you just need the latest official build.
 
-## Rule
+## Rules
 
-Stay on the `main` branch only.
-
-Do not do day-to-day work from old feature branches.
+- Stay on the `main` branch
+- Do not update over uncommitted local work
+- Keep using the existing root `.env`
 
 ## Fastest Update
 
-### Windows
-
-Run:
+Windows:
 
 ```powershell
 .\update.bat
 ```
 
-### macOS / Linux
-
-Run:
+macOS or Linux:
 
 ```bash
 ./update.sh
@@ -28,52 +24,35 @@ Run:
 
 These scripts:
 
-1. Fetch the latest code from GitHub
-2. Switch to `main`
-3. Pull the latest official release
-4. Rebuild and restart the Docker containers
-
-## Manual Update
-
-If you prefer to run the commands yourself:
-
-```bash
-git switch main
-git pull --ff-only origin main
-docker compose up --build -d
-```
+1. fetch the latest code from GitHub
+2. switch to `main`
+3. pull the latest official changes
+4. rebuild and restart the containers
 
 ## After Updating
 
-Check that all services are healthy:
+Check container status:
 
 ```bash
 docker compose ps
 ```
 
-Expected services:
+Run the smoke test:
 
-- `backend`
-- `frontend`
-- `tools`
+```bash
+./scripts/verify-app.sh
+```
 
-Then open:
+Windows PowerShell:
 
-- `http://localhost`
+```powershell
+.\scripts\verify-app.ps1
+```
 
-## Important
+Then open `http://localhost`.
 
-If you have local file changes in your EDQ folder, do not force an update over them.
+## If Update Fails
 
-Either:
-
-- commit your own changes first, or
-- ask the admin/release owner to help before updating
-
-## Current Release Includes
-
-- safer cable/disconnect handling for test runs
-- automatic pause before tests start if the device is not reachable
-- automatic pause/resume if the CAT6 link drops during a run
-- improved network detection fallback in Docker/WSL-style environments
-- updated release and deployment documentation
+- If Git reports local changes, stop and clean up your work before updating.
+- If Docker rebuild fails, inspect `docker compose logs` and retry.
+- If login fails after update, confirm the root `.env` still contains the correct `INITIAL_ADMIN_PASSWORD`.

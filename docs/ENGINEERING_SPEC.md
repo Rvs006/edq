@@ -1,8 +1,15 @@
 # EDQ Engineering Specification
 
+> Archived reference only.
+>
+> This document reflects an earlier planning state and is not the current setup,
+> deployment, or API guide for this repository. Use `README.md`, `INSTALL.md`,
+> `DEPLOY.md`, `SECURITY.md`, and `docs/README.md` for current guidance.
+
 ## CRITICAL: READ THIS ENTIRE FILE BEFORE WRITING ANY CODE
 
-This is the master technical specification for the EDQ project. It serves as the single source of truth for architecture, database schema, API design, and implementation details. If any other document contradicts this file, THIS FILE WINS.
+This is a historical technical specification preserved for context. It is not the
+current operational guide for the running repository.
 
 **Last Updated:** March 2026
 **Status:** Production — V1.0
@@ -879,7 +886,7 @@ class NessusParser:
 
 On first run, the database must be seeded with:
 
-1. **Default admin user:** admin@electracom.co.uk / Admin123! / role: admin
+1. **Default admin user:** `admin` with the password supplied from the active environment / role: admin
 2. **30 universal test definitions** (Section 5)
 3. **5 device profiles:** camera, controller, intercom, iot_sensor, generic (with scan policies)
 4. **1 default protocol whitelist** (from EasyIO template: sFTP/22, DHCP/68, DNS/53, HTTPS/443, NTP/123, SNMPv3/161, LDAPS/636, FTPS/989-990, MQTTS/8883, BACnet/47808)

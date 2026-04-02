@@ -11,13 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.pool import StaticPool
 from sqlalchemy import update
 
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
-os.environ.setdefault("JWT_SECRET", "test-jwt-secret-not-for-production")
-os.environ.setdefault("JWT_REFRESH_SECRET", "test-refresh-secret-not-for-production")
-os.environ.setdefault("SECRET_KEY", "test-secret-key")
-os.environ.setdefault("TOOLS_SIDECAR_URL", "http://localhost:8001")
-os.environ.setdefault("TOOLS_API_KEY", "test-tools-api-key")
-os.environ.setdefault("ALLOW_REGISTRATION", "true")
+# Force a test-local configuration so pytest does not inherit the repo's
+# shared handoff settings from the root .env file.
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+os.environ["JWT_SECRET"] = "test-jwt-secret-not-for-production"
+os.environ["JWT_REFRESH_SECRET"] = "test-refresh-secret-not-for-production"
+os.environ["SECRET_KEY"] = "test-secret-key"
+os.environ["TOOLS_SIDECAR_URL"] = "http://localhost:8001"
+os.environ["TOOLS_API_KEY"] = "test-tools-api-key"
+os.environ["ALLOW_REGISTRATION"] = "true"
+os.environ["COOKIE_SECURE"] = "false"
+os.environ["DEBUG"] = "true"
 
 from app.models.database import Base, get_db
 from app.main import create_app

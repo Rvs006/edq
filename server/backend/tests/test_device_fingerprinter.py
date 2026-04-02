@@ -90,7 +90,7 @@ class TestPortSkips:
     def test_all_ports_present_skips_nothing(self):
         all_ports = {22, 80, 161, 162, 443, 554, 1900, 5353}
         skips = self.fp._compute_port_skips(all_ports)
-        assert skips == []
+        assert skips == {}
 
     def test_empty_ports_skips_everything(self):
         skips = self.fp._compute_port_skips(set())

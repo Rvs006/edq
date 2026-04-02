@@ -1,46 +1,44 @@
 # Contributing to EDQ
 
-## Development Setup
+## Local Development
 
 1. Clone the repository
-2. Install Docker Desktop
-3. Run `docker compose up --build`
+2. Create the root `.env` or run `setup.sh` / `setup.bat`
+3. Start the stack with `docker compose up --build`
 
 ## Code Standards
 
-### Python (Backend)
-- Type hints on every function
-- Docstrings on classes and public methods
-- Use `async def` for all route handlers
-- Pydantic schemas for all request/response validation
-- Business logic in `services/`, never in routes
+### Backend
 
-### TypeScript (Frontend)
-- Functional components only
-- React Query for API data fetching
-- Tailwind CSS utility classes
-- Dark theme throughout
+- keep route handlers thin
+- put business logic in `services/`
+- use typed request and response schemas
+- prefer explicit validation and clear error messages
 
-## Commit Messages
+### Frontend
 
-Use descriptive commit messages:
-- `feat: add nmap parser with XML output handling`
-- `fix: correct CSRF token extraction from cookies`
-- `docs: update API endpoint documentation`
+- keep components functional
+- keep shared data fetching in the existing query layer
+- preserve the established UI language in this repo
 
-## Project Structure
+## Tests
 
-- One model per file in `models/`
-- One router per resource in `routes/`
-- Pydantic schemas in `schemas/`
-- Business logic in `services/`
+- smoke test: `./scripts/verify-app.sh`
+- Windows smoke test: `.\scripts\verify-app.ps1`
+- optional API regression script: `./scripts/e2e-test.sh`
+- Windows API regression script: `.\scripts\e2e-test.ps1`
+- backend suite via Docker: `./scripts/backend-test.sh` or `.\scripts\backend-test.ps1`
+- backend tests: `pytest server/backend/tests -v`
 
-## Questions?
+## Documentation Map
 
-If you have questions about the codebase, architecture decisions, or how to implement a feature, check the documentation in the `docs/` directory:
+Use current docs first:
 
-- **`docs/PRODUCT_REQUIREMENTS.md`** — Full product specification and feature details
-- **`docs/ENGINEERING_SPEC.md`** — Technical architecture, database schema, API design
-- **`docs/DESIGN_SYSTEM.md`** — UI design tokens, colour palette, component guidelines
+- [README.md](README.md)
+- [INSTALL.md](INSTALL.md)
+- [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
+- [DEPLOY.md](DEPLOY.md)
+- [SECURITY.md](SECURITY.md)
+- [docs/README.md](docs/README.md)
 
-For anything not covered in the docs, open a GitHub Issue with the `question` label.
+Historical specs remain in `docs/` for reference only. They are not the current operational guide for setup, deployment, or API behavior.

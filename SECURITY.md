@@ -1,231 +1,143 @@
-# EDQ Security Documentation
+# EDQ Security Notes
 
-## Authentication Flow
+This document reflects the current application behavior in the repository. It is not a generic security policy.
 
-### Access Tokens
-- JWT access tokens are issued on login and stored in **httpOnly, Secure, SameSite=strict** cookies
-- Algorithm: HS256
-- Default expiry: 60 minutes (`JWT_ACCESS_TOKEN_EXPIRE_MINUTES`)
-- Claims: `sub` (user ID), `role` (user role), `exp` (expiration)
+## Authentication Model
 
-### CSRF Protection
-- Double-submit cookie pattern: a `X-CSRF-Token` header must accompany all mutating requests to `/api/` endpoints
-- CSRF token is returned on login and refresh
-- Safe methods exempt: GET, HEAD, OPTIONS
-- Exempt endpoints: `/api/auth/login`, `/api/auth/register`, `/api/auth/refresh`, `/api/health`
+- Login is username-based, not email-based.
+- `POST /api/auth/login` issues:
+  - an access token cookie
+  - a refresh token cookie
+  - a CSRF cookie
+- Access tokens are stored in httpOnly cookies.
+- Refresh tokens are rotated and stored server-side as hashes.
+- Optional TOTP-based 2FA is enforced per account when configured.
+- Optional OIDC login is available only when OIDC settings are configured.
 
-### Refresh Token Rotation
-- Single-use refresh tokens stored in the database with a `token_family` identifier
-- Each refresh generates a new token and invalidates the old one
-- **Family revocation on reuse detection**: if a previously-used refresh token is presented, the entire token family is revoked immediately (committed to DB before raising the HTTP exception, so rollback cannot undo it)
-- Each token includes a unique `jti` claim to prevent hash collisions
-- Default expiry: 30 days (`JWT_REFRESH_TOKEN_EXPIRE_DAYS`)
-- Background cleanup task runs hourly to purge expired tokens
+## Current Cookie and Session Behavior
 
-### Account Lockout
-- After **5 failed login attempts** (`ACCOUNT_LOCKOUT_ATTEMPTS`), the account is locked for **15 minutes** (`ACCOUNT_LOCKOUT_MINUTES`)
-- Failed attempt counter resets on successful login or after the lockout period expires
-- Locked account responses do not leak whether the account exists
+- `COOKIE_SECURE=false` is required for plain `http://localhost` testing.
+- Set `COOKIE_SECURE=true` only when EDQ is served behind HTTPS.
+- CSRF protection applies to mutating `/api/` requests except exempt auth and health endpoints.
 
----
+## Registration and User Roles
 
-## Authorization Model
+- Public self-registration is disabled by default with `ALLOW_REGISTRATION=false`.
+- Roles:
+  - `engineer`: works on assigned or owned testing flows
+  - `reviewer`: reviews and overrides results where allowed
+  - `admin`: full administrative access
 
-### Roles
-- **engineer** — default role on registration; can only access their own test runs, reports, and synopses
-- **reviewer** — can view all test runs (read-only access to others' data)
-- **admin** — full access to all resources, user management, and device management
+## Health and Debug Endpoints
 
-### IDOR Prevention
-- All test-run endpoints use `_get_authorized_test_run()` helper which enforces:
-  - Engineers see only their own runs
-  - Reviewers and admins see all runs
-- `GET /test-runs/` and `/stats` are scoped: engineers see only their own runs/stats
-- Report generation and synopsis generation verify test-run ownership
-- Nessus upload and findings endpoints verify test-run ownership
-- WebSocket `/ws/test-run/{run_id}` verifies ownership via `_authorize_test_run()` before accepting the connection
-- Device PATCH is restricted to admin only; device DELETE was already admin-only
-- User listing (`GET /users/`) is restricted to admin only with pagination
+Public endpoints:
 
-### Path Traversal Protection
-- Branding logo upload and report download sanitize file paths to prevent directory traversal
+- `GET /api/health`
+- `GET /api/health/metrics`
 
----
+Authenticated endpoints:
 
-## Rate Limiting
+- `GET /api/health/tools/versions`
+- `GET /api/health/system-status`
 
-Sliding-window rate limiter keyed by client IP and action. Uses in-memory storage by default; set `REDIS_URL` for cross-instance persistence (e.g., `redis://redis:6379/0`).
+Interactive backend docs are available only when `DEBUG=true`.
 
-| Endpoint | Limit | Window | Action Key |
-|----------|-------|--------|------------|
-| `POST /api/auth/login` | 5/min | 60s | `login` |
-| `POST /api/auth/register` | 3/min | 60s | `register` |
-| `POST /api/auth/refresh` | 5/min | 60s | `refresh` |
-| `POST /api/auth/change-password` | 3/min | 60s | `change_password` |
-| `POST /api/reports/generate` | 5/min | 60s | `report_generate` |
-| `POST /api/synopsis/generate` | 3/min | 60s | `synopsis_generate` |
-| `POST /api/discovery/scan` | 3/min | 60s | `discovery_scan` |
-| `POST /api/network-scan/discover` | 3/min | 60s | `network_discover` |
-| `POST /api/network-scan/start` | 3/min | 60s | `network_start` |
+## Current Health Contract
 
-Client IP is extracted from `X-Forwarded-For` only when the request comes from a trusted proxy (127.0.0.1, ::1, Docker internal 172.x.x.x).
+`GET /api/health` currently returns JSON with:
 
----
+- `status`
+- `database`
 
-## Security Headers
+It does not return the older multi-service payload described in archived specs.
 
-Applied to all responses via `SecurityHeadersMiddleware`:
+## Secret Handling
 
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `X-XSS-Protection: 1; mode=block`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-- `Strict-Transport-Security: max-age=31536000; includeSubDomains` (when `COOKIE_SECURE=True`)
-- `Content-Security-Policy` — backend: `script-src 'self'` (no `unsafe-inline`), `style-src 'self' 'unsafe-inline'` (required for Tailwind); frontend nginx mirrors the same CSP
-- `Permissions-Policy` (denies camera, microphone, geolocation, payment)
-- `Cache-Control: no-store` on all `/api/` responses
+Required settings:
 
-**Frontend nginx** also sets: CSP, Permissions-Policy, Cache-Control, and all X- headers (matching the backend).
+- `JWT_SECRET`
+- `JWT_REFRESH_SECRET`
+- `SECRET_KEY`
+- `TOOLS_API_KEY`
+- `INITIAL_ADMIN_PASSWORD`
 
-### Request ID Tracking
-Every response includes an `X-Request-ID` header for tracing.
+Current local handoff model:
 
----
+- the supported local config file is the root `.env`
+- placeholder values should not be used for real runs
+- setup scripts generate missing required secrets automatically for local installs
 
 ## Secret Rotation
 
-### JWT_SECRET and JWT_REFRESH_SECRET
-1. Generate new secrets: `openssl rand -hex 64`
-2. Update the `.env` file with the new values
-3. Restart the backend container
-4. **Impact**: all existing access/refresh tokens are invalidated — users must re-login
+### JWT secrets
 
-### SECRET_KEY
-1. Generate: `openssl rand -hex 32`
-2. Update `.env` and restart
-3. **Impact**: CSRF tokens are invalidated
+Rotate:
 
-### TOOLS_API_KEY
-1. Generate a new key: `openssl rand -hex 32`
-2. Update `TOOLS_API_KEY` in the `.env` file (shared by both services via docker-compose)
-3. Restart both containers: `docker compose restart backend tools`
-4. **Impact**: tools sidecar requests fail until both services have the new key
+- `JWT_SECRET`
+- `JWT_REFRESH_SECRET`
 
-### INITIAL_ADMIN_PASSWORD
-- Only used on first database initialization (`init_db.py`)
-- To rotate the admin password after init, use the change-password endpoint or update the database directly
+Impact:
 
----
+- existing sessions are invalidated
+- users must log in again
 
-## Audit Logging
+### `SECRET_KEY`
 
-### What Is Logged
-All security events and CRUD operations are logged via the `edq.audit` logger:
+Impact:
 
-**Security events** (`log_security_event`):
-- `auth.register`, `auth.login`, `auth.login_failed`, `auth.token_refresh`, `auth.password_change`, `auth.logout`
-- Captures: user ID, action, IP address, user agent (truncated to 512 chars)
+- CSRF tokens are invalidated
 
-**CRUD operations** (`log_action`):
-- Resource creation, updates, and deletions across all endpoints
-- Captures: user ID, action, resource type, resource ID, details, IP address
+### `TOOLS_API_KEY`
 
-### Where Logs Are Stored
-Logs are written to stdout via Python's logging module (logger name: `edq.audit`). In Docker, these are captured by the container runtime and can be forwarded to any log aggregation system.
+Impact:
 
-### Reviewing Logs
+- backend-to-tools requests fail until both services use the same key
+
+Recommended restart:
+
 ```bash
-# View audit logs from the backend container
-docker compose logs backend | grep "Audit:"
-docker compose logs backend | grep "Security:"
-
-# Filter by user
-docker compose logs backend | grep "user=<user_id>"
+docker compose restart backend tools
 ```
 
----
+### Initial admin password
 
-## Incident Response
+`INITIAL_ADMIN_PASSWORD` is only used when the admin account is first seeded.
 
-### Compromised User Account
-1. **Immediate**: `POST /api/users/{user_id}/revoke-sessions` (admin only) — revokes all refresh tokens for the user
-2. **Lock account**: `PATCH /api/users/{user_id}` with `{"is_active": false}` to prevent new logins
-3. Existing access tokens remain valid for up to 60 minutes (JWT limitation)
-4. **Reset password**: update the password hash directly or use the admin API
-5. **Review audit logs**: search for the user's recent activity via `GET /api/audit-logs/`
+After first login, rotate the password through the app or reset the stored password hash directly if needed.
 
-### Detected Token Reuse (Refresh Token Theft)
-The system automatically handles this:
-- When a previously-used refresh token is presented, the entire token family is revoked
-- The attacker's stolen token and all derived tokens become invalid
-- The legitimate user's next refresh will also fail — they must re-login
-- A `auth.token_refresh` security event is logged with details
+## Scan Controls
 
-### Compromised TOOLS_API_KEY
-1. Rotate the key (see Secret Rotation above)
-2. Review tools sidecar access logs for unauthorized `/scan/*` requests
-3. The tools sidecar rejects all requests without a valid `X-Tools-Key` header
+- EDQ includes active network scan tooling.
+- Subnet scanning is blocked until an admin adds authorized networks in the app.
+- The tools sidecar should never be exposed directly to untrusted networks.
 
----
+## Incident Response Basics
 
-## Dependency Management
+Compromised user:
 
-### Backend (Python)
-- `pip-audit` runs in CI on every push/PR to `main` — fails on any known vulnerability
-- Current clean versions: fastapi 0.121.0, python-jose 3.5.0, python-multipart 0.0.22
-- To check locally: `pip-audit -r requirements.txt --skip-editable --desc`
+1. deactivate the account or change its role as admin
+2. revoke sessions for that user
+3. rotate the password
+4. review audit logs
 
-### Frontend (Node.js)
-- `pnpm audit --audit-level=high` runs in CI (strict — failures break the build)
-- `picomatch` pinned to `>=4.0.4` via pnpm overrides to resolve ReDoS vulnerabilities
-- To check locally: `cd frontend && pnpm audit`
+Compromised admin password:
 
-### Upgrade Procedure
-1. Update the version in `requirements.txt` or `package.json`
-2. Run the audit command locally to verify no new vulnerabilities
-3. Run the test suite (`pytest tests/ -v` / `pnpm run test`)
-4. Commit and push — CI will validate
+1. reset the password
+2. review recent admin actions
+3. rotate secrets if broader compromise is suspected
 
----
+Compromised tools key:
 
-## Production Deployment Checklist
+1. rotate `TOOLS_API_KEY`
+2. restart backend and tools
+3. review logs around scan activity
 
-- [ ] `DEBUG=false`
-- [ ] `COOKIE_SECURE=true` (requires HTTPS)
-- [ ] `CORS_ORIGINS` set to the actual production domain (no `localhost`)
-- [ ] `TOOLS_API_KEY` set to a strong random value (not empty)
-- [ ] `JWT_SECRET` is a strong random value (not the default placeholder)
-- [ ] `JWT_REFRESH_SECRET` is a strong random value (not the default placeholder)
-- [ ] `SECRET_KEY` is a strong random value (not the default placeholder)
-- [ ] `INITIAL_ADMIN_PASSWORD` is set explicitly before first run
-- [ ] Frontend nginx runs as non-root user (configured in `frontend/Dockerfile`)
-- [ ] `COOKIE_SAMESITE=strict` (default, no change needed)
-- [ ] TLS termination configured (nginx or load balancer)
-- [ ] Log aggregation configured for `edq.audit` logger output
-- [ ] Nessus file upload limited to 10MB (`MAX_NESSUS_FILE_SIZE`)
+## Production Hardening Checklist
 
----
-
-## Tools Sidecar Security
-
-- All `/scan/*` endpoints require the `X-Tools-Key` header matching `TOOLS_API_KEY`
-- The sidecar should not be exposed to the public internet — only the backend communicates with it
-- Network policy: restrict tools container to backend-only access via Docker networking
-
----
-
-## WebSocket Security
-
-- All WebSocket endpoints (`/ws/test-run/{run_id}`, `/ws/discovery/{task_id}`, `/ws/agents`) require JWT authentication via the httpOnly session cookie
-- Unauthenticated connections are closed with `WS_1008_POLICY_VIOLATION`
-- `/ws/test-run/{run_id}` enforces IDOR: engineers can only subscribe to their own test runs; admins and reviewers can subscribe to any
-- WebSockets bypass CSRF (by design — no mutating state from WS messages), but JWT validation prevents unauthorized access
-
----
-
-## File Upload Security
-
-- Nessus XML uploads are limited to `MAX_NESSUS_FILE_SIZE` (10MB default)
-- General file uploads limited to `MAX_FILE_SIZE` (50MB default)
-- Nessus files are parsed with `defusedxml` to prevent XXE attacks
-- Branding logo paths are sanitized to prevent directory traversal
+- `DEBUG=false`
+- `COOKIE_SECURE=true`
+- real `CORS_ORIGINS`
+- no placeholder secrets
+- private network or VPN-only exposure
+- authorized networks configured for scanning
+- log retention and backups defined

@@ -1,5 +1,11 @@
 # ELECTRACOM DEVICE QUALIFIER (EDQ) — Complete Implementation PRD
 
+> Archived reference only.
+>
+> This document reflects an earlier product and architecture plan. It does not
+> define the current repo handoff, setup flow, or deployed behavior. Use the
+> current docs in the repo root and `docs/README.md` first.
+
 **V1.2 — Full Technical Specification for Development (Final)**
 
 | Field | Value |
@@ -3671,7 +3677,7 @@ LOG_LEVEL=INFO
 MIN_AGENT_VERSION=1.0.0
 AI_SYNOPSIS_GLOBAL=true
 
-ADMIN_EMAIL=admin@electracom.co.uk
+ADMIN_EMAIL=<admin-email>
 ADMIN_PASSWORD=<strong-initial-password>
 ADMIN_NAME=System Administrator
 ```

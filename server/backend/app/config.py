@@ -1,12 +1,27 @@
 """Application configuration from environment variables."""
 
-from pydantic_settings import BaseSettings
+from pathlib import Path
 from typing import List
 import os
 
-# Load .env file manually first to override system env vars
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), override=True)
+from pydantic_settings import BaseSettings
+
+
+def _resolve_env_file() -> Path:
+    current_file = Path(__file__).resolve()
+    parents = current_file.parents
+
+    # Repo checkout layout: <repo>/server/backend/app/config.py
+    if len(parents) > 3 and parents[1].name == "backend" and parents[2].name == "server":
+        return parents[3] / ".env"
+
+    # Container layout: /app/app/config.py
+    return Path("/app/.env")
+
+
+ROOT_ENV_FILE = _resolve_env_file()
+load_dotenv(ROOT_ENV_FILE, override=False)
 
 
 class Settings(BaseSettings):
@@ -82,7 +97,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     class Config:
-        env_file = ".env"
+        env_file = str(ROOT_ENV_FILE)
         env_file_encoding = "utf-8"
 
 
@@ -134,14 +149,15 @@ if not settings.TOOLS_API_KEY or any(
     _warnings.warn(_msg, stacklevel=2)
 
 _localhost_origins = [o for o in settings.CORS_ORIGINS if "localhost" in o or "127.0.0.1" in o]
-if _localhost_origins and not settings.DEBUG:
+_localhost_only = bool(settings.CORS_ORIGINS) and len(_localhost_origins) == len(settings.CORS_ORIGINS)
+if _localhost_origins and not settings.DEBUG and not _localhost_only:
     _warnings.warn(
-        "[EDQ SECURITY] CORS_ORIGINS contains localhost entries in production mode: "
-        f"{_localhost_origins}. Update CORS_ORIGINS to your production domain(s).",
+        "[EDQ SECURITY] CORS_ORIGINS mixes localhost and non-localhost entries: "
+        f"{_localhost_origins}. Remove localhost entries from shared or production deployments.",
         stacklevel=2,
     )
 
-if not settings.COOKIE_SECURE and not settings.DEBUG:
+if not settings.COOKIE_SECURE and not settings.DEBUG and not _localhost_only:
     _warnings.warn(
         "[EDQ SECURITY] COOKIE_SECURE=false in production mode — session cookies will be "
         "sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",

@@ -1,239 +1,233 @@
-# EDQ Installation Guide
+# EDQ Local Engineer Install and Test Guide
+
+This is the primary guide for engineers testing EDQ locally on `http://localhost`.
+
+## Audience and Scope
+
+Use this guide if you are:
+
+- installing EDQ on your own laptop or workstation
+- validating a new build before wider rollout
+- updating an existing local install
+
+Do not use this guide for internet-facing or shared production deployment. Use [DEPLOY.md](DEPLOY.md) for that.
 
 ## Prerequisites
 
-### Required Software
-1. **Docker Desktop** (Windows/macOS/Linux)
-   - Download: https://www.docker.com/products/docker-desktop/
-   - During installation, enable **WSL 2 backend** (Windows)
-   - Minimum 4GB RAM allocated to Docker (Settings → Resources → Memory)
+- Docker Desktop
+- Git
+- At least 4 GB of RAM available to Docker
 
-2. **Git** (for cloning the repository)
-   - Download: https://git-scm.com/download/win
+Optional but useful:
 
-### Corporate Environment (ThreatLocker / Endpoint Protection)
-If your organisation uses ThreatLocker or similar endpoint protection:
-1. Request IT to whitelist: `Docker Desktop.exe`, `com.docker.backend.exe`, `vpnkit.exe`, `wsl.exe`
-2. Enable **Learning Mode** during first install
-3. You will need **administrator rights** for Docker installation
+- `bash` for shell scripts on macOS, Linux, or Git Bash on Windows
+- `curl` for manual API checks
 
----
+## Supported Local Config
 
-## Quick Start (5 Minutes)
+- Use the root `.env` file only.
+- Do not create or rely on `server/backend/.env`.
+- `setup.sh` and `setup.bat` create the root `.env` for you if it does not exist.
 
-### 1. Clone the Repository
+## First-Time Setup
+
+### Recommended path
+
+macOS or Linux:
+
+```bash
+git clone https://github.com/Rvs006/edq.git
+cd edq
+./setup.sh
+```
+
+Windows:
+
 ```powershell
 git clone https://github.com/Rvs006/edq.git
 cd edq
+.\setup.bat
 ```
 
-### 2. Configure Environment
-```powershell
-copy .env.example .env
-```
-Edit `.env` and set all required secrets:
-```
-JWT_SECRET=<generate-with: openssl rand -hex 64>
-JWT_REFRESH_SECRET=<generate-with: openssl rand -hex 64>
-SECRET_KEY=<generate-with: openssl rand -hex 32>
-TOOLS_API_KEY=<generate-with: openssl rand -hex 32>
-INITIAL_ADMIN_PASSWORD=<your-strong-admin-password>
-```
-> **Tip:** If you use the Electron desktop app, these are auto-generated on first launch.
+What setup does:
 
-### 3. Build and Start
-```powershell
+- creates the root `.env` from `.env.example` if needed
+- fills required secrets if they are missing or still set to placeholders
+- generates an initial admin password if needed
+- starts the Docker services
+
+### Manual path
+
+If you need to inspect the config before first start:
+
+```bash
+cp .env.example .env
+```
+
+Then edit the root `.env` and set the required values before running:
+
+```bash
 docker compose up --build -d
 ```
-First build takes **5-10 minutes** (downloads base images, installs dependencies).
 
-### 4. Verify
-```powershell
+## First Login
+
+1. Open `http://localhost`
+2. Log in with:
+   - username: `admin`
+   - password: the value of `INITIAL_ADMIN_PASSWORD` in the root `.env`
+3. Change the password after first login
+
+If `setup.sh` or `setup.bat` generated the initial admin password for you, the script prints it once and also saves it in the root `.env`.
+
+## Baseline Validation
+
+Check the containers:
+
+```bash
 docker compose ps
 ```
-All 3 services should show `healthy` or `running`.
 
-Open http://localhost in your browser.
+Run the supported smoke test:
 
----
-
-## Default Login Credentials
-
-| Field | Value |
-|-------|-------|
-| Username | `admin` |
-| Password | Value of `INITIAL_ADMIN_PASSWORD` from your `.env` file |
-
-If `INITIAL_ADMIN_PASSWORD` was not set, a random password is printed to the backend container logs on first start:
-```powershell
-docker compose logs backend | findstr "INITIAL_ADMIN_PASSWORD"
+```bash
+./scripts/verify-app.sh
 ```
 
-**Change this password immediately after first login via your profile settings.**
+Windows PowerShell:
 
----
+```powershell
+.\scripts\verify-app.ps1
+```
 
-## Testing Checklist
+Manual checks:
 
-After installation, verify these flows work:
+1. Open `http://localhost`
+2. Log in as `admin`
+3. Confirm the dashboard loads
+4. Add a device
+5. Create a test run
+6. Open a completed run and generate a report
 
-| # | Test | Expected Result |
-|---|------|----------------|
-| 1 | Open http://localhost | Login page with Electracom branding |
-| 2 | Login with admin credentials | Dashboard with statistics cards |
-| 3 | Navigate to Devices → Add Device | Enter any IP (e.g. 192.168.1.1) |
-| 4 | Start a Test Run on a device | Automated tests begin, terminal shows output |
-| 5 | Complete manual tests | Pass/Fail buttons work with notes |
-| 6 | Generate Excel report | .xlsx downloads with correct template formatting |
-| 7 | Network Scan page | Enter subnet CIDR, discover devices |
-| 8 | Admin → User Management | Create/edit users with roles |
+Optional API regression script:
 
----
+```bash
+./scripts/e2e-test.sh
+```
 
-## Connecting a Real Device
+Windows PowerShell:
 
-1. Connect the device under test via **Cat6 Ethernet cable** to the laptop
-2. Ensure the laptop and device are on the **same subnet** (e.g. 192.168.1.x)
-3. In EDQ, create a new device with the device's IP address
-4. Start a test run — automated scans will execute via the tools sidecar container
-5. If the device is not connected yet, EDQ will **pause before tests begin** and wait for the cable or device to come back
-6. If the Cat6 cable comes loose during testing, the **Wobbly Cable Handler** will pause the run automatically and resume when the device is reachable again
+```powershell
+.\scripts\e2e-test.ps1
+```
 
----
+Backend pytest suite through Docker:
 
-## Common Issues
+macOS or Linux:
 
-| Problem | Solution |
-|---------|----------|
-| Port 80 already in use | Run `netstat -ano \| findstr :80` to find the conflicting service. Stop it, or edit `docker-compose.yml` to use port 8080 instead |
-| ThreatLocker blocks Docker | Whitelist Docker executables (see Prerequisites above) |
-| Tools sidecar unhealthy | Run `docker compose logs tools` — nmap needs NET_RAW capability (already configured in docker-compose.yml) |
-| "Database locked" error | Normal under heavy concurrent load — SQLite WAL mode handles it, just retry the operation |
-| Build fails on Windows | Ensure `.gitattributes` has `* text=auto eol=lf` (already configured) |
-| Frontend shows blank page | Run `docker compose logs frontend` — check nginx proxy configuration |
+```bash
+./scripts/backend-test.sh
+```
 
----
+Windows PowerShell:
+
+```powershell
+.\scripts\backend-test.ps1
+```
+
+## Network Scan Setup
+
+Network scans are intentionally blocked until an admin authorizes at least one subnet.
+
+Before testing subnet discovery:
+
+1. Log in as `admin`
+2. Open `Admin -> Authorized Networks`
+3. Add the CIDR ranges your team is allowed to scan, for example `192.168.1.0/24`
+
+If you skip this step, subnet discovery requests will be rejected.
 
 ## Daily Operations
 
-### Start EDQ
-```powershell
-cd edq
-docker compose up -d
-```
-
-### Stop EDQ
-```powershell
-docker compose down
-```
-
-### View Logs
-```powershell
-# All services
-docker compose logs -f
-
-# Specific service
-docker compose logs -f backend
-docker compose logs -f tools
-docker compose logs -f frontend
-```
-
-### Update to Latest Version
-```powershell
-git switch main
-git pull --ff-only origin main
-docker compose up --build -d
-```
-
-Or on Windows:
-
-```powershell
-.\update.bat
-```
-
-On macOS / Linux:
+Start EDQ:
 
 ```bash
-./update.sh
-```
-
-Engineer-friendly update guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
-
-### Reset Database
-```powershell
-docker compose down
-del data\edq.db
 docker compose up -d
 ```
-This recreates the database with default seed data.
 
----
+Stop EDQ:
 
-## Database Migrations (Alembic)
-
-EDQ uses [Alembic](https://alembic.sqlalchemy.org/) for database schema migrations. This is relevant when updating to a new version that changes the database schema.
-
-### Apply Pending Migrations
-```powershell
-docker compose exec backend alembic upgrade head
+```bash
+docker compose down
 ```
 
-### Check Current Migration Status
-```powershell
-docker compose exec backend alembic current
+View logs:
+
+```bash
+docker compose logs -f
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f tools
 ```
 
-### Create a New Migration (Developers)
-```powershell
-cd server/backend
-alembic revision --autogenerate -m "describe_your_change"
-alembic upgrade head
+Update an existing install:
+
+- Windows: `.\update.bat`
+- macOS or Linux: `./update.sh`
+
+Update-only guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
+
+## Troubleshooting
+
+### Port 80 already in use
+
+Edit `docker-compose.yml` and map the frontend to another host port, for example `8080:80`, then open `http://localhost:8080`.
+
+### Backend will not start
+
+Check:
+
+```bash
+docker compose logs backend
 ```
 
-For fresh installs, the database is automatically created with seed data on first startup. Alembic is only needed for incremental schema changes after the initial deployment.
+Typical causes:
 
----
+- required secrets in `.env` are still placeholders
+- Docker did not finish building the image
+- another local config file was created and caused confusion
 
-## API Documentation
+### Login fails on localhost
 
-When EDQ is running, interactive API documentation is available at:
-- **Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
+Confirm:
 
----
+- you are using the password from the root `.env`
+- `COOKIE_SECURE=false` in the local `.env`
+- you opened `http://localhost`, not an outdated bookmarked URL
 
-## Architecture Overview
+### Tools sidecar unhealthy
 
-EDQ runs as 3 Docker containers:
+Check:
 
-| Container | Port | Purpose |
-|-----------|------|---------|
-| `frontend` (nginx) | 80 | Serves React SPA, proxies /api/* to backend |
-| `backend` (FastAPI) | 8000 | REST API, WebSocket, database, reports |
-| `tools` (Ubuntu) | 8001 | Security scanning tools (nmap, testssl.sh, ssh-audit, hydra, nikto) |
-
-Data is stored in a SQLite database mounted at `./data/edq.db`.
-
+```bash
+docker compose logs tools
 ```
-┌─────────────────────────────────────────────────────────┐
-│  DOCKER COMPOSE (engineer's laptop)                     │
-│                                                         │
-│  ┌──────────┐   ┌──────────┐   ┌────────────────────┐  │
-│  │  NGINX   │   │ FASTAPI  │   │   TOOLS SIDECAR    │  │
-│  │ (port 80)│──▶│ BACKEND  │──▶│  nmap, testssl.sh  │  │
-│  │  serves  │   │ (port    │   │  ssh-audit, hydra   │  │
-│  │  React   │   │  8000)   │   │  nikto              │  │
-│  │  SPA     │   │          │   │  (port 8001)        │  │
-│  └──────────┘   └────┬─────┘   └────────────────────┘  │
-│                      │                                   │
-│                 ┌────┴─────┐                             │
-│                 │  SQLite  │                             │
-│                 │  edq.db  │                             │
-│                 └──────────┘                             │
-└─────────────────────────────────────────────────────────┘
-         │ Ethernet
-    ┌────┴────────┐
-    │   DEVICE    │
-    │  UNDER TEST │
-    └─────────────┘
+
+### Blank or broken frontend
+
+Check:
+
+```bash
+docker compose logs frontend
 ```
+
+## API Docs and Debug Mode
+
+Interactive backend API docs are disabled by default.
+
+If you explicitly set `DEBUG=true` in the root `.env`, the backend exposes:
+
+- `http://localhost:8000/docs`
+- `http://localhost:8000/redoc`
+
+That is for debugging only and is not part of the normal engineer validation flow.

@@ -1,165 +1,125 @@
-# EDQ Deployment Guide
+# EDQ Production Deployment Guide
 
-Quick-reference for deploying and operating EDQ (Electracom Device Qualifier).
+This guide is for shared or production-style deployments. It is not the local engineer setup guide.
 
----
+For local testing on a single laptop, use [INSTALL.md](INSTALL.md).
 
-## System Requirements
+## Deployment Model
 
-- **Docker Desktop** with at least **4 GB RAM** allocated
-- **Git** for cloning the repository
-- **Network access** to devices under test (e.g., 192.168.1.x subnet)
-- Ports **80** (web UI) and **8000/8001** (backend/tools, localhost only)
+EDQ runs as three services:
 
----
+- `frontend`: nginx and the built frontend
+- `backend`: FastAPI application
+- `tools`: scan tooling sidecar
 
-## First-Time Setup
+Optional production HTTPS support is provided through `docker-compose.prod.yml`.
+
+## Prerequisites
+
+- Docker Engine or Docker Desktop
+- Docker Compose
+- A private network or VPN-only access path
+- A domain name and TLS certificates if you plan to expose EDQ beyond localhost
+
+## Production Config Preparation
+
+1. Create the root `.env`
+2. Set strong values for:
+   - `JWT_SECRET`
+   - `JWT_REFRESH_SECRET`
+   - `SECRET_KEY`
+   - `TOOLS_API_KEY`
+   - `INITIAL_ADMIN_PASSWORD`
+3. Set production-safe values for:
+   - `COOKIE_SECURE=true`
+   - `DEBUG=false`
+   - `CORS_ORIGINS` to your real domain(s)
+4. Do not rely on placeholder values from `.env.example`
+
+## Start Without HTTPS
+
+Only use this on a trusted private network.
 
 ```bash
-# 1. Clone and enter the project
-git clone https://github.com/Rvs006/edq.git
-cd edq
-
-# 2. Create .env from template
-cp .env.example .env
-
-# 3. Generate secrets (Linux/macOS)
-sed -i "s/CHANGE_ME_JWT_SECRET/$(openssl rand -hex 32)/" .env
-sed -i "s/CHANGE_ME_REFRESH/$(openssl rand -hex 32)/" .env
-sed -i "s/CHANGE_ME_SECRET/$(openssl rand -hex 16)/" .env
-sed -i "s/CHANGE_ME_TOOLS/$(openssl rand -hex 16)/" .env
-
-# On Windows (PowerShell) — edit .env manually or use setup.bat
-.\setup.bat
-
-# 4. Start all services
 docker compose up --build -d
 ```
 
-Services take ~60 seconds to become healthy on first build.
-
----
-
-## Accessing the App
-
-| What | URL |
-|------|-----|
-| Web UI | `http://<server-ip>` (or `http://localhost`) |
-| API health check | `http://localhost:8000/api/health` |
-
-### Default Admin Login
-
-- **Username:** `admin`
-- **Password:** Set via `INITIAL_ADMIN_PASSWORD` in `.env`
-
----
-
-## Day-to-Day Operations
-
-### Start / Stop / Rebuild
+Health endpoint:
 
 ```bash
-# Start (detached)
-docker compose up -d
-
-# Stop (data is preserved)
-docker compose down
-
-# Rebuild after code changes
-docker compose up --build -d
-
-# View logs
-docker logs edq-backend --tail 50
-docker logs edq-frontend --tail 50
-docker logs edq-tools --tail 50
+curl http://localhost/api/health
 ```
 
-### Recommended Update Flow
+## Start With HTTPS
 
-Keep engineer installs on the official `main` branch only.
+1. Set `DOMAIN` in the root `.env`
+2. Obtain certificates
+3. Start with the production override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+The production override:
+
+- binds ports `80` and `443`
+- enables nginx TLS config
+- sets `COOKIE_SECURE=true` for the backend
+
+## Operations
+
+Start:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+Stop:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+```
+
+View logs:
+
+```bash
+docker compose logs -f
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f tools
+```
+
+Update:
 
 ```bash
 git switch main
 git pull --ff-only origin main
-docker compose up --build -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```
 
-Helper scripts are included in the repo root:
+## First Admin Tasks After Deployment
 
-- Windows: `update.bat`
-- macOS / Linux: `./update.sh`
+1. Log in as `admin`
+2. Change the initial password
+3. Create engineer and reviewer accounts
+4. Configure authorized networks before enabling subnet scans
+5. Confirm backups and log retention behavior
 
-Engineer-friendly update guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
+## Health and Monitoring
 
-### Authorize Scan Networks (Required First Step)
+Public health endpoints:
 
-Before anyone can run network scans, an admin must authorize which subnets EDQ is allowed to scan.
+- `/api/health`
+- `/api/health/metrics`
 
-1. Log in as **admin**
-2. Go to **Admin** → **Authorized Networks**
-3. Click **Add Network**
-4. Enter CIDR range (e.g., `192.168.1.0/24`), label, and optional description
-5. Repeat for each subnet your team needs to scan
+Authenticated status endpoints:
 
-**Important:** Scans targeting networks outside authorized ranges will be blocked. This prevents EDQ from being misused to scan unauthorized targets.
+- `/api/health/tools/versions`
+- `/api/health/system-status`
 
-Common ranges:
-- `192.168.0.0/16` — home/office networks
-- `10.0.0.0/8` — large private networks
-- `172.16.0.0/12` — private range
+## Admin Password Reset
 
-### Adding Devices and Running Tests
-
-1. Navigate to **Devices** in the sidebar
-2. Click **Add Device** — enter IP address, hostname, and category
-3. Go to **Test Runs** → **New Test Run**
-4. Select device, choose test template, and start
-5. If the device is not reachable yet, the run will pause in `paused_cable` instead of starting blindly
-6. Monitor progress via the live progress bar; if the cable is disconnected mid-run, EDQ pauses and retries automatically after reconnection
-
-### Generating Reports
-
-1. Open a **completed** test run
-2. Click the **Reports** dropdown
-3. Choose format: **Excel**, **Word**, or **PDF**
-4. Report downloads automatically
-
-### Creating Engineer Accounts
-
-1. Log in as **admin**
-2. Go to **Admin** → **Users**
-3. Click **Add User**
-4. Fill in: username, full name, role (`engineer` / `reviewer`), password
-
----
-
-## Data Persistence
-
-EDQ uses Docker named volumes — data survives `docker compose down` and rebuilds.
-
-| Volume | Contents |
-|--------|----------|
-| `edq-data` | SQLite database (`edq.db`) |
-| `edq-uploads` | Uploaded files and attachments |
-| `edq-reports` | Generated report files |
-
-**Warning:** Running `docker compose down -v` or `docker volume rm` **deletes all data**.
-
----
-
-## Network Scanning
-
-1. Go to **Network Scan** in the sidebar
-2. Enter a subnet (e.g., `192.168.1.0/24`)
-3. Click **Scan** — radar animation shows during discovery
-4. Discovered devices appear in grid/tree view with services and OS info
-5. Select devices to start batch testing directly from scan results
-
----
-
-## Troubleshooting
-
-### Reset Admin Password
+If you lose the admin password, update the database from the backend container:
 
 ```bash
 docker exec edq-backend python -c "
@@ -177,98 +137,19 @@ asyncio.run(reset())
 "
 ```
 
-### Check Container Health
+## Production Checklist
 
-```bash
-docker compose ps
-curl http://localhost/api/health
-```
+- `DEBUG=false`
+- `COOKIE_SECURE=true`
+- `CORS_ORIGINS` set to real domains only
+- all required secrets rotated away from placeholders
+- access restricted to trusted networks or VPN
+- authorized scan networks configured in the app
+- backups tested
+- log collection in place
 
-### Common Issues
+## Notes
 
-| Problem | Fix |
-|---------|-----|
-| Port 80 already in use | Stop IIS/Apache/nginx or change port in `docker-compose.yml` |
-| Backend unhealthy | Check `.env` exists and secrets are set. Run `docker logs edq-backend` |
-| Tools sidecar unhealthy | Run `docker logs edq-tools` — check nmap/testssl installed |
-| PDF generation fails | Rebuild backend: `docker compose up --build -d backend` |
-| Database locked errors | Restart backend: `docker compose restart backend` |
-| Permission denied (Docker) | Run Docker Desktop as administrator, or add user to `docker` group |
-
-### Full Reset (Destroys All Data)
-
-```bash
-docker compose down -v
-docker compose up --build -d
-```
-
----
-
-## Security: Network Scanning
-
-EDQ includes penetration testing tools (nmap, hydra, nikto, testssl). Scan targets are restricted to admin-authorized networks only.
-
-**Never expose EDQ directly to the public internet.** If remote access is needed, use a VPN.
-
-| Rule | Why |
-|------|-----|
-| Authorize networks before scanning | Prevents scanning of unauthorized targets |
-| Keep EDQ on a private network | It's designed for internal use, not public exposure |
-| Use VPN for remote access | Safer than exposing the app directly |
-| Review audit logs regularly | All scans are logged with user, target, and timestamp |
-
----
-
-## Production Readiness Checklist
-
-Complete **every item** before going live. The app will refuse to start if secrets are placeholders.
-
-### Required (app won't start without these)
-
-- [ ] Copy `.env.example` to `.env`
-- [ ] Generate and set `JWT_SECRET` — `openssl rand -hex 64`
-- [ ] Generate and set `JWT_REFRESH_SECRET` — `openssl rand -hex 64`
-- [ ] Generate and set `SECRET_KEY` — `openssl rand -hex 32`
-- [ ] Generate and set `TOOLS_API_KEY` — `openssl rand -hex 32`
-- [ ] Set `INITIAL_ADMIN_PASSWORD` to a strong password
-- [ ] Set `COOKIE_SECURE=true`
-- [ ] Set `DEBUG=false`
-- [ ] Update `CORS_ORIGINS` to your production domain(s)
-
-### Required (infrastructure)
-
-- [ ] Configure HTTPS with TLS termination (use `nginx-ssl.conf.template`)
-- [ ] Set up automated backups — `crontab -e` then add: `0 2 * * * cd /path/to/edq && ./scripts/backup.sh`
-- [ ] Authorize scan networks via Admin > Authorized Networks
-- [ ] Test full scan workflow end-to-end on real devices
-- [ ] Run database migrations: `docker exec edq-backend alembic upgrade head`
-
-### Recommended (operational excellence)
-
-- [ ] Set up Sentry for error tracking: set `SENTRY_DSN` in `.env`
-- [ ] Configure log aggregation — Docker JSON logs go to stdout, forward to ELK/Splunk/CloudWatch
-- [ ] Set up Prometheus scraping on `/api/health/metrics`
-- [ ] Enable Redis for multi-instance rate limiting (uncomment in `docker-compose.yml`)
-- [ ] Set up alerting on the `/api/health` endpoint
-- [ ] Create runbook for: secret rotation, backup/restore, incident response
-- [ ] Review audit logs weekly via Admin > Audit Log
-
----
-
-## Architecture
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Frontend    │────▶│  Backend    │────▶│  Tools      │
-│  (nginx:80) │     │  (FastAPI)  │     │  (nmap,ssl) │
-└─────────────┘     └─────────────┘     └─────────────┘
-                          │
-                    ┌─────┴─────┐
-                    │  SQLite   │
-                    │  (edq.db) │
-                    └───────────┘
-```
-
-- **Frontend**: React + Vite, served by nginx with reverse proxy to backend
-- **Backend**: FastAPI + SQLAlchemy, handles auth, tests, reports
-- **Tools**: Ubuntu sidecar with nmap, testssl.sh, ssh-audit, hydra, nikto
+- Interactive API docs should stay disabled in production.
+- Do not expose the tools sidecar directly to the public internet.
+- EDQ includes active scan tooling. Treat network access and authorized subnet configuration as a controlled operational boundary.
