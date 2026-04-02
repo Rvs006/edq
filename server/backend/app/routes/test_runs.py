@@ -28,7 +28,7 @@ from app.security.auth import get_current_active_user
 from app.services.discovery_service import build_device_display_name
 from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
 from app.services.test_library import get_test_by_id
-from app.services.test_run_launcher import cancel_test_run, is_run_executing, launch_test_run
+from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, is_run_executing, launch_test_run
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
 from app.utils.audit import log_action
@@ -473,7 +473,7 @@ async def cancel_test_run(
         )
 
     # 1. Cancel the asyncio task (stops test engine loop)
-    cancel_test_run(run_id)
+    _cancel_test_run(run_id)
 
     # 2. Kill sidecar tool processes for this device
     device = await db.get(Device, run.device_id)
