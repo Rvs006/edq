@@ -116,13 +116,13 @@ app.on('ready', async () => {
       submenu: [
         { role: 'about' },
         { type: 'separator' },
-        {
+        ...(!app.isPackaged ? [{
           label: 'Open DevTools',
           accelerator: 'CmdOrCtrl+Shift+I',
           click: () => {
             if (mainWindow) mainWindow.webContents.openDevTools();
           },
-        },
+        }] : []),
         { type: 'separator' },
         { role: 'quit' },
       ],
@@ -210,7 +210,7 @@ function createMainWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 

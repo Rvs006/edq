@@ -44,9 +44,10 @@ src.close()
 dst.close()
 " && docker cp edq-backend:/tmp/backup.db "${BACKUP_FILE}"
     else
-        # Last resort: file copy (safe if WAL is checkpointed)
-        echo "[$(date -Iseconds)] WARNING: sqlite3 not found, using file copy (ensure no writes during backup)"
-        cp "${DB_PATH}" "${BACKUP_FILE}"
+        echo "[$(date -Iseconds)] ERROR: No sqlite3 binary found and edq-backend container is not running."
+        echo "Cannot safely back up a WAL-mode SQLite database with a file copy."
+        echo "Install sqlite3 or ensure the edq-backend container is running."
+        exit 1
     fi
 fi
 

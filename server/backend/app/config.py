@@ -136,9 +136,7 @@ for _name, _value in _SECRET_FIELDS.items():
             f"[EDQ SECURITY] {_name} is still set to a placeholder value. "
             "Generate a strong secret with: openssl rand -hex 64"
         )
-        if not settings.DEBUG:
-            raise RuntimeError(_msg)
-        _warnings.warn(_msg, stacklevel=2)
+        raise RuntimeError(_msg)
 
 if not settings.TOOLS_API_KEY or any(
     settings.TOOLS_API_KEY.startswith(p) for p in _PLACEHOLDER_PREFIXES
@@ -154,9 +152,11 @@ if not settings.TOOLS_API_KEY or any(
 _localhost_origins = [o for o in settings.CORS_ORIGINS if "localhost" in o or "127.0.0.1" in o]
 _localhost_only = bool(settings.CORS_ORIGINS) and len(_localhost_origins) == len(settings.CORS_ORIGINS)
 if _localhost_origins and not settings.DEBUG and not _localhost_only:
+    # Auto-strip localhost origins in production to prevent accidental CORS bypass
+    settings.CORS_ORIGINS = [o for o in settings.CORS_ORIGINS if o not in _localhost_origins]
     _warnings.warn(
-        "[EDQ SECURITY] CORS_ORIGINS mixes localhost and non-localhost entries: "
-        f"{_localhost_origins}. Remove localhost entries from shared or production deployments.",
+        "[EDQ SECURITY] Stripped localhost origins from CORS_ORIGINS in production: "
+        f"{_localhost_origins}. Only non-localhost origins remain.",
         stacklevel=2,
     )
 

@@ -38,7 +38,7 @@ class InMemoryRateLimiter:
         self._buckets: Dict[str, _Bucket] = defaultdict(_Bucket)
 
     def check(self, key: str, max_requests: int, window_seconds: int = 60) -> bool:
-        return self._buckets[key].is_allowed(time.time(), window_seconds, max_requests)
+        return self._buckets[key].is_allowed(time.monotonic(), window_seconds, max_requests)
 
 
 class RedisRateLimiter:

@@ -16,6 +16,7 @@ from app.models.agent import Agent
 from app.security.auth import require_role
 from app.services.system_status import get_system_status
 from app.utils.audit import log_security_event
+from app.middleware.rate_limit import check_rate_limit
 
 logger = logging.getLogger("edq.routes.admin")
 
@@ -66,6 +67,7 @@ async def rotate_tools_key(
     current_user: User = Depends(require_role(["admin"])),
     db: AsyncSession = Depends(get_db),
 ):
+    check_rate_limit(request, max_requests=3, window_seconds=300, action="admin_rotate_key")
     """Generate a new tools sidecar API key and push it to the sidecar.
 
     The new key is returned once — store it securely and update your .env file.

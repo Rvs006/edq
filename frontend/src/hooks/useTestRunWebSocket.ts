@@ -74,6 +74,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
 
         if (reconnectAttempts.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000)
+          if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
           reconnectTimer.current = setTimeout(() => {
             reconnectAttempts.current += 1
             connect()

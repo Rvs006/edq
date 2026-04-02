@@ -29,6 +29,11 @@ services:
     networks:
       - edq-internal
       - edq-frontend
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health"]
@@ -40,7 +45,7 @@ services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "5"
 
   frontend:
     build:
@@ -54,6 +59,11 @@ services:
         condition: service_healthy
     networks:
       - edq-frontend
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost/"]
@@ -64,8 +74,8 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "5m"
-        max-file: "3"
+        max-size: "10m"
+        max-file: "5"
 
   tools:
     build:
@@ -85,6 +95,11 @@ services:
       - NET_RAW
     networks:
       - edq-internal
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
@@ -95,7 +110,7 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "20m"
+        max-size: "10m"
         max-file: "5"
 
   # Redis — optional, enables distributed rate limiting and session persistence

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import select, func, case, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db
@@ -63,22 +63,32 @@ def _overall_verdict(passed: int, failed: int, advisory: int, essential_failed: 
 
 
 async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
-    result = await db.execute(select(TestResult).where(TestResult.test_run_id == run.id))
-    rows = result.scalars().all()
-
-    passed = sum(1 for row in rows if row.verdict == TestVerdict.PASS)
-    failed = sum(1 for row in rows if row.verdict == TestVerdict.FAIL)
-    advisory = sum(1 for row in rows if row.verdict == TestVerdict.ADVISORY)
-    na = sum(1 for row in rows if row.verdict == TestVerdict.NA)
-    errors = sum(1 for row in rows if row.verdict == TestVerdict.ERROR)
-    pending_manual = sum(
-        1 for row in rows
-        if row.verdict == TestVerdict.PENDING and row.tier == TestTier.GUIDED_MANUAL
+    # Use SQL aggregation instead of loading all result rows into Python
+    result = await db.execute(
+        select(
+            func.count(case((TestResult.verdict == TestVerdict.PASS, 1))).label("passed"),
+            func.count(case((TestResult.verdict == TestVerdict.FAIL, 1))).label("failed"),
+            func.count(case((TestResult.verdict == TestVerdict.ADVISORY, 1))).label("advisory"),
+            func.count(case((TestResult.verdict == TestVerdict.NA, 1))).label("na"),
+            func.count(case((TestResult.verdict == TestVerdict.ERROR, 1))).label("errors"),
+            func.count(case((and_(
+                TestResult.verdict == TestVerdict.PENDING,
+                TestResult.tier == TestTier.GUIDED_MANUAL,
+            ), 1))).label("pending_manual"),
+            func.count(case((and_(
+                TestResult.verdict == TestVerdict.FAIL,
+                TestResult.is_essential == "yes",
+            ), 1))).label("essential_failed"),
+        ).where(TestResult.test_run_id == run.id)
     )
-    essential_failed = any(
-        row for row in rows
-        if row.verdict == TestVerdict.FAIL and row.is_essential == "yes"
-    )
+    row = result.one()
+    passed = row.passed
+    failed = row.failed
+    advisory = row.advisory
+    na = row.na
+    errors = row.errors
+    pending_manual = row.pending_manual
+    essential_failed = row.essential_failed > 0
 
     run.passed_tests = passed
     run.failed_tests = failed

@@ -14,7 +14,6 @@ const ACTIVE_RUN_STATUSES = new Set<TestRunStatus>([
   'paused_manual',
   'paused_cable',
   'awaiting_manual',
-  'awaiting_review',
 ])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
