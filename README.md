@@ -215,6 +215,18 @@ Or use the helper scripts in the repo root:
 - Windows: `update.bat`
 - macOS / Linux: `./update.sh`
 
+Detailed engineer instructions: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
+
+### Latest Release
+
+Recent changes now included in `main`:
+
+- safer cable/disconnect handling for direct-cable and Easy IO style tests
+- runs pause before automated testing starts if the device is not reachable
+- interrupted scans pause and retry cleanly after reconnection
+- better network auto-detection fallback for Docker and WSL-style environments
+- one-step engineer update scripts: `update.bat` and `update.sh`
+
 ### Troubleshooting
 
 | Problem | Solution |

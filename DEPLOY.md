@@ -89,6 +89,8 @@ Helper scripts are included in the repo root:
 - Windows: `update.bat`
 - macOS / Linux: `./update.sh`
 
+Engineer-friendly update guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
+
 ### Authorize Scan Networks (Required First Step)
 
 Before anyone can run network scans, an admin must authorize which subnets EDQ is allowed to scan.

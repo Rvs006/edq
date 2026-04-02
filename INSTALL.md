@@ -157,6 +157,8 @@ On macOS / Linux:
 ./update.sh
 ```
 
+Engineer-friendly update guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
+
 ### Reset Database
 ```powershell
 docker compose down
