@@ -127,7 +127,7 @@ export default function NetworkScanPage() {
     authorizedNetworksApi.list({ active_only: true }).then(res => {
       setAuthorizedNets(res.data.map((n: { cidr: string; label: string | null }) => ({ cidr: n.cidr, label: n.label })))
       setAuthNetsLoaded(true)
-    }).catch(() => setAuthNetsLoaded(true))
+    }).catch((err) => { console.error('Failed to fetch authorized networks:', err); setAuthNetsLoaded(true) })
   }, [])
 
   const cidrValid = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(cidr)

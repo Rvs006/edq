@@ -127,6 +127,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+            response.headers["Vary"] = "Cookie, Authorization"
         return response
 
 

@@ -65,7 +65,7 @@ export default function LoginPage() {
   } | null>(null)
 
   useEffect(() => {
-    authApi.oidcConfig().then(res => setOidcConfig(res.data)).catch(() => {})
+    authApi.oidcConfig().then(res => setOidcConfig(res.data)).catch((err) => { console.error('Failed to fetch OIDC config:', err) })
   }, [])
 
   // Handle OIDC callback

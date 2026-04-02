@@ -157,7 +157,7 @@ function TwoFactorSettings() {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    authApi.twoFactorStatus().then(res => setStatus(res.data)).catch(() => {}).finally(() => setLoading(false))
+    authApi.twoFactorStatus().then(res => setStatus(res.data)).catch((err) => { console.error('Failed to fetch 2FA status:', err) }).finally(() => setLoading(false))
   }, [])
 
   const handleSetup = async () => {
@@ -511,7 +511,7 @@ function BrandingSettings() {
         footer_text: d.footer_text || '',
       })
       if (d.logo_path) setLogoPreview('/api/settings/branding/logo')
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch((err) => { console.error('Failed to fetch branding settings:', err) }).finally(() => setLoading(false))
   }, [])
 
   const handleSave = async (e: React.FormEvent) => {

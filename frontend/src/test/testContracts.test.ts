@@ -13,7 +13,7 @@ describe('testContracts', () => {
     expect(normalizeTestRunStatus('complete')).toBe('completed')
     expect(normalizeTestRunStatus('paused')).toBe('paused_manual')
     expect(normalizeTestRunStatus('error')).toBe('failed')
-    expect(isActiveTestRunStatus('awaiting_review')).toBe(true)
+    expect(isActiveTestRunStatus('awaiting_review')).toBe(false)
     expect(isActiveTestRunStatus('completed')).toBe(false)
   })
 

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 
 from app.models.database import get_db
 from app.models.test_run import (
@@ -54,12 +55,16 @@ async def _get_authorized_test_run(
         raise HTTPException(status_code=403, detail="Access denied")
     return run
 
-async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
-    """Add device info, template_name, and confidence score to a TestRun for the response."""
+def _enrich_run_from_loaded(run: TestRun) -> dict:
+    """Add device info, template_name, and confidence score to a TestRun.
+
+    Expects that ``run.device``, ``run.template``, and ``run.engineer``
+    have already been eager-loaded (e.g. via ``selectinload``).
+    """
     data = TestRunResponse.model_validate(run).model_dump()
     data["status"] = normalize_test_run_status(run.status)
 
-    device = await db.get(Device, run.device_id)
+    device = run.device
     if device:
         data["device_name"] = build_device_display_name(
             device.ip_address,
@@ -80,10 +85,10 @@ async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
         data["device_model"] = None
         data["device_category"] = None
 
-    template = await db.get(TestTemplate, run.template_id)
+    template = run.template
     data["template_name"] = template.name if template else None
 
-    engineer = await db.get(User, run.engineer_id)
+    engineer = run.engineer
     data["engineer_name"] = (
         (engineer.full_name or engineer.username) if engineer else None
     )
@@ -92,6 +97,30 @@ async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
     data["confidence"] = _calc_confidence(run)
 
     return data
+
+
+def _run_eager_options():
+    """Return the selectinload options needed for _enrich_run_from_loaded."""
+    return [
+        selectinload(TestRun.device),
+        selectinload(TestRun.template),
+        selectinload(TestRun.engineer),
+    ]
+
+
+async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
+    """Enrich a single run by re-loading it with eager relationships.
+
+    Used for single-run endpoints (create, update, get-by-id).
+    For list endpoints, use _enrich_run_from_loaded with eager-loaded query.
+    """
+    result = await db.execute(
+        select(TestRun)
+        .where(TestRun.id == run.id)
+        .options(*_run_eager_options())
+    )
+    loaded = result.scalar_one()
+    return _enrich_run_from_loaded(loaded)
 
 
 def _status_filter_values(status: str) -> list[str]:
@@ -210,10 +239,11 @@ async def list_test_runs(
     if status:
         query = query.where(TestRun.status.in_(_status_filter_values(status)))
     result = await db.execute(
-        query.order_by(TestRun.created_at.desc()).offset(skip).limit(limit)
+        query.options(*_run_eager_options())
+        .order_by(TestRun.created_at.desc()).offset(skip).limit(limit)
     )
     runs = result.scalars().all()
-    return [await _enrich_run(r, db) for r in runs]
+    return [_enrich_run_from_loaded(r) for r in runs]
 
 
 @router.get("/stats")
