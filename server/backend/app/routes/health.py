@@ -2,9 +2,11 @@
 
 import time
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.config import settings
 from app.models.database import async_session
 from app.models.user import User
 from app.security.auth import get_current_active_user
@@ -41,8 +43,17 @@ async def health_check():
 
 
 @router.get("/metrics", response_class=Response)
-async def prometheus_metrics():
-    """Prometheus-compatible metrics endpoint. No auth (scraped by monitoring)."""
+async def prometheus_metrics(request: Request):
+    """Prometheus-compatible metrics endpoint.
+
+    When METRICS_API_KEY is configured, requests must include
+    ``Authorization: Bearer <key>``. When no key is set the endpoint
+    remains open for easy Prometheus scraping.
+    """
+    if settings.METRICS_API_KEY:
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != settings.METRICS_API_KEY:
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing metrics API key"})
     db_ok = 1
     try:
         async with async_session() as session:

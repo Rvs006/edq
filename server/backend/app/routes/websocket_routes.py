@@ -1,6 +1,5 @@
 """WebSocket routes for real-time test progress streaming."""
 
-import json
 import logging
 from typing import Dict, Optional, Set
 
@@ -93,9 +92,9 @@ async def test_run_ws(websocket: WebSocket, run_id: str):
     await manager.connect(websocket, channel)
     try:
         while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            await manager.broadcast(channel, message)
+            # Receive-only: consume client messages but do not re-broadcast.
+            # The server is the sole broadcaster via manager.broadcast().
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket, channel)
 
@@ -112,9 +111,7 @@ async def discovery_ws(websocket: WebSocket, task_id: str):
     await manager.connect(websocket, channel)
     try:
         while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            await manager.broadcast(channel, message)
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket, channel)
 
@@ -135,8 +132,6 @@ async def agents_ws(websocket: WebSocket):
     await manager.connect(websocket, channel)
     try:
         while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            await manager.broadcast(channel, message)
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket, channel)

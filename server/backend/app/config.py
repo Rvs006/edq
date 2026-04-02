@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     SSL_VERIFY_DEVICES: bool = True  # Set False only if your devices use self-signed certs
     ALLOW_REGISTRATION: bool = False  # Set True to allow public self-registration
 
+    # Metrics
+    METRICS_API_KEY: str = ""  # Optional bearer token for /health/metrics. If set, requests must include Authorization: Bearer <key>
+
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
     LOGIN_RATE_LIMIT_PER_MINUTE: int = 15
