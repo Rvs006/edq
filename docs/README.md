@@ -1,17 +1,57 @@
-# EDQ Documentation Map
+# EDQ Documentation
 
-## Current Docs
+Use this index to find the current documentation set for EDQ.
 
-- [../README.md](../README.md): repo entrypoint and quick start
-- [../INSTALL.md](../INSTALL.md): local engineer install and testing flow
-- [../ENGINEER_UPDATES.md](../ENGINEER_UPDATES.md): update-only guide for existing installs
-- [../DEPLOY.md](../DEPLOY.md): production deployment notes
-- [../SECURITY.md](../SECURITY.md): current auth, secret, and operational security behavior
-- [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md): design reference only
+## Start Here
 
-## Archived Docs
+| If You Need To... | Read This |
+| --- | --- |
+| Understand what EDQ is and what the app currently includes | [../README.md](../README.md) |
+| Install and validate EDQ locally | [../INSTALL.md](../INSTALL.md) |
+| Update an existing local install | [../ENGINEER_UPDATES.md](../ENGINEER_UPDATES.md) |
+| Deploy EDQ for a shared or production-style environment | [../DEPLOY.md](../DEPLOY.md) |
+| Review the current security and auth model | [../SECURITY.md](../SECURITY.md) |
+| Catch up on major changes since the v1.0 baseline | [../CHANGELOG.md](../CHANGELOG.md) |
+| Contribute or develop inside the repo | [../CONTRIBUTING.md](../CONTRIBUTING.md) |
 
-These files are preserved for historical context and earlier planning work. Do not use them as the setup or deployment guide for the current repo state.
+## Current Documentation Set
 
-- [ENGINEERING_SPEC.md](ENGINEERING_SPEC.md)
+### Product And App Overview
+
+- [../README.md](../README.md): product-first overview, current workflow, feature surface, quick start, and architecture summary
+
+### Local Workflow
+
+- [../INSTALL.md](../INSTALL.md): first-time local setup, smoke tests, network scan prerequisites, and troubleshooting
+- [../ENGINEER_UPDATES.md](../ENGINEER_UPDATES.md): update-only path for engineers already running EDQ
+
+### Shared Deployment And Security
+
+- [../DEPLOY.md](../DEPLOY.md): deployment model, production configuration, HTTPS path, health checks, and recovery notes
+- [../SECURITY.md](../SECURITY.md): authentication model, cookie behavior, required secrets, scan controls, and hardening checklist
+
+### Change History
+
+- [../CHANGELOG.md](../CHANGELOG.md): curated milestone history covering security hardening, workflow changes, discovery controls, auth expansion, and release workflow changes
+
+## Current App Scope
+
+The current app surface includes:
+
+- dashboard and recent qualification activity
+- devices and device detail
+- device profiles
+- test runs and live run detail
+- bulk discovery
+- templates, test plans, scan schedules, and whitelists
+- reports and review queue
+- admin, settings, audit log, users, and authorized networks
+- agents, CVE lookup, AI synopsis drafting, 2FA, and optional OIDC/SSO
+
+## Archived Reference Only
+
+These files are kept for historical context and earlier planning work. They are not the current source of truth for setup, deployment, or live behavior.
+
 - [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md)
+- [ENGINEERING_SPEC.md](ENGINEERING_SPEC.md)
+- [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)
