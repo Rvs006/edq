@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 
-// Mock the API module
 const mockAgentsList = vi.fn()
 vi.mock('@/lib/api', () => ({
   default: {
@@ -75,45 +74,40 @@ function renderAgentsPage() {
 describe('AgentsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Default: API returns agents successfully
     mockAgentsList.mockResolvedValue({ data: MOCK_AGENTS })
   })
 
   it('renders the page heading and subtitle', async () => {
     renderAgentsPage()
 
-    // Wait for agents to load first, then heading and subtitle appear
     await waitFor(() => {
-      expect(screen.getByText('Agent Fleet')).toBeInTheDocument()
+      expect(screen.getByText('Distributed Agents')).toBeInTheDocument()
     })
-    expect(screen.getByText(/Monitor connected EDQ agents/)).toBeInTheDocument()
+    expect(screen.getByText(/Optional fleet view for registered remote runner instances/)).toBeInTheDocument()
   })
 
   it('displays the info callout explaining the page', async () => {
     renderAgentsPage()
 
-    // Callout only appears after agents are loaded
     await waitFor(() => {
       expect(screen.getByText(/What is this page/)).toBeInTheDocument()
     })
-    expect(screen.getByText(/fleet tracker/)).toBeInTheDocument()
+    expect(screen.getByText(/not needed for the normal laptop-local workflow/i)).toBeInTheDocument()
   })
 
   it('shows loading state while fetching agents', () => {
-    // Never resolve the promise
     mockAgentsList.mockReturnValue(new Promise(() => {}))
     renderAgentsPage()
 
     expect(screen.getByText(/Loading agents/)).toBeInTheDocument()
   })
 
-  it('falls back to demo data when API fails', async () => {
+  it('shows an error state when the API fails', async () => {
     mockAgentsList.mockRejectedValue(new Error('Network error'))
     renderAgentsPage()
 
-    // Should fall back to demo data rather than showing error
     await waitFor(() => {
-      expect(screen.getByText('Dylan-MBP')).toBeInTheDocument()
+      expect(screen.getByText(/Failed to load agents/i)).toBeInTheDocument()
     })
   })
 
@@ -121,12 +115,10 @@ describe('AgentsPage', () => {
     renderAgentsPage()
 
     await waitFor(() => {
-      // 1 online, 1 busy, 1 offline from mock data
       const statValues = screen.getAllByTestId('stat-value')
       expect(statValues).toHaveLength(3)
     })
 
-    // Check that agent names appear in the table
     expect(screen.getByText('Dylan-MBP')).toBeInTheDocument()
     expect(screen.getByText('Sarah-Thinkpad')).toBeInTheDocument()
     expect(screen.getByText('Alex-Dell')).toBeInTheDocument()
@@ -139,7 +131,6 @@ describe('AgentsPage', () => {
       expect(screen.getByText('Alex-Dell')).toBeInTheDocument()
     })
 
-    // Alex-Dell has version 0.9.8 which is outdated
     expect(screen.getByText(/0\.9\.8/)).toBeInTheDocument()
   })
 
@@ -150,30 +141,27 @@ describe('AgentsPage', () => {
       expect(screen.getByText('Dylan-MBP')).toBeInTheDocument()
     })
 
-    // Status labels appear in both stat cards and table rows;
-    // just verify at least one of each exists
     expect(screen.getAllByText('Online').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Scanning').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Offline').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('falls back to demo data when API returns empty array', async () => {
+  it('shows the empty state when no distributed agents are registered', async () => {
     mockAgentsList.mockResolvedValue({ data: [] })
     renderAgentsPage()
 
-    // Empty API response falls back to demo data
     await waitFor(() => {
-      expect(screen.getByText('Dylan-MBP')).toBeInTheDocument()
+      expect(screen.getByText(/No distributed agents registered/i)).toBeInTheDocument()
     })
+    expect(screen.getByText(/normal if engineers run EDQ locally/i)).toBeInTheDocument()
   })
 
-  it('falls back to demo data when API returns 401', async () => {
+  it('shows an error state when API returns 401', async () => {
     mockAgentsList.mockRejectedValue({ response: { status: 401 } })
     renderAgentsPage()
 
-    // Should show demo data as fallback
     await waitFor(() => {
-      expect(screen.getByText('Dylan-MBP')).toBeInTheDocument()
+      expect(screen.getByText(/Failed to load agents/i)).toBeInTheDocument()
     })
   })
 })

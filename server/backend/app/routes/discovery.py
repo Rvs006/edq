@@ -16,7 +16,12 @@ from app.models.user import User
 from app.schemas.device import DiscoveryRequest
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit
-from app.services.discovery_service import guess_category, guess_manufacturer, guess_model
+from app.services.discovery_service import (
+    build_device_display_name,
+    guess_category,
+    guess_manufacturer,
+    guess_model,
+)
 from app.services.tools_client import tools_client
 from app.services.parsers.nmap_parser import nmap_parser
 from app.utils.audit import log_action
@@ -46,6 +51,8 @@ class DiscoveredDeviceResponse(BaseModel):
     os_fingerprint: Optional[str] = None
     open_ports: Optional[List[Any]] = None
     manufacturer: Optional[str] = None
+    model: Optional[str] = None
+    predicted_name: Optional[str] = None
     category: str = "unknown"
     status: str = "discovered"
     is_new: bool = True
@@ -96,7 +103,7 @@ async def _upsert_device(
     is_new = device is None
 
     # Auto-detect manufacturer and model from scan data
-    auto_manufacturer = guess_manufacturer(vendor, open_ports or [])
+    auto_manufacturer = guess_manufacturer(vendor, open_ports or []) or vendor
     auto_model = guess_model(open_ports or [], os_fp)
 
     if is_new:
@@ -206,6 +213,13 @@ async def initiate_discovery(
             "os_fingerprint": device.os_fingerprint,
             "open_ports": device.open_ports,
             "manufacturer": device.manufacturer,
+            "model": device.model,
+            "predicted_name": build_device_display_name(
+                device.ip_address,
+                device.hostname,
+                device.manufacturer,
+                device.model,
+            ),
             "category": device.category.value if hasattr(device.category, "value") else str(device.category),
             "status": device.status.value if hasattr(device.status, "value") else str(device.status),
             "is_new": is_new,
@@ -246,6 +260,13 @@ async def initiate_discovery(
                 "os_fingerprint": device.os_fingerprint,
                 "open_ports": device.open_ports,
                 "manufacturer": device.manufacturer,
+                "model": device.model,
+                "predicted_name": build_device_display_name(
+                    device.ip_address,
+                    device.hostname,
+                    device.manufacturer,
+                    device.model,
+                ),
                 "category": device.category.value if hasattr(device.category, "value") else str(device.category),
                 "status": device.status.value if hasattr(device.status, "value") else str(device.status),
                 "is_new": is_new,

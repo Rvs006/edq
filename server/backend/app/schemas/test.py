@@ -77,6 +77,7 @@ class TestRunResponse(BaseModel):
     device_id: str
     device_name: Optional[str] = None
     device_ip: Optional[str] = None
+    device_mac_address: Optional[str] = None
     device_manufacturer: Optional[str] = None
     device_model: Optional[str] = None
     device_category: Optional[str] = None

@@ -44,6 +44,7 @@ export function normalizeTestRun(raw: Record<string, unknown>): TestRun {
     device_id: String(raw.device_id || ''),
     device_name: asNullableString(raw.device_name),
     device_ip: asNullableString(raw.device_ip),
+    device_mac_address: asNullableString(raw.device_mac_address),
     device_manufacturer: asNullableString(raw.device_manufacturer),
     device_model: asNullableString(raw.device_model),
     device_category: asNullableString(raw.device_category),

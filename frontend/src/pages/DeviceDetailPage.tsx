@@ -8,6 +8,7 @@ import {
   ExternalLink, AlertTriangle, Radar, RefreshCw,
 } from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
+import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
 function SeverityBadge({ severity }: { severity: string }) {
   const colors: Record<string, string> = {
@@ -102,8 +103,8 @@ export default function DeviceDetailPage() {
               <Monitor className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{device.hostname || device.name || device.ip_address}</h1>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">{device.ip_address} {device.manufacturer ? `· ${device.manufacturer}` : ''}</p>
+              <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{getPreferredDeviceName(device)}</h1>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">{getDeviceMetaSummary(device, { includeIp: true, includeMac: true }) || device.ip_address}</p>
             </div>
           </div>
           <div className="flex gap-2">

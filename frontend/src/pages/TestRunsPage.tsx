@@ -12,6 +12,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 import { isActiveTestRunStatus } from '@/lib/testContracts'
+import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
 /* ── Status filter config with labels, icons, groups, tooltips ── */
 
@@ -53,7 +54,7 @@ const filterGroups: { label: string; filters: FilterDef[] }[] = [
 ]
 
 function formatRunName(run: TestRun) {
-  const device = run.device_name || run.device_ip || `Device ${run.device_id?.slice(0, 8)}`
+  const device = getPreferredDeviceName(run)
   const date = run.started_at
     ? new Date(run.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : new Date(run.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -244,16 +245,10 @@ export default function TestRunsPage() {
                               </div>
                               <div className="flex items-center gap-2 text-[11px] text-zinc-400 dark:text-slate-500">
                                 <span className="font-mono">{run.device_ip || '—'}</span>
-                                {run.device_manufacturer && (
+                                {getDeviceMetaSummary(run, { includeMac: true }) && (
                                   <>
                                     <span className="text-zinc-300 dark:text-slate-600">&middot;</span>
-                                    <span>{run.device_manufacturer}</span>
-                                  </>
-                                )}
-                                {run.device_model && (
-                                  <>
-                                    <span className="text-zinc-300 dark:text-slate-600">&middot;</span>
-                                    <span>{run.device_model}</span>
+                                    <span>{getDeviceMetaSummary(run, { includeMac: true })}</span>
                                   </>
                                 )}
                               </div>
@@ -418,9 +413,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
               <option value="">Select a device...</option>
               {devices?.map((d: Device) => (
                 <option key={d.id} value={d.id}>
-                  {d.hostname || d.manufacturer || d.ip_address}
-                  {d.manufacturer && d.hostname ? ` (${d.manufacturer})` : ''}
-                  {' — '}{d.ip_address}
+                  {getPreferredDeviceName(d)} — {d.ip_address}
                 </option>
               ))}
             </select>

@@ -161,10 +161,14 @@ export default function TestRunDetailPage() {
       if (scenario !== 'direct_cable') {
         await testRunsApi.update(id!, { connection_scenario: scenario })
       }
-      await testRunsApi.start(id!)
+      const resp = await testRunsApi.start(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       setScenarioDialogOpen(false)
-      toast.success('Automated tests started')
+      if (resp.data?.status === 'paused_cable') {
+        toast(resp.data?.message || 'Device is not connected. Tests are paused until it comes back online.')
+      } else {
+        toast.success(resp.data?.message || 'Automated tests started')
+      }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } }
       toast.error(axiosErr.response?.data?.detail || 'Failed to start tests')
@@ -382,6 +386,13 @@ export default function TestRunDetailPage() {
       ? ws.terminalOutput[selectedResult.test_id] || ''
       : ''
 
+  const cableAlertStatus =
+    ws.cableStatus !== 'connected'
+      ? ws.cableStatus
+      : run.status === 'paused_cable'
+        ? 'disconnected'
+        : 'connected'
+
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
       <div className="flex-shrink-0 bg-white dark:bg-dark-card border-b border-zinc-200 dark:border-slate-700/50 px-4 py-3">
@@ -523,14 +534,14 @@ export default function TestRunDetailPage() {
       )}
 
       <AnimatePresence>
-        {ws.cableStatus !== 'connected' && (
+        {cableAlertStatus !== 'connected' && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             className="flex-shrink-0 px-4 pt-2 overflow-hidden"
           >
-            <WobblyCableAlert status={ws.cableStatus} />
+            <WobblyCableAlert status={cableAlertStatus} />
           </motion.div>
         )}
       </AnimatePresence>

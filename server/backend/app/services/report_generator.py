@@ -52,9 +52,9 @@ TEMPLATE_INFO = {
         "description": "Pelco SMLE1-15V5-3H camera qualification template with 31 tests",
     },
     "easyio_controller": {
-        "name": "EasyIO Controller (FW08)",
+        "name": "EasyIO Controller",
         "device_category": "controller",
-        "description": "EasyIO FW-08 controller testing plan with 46 tests and protocol whitelist",
+        "description": "EasyIO controller report template aligned to the current EDQ workflow",
     },
     "generic": {
         "name": "Generic IP Device (C00)",

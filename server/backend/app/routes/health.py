@@ -3,11 +3,12 @@
 import time
 
 from fastapi import APIRouter, Depends, Response
-from sqlalchemy import text, func, select
+from sqlalchemy import text
 
 from app.models.database import async_session
 from app.models.user import User
 from app.security.auth import get_current_active_user
+from app.services.system_status import get_system_status
 
 router = APIRouter()
 
@@ -26,17 +27,16 @@ def _increment_requests():
 async def health_check():
     """Public health endpoint for load balancers. No auth required."""
     _increment_requests()
-    db_status = "connected"
+    db_status = "ok"
     try:
         async with async_session() as session:
             await session.execute(text("SELECT 1"))
     except Exception:
-        db_status = "unreachable"
-
-    overall = "ok" if db_status == "connected" else "degraded"
+        db_status = "error"
 
     return {
-        "status": overall,
+        "status": "ok" if db_status == "ok" else "degraded",
+        "database": db_status,
     }
 
 
@@ -95,9 +95,16 @@ async def prometheus_metrics():
 @router.get("/tools/versions")
 async def tool_versions(_user: User = Depends(get_current_active_user)):
     """Return installed tool versions from the sidecar. Requires authentication."""
-    from app.services.tools_client import tools_client
-    try:
-        result = await tools_client.versions()
-        return {"tools": result.get("versions", {}), "status": "ok"}
-    except Exception:
-        return {"tools": {}, "error": "Tools sidecar unreachable", "status": "error"}
+    status = await get_system_status(include_tool_versions=True)
+    tools_ok = status.get("tools_sidecar", {}).get("status") == "ok"
+    return {
+        "tools": status.get("tools", {}),
+        "status": "ok" if tools_ok else "error",
+        "error": None if tools_ok else "Tools sidecar unreachable",
+    }
+
+
+@router.get("/system-status")
+async def system_status(_user: User = Depends(get_current_active_user)):
+    """Return the authenticated system-status payload used by the frontend."""
+    return await get_system_status(include_tool_versions=True)

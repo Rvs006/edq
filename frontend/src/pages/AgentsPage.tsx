@@ -31,54 +31,6 @@ interface Agent {
   totalTests: number
 }
 
-/** Demo agents — used as fallback when no agents are registered in the backend. */
-const DEMO_AGENTS: Agent[] = [
-  {
-    id: '1',
-    name: 'Dylan-MBP',
-    engineer: 'Dylan M.',
-    os: 'macOS 14',
-    version: '1.0.0',
-    status: 'online',
-    lastHeartbeat: new Date(Date.now() - 120_000).toISOString(),
-    syncedTests: 47,
-    totalTests: 47,
-  },
-  {
-    id: '2',
-    name: 'Sarah-Thinkpad',
-    engineer: 'Sarah K.',
-    os: 'Win 11',
-    version: '1.0.0',
-    status: 'busy',
-    lastHeartbeat: new Date(Date.now() - 5_000).toISOString(),
-    syncedTests: 45,
-    totalTests: 46,
-  },
-  {
-    id: '3',
-    name: 'James-MBP',
-    engineer: 'James T.',
-    os: 'macOS 14',
-    version: '1.0.0',
-    status: 'online',
-    lastHeartbeat: new Date(Date.now() - 900_000).toISOString(),
-    syncedTests: 32,
-    totalTests: 32,
-  },
-  {
-    id: '4',
-    name: 'Alex-Dell',
-    engineer: 'Alex R.',
-    os: 'Win 10',
-    version: '0.9.8',
-    status: 'offline',
-    lastHeartbeat: new Date(Date.now() - 10_800_000).toISOString(),
-    syncedTests: 28,
-    totalTests: 30,
-  },
-]
-
 const CURRENT_VERSION = '1.0.0'
 
 function heartbeatText(iso: string): string {
@@ -118,42 +70,33 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [usingDemo, setUsingDemo] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
-  // Fetch agents from API on mount
   useEffect(() => {
     let cancelled = false
+
     async function fetchAgents() {
       try {
         const res = await agentsApi.list()
         if (cancelled) return
         const apiAgents: AgentFromApi[] = res.data
-        if (apiAgents.length > 0) {
-          setAgents(apiAgents.map(mapApiAgent))
-          setUsingDemo(false)
-        } else {
-          setAgents(DEMO_AGENTS)
-          setUsingDemo(true)
-        }
+        setAgents(apiAgents.map(mapApiAgent))
         setError(null)
       } catch {
         if (cancelled) return
-        // Fallback to demo data on error
-        setAgents(DEMO_AGENTS)
-        setUsingDemo(true)
-        setError(null)
+        setAgents([])
+        setError('Failed to load distributed agent registrations')
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
+
     fetchAgents()
     return () => { cancelled = true }
   }, [])
 
-  // WebSocket for real-time heartbeat updates (only when using real API data)
   useEffect(() => {
-    if (usingDemo || agents.length === 0) return
+    if (agents.length === 0) return
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/api/ws/agents`
@@ -167,27 +110,23 @@ export default function AgentsPage() {
           const data = JSON.parse(event.data)
           if (data.type === 'heartbeat' && data.agent_id) {
             setAgents((prev) =>
-              prev.map((a) =>
-                a.id === data.agent_id
+              prev.map((agent) =>
+                agent.id === data.agent_id
                   ? {
-                      ...a,
-                      status: (['online', 'busy', 'offline'].includes(data.status) ? data.status : a.status) as Agent['status'],
+                      ...agent,
+                      status: (['online', 'busy', 'offline'].includes(data.status) ? data.status : agent.status) as Agent['status'],
                       lastHeartbeat: data.timestamp || new Date().toISOString(),
                     }
-                  : a
+                  : agent
               )
             )
           }
         } catch {
-          // Ignore malformed messages
+          // Ignore malformed heartbeat payloads
         }
       }
-
-      ws.onerror = () => {
-        // WebSocket not available — fall back to polling
-      }
     } catch {
-      // WebSocket connection failed — not critical
+      // WebSocket is optional here; the page still works without live updates.
     }
 
     return () => {
@@ -196,28 +135,11 @@ export default function AgentsPage() {
         wsRef.current = null
       }
     }
-  }, [usingDemo, agents.length])
+  }, [agents.length])
 
-  // Simulate heartbeat updates every 5 seconds (demo mode or as fallback)
-  useEffect(() => {
-    if (!usingDemo && agents.length > 0) return
-    const interval = setInterval(() => {
-      setAgents((prev) =>
-        prev.map((a) => ({
-          ...a,
-          lastHeartbeat:
-            a.status !== 'offline'
-              ? new Date(Date.now() - Math.floor(Math.random() * 30_000)).toISOString()
-              : a.lastHeartbeat,
-        }))
-      )
-    }, 5_000)
-    return () => clearInterval(interval)
-  }, [usingDemo, agents.length])
-
-  const onlineCount = agents.filter((a) => a.status === 'online').length
-  const busyCount = agents.filter((a) => a.status === 'busy').length
-  const offlineCount = agents.filter((a) => a.status === 'offline').length
+  const onlineCount = agents.filter((agent) => agent.status === 'online').length
+  const busyCount = agents.filter((agent) => agent.status === 'busy').length
+  const offlineCount = agents.filter((agent) => agent.status === 'offline').length
 
   const stats = [
     { label: 'Online', value: onlineCount, color: 'text-emerald-600' },
@@ -228,7 +150,7 @@ export default function AgentsPage() {
   if (loading) {
     return (
       <div className="page-container">
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-4">Agent Fleet</h1>
+        <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-4">Distributed Agents</h1>
         <div className="flex items-center gap-2 text-sm text-zinc-500">
           <Loader2 className="w-4 h-4 animate-spin" />
           Loading agents...
@@ -240,7 +162,7 @@ export default function AgentsPage() {
   if (error) {
     return (
       <div className="page-container">
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-4">Agent Fleet</h1>
+        <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-4">Distributed Agents</h1>
         <Callout variant="error">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
@@ -254,12 +176,26 @@ export default function AgentsPage() {
   if (agents.length === 0) {
     return (
       <div className="page-container">
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100 mb-4">Agent Fleet</h1>
+        <div className="mb-6">
+          <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Distributed Agents</h1>
+          <p className="text-sm text-zinc-500 mt-0.5">
+            Optional runner registrations for distributed deployments.
+          </p>
+        </div>
+
+        <Callout variant="info" className="mb-5">
+          <div>
+            <strong className="block text-[13px] font-semibold mb-0.5">You probably do not need this</strong>
+            In the normal EDQ setup, each engineer runs Docker locally on their own laptop and scans from that same machine.
+            This page only matters if you later build a separate fleet of registered remote runners.
+          </div>
+        </Callout>
+
         <div className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-12 text-center">
           <RefreshCw className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
-          <p className="text-sm font-medium text-zinc-600 dark:text-slate-400">No agents registered</p>
+          <p className="text-sm font-medium text-zinc-600 dark:text-slate-400">No distributed agents registered</p>
           <p className="text-xs text-zinc-400 mt-1">
-            Register an agent using the API to see it here.
+            That is normal if engineers run EDQ locally instead of through a shared runner fleet.
           </p>
         </div>
       </div>
@@ -270,40 +206,37 @@ export default function AgentsPage() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Agent Fleet</h1>
+          <h1 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Distributed Agents</h1>
           <p className="text-sm text-zinc-500 mt-0.5">
-            Monitor connected EDQ agents across your team
+            Optional fleet view for registered remote runner instances
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-zinc-400">
           <RefreshCw className="w-3 h-3" />
-          Updates every 5s
+          Live heartbeat view
         </div>
       </div>
 
       <Callout variant="info" className="mb-5">
         <div>
           <strong className="block text-[13px] font-semibold mb-0.5">What is this page?</strong>
-          Each engineer runs an EDQ Agent app on their laptop. This page shows which laptops are
-          connected, who is actively scanning, and whether anyone needs a software update. Think of
-          it like a fleet tracker for your team's testing equipment.{' '}
-          <strong>Status updates every 5 seconds.</strong>
+          This page is for a distributed EDQ deployment where separate runner machines register themselves
+          and report heartbeats. It is not needed for the normal laptop-local workflow where the engineer
+          opens EDQ in the browser and the same laptop runs the Docker containers.
         </div>
       </Callout>
 
-      {/* Stats cards */}
       <div className="grid grid-cols-3 gap-4 mb-5">
-        {stats.map((s) => (
-          <div key={s.label} className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-5">
-            <div className="text-[13px] text-zinc-500">{s.label}</div>
-            <div className={`text-2xl font-bold ${s.color}`} data-testid="stat-value">
-              {s.value}
+        {stats.map((stat) => (
+          <div key={stat.label} className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 p-5">
+            <div className="text-[13px] text-zinc-500">{stat.label}</div>
+            <div className={`text-2xl font-bold ${stat.color}`} data-testid="stat-value">
+              {stat.value}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Agent table */}
       <div className="bg-white dark:bg-dark-card rounded-xl border border-zinc-200 dark:border-slate-700/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -349,9 +282,7 @@ export default function AgentsPage() {
                     <td className="px-4 py-3 text-zinc-500 dark:text-slate-400">{agent.os}</td>
                     <td className="px-4 py-3">
                       {outdated ? (
-                        <span className="text-amber-600 font-semibold">
-                          {agent.version} ⚠
-                        </span>
+                        <span className="text-amber-600 font-semibold">{agent.version} !</span>
                       ) : (
                         <span className="text-zinc-500">{agent.version}</span>
                       )}

@@ -6,15 +6,16 @@ import {
   Clock, Plus, Trash2, Pause, Play, Loader2, AlertCircle,
   CalendarClock, RefreshCw, ChevronDown,
 } from 'lucide-react'
+import { getPreferredDeviceName } from '@/lib/deviceLabels'
 
 function FrequencyBadge({ frequency }: { frequency: string }) {
   const colors: Record<string, string> = {
-    daily: 'bg-blue-50 text-blue-700',
-    weekly: 'bg-purple-50 text-purple-700',
-    monthly: 'bg-amber-50 text-amber-700',
+    daily: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300',
+    weekly: 'bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300',
+    monthly: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
   }
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colors[frequency] || 'bg-zinc-100 text-zinc-700'}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colors[frequency] || 'bg-zinc-100 text-zinc-700 dark:bg-slate-800 dark:text-slate-300'}`}>
       {frequency}
     </span>
   )
@@ -23,7 +24,7 @@ function FrequencyBadge({ frequency }: { frequency: string }) {
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
-      active ? 'bg-green-50 text-green-700' : 'bg-zinc-100 text-zinc-500'
+      active ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300' : 'bg-zinc-100 text-zinc-500 dark:bg-slate-800 dark:text-slate-400'
     }`}>
       <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-green-500' : 'bg-zinc-400'}`} />
       {active ? 'Active' : 'Paused'}
@@ -93,7 +94,7 @@ function CreateScheduleDialog({
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {error && (
-            <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-3">
+            <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-950/30 rounded-lg p-3">
               <AlertCircle className="w-4 h-4 shrink-0" />
               {error}
             </div>
@@ -109,8 +110,8 @@ function CreateScheduleDialog({
               >
                 <option value="">Select a device...</option>
                 {devices.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.hostname || d.ip_address} ({d.ip_address})
+                <option key={d.id} value={d.id}>
+                    {getPreferredDeviceName(d)} ({d.ip_address})
                   </option>
                 ))}
               </select>
@@ -146,8 +147,8 @@ function CreateScheduleDialog({
                   type="button"
                   onClick={() => setFrequency(f)}
                   className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    frequency === f
-                      ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-400'
+                      frequency === f
+                        ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-400'
                       : 'border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-400 hover:border-zinc-300 dark:hover:border-slate-600'
                   }`}
                 >
@@ -267,14 +268,14 @@ export default function ScanSchedulesPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                      schedule.is_active ? 'bg-brand-50' : 'bg-zinc-100'
+                      schedule.is_active ? 'bg-brand-50 dark:bg-brand-950/30' : 'bg-zinc-100 dark:bg-slate-800'
                     }`}>
-                      <RefreshCw className={`w-5 h-5 ${schedule.is_active ? 'text-brand-500' : 'text-zinc-400'}`} />
+                      <RefreshCw className={`w-5 h-5 ${schedule.is_active ? 'text-brand-500 dark:text-brand-300' : 'text-zinc-400 dark:text-slate-500'}`} />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-semibold text-zinc-900 dark:text-slate-100 truncate">
-                          {device?.hostname || device?.ip_address || 'Unknown Device'}
+                          {device ? getPreferredDeviceName(device) : 'Unknown Device'}
                         </p>
                         <FrequencyBadge frequency={schedule.frequency} />
                         <StatusBadge active={schedule.is_active} />

@@ -51,6 +51,7 @@ export interface TestRun {
   device_id: string
   device_name: string | null
   device_ip: string | null
+  device_mac_address: string | null
   device_manufacturer: string | null
   device_model: string | null
   device_category: string | null
@@ -242,6 +243,8 @@ export interface DiscoveredDevice {
   ip_address: string
   hostname: string | null
   manufacturer: string | null
+  model: string | null
+  predicted_name: string | null
   category: string
   is_new: boolean
 }

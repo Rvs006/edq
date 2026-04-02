@@ -138,7 +138,7 @@ export default function TestPlansPage() {
                     </td>
                     <td className="px-3 py-3 text-zinc-500 dark:text-zinc-400 text-xs max-w-xs truncate">{p.description || '—'}</td>
                     <td className="px-3 py-3 text-center">
-                      <span className="badge bg-brand-50 text-brand-600 border border-brand-100">{enabled}</span>
+                      <span className="badge bg-brand-50 text-brand-600 border border-brand-100 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800">{enabled}</span>
                     </td>
                     <td className="px-3 py-3 text-center">
                       {custom > 0 ? <span className="badge bg-purple-50 text-purple-600 border border-purple-100">{custom}</span> : <span className="text-zinc-400">—</span>}
@@ -284,7 +284,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Test Configuration</h3>
-              <span className="badge bg-brand-50 text-brand-600 border border-brand-100">{enabledCount} enabled</span>
+              <span className="badge bg-brand-50 text-brand-600 border border-brand-100 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800">{enabledCount} enabled</span>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={enableAll} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Enable All</button>

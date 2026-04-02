@@ -58,6 +58,10 @@ export function useTestRunWebSocket(runId: string | undefined) {
           setCableStatus('disconnected')
         }
 
+        if (msg.type === 'cable_timeout') {
+          setCableStatus('disconnected')
+        }
+
         if (msg.type === 'cable_reconnected') {
           setCableStatus('reconnecting')
           setTimeout(() => setCableStatus('connected'), 5000)

@@ -10,6 +10,7 @@ import VerdictBadge from '@/components/common/VerdictBadge'
 import CategoryBadge from '@/components/common/CategoryBadge'
 import Callout from '@/components/common/Callout'
 import NetworkTopology from '@/components/common/NetworkTopology'
+import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
 const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown']
 
@@ -30,20 +31,20 @@ export default function DevicesPage() {
       <div data-tour="devices-toolbar" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div>
           <h1 className="section-title">Devices</h1>
-          <p className="section-subtitle">Manage network devices for qualification testing</p>
+          <p className="section-subtitle">Manage known devices first, then use discovery when the address is unknown</p>
         </div>
         <div className="flex gap-2">
           <div className="flex border border-zinc-200 dark:border-slate-700/50 rounded-lg overflow-hidden">
             <button
               onClick={() => setViewMode('table')}
-              className={`p-2 ${viewMode === 'table' ? 'bg-brand-50 text-brand-600' : 'text-zinc-400 hover:text-zinc-600'}`}
+              className={`p-2 ${viewMode === 'table' ? 'bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300'}`}
               title="Table view"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('topology')}
-              className={`p-2 ${viewMode === 'topology' ? 'bg-brand-50 text-brand-600' : 'text-zinc-400 hover:text-zinc-600'}`}
+              className={`p-2 ${viewMode === 'topology' ? 'bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300'}`}
               title="Topology view"
             >
               <Network className="w-4 h-4" />
@@ -113,8 +114,13 @@ export default function DevicesPage() {
                   <tr key={device.id} className="hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
                     <td className="py-3 px-4">
                       <Link to={`/devices/${device.id}`} className="font-medium text-zinc-900 dark:text-slate-100 hover:text-brand-500">
-                        {device.hostname || device.name || device.ip_address}
+                        {getPreferredDeviceName(device)}
                       </Link>
+                      {getDeviceMetaSummary(device, { includeMac: true }) && (
+                        <p className="text-[11px] text-zinc-500 dark:text-slate-400 mt-0.5">
+                          {getDeviceMetaSummary(device, { includeMac: true })}
+                        </p>
+                      )}
                     </td>
                     <td className="py-3 px-4 font-mono text-xs text-zinc-600 dark:text-slate-400">{device.ip_address}</td>
                     <td className="py-3 px-4 text-zinc-600 dark:text-slate-400 hidden md:table-cell">{device.manufacturer || '—'}</td>
@@ -203,14 +209,14 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
         className="relative w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Discover Devices</h2>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Discover by IP or Subnet</h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
         <form onSubmit={handleDiscover} className="p-4 space-y-4">
           <Callout variant="info">
-            Auto-discover devices on your network using nmap. Single IP performs full service detection; subnet performs a ping sweep.
+            Single IP is best for one directly connected device. Use subnet scan only when the IP is unknown or you are surveying multiple devices.
           </Callout>
 
           <div className="flex gap-2">
@@ -218,7 +224,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
               type="button"
               onClick={() => setMode('ip')}
               className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
-                mode === 'ip' ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-400 hover:border-zinc-300'
+                mode === 'ip' ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300' : 'border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-400 hover:border-zinc-300 dark:hover:border-slate-600'
               }`}
             >
               Single IP
@@ -227,7 +233,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
               type="button"
               onClick={() => setMode('subnet')}
               className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
-                mode === 'subnet' ? 'border-brand-500 bg-brand-50 text-brand-600' : 'border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-400 hover:border-zinc-300'
+                mode === 'subnet' ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300' : 'border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-400 hover:border-zinc-300 dark:hover:border-slate-600'
               }`}
             >
               Subnet Scan
@@ -268,14 +274,14 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
                   <div className={`w-2 h-2 rounded-full shrink-0 ${dev.is_new ? 'bg-emerald-500' : 'bg-blue-500'}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-zinc-800 dark:text-slate-200 truncate">
-                      {dev.hostname || dev.ip_address}
+                      {getPreferredDeviceName(dev)}
                     </p>
                     <p className="text-xs text-zinc-500">
-                      {dev.ip_address} {dev.manufacturer ? `· ${dev.manufacturer}` : ''} · {dev.category}
+                      {getDeviceMetaSummary(dev, { includeIp: true }) || dev.ip_address} · {dev.category}
                     </p>
                   </div>
                   <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                    dev.is_new ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                    dev.is_new ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300'
                   }`}>
                     {dev.is_new ? 'New' : 'Updated'}
                   </span>

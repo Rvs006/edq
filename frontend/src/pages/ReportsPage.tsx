@@ -4,11 +4,12 @@ import { reportsApi, testRunsApi } from '@/lib/api'
 import type { TestRun, ReportTemplate } from '@/lib/types'
 import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { getPreferredDeviceName } from '@/lib/deviceLabels'
 
 const TEMPLATE_OPTIONS = [
   { key: 'generic', label: 'Generic IP Device (C00)', category: 'generic' },
   { key: 'pelco_camera', label: 'Pelco Camera (Rev 2)', category: 'camera' },
-  { key: 'easyio_controller', label: 'EasyIO Controller (FW08)', category: 'controller' },
+  { key: 'easyio_controller', label: 'EasyIO Controller', category: 'controller' },
 ]
 
 type ReportFormat = 'excel' | 'word' | 'pdf'
@@ -102,8 +103,8 @@ export default function ReportsPage() {
               <select value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)} className="input">
                 <option value="">Select a completed test run...</option>
                 {runs?.map((run: TestRun) => (
-                  <option key={run.id} value={run.id}>
-                    Run {run.id.slice(0, 8)} &mdash; {run.passed_tests}/{run.total_tests} passed &mdash; {new Date(run.created_at).toLocaleDateString()}
+                <option key={run.id} value={run.id}>
+                    {getPreferredDeviceName(run)} &mdash; {run.passed_tests}/{run.total_tests} passed &mdash; {new Date(run.created_at).toLocaleDateString()}
                   </option>
                 ))}
               </select>
@@ -119,7 +120,7 @@ export default function ReportsPage() {
                     onClick={() => setReportType(key)}
                     className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
                       reportType === key
-                        ? 'border-brand-500 bg-brand-50'
+                        ? 'border-brand-500 bg-brand-50 dark:bg-brand-950/30'
                         : 'border-zinc-200 dark:border-slate-700/50 hover:border-zinc-300 dark:hover:border-slate-600'
                     }`}
                   >
@@ -182,7 +183,7 @@ export default function ReportsPage() {
               {[
                 { name: 'Generic C00', desc: 'Universal IP device template (43 tests)' },
                 { name: 'Pelco Camera', desc: 'Camera qualification Rev 2 (31 tests)' },
-                { name: 'EasyIO FW08', desc: 'Controller testing plan v1.1 (46 tests)' },
+                { name: 'EasyIO Controller', desc: 'Controller report template aligned to the current EDQ workflow' },
               ].map(fw => (
                 <div key={fw.name} className="flex items-center gap-2 py-1">
                   <div className="w-2 h-2 rounded-full bg-brand-500" />

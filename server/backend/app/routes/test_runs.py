@@ -24,6 +24,8 @@ from app.models.user import User
 from app.models.nessus_finding import NessusFinding
 from app.schemas.test import TestRunCreate, TestRunUpdate, TestRunResponse
 from app.security.auth import get_current_active_user
+from app.services.discovery_service import build_device_display_name
+from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import cancel_test_run, is_run_executing, launch_test_run
 from app.services.nessus_parser import nessus_parser
@@ -59,14 +61,21 @@ async def _enrich_run(run: TestRun, db: AsyncSession) -> dict:
 
     device = await db.get(Device, run.device_id)
     if device:
-        data["device_name"] = device.hostname or device.manufacturer or device.ip_address
+        data["device_name"] = build_device_display_name(
+            device.ip_address,
+            device.hostname,
+            device.manufacturer,
+            device.model,
+        )
         data["device_ip"] = device.ip_address
+        data["device_mac_address"] = device.mac_address
         data["device_manufacturer"] = device.manufacturer
         data["device_model"] = device.model
         data["device_category"] = device.category.value if device.category else None
     else:
         data["device_name"] = None
         data["device_ip"] = None
+        data["device_mac_address"] = None
         data["device_manufacturer"] = None
         data["device_model"] = None
         data["device_category"] = None
@@ -122,6 +131,16 @@ async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int
         "essential_failed": essential_failed,
         "total": len(all_results),
     }
+
+
+async def _device_is_reachable(device: Device | None) -> bool:
+    if device is None or not device.ip_address:
+        return False
+    reachable, _probe_method = await probe_device_connectivity(
+        device.ip_address,
+        extract_probe_ports(device.open_ports),
+    )
+    return reachable
 
 
 def _overall_verdict_from_summary(summary: dict[str, int | bool]) -> str | None:
@@ -383,6 +402,17 @@ async def start_test_run(
     if is_run_executing(run_id):
         raise HTTPException(status_code=409, detail="Test run is already executing")
 
+    device = await db.get(Device, run.device_id)
+    if not await _device_is_reachable(device):
+        run.status = TestRunStatus.PAUSED_CABLE
+        await db.commit()
+        launch_test_run(run_id)
+        return {
+            "status": TestRunStatus.PAUSED_CABLE.value,
+            "message": "Device is not reachable. Tests are paused until the cable or device is reconnected.",
+            "run_id": run_id,
+        }
+
     launch_test_run(run_id)
 
     return {"status": "running", "message": "Test execution started", "run_id": run_id}
@@ -491,6 +521,14 @@ async def resume_test_run(
             status_code=400,
             detail=f"Cannot resume run in '{run_status}' status. Must be paused.",
         )
+
+    if run_status == TestRunStatus.PAUSED_CABLE.value:
+        device = await db.get(Device, run.device_id)
+        if not await _device_is_reachable(device):
+            raise HTTPException(
+                status_code=409,
+                detail="Device is still unreachable. Reconnect the cable or device before resuming.",
+            )
 
     run.status = TestRunStatus.RUNNING
     await db.flush()

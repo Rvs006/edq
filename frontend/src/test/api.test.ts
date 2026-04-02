@@ -80,11 +80,12 @@ describe('API module', () => {
     expect(typeof devicesApi.stats).toBe('function')
   })
 
-  it('healthApi has check and toolVersions methods', async () => {
+  it('healthApi exposes the health status methods', async () => {
     const { healthApi } = await import('@/lib/api')
 
     expect(typeof healthApi.check).toBe('function')
     expect(typeof healthApi.toolVersions).toBe('function')
+    expect(typeof healthApi.systemStatus).toBe('function')
   })
 
   it('normalizes test run responses returned through the API wrapper', async () => {

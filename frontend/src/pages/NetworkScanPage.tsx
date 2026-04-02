@@ -60,9 +60,11 @@ interface ScanResult {
   run_id: string
   device_ip: string
   device_id: string
+  device_name?: string | null
   device_category: string | null
   vendor: string | null
   hostname: string | null
+  model?: string | null
   status: string
   progress_pct: number
   total_tests: number
@@ -236,8 +238,8 @@ export default function NetworkScanPage() {
   return (
     <div className="page-container" data-tour="scan-config">
       <div className="mb-5">
-        <h1 className="section-title">Network Scan</h1>
-        <p className="section-subtitle">Discover and batch-test devices across a subnet</p>
+        <h1 className="section-title">Bulk Discovery</h1>
+        <p className="section-subtitle">Survey a subnet when the IP is unknown, then batch-test selected devices</p>
       </div>
 
       <StepIndicator current={step} />
@@ -323,7 +325,7 @@ function StepIndicator({ current }: { current: Step }) {
         <div key={s.key} className="flex items-center gap-2">
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
             i < idx ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
-            i === idx ? 'bg-brand-50 text-brand-600 border border-brand-200' :
+            i === idx ? 'bg-brand-50 text-brand-600 border border-brand-200 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800' :
             'bg-zinc-100 dark:bg-slate-800 text-zinc-400 border border-zinc-200 dark:border-slate-700/50'
           }`}>
             {i < idx ? <CheckCircle2 className="w-3.5 h-3.5" /> :
@@ -424,10 +426,13 @@ function ConfigureStep({
             {cidr && !cidrValid && <p className="text-xs text-red-500 mt-1">Invalid CIDR format</p>}
           </div>
           <div className="sm:w-48">
-            <label className="label">Hosts in range</label>
-            <div className="input bg-zinc-50 dark:bg-slate-800 text-zinc-600 dark:text-slate-400">{hostCount > 0 ? `~${hostCount} hosts` : '—'}</div>
+            <label className="label">Possible IPs in range</label>
+            <div className="input bg-zinc-50 dark:bg-slate-800 text-zinc-600 dark:text-slate-400">{hostCount > 0 ? `~${hostCount} possible IPs` : '—'}</div>
           </div>
         </div>
+        <p className="text-xs text-zinc-500 dark:text-slate-400 mt-2">
+          Use this page for unknown IPs and multi-device surveys. For one known device, use Single IP discovery from Devices.
+        </p>
       </div>
 
       <div className="card p-5">
@@ -439,7 +444,7 @@ function ConfigureStep({
               onClick={() => setScenario(s.value)}
               className={`text-left p-3 rounded-lg border transition-colors ${
                 scenario === s.value
-                  ? 'border-brand-500 bg-brand-50'
+                  ? 'border-brand-500 bg-brand-50 dark:bg-brand-950/30 dark:text-brand-300'
                   : 'border-zinc-200 dark:border-slate-700/50 hover:border-zinc-300 dark:hover:border-slate-600'
               }`}
             >
@@ -924,8 +929,9 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
   const isComplete = result.status === 'completed' || result.status === 'awaiting_manual'
   const isError = result.status === 'failed' || result.status === 'error'
 
-  const displayName = result.hostname || result.vendor || null
-  const subtitle = result.vendor && result.hostname ? result.vendor : null
+  const displayName = result.device_name || result.hostname || result.vendor || null
+  const detailLine = [result.vendor, result.model].filter(Boolean).join(' · ')
+  const subtitle = detailLine && detailLine.toLowerCase() !== (displayName || '').toLowerCase() ? detailLine : null
 
   // Build test detail map for quick lookup
   const detailMap = new Map<string, TestDetail>()
@@ -1180,9 +1186,9 @@ function StatusBadge({ status, verdict }: { status: string; verdict: string | nu
     if (verdict === 'qualified_pass') return <span className="badge bg-amber-50 text-amber-600 border border-amber-200">Advisory</span>
     return <span className="badge bg-blue-50 text-blue-600 border border-blue-200">Done</span>
   }
-  if (status === 'running') return <span className="badge bg-brand-50 text-brand-600 border border-brand-200">Running</span>
-  if (status === 'failed' || status === 'error') return <span className="badge bg-red-50 text-red-600 border border-red-200">Error</span>
-  return <span className="badge bg-zinc-100 text-zinc-500 border border-zinc-200">{status}</span>
+  if (status === 'running') return <span className="badge bg-brand-50 text-brand-600 border border-brand-200 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800">Running</span>
+  if (status === 'failed' || status === 'error') return <span className="badge bg-red-50 text-red-600 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800">Error</span>
+  return <span className="badge bg-zinc-100 text-zinc-500 border border-zinc-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/50">{status}</span>
 }
 
 function ResultsStep({
@@ -1249,7 +1255,7 @@ function ResultsStep({
 
 function StatCard({ label, value, icon: Icon, color = 'brand' }: { label: string; value: number; icon: React.ElementType; color?: string }) {
   const colors: Record<string, string> = {
-    brand: 'bg-brand-50 text-brand-600',
+    brand: 'bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300',
     emerald: 'bg-emerald-50 text-emerald-600',
     red: 'bg-red-50 text-red-600',
     amber: 'bg-amber-50 text-amber-600',

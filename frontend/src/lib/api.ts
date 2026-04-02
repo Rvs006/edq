@@ -239,6 +239,14 @@ export const testPlansApi = {
 export const healthApi = {
   check: () => api.get('/health'),
   toolVersions: () => api.get<{ tools: Record<string, string> }>('/health/tools/versions'),
+  systemStatus: () => api.get<{
+    status: string
+    checked_at: string
+    backend: { status: string }
+    database: { status: string }
+    tools_sidecar: { status: string }
+    tools: Record<string, string>
+  }>('/health/system-status'),
 }
 
 export const cveApi = {
