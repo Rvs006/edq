@@ -28,6 +28,7 @@
 - optional API regression script: `./scripts/e2e-test.sh`
 - Windows API regression script: `.\scripts\e2e-test.ps1`
 - backend suite via Docker: `./scripts/backend-test.sh` or `.\scripts\backend-test.ps1`
+- local backend test deps: `python -m pip install -r server/backend/requirements-dev.txt`
 - backend tests: `pytest server/backend/tests -v`
 
 ## Documentation Map

@@ -14,5 +14,5 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $mountArg = "{0}:/app" -f $backendPath
-docker compose run --rm --no-deps -T -v $mountArg backend sh -lc "python -m pip install --quiet pytest pytest-asyncio httpx && python -m pytest tests/ -v --tb=short"
+docker compose run --rm --no-deps -T -v $mountArg backend sh -lc "python -m pip install --quiet -r requirements-dev.txt && python -m pytest tests/ -v --tb=short"
 exit $LASTEXITCODE

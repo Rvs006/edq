@@ -12,4 +12,4 @@ docker compose build backend
 docker compose run --rm --no-deps -T \
   -v "$BACKEND_PATH:/app" \
   backend \
-  sh -lc "python -m pip install --quiet pytest pytest-asyncio httpx && python -m pytest tests/ -v --tb=short"
+  sh -lc "python -m pip install --quiet -r requirements-dev.txt && python -m pytest tests/ -v --tb=short"
