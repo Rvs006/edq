@@ -58,6 +58,19 @@ if [ ! -f .env ]; then
     read -r SERVER_HOST
     SERVER_HOST=${SERVER_HOST:-localhost}
 
+    # Ask whether HTTPS/TLS will be used (secure cookies require HTTPS)
+    echo ""
+    echo -n "Will this server use HTTPS/TLS? (Y/n): "
+    read -r USE_HTTPS
+    USE_HTTPS=${USE_HTTPS:-Y}
+    if [[ "$USE_HTTPS" =~ ^[Nn] ]]; then
+        COOKIE_SECURE="false"
+        echo -e "${YELLOW}⚠  COOKIE_SECURE=false — session cookies will be sent over plain HTTP.${NC}"
+        echo -e "${YELLOW}   This is acceptable for local/dev but NOT recommended for production.${NC}"
+    else
+        COOKIE_SECURE="true"
+    fi
+
     cat > .env << EOF
 # EDQ Production Configuration
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
@@ -66,7 +79,7 @@ if [ ! -f .env ]; then
 JWT_SECRET=${JWT_SECRET}
 JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
 SECRET_KEY=${SECRET_KEY}
-COOKIE_SECURE=false
+COOKIE_SECURE=${COOKIE_SECURE}
 INITIAL_ADMIN_PASSWORD=${ADMIN_PASSWORD}
 
 # Database
