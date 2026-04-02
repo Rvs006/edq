@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     hydra \
     nikto \
     iputils-ping \
+    iproute2 \
     net-tools \
     bsdmainutils \
     && rm -rf /var/lib/apt/lists/*
