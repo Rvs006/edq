@@ -15,22 +15,22 @@ const capabilities = [
   {
     icon: ScanLine,
     title: 'Automated Security Scans',
-    description: '25 automated tests using nmap, testssl.sh, ssh-audit, hydra, and snmpwalk. Runs against the device under test.',
+    description: '29 automated checks using nmap, testssl.sh, ssh-audit, hydra, nikto, and supporting probes. Runs against the device under test.',
   },
   {
     icon: ClipboardCheck,
     title: 'Guided Manual Tests',
-    description: '18 guided manual checks for physical inspection, web UI review, and configuration verification with single-click verdicts.',
+    description: '14 guided manual checks for physical inspection, web UI review, and configuration verification with single-click verdicts.',
   },
   {
     icon: FileDown,
     title: 'Report Generation',
-    description: 'Export Excel and Word reports mapped to Electracom client templates. PDF export planned.',
+    description: 'Export Excel, Word, and PDF reports mapped to Electracom client templates.',
   },
   {
     icon: Terminal,
     title: 'Tools Sidecar',
-    description: 'Dockerized sidecar runs nmap, testssl.sh, ssh-audit, hydra, snmpwalk. No local install needed.',
+    description: 'Dockerized sidecar runs nmap, testssl.sh, ssh-audit, hydra, nikto, and related network helpers. No local install needed.',
   },
   {
     icon: Shield,
@@ -73,7 +73,7 @@ export default function LandingPage() {
               </h1>
               <p className="mt-3 text-sm sm:text-base text-zinc-600 dark:text-slate-400 leading-relaxed">
                 Internal tool for security qualification of IP devices on Electracom projects.
-                43 tests (25 automated + 18 guided manual). Runs offline on Docker.
+                43 tests (29 automated + 14 guided manual). Runs offline on Docker.
               </p>
               <div className="mt-5 flex items-center gap-3">
                 <Link to="/login" className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">

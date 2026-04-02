@@ -63,6 +63,8 @@ describe('LandingPage', () => {
     renderLandingPage()
 
     expect(screen.getByText('What EDQ Does')).toBeInTheDocument()
+    expect(screen.getByText(/43 tests \(29 automated \+ 14 guided manual\)/)).toBeInTheDocument()
+    expect(screen.getByText(/Export Excel, Word, and PDF reports/)).toBeInTheDocument()
   })
 
   it('shows the workflow section', () => {

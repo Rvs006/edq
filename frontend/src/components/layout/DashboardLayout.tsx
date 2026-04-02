@@ -29,6 +29,8 @@ const pageDescriptions: Record<string, string> = {
   '/authorized-networks': 'Control which subnets EDQ is allowed to scan — all scan targets must fall within authorized ranges',
 }
 
+pageDescriptions['/test-runs'] = 'Security qualification sessions - 43 checks per device (29 automated, 14 guided manual)'
+
 const navSections = [
   {
     label: 'Workflow',
