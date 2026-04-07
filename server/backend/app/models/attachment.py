@@ -12,8 +12,8 @@ class Attachment(Base):
     __tablename__ = "attachments"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    test_run_id = Column(String(36), ForeignKey("test_runs.id"), nullable=False, index=True)
-    test_result_id = Column(String(36), ForeignKey("test_results.id"), nullable=True)
+    test_run_id = Column(String(36), ForeignKey("test_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    test_result_id = Column(String(36), ForeignKey("test_results.id", ondelete="CASCADE"), nullable=True)
     filename = Column(String(255), nullable=False)
     original_filename = Column(String(255), nullable=False)
     file_path = Column(String(512), nullable=False)

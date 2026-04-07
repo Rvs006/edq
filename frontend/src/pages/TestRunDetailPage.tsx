@@ -3,7 +3,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { testRunsApi, testResultsApi, reportsApi } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   ArrowLeft, Loader2, Monitor, Wifi, WifiOff,
   FileText, Cpu, Menu, X, Fingerprint, Zap, Save
@@ -28,6 +28,7 @@ export default function TestRunDetailPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
 
+  const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [selectedTestId, setSelectedTestId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [scenarioDialogOpen, setScenarioDialogOpen] = useState(false)
@@ -62,8 +63,11 @@ export default function TestRunDetailPage() {
     const msg = ws.lastProgress
 
     if (msg.type === 'test_complete' || msg.type === 'run_complete') {
-      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      if (invalidateTimerRef.current) clearTimeout(invalidateTimerRef.current)
+      invalidateTimerRef.current = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+        queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      }, 500)
     }
 
     if (msg.type === 'test_start' && msg.data.test_id) {
@@ -413,12 +417,17 @@ export default function TestRunDetailPage() {
       ? ws.terminalOutput[selectedResult.test_id] || ''
       : ''
 
+  // Cable alert: prefer WS cable status, but fall back to REST poll status.
+  // Also treat WS disconnection during an active run as a warning signal.
+  const isRunActive = isActiveTestRunStatus(run.status)
   const cableAlertStatus =
     ws.cableStatus !== 'connected'
       ? ws.cableStatus
       : run.status === 'paused_cable'
         ? 'disconnected'
-        : 'connected'
+        : !ws.isConnected && isRunActive
+          ? 'reconnecting'
+          : 'connected'
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">

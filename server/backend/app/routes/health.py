@@ -4,7 +4,8 @@ import time
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import text, func, select
+from sqlalchemy.sql import quoted_name
 
 from app.config import settings
 from app.models.database import async_session
@@ -64,12 +65,17 @@ async def prometheus_metrics(request: Request):
     uptime = time.time() - _metrics["startup_time"]
 
     # Count table rows for operational metrics
+    # Use a hardcoded allowlist and quoted identifiers instead of f-string interpolation
+    _ALLOWED_TABLES = frozenset({"users", "devices", "test_runs", "audit_logs", "network_scans"})
     table_counts = {}
     try:
         async with async_session() as session:
-            for table in ["users", "devices", "test_runs", "audit_logs", "network_scans"]:
+            for table in _ALLOWED_TABLES:
                 try:
-                    result = await session.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                    safe_table = quoted_name(table, quote=True)
+                    result = await session.execute(
+                        text("SELECT COUNT(*) FROM " + str(safe_table))
+                    )
                     table_counts[table] = result.scalar() or 0
                 except Exception:
                     table_counts[table] = 0

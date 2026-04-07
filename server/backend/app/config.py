@@ -145,9 +145,7 @@ if not settings.TOOLS_API_KEY or any(
         "[EDQ SECURITY] TOOLS_API_KEY is not set or is a placeholder. "
         "The tools sidecar requires a valid key. Generate with: openssl rand -hex 32"
     )
-    if not settings.DEBUG:
-        raise RuntimeError(_msg)
-    _warnings.warn(_msg, stacklevel=2)
+    raise RuntimeError(_msg)
 
 _localhost_origins = [o for o in settings.CORS_ORIGINS if "localhost" in o or "127.0.0.1" in o]
 _localhost_only = bool(settings.CORS_ORIGINS) and len(_localhost_origins) == len(settings.CORS_ORIGINS)

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { devicesApi, discoveryApi } from '@/lib/api'
 import type { Device, DiscoveredDevice } from '@/lib/types'
 import { Monitor, Plus, Search, Loader2, X, Radar, LayoutGrid, Network } from 'lucide-react'
@@ -16,13 +16,14 @@ import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels
 const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown']
 
 export default function DevicesPage() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [showDiscoverModal, setShowDiscoverModal] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'topology'>('table')
 
-  const { data: devices, isLoading } = useQuery({
+  const { data: devices, isLoading, isError } = useQuery({
     queryKey: ['devices', search, categoryFilter],
     queryFn: () => devicesApi.list({ search: search || undefined, category: categoryFilter || undefined }).then(r => r.data),
   })
@@ -86,7 +87,9 @@ export default function DevicesPage() {
         </select>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <Callout variant="error">Failed to load devices. Please try again.</Callout>
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
         </div>
@@ -94,7 +97,7 @@ export default function DevicesPage() {
         <div className="card p-4">
           <NetworkTopology
             devices={devices}
-            onDeviceClick={(d) => window.location.href = `/devices/${d.id}`}
+            onDeviceClick={(d) => navigate(`/devices/${d.id}`)}
           />
         </div>
       ) : devices && devices.length > 0 ? (

@@ -11,7 +11,7 @@ class NessusFinding(Base):
     __tablename__ = "nessus_findings"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id = Column(String(36), ForeignKey("test_runs.id"), nullable=False, index=True)
+    run_id = Column(String(36), ForeignKey("test_runs.id", ondelete="CASCADE"), nullable=False, index=True)
     plugin_id = Column(Integer, nullable=False)
     plugin_name = Column(String(256), nullable=False)
     severity = Column(String(16), nullable=False)

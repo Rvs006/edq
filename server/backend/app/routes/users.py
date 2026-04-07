@@ -9,7 +9,7 @@ from typing import List
 
 from app.models.database import get_db
 from app.models.refresh_token import RefreshToken
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.user import UserResponse, UserUpdate
 from app.security.auth import get_current_active_user, require_role, revoke_user_refresh_tokens
 from app.utils.audit import log_security_event
@@ -36,8 +36,11 @@ async def list_users(
 async def get_user(
     user_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ):
+    # Engineers can only view their own profile; admins and reviewers can view any
+    if current_user.role == UserRole.ENGINEER and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:

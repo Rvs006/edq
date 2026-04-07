@@ -119,6 +119,21 @@ IP_RE = re.compile(r".*")  # validation now done via _is_valid_target()
 
 BLOCKED_ARGS = {"&&", "||", ";", "|", "`", "$", "(", ")", "{", "}", "<", ">", "\n", "\r"}
 
+MAX_ARG_LENGTH = 200  # Maximum length per individual argument
+
+# Whitelist of safe nmap scripts — only these may be passed to --script
+ALLOWED_NMAP_SCRIPTS = frozenset({
+    "default", "safe", "discovery", "version", "auth", "broadcast",
+    "vuln", "exploit", "intrusive", "malware", "external",
+    # Common individual scripts
+    "banner", "dns-brute", "http-title", "http-headers", "http-methods",
+    "http-server-header", "http-robots.txt", "http-enum", "http-auth",
+    "ssl-cert", "ssl-enum-ciphers", "ssh-hostkey", "ssh2-enum-algos",
+    "smb-os-discovery", "smb-protocols", "smb-security-mode",
+    "snmp-info", "snmp-brute", "ftp-anon", "telnet-encryption",
+    "nbstat", "ntp-info", "dns-zone-transfer",
+})
+
 # Whitelist of allowed flags per tool to prevent argument injection
 ALLOWED_FLAGS = {
     "nmap": {
@@ -175,11 +190,32 @@ def _validate_args(args: list) -> list:
     sanitised = []
     for arg in args:
         arg = str(arg)
+        if len(arg) > MAX_ARG_LENGTH:
+            app.logger.warning("Blocked oversized argument (%d chars): %.50s...", len(arg), arg)
+            raise ValueError(f"Argument too long ({len(arg)} chars, max {MAX_ARG_LENGTH})")
         for blocked in BLOCKED_ARGS:
             if blocked in arg:
+                app.logger.warning("Blocked argument containing '%s': %.50s", blocked, arg)
                 raise ValueError(f"Blocked character in argument: {blocked}")
         sanitised.append(arg)
     return sanitised
+
+
+def _validate_nmap_script_arg(script_value: str) -> None:
+    """Validate that --script values only contain whitelisted script names."""
+    # script_value can be comma-separated, e.g. "ssl-cert,ssl-enum-ciphers"
+    scripts = [s.strip() for s in script_value.split(",")]
+    for script in scripts:
+        if not script:
+            continue
+        # Strip leading + or - modifiers (e.g. "+safe" or "-intrusive")
+        clean = script.lstrip("+-")
+        if clean not in ALLOWED_NMAP_SCRIPTS:
+            app.logger.warning("Blocked disallowed nmap script: %s", script)
+            raise ValueError(
+                f"Nmap script '{clean}' is not in the allowed whitelist. "
+                "Contact an admin to add it if needed."
+            )
 
 
 def _validate_args_for_tool(args: list, tool_name: str) -> list:
@@ -188,11 +224,24 @@ def _validate_args_for_tool(args: list, tool_name: str) -> list:
     allowed = ALLOWED_FLAGS.get(tool_name)
     if not allowed:
         return sanitised
-    for arg in sanitised:
+    i = 0
+    while i < len(sanitised):
+        arg = sanitised[i]
         if arg.startswith("-"):
             flag = arg.split("=")[0]
             if flag not in allowed:
+                app.logger.warning("Blocked flag '%s' for tool %s", flag, tool_name)
                 raise ValueError(f"Flag '{flag}' is not allowed for {tool_name}")
+            # Validate --script values for nmap
+            if tool_name == "nmap" and flag == "--script":
+                if "=" in arg:
+                    # --script=value form
+                    script_value = arg.split("=", 1)[1]
+                    _validate_nmap_script_arg(script_value)
+                elif i + 1 < len(sanitised) and not sanitised[i + 1].startswith("-"):
+                    # --script value form (next arg is the value)
+                    _validate_nmap_script_arg(sanitised[i + 1])
+        i += 1
     return sanitised
 
 

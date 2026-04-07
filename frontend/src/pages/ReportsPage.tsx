@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { reportsApi, testRunsApi } from '@/lib/api'
 import type { TestRun, ReportTemplate } from '@/lib/types'
 import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
+import Callout from '@/components/common/Callout'
 import toast from 'react-hot-toast'
 import { getPreferredDeviceName } from '@/lib/deviceLabels'
 
@@ -21,7 +22,7 @@ export default function ReportsPage() {
   const [includeSynopsis, setIncludeSynopsis] = useState(true)
   const [generating, setGenerating] = useState(false)
 
-  const { data: runs } = useQuery({
+  const { data: runs, isError } = useQuery({
     queryKey: ['completed-runs'],
     queryFn: () => testRunsApi.list({ status: 'completed' }).then(r => r.data),
   })
@@ -92,6 +93,12 @@ export default function ReportsPage() {
         <h1 className="section-title">Reports</h1>
         <p className="section-subtitle">Generate Excel, Word, and PDF qualification reports from test results</p>
       </div>
+
+      {isError && (
+        <div className="mb-5">
+          <Callout variant="error">Failed to load completed test runs. Please try again.</Callout>
+        </div>
+      )}
 
       <div data-tour="report-form" className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 card p-5">

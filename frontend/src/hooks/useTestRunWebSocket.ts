@@ -15,6 +15,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string>>({})
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cableReconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttempts = useRef(0)
   const maxReconnectAttempts = 10
 
@@ -55,20 +56,38 @@ export function useTestRunWebSocket(runId: string | undefined) {
         }
 
         if (msg.type === 'cable_disconnected') {
+          console.warn('[EDQ] Cable status changed: disconnected (WS cable_disconnected)')
+          if (cableReconnectTimer.current) {
+            clearTimeout(cableReconnectTimer.current)
+            cableReconnectTimer.current = null
+          }
           setCableStatus('disconnected')
         }
 
         if (msg.type === 'cable_timeout') {
+          console.warn('[EDQ] Cable status changed: disconnected (WS cable_timeout)')
+          if (cableReconnectTimer.current) {
+            clearTimeout(cableReconnectTimer.current)
+            cableReconnectTimer.current = null
+          }
           setCableStatus('disconnected')
         }
 
         if (msg.type === 'cable_reconnected') {
+          console.warn('[EDQ] Cable status changed: reconnecting (WS cable_reconnected)')
           setCableStatus('reconnecting')
-          setTimeout(() => setCableStatus('connected'), 5000)
+          if (cableReconnectTimer.current) {
+            clearTimeout(cableReconnectTimer.current)
+          }
+          cableReconnectTimer.current = setTimeout(() => {
+            cableReconnectTimer.current = null
+            setCableStatus('connected')
+          }, 5000)
         }
       }
 
       ws.onclose = () => {
+        console.warn('[EDQ] WebSocket closed, marking WS as disconnected')
         setIsConnected(false)
         wsRef.current = null
 
@@ -83,6 +102,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
       }
 
       ws.onerror = () => {
+        console.warn('[EDQ] WebSocket error — cable status may be unreliable')
         ws.close()
       }
     } catch {
@@ -94,6 +114,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
     connect()
     return () => {
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      if (cableReconnectTimer.current) clearTimeout(cableReconnectTimer.current)
       if (wsRef.current) {
         wsRef.current.close()
         wsRef.current = null

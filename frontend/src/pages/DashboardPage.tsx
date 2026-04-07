@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { devicesApi, testRunsApi } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
+import Callout from '@/components/common/Callout'
 import {
   Monitor, Play, CheckCircle2, XCircle, AlertTriangle, Clock,
   ArrowRight, TrendingUp, Plus, FileText, Percent, Sparkles
@@ -13,7 +14,7 @@ import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels
 
 export default function DashboardPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
-  const { data: deviceStats } = useQuery({
+  const { data: deviceStats, isError } = useQuery({
     queryKey: ['device-stats'],
     queryFn: () => devicesApi.stats().then(r => r.data),
   })
@@ -112,6 +113,12 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
           Device qualification overview
         </p>
       </div>
+
+      {isError && (
+        <div className="mb-6">
+          <Callout variant="error">Failed to load dashboard data. Please try again.</Callout>
+        </div>
+      )}
 
       <div data-tour="kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         {stats.map((stat) => (

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { devicesApi, testRunsApi, cveApi, discoveryApi } from '@/lib/api'
-import type { TestRun, CVELookupResponse } from '@/lib/types'
+import type { Device, TestRun, CVELookupResponse } from '@/lib/types'
 import {
   ArrowLeft, Monitor, Play, Loader2, Shield, Search,
   ExternalLink, AlertTriangle, Radar, RefreshCw, Pencil, Trash2, X, Check,
@@ -29,6 +29,12 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown']
+
+const getDeviceField = (device: Device, key: string): string => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const val = (device as any)[key]
+  return typeof val === 'string' ? val : val == null ? '' : String(val)
+}
 
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -94,7 +100,7 @@ export default function DeviceDetailPage() {
     try {
       const updates: Record<string, string> = {}
       for (const [key, value] of Object.entries(editForm)) {
-        const currentVal = (device as unknown as Record<string, unknown>)[key] || ''
+        const currentVal = getDeviceField(device, key)
         if (value !== currentVal) {
           updates[key] = value
         }

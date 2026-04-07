@@ -422,7 +422,7 @@ async def generate_excel_report_scratch(test_run, test_results, report_config=No
         ws_results.cell(row=row_idx, column=2, value=_sanitize_for_excel(result.test_name))
         ws_results.cell(row=row_idx, column=3, value=_sanitize_for_excel(tier_val))
         ws_results.cell(row=row_idx, column=4, value=_sanitize_for_excel(result.tool or "—"))
-        ws_results.cell(row=row_idx, column=5, value=_sanitize_for_excel(result.is_essential.upper()))
+        ws_results.cell(row=row_idx, column=5, value=_sanitize_for_excel((result.is_essential or "no").upper()))
         verdict_cell = ws_results.cell(row=row_idx, column=6, value=_sanitize_for_excel(verdict_val.upper()))
         verdict_cell.fill = verdict_fills.get(verdict_val, PatternFill())
         ws_results.cell(row=row_idx, column=7, value=_sanitize_for_excel(_resolve_comment(result)))
@@ -678,7 +678,7 @@ async def generate_word_report(
         row.cells[0].text = _sanitize_for_excel(result.test_id)
         row.cells[1].text = _sanitize_for_excel(result.test_name)
         row.cells[2].text = _sanitize_for_excel(tier_raw.replace("_", " ").title())
-        row.cells[3].text = _sanitize_for_excel(result.is_essential.upper())
+        row.cells[3].text = _sanitize_for_excel((result.is_essential or "no").upper())
         row.cells[4].text = _sanitize_for_excel(_resolve_verdict(result, {}))
         row.cells[5].text = _sanitize_for_excel(_resolve_comment(result)[:200])
 

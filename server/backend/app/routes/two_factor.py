@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database import get_db
 from app.models.user import User
 from app.security.auth import get_current_active_user
+from app.middleware.rate_limit import check_rate_limit, check_user_rate_limit
 from app.utils.audit import log_action
 
 logger = logging.getLogger("edq.routes.two_factor")
@@ -88,6 +89,10 @@ async def two_factor_verify(
     db: AsyncSession = Depends(get_db),
 ):
     """Verify a TOTP code to confirm 2FA setup. This activates 2FA on the account."""
+    # Rate limit: max 5 attempts per 15 minutes per IP and per user
+    check_rate_limit(request, max_requests=5, window_seconds=900, action="2fa_verify")
+    check_user_rate_limit(request, user_id=user.id, max_requests=5, window_seconds=900, action="2fa_verify")
+
     secret = user.totp_provisional_secret
     if not secret:
         raise HTTPException(status_code=400, detail="No 2FA setup in progress. Call /setup first.")

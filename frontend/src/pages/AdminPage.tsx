@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '@/lib/api'
 import type { UserProfile } from '@/lib/types'
 import { Users, Server, Loader2 } from 'lucide-react'
+import Callout from '@/components/common/Callout'
 import toast from 'react-hot-toast'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 
@@ -46,7 +47,7 @@ export default function AdminPage() {
 
 function UsersTab() {
   const queryClient = useQueryClient()
-  const { data: users, isLoading } = useQuery({
+  const { data: users, isLoading, isError } = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => adminApi.users().then(r => r.data),
   })
@@ -69,6 +70,10 @@ function UsersTab() {
     } catch {
       toast.error('Failed to update user status')
     }
+  }
+
+  if (isError) {
+    return <Callout variant="error">Failed to load users. Please try again.</Callout>
   }
 
   if (isLoading) {

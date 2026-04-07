@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case, and_
 from sqlalchemy.orm import selectinload
 
 from app.models.database import get_db
@@ -132,22 +132,31 @@ def _status_filter_values(status: str) -> list[str]:
 
 
 async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int | bool]:
-    results = await db.execute(select(TestResult).where(TestResult.test_run_id == run_id))
-    all_results = results.scalars().all()
-
-    passed = sum(1 for r in all_results if r.verdict == TestVerdict.PASS)
-    failed = sum(1 for r in all_results if r.verdict == TestVerdict.FAIL)
-    advisory = sum(1 for r in all_results if r.verdict == TestVerdict.ADVISORY)
-    na = sum(1 for r in all_results if r.verdict == TestVerdict.NA)
-    errors = sum(1 for r in all_results if r.verdict == TestVerdict.ERROR)
-    pending_manual = sum(
-        1 for r in all_results
-        if r.verdict == TestVerdict.PENDING and r.tier == TestTier.GUIDED_MANUAL
+    # Use SQL aggregation instead of loading all result rows into Python
+    result = await db.execute(
+        select(
+            func.count(case((TestResult.verdict == TestVerdict.PASS, 1))).label("passed"),
+            func.count(case((TestResult.verdict == TestVerdict.FAIL, 1))).label("failed"),
+            func.count(case((TestResult.verdict == TestVerdict.ADVISORY, 1))).label("advisory"),
+            func.count(case((TestResult.verdict == TestVerdict.NA, 1))).label("na"),
+            func.count(case((TestResult.verdict == TestVerdict.ERROR, 1))).label("errors"),
+            func.count(case((and_(
+                TestResult.verdict == TestVerdict.PENDING,
+                TestResult.tier == TestTier.GUIDED_MANUAL,
+            ), 1))).label("pending_manual"),
+            func.count(case((and_(
+                TestResult.verdict == TestVerdict.FAIL,
+                TestResult.is_essential == "yes",
+            ), 1))).label("essential_failed"),
+            func.count().label("total"),
+        ).where(TestResult.test_run_id == run_id)
     )
-    essential_failed = any(
-        r for r in all_results
-        if r.verdict == TestVerdict.FAIL and r.is_essential == "yes"
-    )
+    row = result.one()
+    passed = row.passed
+    failed = row.failed
+    advisory = row.advisory
+    na = row.na
+    errors = row.errors
 
     return {
         "passed": passed,
@@ -155,10 +164,10 @@ async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int
         "advisory": advisory,
         "na": na,
         "errors": errors,
-        "pending_manual": pending_manual,
+        "pending_manual": row.pending_manual,
         "completed": passed + failed + advisory + na + errors,
-        "essential_failed": essential_failed,
-        "total": len(all_results),
+        "essential_failed": row.essential_failed > 0,
+        "total": row.total,
     }
 
 
@@ -435,7 +444,7 @@ async def start_test_run(
     device = await db.get(Device, run.device_id)
     if not await _device_is_reachable(device):
         run.status = TestRunStatus.PAUSED_CABLE
-        await db.commit()
+        await db.flush()
         launch_test_run(run_id)
         return {
             "status": TestRunStatus.PAUSED_CABLE.value,
@@ -485,7 +494,7 @@ async def cancel_test_run(
     # 3. Mark run as cancelled
     run.status = TestRunStatus.CANCELLED
     run.completed_at = datetime.now(timezone.utc)
-    await db.commit()
+    await db.flush()
 
     return {"status": "cancelled", "message": "Test run cancelled", "run_id": run_id}
 

@@ -11,6 +11,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
+import Callout from '@/components/common/Callout'
 import { isActiveTestRunStatus, toLocalDateString, toLocalDateOnly } from '@/lib/testContracts'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
@@ -116,7 +117,7 @@ export default function TestRunsPage() {
   const deviceId = searchParams.get('device_id') || undefined
   const navigate = useNavigate()
 
-  const { data: runs, isLoading } = useQuery({
+  const { data: runs, isLoading, isError } = useQuery({
     queryKey: ['test-runs', statusFilter, deviceId],
     queryFn: () => testRunsApi.list({ status: statusFilter || undefined, device_id: deviceId }).then(r => r.data),
     refetchInterval: (query) => {
@@ -229,7 +230,9 @@ export default function TestRunsPage() {
         ))}
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <Callout variant="error">Failed to load test runs. Please try again.</Callout>
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
         </div>

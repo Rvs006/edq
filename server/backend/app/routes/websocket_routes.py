@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.models.database import async_session
+from app.models.network_scan import NetworkScan
 from app.models.test_run import TestRun
 from app.models.user import UserRole
 from app.security.auth import SESSION_COOKIE
@@ -99,12 +100,36 @@ async def test_run_ws(websocket: WebSocket, run_id: str):
         manager.disconnect(websocket, channel)
 
 
+async def _authorize_discovery_task(payload: dict, task_id: str) -> bool:
+    """Check if the authenticated user is allowed to access this discovery task.
+
+    Admins and reviewers can access all discovery tasks.
+    Engineers can only access tasks they created.
+    """
+    role = payload.get("role", "engineer")
+    if role in (UserRole.ADMIN.value, UserRole.REVIEWER.value):
+        return True
+    user_id = payload.get("sub")
+    async with async_session() as db:
+        result = await db.execute(
+            select(NetworkScan.created_by).where(NetworkScan.id == task_id)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return False
+        return row == user_id
+
+
 @router.websocket("/discovery/{task_id}")
 async def discovery_ws(websocket: WebSocket, task_id: str):
     """WebSocket endpoint for real-time discovery progress."""
     payload = _authenticate_ws(websocket)
     if not payload:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
+        return
+
+    if not await _authorize_discovery_task(payload, task_id):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Access denied")
         return
 
     channel = f"discovery:{task_id}"
