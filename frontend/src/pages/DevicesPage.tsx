@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { devicesApi, discoveryApi } from '@/lib/api'
@@ -17,8 +17,14 @@ const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'senso
 
 export default function DevicesPage() {
   const navigate = useNavigate()
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
   const [showAddModal, setShowAddModal] = useState(false)
   const [showDiscoverModal, setShowDiscoverModal] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'topology'>('table')
@@ -42,6 +48,7 @@ export default function DevicesPage() {
               onClick={() => setViewMode('table')}
               className={`p-2 ${viewMode === 'table' ? 'bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300'}`}
               title="Table view"
+              aria-label="Table view"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
@@ -50,6 +57,7 @@ export default function DevicesPage() {
               onClick={() => setViewMode('topology')}
               className={`p-2 ${viewMode === 'topology' ? 'bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300'}`}
               title="Topology view"
+              aria-label="Topology view"
             >
               <Network className="w-4 h-4" />
             </button>
@@ -68,9 +76,10 @@ export default function DevicesPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search by IP, hostname, manufacturer..."
+            aria-label="Search devices"
             className="input pl-9"
           />
         </div>
@@ -157,9 +166,9 @@ export default function DevicesPage() {
           <Monitor className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
           <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No devices found</h3>
           <p className="text-sm text-zinc-500 mb-4">
-            {search || categoryFilter ? 'Try adjusting your search or filters' : 'Add your first device to get started'}
+            {searchInput || categoryFilter ? 'Try adjusting your search or filters' : 'Add your first device to get started'}
           </p>
-          {!search && !categoryFilter && (
+          {!searchInput && !categoryFilter && (
             <div className="flex gap-2 justify-center">
               <button type="button" onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
                 <Radar className="w-4 h-4" /> Discover Devices
@@ -306,16 +315,44 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+function isValidIp(ip: string): boolean {
+  if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return false
+  return ip.split('.').every(octet => {
+    const n = parseInt(octet, 10)
+    return n >= 0 && n <= 255
+  })
+}
+
+function isValidMac(mac: string): boolean {
+  return /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(mac)
+}
+
 function AddDeviceModal({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({
     ip_address: '', hostname: '', mac_address: '', manufacturer: '',
     model: '', firmware_version: '', category: 'unknown', location: '',
   })
   const [loading, setLoading] = useState(false)
+  const [formErrors, setFormErrors] = useState<{ ip_address?: string; mac_address?: string }>({})
   const queryClient = useQueryClient()
+
+  const validate = (): boolean => {
+    const errors: { ip_address?: string; mac_address?: string } = {}
+    if (!form.ip_address.trim()) {
+      errors.ip_address = 'IP address is required'
+    } else if (!isValidIp(form.ip_address.trim())) {
+      errors.ip_address = 'Invalid IP address (e.g. 192.168.1.100)'
+    }
+    if (form.mac_address.trim() && !isValidMac(form.mac_address.trim())) {
+      errors.mac_address = 'Invalid MAC address (e.g. AA:BB:CC:DD:EE:FF)'
+    }
+    setFormErrors(errors)
+    return Object.keys(errors).length === 0
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!validate()) return
     setLoading(true)
     try {
       const payload = Object.fromEntries(
@@ -354,8 +391,9 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
             <div>
               <label className="label">IP Address *</label>
               <input type="text" value={form.ip_address}
-                onChange={(e) => setForm({ ...form, ip_address: e.target.value })}
-                className="input" placeholder="192.168.1.100" required />
+                onChange={(e) => { setForm({ ...form, ip_address: e.target.value }); setFormErrors(prev => ({ ...prev, ip_address: undefined })) }}
+                className={`input ${formErrors.ip_address ? 'border-red-500' : ''}`} placeholder="192.168.1.100" required />
+              {formErrors.ip_address && <p className="text-xs text-red-500 mt-1">{formErrors.ip_address}</p>}
             </div>
             <div>
               <label className="label">Hostname</label>
@@ -368,8 +406,9 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
             <div>
               <label className="label">MAC Address</label>
               <input type="text" value={form.mac_address}
-                onChange={(e) => setForm({ ...form, mac_address: e.target.value })}
-                className="input" placeholder="AA:BB:CC:DD:EE:FF" />
+                onChange={(e) => { setForm({ ...form, mac_address: e.target.value }); setFormErrors(prev => ({ ...prev, mac_address: undefined })) }}
+                className={`input ${formErrors.mac_address ? 'border-red-500' : ''}`} placeholder="AA:BB:CC:DD:EE:FF" />
+              {formErrors.mac_address && <p className="text-xs text-red-500 mt-1">{formErrors.mac_address}</p>}
             </div>
             <div>
               <label className="label">Category</label>

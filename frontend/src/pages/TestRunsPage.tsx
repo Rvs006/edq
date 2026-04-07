@@ -175,6 +175,7 @@ export default function TestRunsPage() {
         <button
           type="button"
           onClick={() => setStatusFilter('')}
+          aria-label="Show all test runs"
           className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
             statusFilter === ''
               ? 'bg-brand-500 text-white'
@@ -205,6 +206,7 @@ export default function TestRunsPage() {
                       : 'bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hover:bg-zinc-200 dark:hover:bg-slate-700'
                   }`}
                   title={f.tooltip}
+                  aria-label={`Filter by ${f.label}`}
                 >
                   <Icon className={`w-3 h-3 ${f.pulse && count > 0 ? 'animate-pulse' : ''}`} />
                   <span className="hidden sm:inline">{f.label}</span>

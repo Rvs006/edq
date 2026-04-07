@@ -497,7 +497,7 @@ export default function TestRunDetailPage() {
             results={sidebarResults}
             deviceName={run.device_name || `device-${run.device_id?.slice(0, 8)}`}
           />
-          <span className="text-xs font-mono text-zinc-500 flex-shrink-0">
+          <span className="text-xs font-mono text-zinc-500 flex-shrink-0" aria-live="polite">
             {run.progress_pct ?? progressPct}% ({completedCount}/{results.length})
           </span>
         </div>
@@ -576,6 +576,7 @@ export default function TestRunDetailPage() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             className="flex-shrink-0 px-4 pt-2 overflow-hidden"
+            aria-live="assertive"
           >
             <WobblyCableAlert status={cableAlertStatus} />
           </motion.div>

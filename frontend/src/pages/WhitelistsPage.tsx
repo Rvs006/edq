@@ -10,6 +10,7 @@ export default function WhitelistsPage() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [editingWhitelist, setEditingWhitelist] = useState<Whitelist | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const queryClient = useQueryClient()
 
   const { data: whitelists, isLoading } = useQuery({
@@ -25,14 +26,16 @@ export default function WhitelistsPage() {
     },
   })
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm('Delete whitelist "' + name + '"?')) return
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
     try {
-      await whitelistsApi.delete(id)
+      await whitelistsApi.delete(deleteTarget.id)
       queryClient.invalidateQueries({ queryKey: ['whitelists'] })
       toast.success('Whitelist deleted')
     } catch {
       toast.error('Failed to delete whitelist')
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
@@ -71,15 +74,15 @@ export default function WhitelistsPage() {
                 <div className="flex items-center gap-2">
                   {wl.is_default && <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">Default</span>}
                   <button type="button" onClick={(e) => { e.stopPropagation(); setEditingWhitelist(wl) }}
-                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit">
+                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit" aria-label={`Edit ${wl.name}`}>
                     <Pencil className="w-4 h-4 text-zinc-400" />
                   </button>
                   <button type="button" onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(wl.id) }}
-                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Duplicate">
+                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Duplicate" aria-label={`Duplicate ${wl.name}`}>
                     <Copy className="w-4 h-4 text-zinc-400" />
                   </button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(wl.id, wl.name) }}
-                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30" title="Delete">
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: wl.id, name: wl.name }) }}
+                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30" title="Delete" aria-label={`Delete ${wl.name}`}>
                     <Trash2 className="w-4 h-4 text-red-400" />
                   </button>
                   {expanded === wl.id ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
@@ -126,6 +129,24 @@ export default function WhitelistsPage() {
           <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Whitelist
           </button>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDeleteTarget(null)} />
+          <div className="relative w-full max-w-sm bg-white dark:bg-dark-card rounded-lg shadow-2xl p-6">
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-slate-100 mb-2">Delete Whitelist</h3>
+            <p className="text-sm text-zinc-600 dark:text-slate-400 mb-5">
+              Are you sure you want to delete &ldquo;{deleteTarget.name}&rdquo;? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setDeleteTarget(null)} className="btn-secondary">Cancel</button>
+              <button type="button" onClick={confirmDelete} className="btn-primary bg-red-600 hover:bg-red-700 border-red-600">
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -215,6 +236,7 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
                   <div className="w-20">
                     <input type="number" value={entry.port} placeholder="Port"
                       onChange={(e) => { const n = [...entries]; n[i].port = e.target.value; setEntries(n) }}
+                      aria-label={`Port for entry ${i + 1}`}
                       className="input text-xs" />
                   </div>
                   <div className="w-24">
@@ -228,6 +250,7 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
                   <div className="flex-1">
                     <input type="text" value={entry.service} placeholder="Service name"
                       onChange={(e) => { const n = [...entries]; n[i].service = e.target.value; setEntries(n) }}
+                      aria-label={`Service name for entry ${i + 1}`}
                       className="input text-xs" />
                   </div>
                   <button type="button" onClick={() => removeEntry(i)} aria-label="Remove entry" className="p-1.5 text-zinc-400 hover:text-red-500">

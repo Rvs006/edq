@@ -77,6 +77,7 @@ export default function AuditLogPage() {
               type="button"
               key={a}
               onClick={() => { setActionFilter(a); setPage(0) }}
+              aria-label={a ? `Filter by ${a.replace(/_/g, ' ')}` : 'Show all actions'}
               className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                 actionFilter === a ? 'bg-brand-500 text-white' : 'bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hover:bg-zinc-200 dark:hover:bg-slate-700'
               }`}
@@ -90,6 +91,7 @@ export default function AuditLogPage() {
             type="date"
             value={dateFrom}
             onChange={e => { setDateFrom(e.target.value); setPage(0) }}
+            aria-label="Filter from date"
             className="input text-xs py-1.5 w-36"
             placeholder="From"
           />
@@ -98,6 +100,7 @@ export default function AuditLogPage() {
             type="date"
             value={dateTo}
             onChange={e => { setDateTo(e.target.value); setPage(0) }}
+            aria-label="Filter to date"
             className="input text-xs py-1.5 w-36"
             placeholder="To"
           />

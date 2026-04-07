@@ -10,6 +10,7 @@ export default function TemplatesPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<TestTemplate | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const queryClient = useQueryClient()
 
   const { data: templates, isLoading } = useQuery({
@@ -22,14 +23,16 @@ export default function TemplatesPage() {
     queryFn: () => templatesApi.library().then(r => r.data),
   })
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm('Delete template "' + name + '"?')) return
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
     try {
-      await templatesApi.delete(id)
+      await templatesApi.delete(deleteTarget.id)
       queryClient.invalidateQueries({ queryKey: ['templates'] })
       toast.success('Template deleted')
     } catch {
       toast.error('Failed to delete template')
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
@@ -128,10 +131,10 @@ export default function TemplatesPage() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit">
+                        <button type="button" onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit" aria-label={`Edit ${t.name}`}>
                           <Pencil className="w-3.5 h-3.5 text-zinc-500" />
                         </button>
-                        <button type="button" onClick={() => handleDelete(t.id, t.name)} className="p-1.5 rounded hover:bg-red-50" title="Delete">
+                        <button type="button" onClick={() => setDeleteTarget({ id: t.id, name: t.name })} className="p-1.5 rounded hover:bg-red-50" title="Delete" aria-label={`Delete ${t.name}`}>
                           <Trash2 className="w-3.5 h-3.5 text-red-500" />
                         </button>
                       </div>
@@ -150,6 +153,24 @@ export default function TemplatesPage() {
           <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Template
           </button>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDeleteTarget(null)} />
+          <div className="relative w-full max-w-sm bg-white dark:bg-dark-card rounded-lg shadow-2xl p-6">
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-slate-100 mb-2">Delete Template</h3>
+            <p className="text-sm text-zinc-600 dark:text-slate-400 mb-5">
+              Are you sure you want to delete &ldquo;{deleteTarget.name}&rdquo;? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setDeleteTarget(null)} className="btn-secondary">Cancel</button>
+              <button type="button" onClick={confirmDelete} className="btn-primary bg-red-600 hover:bg-red-700 border-red-600">
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -223,9 +244,9 @@ function CreateTemplateModal({ library, onClose }: { library: TestLibraryItem[];
                 Select Tests ({selectedTests.length}/{library.length})
               </span>
               <div className="flex gap-2">
-                <button type="button" onClick={selectAll} className="text-xs text-brand-500 hover:text-brand-600">All</button>
-                <button type="button" onClick={selectEssential} className="text-xs text-red-500 hover:text-red-600">Essential</button>
-                <button type="button" onClick={() => setSelectedTests([])} className="text-xs text-zinc-500 hover:text-zinc-600">None</button>
+                <button type="button" onClick={selectAll} aria-label="Select all tests" className="text-xs text-brand-500 hover:text-brand-600">All</button>
+                <button type="button" onClick={selectEssential} aria-label="Select essential tests only" className="text-xs text-red-500 hover:text-red-600">Essential</button>
+                <button type="button" onClick={() => setSelectedTests([])} aria-label="Deselect all tests" className="text-xs text-zinc-500 hover:text-zinc-600">None</button>
               </div>
             </div>
           </div>
