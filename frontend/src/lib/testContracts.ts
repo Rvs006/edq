@@ -1,5 +1,29 @@
 import type { TestResult, TestRun, TestRunStatus } from './types'
 
+/**
+ * Ensure a UTC timestamp string is parseable as UTC by the browser.
+ * Backend sends naive UTC datetimes without "Z" suffix, which causes
+ * `new Date(str)` to treat them as local time instead of UTC.
+ */
+export function toLocalDateString(utcTimestamp: string | null | undefined): string {
+  if (!utcTimestamp) return ''
+  // Append Z if no timezone indicator present
+  let ts = utcTimestamp
+  if (!ts.endsWith('Z') && !ts.includes('+') && !/\d{2}:\d{2}$/.test(ts.slice(-6))) {
+    ts += 'Z'
+  }
+  return new Date(ts).toLocaleString()
+}
+
+export function toLocalDateOnly(utcTimestamp: string | null | undefined, options?: Intl.DateTimeFormatOptions): string {
+  if (!utcTimestamp) return ''
+  let ts = utcTimestamp
+  if (!ts.endsWith('Z') && !ts.includes('+') && !/\d{2}:\d{2}$/.test(ts.slice(-6))) {
+    ts += 'Z'
+  }
+  return new Date(ts).toLocaleDateString(undefined, options)
+}
+
 const RUN_STATUS_ALIASES: Record<string, TestRunStatus> = {
   paused: 'paused_manual',
   complete: 'completed',

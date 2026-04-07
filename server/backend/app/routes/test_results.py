@@ -182,10 +182,14 @@ async def update_result(
     )
 
     if user.role in {UserRole.ADMIN, UserRole.REVIEWER} and "verdict" in updates:
-        raise HTTPException(
-            status_code=400,
-            detail="Reviewers and admins must use the override endpoint to change verdicts",
-        )
+        # Allow admin/reviewer to submit verdicts on manual tests (guided_manual)
+        # but require the override endpoint for changing automatic test verdicts
+        tier_raw = test_result.tier.value if hasattr(test_result.tier, "value") else str(test_result.tier)
+        if tier_raw != "guided_manual":
+            raise HTTPException(
+                status_code=400,
+                detail="Reviewers and admins must use the override endpoint to change verdicts on automatic tests",
+            )
 
     if "verdict" in updates:
         test_result.verdict = _parse_verdict(updates["verdict"])

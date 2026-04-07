@@ -110,6 +110,17 @@ def _resolve_script_flag(result) -> str:
 
 
 def _resolve_comment(result) -> str:
+    # Include override reason when a result has been overridden by a reviewer
+    override_reason = getattr(result, "override_reason", None)
+    if override_reason:
+        base = result.comment_override or result.comment or ""
+        overridden_by = getattr(result, "overridden_by_username", None) or "Reviewer"
+        override_verdict = getattr(result, "override_verdict", None) or ""
+        suffix = f" [OVERRIDE by {overridden_by}: {override_reason}"
+        if override_verdict:
+            suffix += f" → {override_verdict.upper()}"
+        suffix += "]"
+        return (base + suffix).strip()
     return result.comment_override or result.comment or ""
 
 

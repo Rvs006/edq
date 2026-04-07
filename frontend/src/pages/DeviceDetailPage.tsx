@@ -5,10 +5,13 @@ import { devicesApi, testRunsApi, cveApi, discoveryApi } from '@/lib/api'
 import type { TestRun, CVELookupResponse } from '@/lib/types'
 import {
   ArrowLeft, Monitor, Play, Loader2, Shield, Search,
-  ExternalLink, AlertTriangle, Radar, RefreshCw,
+  ExternalLink, AlertTriangle, Radar, RefreshCw, Pencil, Trash2, X, Check,
 } from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
+import { toLocalDateOnly } from '@/lib/testContracts'
+import toast from 'react-hot-toast'
+import { useNavigate } from 'react-router-dom'
 
 function SeverityBadge({ severity }: { severity: string }) {
   const colors: Record<string, string> = {
@@ -25,10 +28,18 @@ function SeverityBadge({ severity }: { severity: string }) {
   )
 }
 
+const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown']
+
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [cveData, setCveData] = useState<CVELookupResponse | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editForm, setEditForm] = useState<Record<string, string>>({})
+  const [isSaving, setIsSaving] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const { data: device, isLoading } = useQuery({
     queryKey: ['device', id],
@@ -57,8 +68,66 @@ export default function DeviceDetailPage() {
     setCveData(null)
     cveMutation.reset()
     autoDetectMutation.reset()
+    setIsEditing(false)
+    setShowDeleteConfirm(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  const startEditing = () => {
+    if (!device) return
+    setEditForm({
+      hostname: device.hostname || '',
+      manufacturer: device.manufacturer || '',
+      model: device.model || '',
+      firmware_version: device.firmware_version || '',
+      category: device.category || 'unknown',
+      location: device.location || '',
+      mac_address: device.mac_address || '',
+      serial_number: device.serial_number || '',
+    })
+    setIsEditing(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!device) return
+    setIsSaving(true)
+    try {
+      const updates: Record<string, string> = {}
+      for (const [key, value] of Object.entries(editForm)) {
+        const currentVal = (device as unknown as Record<string, unknown>)[key] || ''
+        if (value !== currentVal) {
+          updates[key] = value
+        }
+      }
+      if (Object.keys(updates).length > 0) {
+        await devicesApi.update(id!, updates)
+        queryClient.invalidateQueries({ queryKey: ['device', id] })
+        toast.success('Device updated')
+      }
+      setIsEditing(false)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to update device')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setIsDeleting(true)
+    try {
+      await devicesApi.delete(id!)
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
+      toast.success('Device deleted')
+      navigate('/devices')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to delete device')
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -109,6 +178,7 @@ export default function DeviceDetailPage() {
           </div>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => autoDetectMutation.mutate()}
               disabled={autoDetectMutation.isPending}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
@@ -120,6 +190,19 @@ export default function DeviceDetailPage() {
                 <Radar className="w-4 h-4" />
               )}
               Auto-Detect
+            </button>
+            {!isEditing && (
+              <button type="button" onClick={startEditing} className="btn-secondary text-sm">
+                <Pencil className="w-4 h-4" /> Edit
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+              title="Delete device"
+            >
+              <Trash2 className="w-4 h-4" />
             </button>
             <Link to={`/test-runs?device_id=${device.id}`} className="btn-primary text-sm">
               <Play className="w-4 h-4" /> Start New Test Run
@@ -143,15 +226,67 @@ export default function DeviceDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-1 space-y-5">
           <div className="card p-5">
-            <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Device Information</h2>
-            <dl className="space-y-3">
-              {infoFields.map(([label, value]) => (
-                <div key={label} className="flex justify-between text-sm">
-                  <dt className="text-zinc-500 dark:text-zinc-400">{label}</dt>
-                  <dd className="text-zinc-900 dark:text-zinc-100 font-medium capitalize">{value || '—'}</dd>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">Device Information</h2>
+              {isEditing && (
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setIsEditing(false)} className="btn-secondary text-xs py-1 px-2">
+                    <X className="w-3 h-3" /> Cancel
+                  </button>
+                  <button type="button" onClick={handleSaveEdit} disabled={isSaving} className="btn-primary text-xs py-1 px-2">
+                    {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
+                  </button>
                 </div>
-              ))}
-            </dl>
+              )}
+            </div>
+            {isEditing ? (
+              <div className="space-y-3">
+                {([
+                  ['IP Address', 'ip_address', device.ip_address, true],
+                  ['MAC Address', 'mac_address'],
+                  ['Hostname', 'hostname'],
+                  ['Manufacturer', 'manufacturer'],
+                  ['Model', 'model'],
+                  ['Firmware', 'firmware_version'],
+                  ['Serial Number', 'serial_number'],
+                  ['Category', 'category'],
+                  ['Location', 'location'],
+                ] as [string, string, string?, boolean?][]).map(([label, key, fixedValue, readOnly]) => (
+                  <div key={key} className="flex items-center justify-between gap-3 text-sm">
+                    <label className="text-zinc-500 dark:text-zinc-400 flex-shrink-0 w-28">{label}</label>
+                    {readOnly ? (
+                      <span className="text-zinc-900 dark:text-zinc-100 font-medium font-mono text-xs">{fixedValue}</span>
+                    ) : key === 'category' ? (
+                      <select
+                        value={editForm[key] || ''}
+                        onChange={(e) => setEditForm({ ...editForm, [key]: e.target.value })}
+                        aria-label={label}
+                        className="input text-sm flex-1"
+                      >
+                        {CATEGORIES.map(c => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={editForm[key] || ''}
+                        onChange={(e) => setEditForm({ ...editForm, [key]: e.target.value })}
+                        aria-label={label}
+                        className="input text-sm flex-1"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <dl className="space-y-3">
+                {infoFields.map(([label, value]) => (
+                  <div key={label} className="flex justify-between text-sm">
+                    <dt className="text-zinc-500 dark:text-zinc-400">{label}</dt>
+                    <dd className="text-zinc-900 dark:text-zinc-100 font-medium capitalize">{value || '—'}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
 
           {/* CVE Vulnerability Lookup */}
@@ -278,7 +413,7 @@ export default function DeviceDetailPage() {
                         {run.passed_tests ?? 0}P / {run.failed_tests ?? 0}F / {run.advisory_tests ?? 0}A
                       </td>
                       <td className="py-2.5 px-4 text-xs text-zinc-500 dark:text-zinc-400">
-                        {new Date(run.created_at).toLocaleDateString()}
+                        {toLocalDateOnly(run.created_at)}
                       </td>
                     </tr>
                   ))}
@@ -293,6 +428,31 @@ export default function DeviceDetailPage() {
           )}
         </div>
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowDeleteConfirm(false)} />
+          <div className="relative w-full max-w-sm bg-white dark:bg-dark-card rounded-lg shadow-2xl p-6">
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Delete Device?</h3>
+            <p className="text-sm text-zinc-500 mb-4">
+              This will permanently delete <strong>{getPreferredDeviceName(device)}</strong> ({device.ip_address}).
+              Any test runs associated with this device will become orphaned.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setShowDeleteConfirm(false)} className="btn-secondary text-sm">Cancel</button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

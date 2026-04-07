@@ -10,6 +10,7 @@ export interface TestResultItem {
   verdict: string | null
   tool?: string | null
   is_essential?: boolean
+  comment?: string | null
 }
 
 interface TestSidebarProps {
@@ -28,6 +29,7 @@ const verdictIcons: Record<string, { icon: string; color: string }> = {
   'n/a': { icon: '\u2298', color: 'text-zinc-400' },
   na: { icon: '\u2298', color: 'text-zinc-400' },
   skipped_safe_mode: { icon: '\uD83D\uDD12', color: 'text-zinc-400' },
+  skipped_scenario: { icon: '\u26A1', color: 'text-yellow-500' },
   pending: { icon: '\u23F3', color: 'text-zinc-400' },
 }
 
@@ -40,9 +42,18 @@ function getDisplayState(result: TestResultItem, isRunning: boolean): DisplaySta
   return 'waiting'
 }
 
+function isScenarioSkipped(result: TestResultItem): boolean {
+  return (result.verdict === 'na' || result.verdict === 'n/a') &&
+    !!(result.comment && (result.comment.startsWith('Skipped') || result.comment.includes('not applicable in')))
+}
+
 function getStatusDisplay(result: TestResultItem, isRunning: boolean) {
   if (isRunning) return { icon: null, color: 'text-blue-500', isSpinner: true }
   if (result.verdict && result.verdict !== 'pending') {
+    // Scenario-skipped tests get yellow highlight
+    if (isScenarioSkipped(result)) {
+      return { icon: '\u26A1', color: 'text-yellow-500', isSpinner: false }
+    }
     const v = verdictIcons[result.verdict.toLowerCase()] || verdictIcons.pending
     return { icon: v.icon, color: v.color, isSpinner: false }
   }

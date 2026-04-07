@@ -157,6 +157,7 @@ export const testRunsApi = {
   update: (id: string, data: { connection_scenario?: string; synopsis?: string; synopsis_status?: string }) =>
     withNormalizedData(api.patch<Record<string, unknown>>(`/test-runs/${id}`, data), normalizeTestRun),
   start: (id: string) => api.post(`/test-runs/${id}/start`),
+  cancel: (id: string) => api.post(`/test-runs/${id}/cancel`),
   pause: (id: string) => api.post(`/test-runs/${id}/pause`),
   pauseCable: (id: string) => api.post(`/test-runs/${id}/pause-cable`),
   resume: (id: string) => api.post(`/test-runs/${id}/resume`),

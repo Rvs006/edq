@@ -107,7 +107,7 @@ async def update_device(
     data: DeviceUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role(["admin"])),
+    user: User = Depends(get_current_active_user),
 ):
     result = await db.execute(select(Device).where(Device.id == device_id))
     device = result.scalar_one_or_none()

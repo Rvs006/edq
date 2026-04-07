@@ -36,6 +36,7 @@ interface TestDetailProps {
   userRole: string
   onSubmitManual: (resultId: string, verdict: string, notes: string) => Promise<void>
   onOverride: (resultId: string, verdict: string, reason: string) => Promise<void>
+  onSaveNotes?: (resultId: string, notes: string) => Promise<void>
   isSubmitting: boolean
 }
 
@@ -46,6 +47,7 @@ export default function TestDetail({
   userRole,
   onSubmitManual,
   onOverride,
+  onSaveNotes,
   isSubmitting,
 }: TestDetailProps) {
   const [overrideOpen, setOverrideOpen] = useState(false)
@@ -188,7 +190,11 @@ export default function TestDetail({
               className="input resize-y text-sm"
               onBlur={() => {
                 if (notesValue !== (result.engineer_notes || '')) {
-                  onSubmitManual(result.id, result.verdict || 'pending', notesValue)
+                  if (onSaveNotes) {
+                    onSaveNotes(result.id, notesValue)
+                  } else {
+                    onSubmitManual(result.id, result.verdict || 'pending', notesValue)
+                  }
                 }
               }}
             />

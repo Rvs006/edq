@@ -11,7 +11,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
-import { isActiveTestRunStatus } from '@/lib/testContracts'
+import { isActiveTestRunStatus, toLocalDateString, toLocalDateOnly } from '@/lib/testContracts'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
 /* ── Status filter config with labels, icons, groups, tooltips ── */
@@ -53,11 +53,36 @@ const filterGroups: { label: string; filters: FilterDef[] }[] = [
   },
 ]
 
+function buildRunLabels(runs: TestRun[]): Map<string, string> {
+  const labels = new Map<string, string>()
+  // Group runs by device+date to determine sequence numbers
+  const groups = new Map<string, TestRun[]>()
+  for (const run of runs) {
+    const device = getPreferredDeviceName(run)
+    const date = toLocalDateOnly(run.started_at || run.created_at, { month: 'short', day: 'numeric' })
+    const key = `${device}|${date}`
+    const group = groups.get(key) || []
+    group.push(run)
+    groups.set(key, group)
+  }
+  for (const [key, group] of groups) {
+    const [device, date] = key.split('|')
+    if (group.length === 1) {
+      labels.set(group[0].id, `${device} — ${date}`)
+    } else {
+      // Sort by created_at ascending so #1 is the earliest
+      const sorted = [...group].sort((a, b) => a.created_at.localeCompare(b.created_at))
+      sorted.forEach((run, idx) => {
+        labels.set(run.id, `${device} — ${date} — Test #${idx + 1}`)
+      })
+    }
+  }
+  return labels
+}
+
 function formatRunName(run: TestRun) {
   const device = getPreferredDeviceName(run)
-  const date = run.started_at
-    ? new Date(run.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : new Date(run.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const date = toLocalDateOnly(run.started_at || run.created_at, { month: 'short', day: 'numeric' })
   return `${device} — ${date}`
 }
 
@@ -107,6 +132,8 @@ export default function TestRunsPage() {
     queryFn: () => testRunsApi.list({ limit: 200 }).then(r => r.data),
     refetchInterval: 10000,
   })
+
+  const runLabels = useMemo(() => buildRunLabels((runs || []) as TestRun[]), [runs])
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -243,7 +270,7 @@ export default function TestRunsPage() {
                             <CategoryIcon category={run.device_category} />
                             <div className="min-w-0">
                               <div className="font-medium text-zinc-900 dark:text-slate-100 group-hover:text-brand-500 truncate">
-                                {formatRunName(run)}
+                                {runLabels.get(run.id) || formatRunName(run)}
                               </div>
                               <div className="flex items-center gap-2 text-[11px] text-zinc-400 dark:text-slate-500">
                                 <span className="font-mono">{run.device_ip || '—'}</span>
@@ -297,7 +324,7 @@ export default function TestRunsPage() {
                         <ConfidenceBadge score={run.confidence ?? null} />
                       </td>
                       <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
-                        {run.started_at ? new Date(run.started_at).toLocaleString() : new Date(run.created_at).toLocaleString()}
+                        {toLocalDateString(run.started_at || run.created_at)}
                       </td>
                       <td className="py-3 px-4">
                         {(isCancelled || isFailed) && (
@@ -454,7 +481,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
                         <StatusBadge status={r.status} />
                         <span>{r.completed_tests}/{r.total_tests} tests</span>
                         <ConfidenceBadge score={r.confidence} />
-                        <span className="text-amber-500">{new Date(r.created_at).toLocaleDateString()}</span>
+                        <span className="text-amber-500">{toLocalDateOnly(r.created_at)}</span>
                       </div>
                     ))}
                   </div>

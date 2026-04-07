@@ -375,15 +375,27 @@ def _eval_u36(data: dict, _wl: list) -> tuple[str, str]:
     if not open_ports:
         return ("info", "Banner Grabbing — No services detected for banner analysis.")
     leaky = []
+    services_detail = []
     for p in open_ports:
         version = p.get("version", "") or ""
         service = p.get("service", "") or ""
+        protocol = p.get("protocol", "tcp") or "tcp"
+        state = p.get("state", "open") or "open"
+        port_num = p.get("port", "?")
+        # Build detailed service line: port/protocol service version (state)
+        detail = f"{port_num}/{protocol} {service}"
+        if version:
+            detail += f" [{version}]"
+        detail += f" ({state})"
+        services_detail.append(detail)
         banner = f"{service} {version}".lower()
         if any(kw in banner for kw in ["10.0.", "192.168.", "172.16.", "internal", "debug"]):
-            leaky.append(f"port {p['port']}: {service} {version}".strip())
+            leaky.append(f"port {port_num}: {service} {version}".strip())
+    services_summary = "; ".join(services_detail[:15])
+    suffix = f" (+{len(services_detail) - 15} more)" if len(services_detail) > 15 else ""
     if leaky:
-        return ("advisory", f"Banner Grabbing — Banners reveal version info: {'; '.join(leaky[:5])}. Configure services to suppress version information.")
-    return ("pass", "Banner Grabbing — No sensitive information leakage in service banners.")
+        return ("advisory", f"Banner Grabbing — Banners reveal sensitive info: {'; '.join(leaky[:5])}. Configure services to suppress version information.\n\nAll services detected: {services_summary}{suffix}")
+    return ("pass", f"Banner Grabbing — No sensitive information leakage in service banners.\n\nServices detected: {services_summary}{suffix}")
 
 
 def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:

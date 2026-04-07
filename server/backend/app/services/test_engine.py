@@ -148,6 +148,16 @@ class TestEngine:
             DISCOVERY_TESTS = {"U01", "U02", "U03", "U04", "U05", "U06", "U07", "U08"}
             skip_test_ids: set[str] = set()
             skip_reasons: dict[str, str] = {}
+
+            # Scenario-based skipping: DHCP test is meaningless on site_network
+            connection_scenario = getattr(run, "connection_scenario", "direct") or "direct"
+            if connection_scenario == "site_network":
+                skip_test_ids.add("U04")
+                skip_reasons["U04"] = (
+                    "Skipped — DHCP behaviour test not applicable in site network scenario. "
+                    "The device is already on an existing network with established DHCP. "
+                    "To test DHCP, use the direct cable scenario."
+                )
             fingerprint_done = False
             fingerprint_result: FingerprintResult | None = None
 
@@ -558,12 +568,12 @@ class TestEngine:
         if test_id == "U02":
             raw = await tools_client.nmap_stream(device_ip, ["-sn", "-oX", "-"], timeout=60, on_line=on_line)
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-            # Fallback: if nmap couldn't see the MAC (Docker network hop), try ARP table
+            # Fallback 1: if nmap couldn't see the MAC (Docker network hop), try with --send-ip
             if not parsed.get("mac_address"):
                 try:
                     arp_raw = await tools_client._post(
                         "/scan/nmap",
-                        {"target": device_ip, "args": ["-sn", "--send-ip"], "timeout": 30},
+                        {"target": device_ip, "args": ["-sn", "--send-ip", "-oX", "-"], "timeout": 30},
                         timeout=40,
                     )
                     arp_parsed = nmap_parser.parse_xml(arp_raw.get("stdout", ""))
@@ -571,7 +581,21 @@ class TestEngine:
                         parsed["mac_address"] = arp_parsed["mac_address"]
                         parsed["oui_vendor"] = arp_parsed.get("oui_vendor", "")
                 except Exception:
-                    logger.debug("U02: ARP fallback failed for %s", device_ip)
+                    logger.debug("U02: ARP fallback 1 failed for %s", device_ip)
+            # Fallback 2: ping then read ARP table (works when on same L2 segment)
+            if not parsed.get("mac_address"):
+                try:
+                    arp_raw = await tools_client._post(
+                        "/scan/nmap",
+                        {"target": device_ip, "args": ["-sn", "-PR", "-oX", "-"], "timeout": 30},
+                        timeout=40,
+                    )
+                    arp_parsed = nmap_parser.parse_xml(arp_raw.get("stdout", ""))
+                    if arp_parsed.get("mac_address"):
+                        parsed["mac_address"] = arp_parsed["mac_address"]
+                        parsed["oui_vendor"] = arp_parsed.get("oui_vendor", "")
+                except Exception:
+                    logger.debug("U02: ARP fallback 2 failed for %s", device_ip)
             return (parsed, raw.get("stdout"))
 
         if test_id == "U03":
@@ -587,7 +611,7 @@ class TestEngine:
 
         if test_id == "U06":
             raw = await tools_client.nmap_stream(
-                device_ip, ["-sS", "-p-", "-T4", "--open", "-oX", "-"], timeout=600, on_line=on_line
+                device_ip, ["-sS", "-p-", "-T4", "--min-rate", "300", "--defeat-rst-ratelimit", "--open", "-oX", "-"], timeout=600, on_line=on_line
             )
             if raw.get("exit_code") not in (None, 0):
                 logger.warning("U06 nmap exited %s: %s", raw.get("exit_code"), raw.get("stderr", ""))
@@ -634,7 +658,21 @@ class TestEngine:
             cached = _TESTSSL_CACHE.get(run_id)
             if cached:
                 return (cached, None)
-            raw = await tools_client.testssl_stream(device_ip, [], timeout=300, on_line=on_line)
+            # Determine TLS port from port scan cache (prefer 443, fallback to other HTTPS ports)
+            tls_port = 443
+            port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
+            open_ports = port_cache.get("open_ports", [])
+            https_ports = [p["port"] for p in open_ports if p.get("service") in ("https", "ssl/http", "ssl/https")]
+            if 443 not in [p["port"] for p in open_ports] and https_ports:
+                tls_port = https_ports[0]
+            elif 443 not in [p["port"] for p in open_ports] and not https_ports:
+                # Check if any common TLS ports are open
+                common_tls = [443, 8443, 8080, 4443]
+                found = [p["port"] for p in open_ports if p["port"] in common_tls]
+                if found:
+                    tls_port = found[0]
+            target = f"{device_ip}:{tls_port}" if tls_port != 443 else device_ip
+            raw = await tools_client.testssl_stream(target, [], timeout=300, on_line=on_line)
             output_file = raw.get("output_file", "")
             if output_file:
                 parsed = testssl_parser.parse(output_file)

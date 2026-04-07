@@ -4,6 +4,7 @@ interface SegmentedProgressBarProps {
     pass: number
     fail: number
     advisory: number
+    info?: number
     pending: number
     running: number
   }
@@ -19,6 +20,7 @@ export default function SegmentedProgressBar({ total, segments, className = '' }
     { key: 'pass', count: segments.pass, color: 'bg-emerald-500', label: 'Pass' },
     { key: 'fail', count: segments.fail, color: 'bg-red-500', label: 'Fail' },
     { key: 'advisory', count: segments.advisory, color: 'bg-amber-500', label: 'Advisory' },
+    { key: 'info', count: segments.info || 0, color: 'bg-sky-400', label: 'Info/N/A' },
     { key: 'running', count: segments.running, color: 'bg-blue-500 animate-pulse', label: 'Running' },
     { key: 'pending', count: segments.pending, color: 'bg-zinc-200', label: 'Pending' },
   ]

@@ -1,6 +1,6 @@
 import {
   Play, Pause, Unplug, FileBarChart, CheckCircle2,
-  Send, Loader2, Activity
+  Send, Loader2, Activity, StopCircle,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -11,6 +11,7 @@ interface SessionControlsProps {
   onStart: () => void
   onPause: () => void
   onResume: () => void
+  onCancel: () => void
   onFlagCable: () => void
   onGenerateReport: () => void
   onApprove: () => void
@@ -29,6 +30,7 @@ export default function SessionControls({
   onStart,
   onPause,
   onResume,
+  onCancel,
   onFlagCable,
   onGenerateReport,
   onApprove,
@@ -121,10 +123,16 @@ export default function SessionControls({
           )}
 
           {(isRunning || isPaused) && (
-            <button onClick={onFlagCable} className="btn-secondary text-sm" title="Flag cable disconnect">
-              <Unplug className="w-4 h-4" />
-              <span className="hidden sm:inline">Flag Cable</span>
-            </button>
+            <>
+              <button type="button" onClick={onCancel} disabled={isActioning} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50">
+                <StopCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">Cancel</span>
+              </button>
+              <button type="button" onClick={onFlagCable} className="btn-secondary text-sm" title="Flag cable disconnect">
+                <Unplug className="w-4 h-4" />
+                <span className="hidden sm:inline">Flag Cable</span>
+              </button>
+            </>
           )}
         </div>
 

@@ -21,7 +21,7 @@ import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
 import SessionControls from '@/components/testing/SessionControls'
 import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDialog'
 import type { TestResult } from '@/lib/types'
-import { isActiveTestRunStatus } from '@/lib/testContracts'
+import { isActiveTestRunStatus, toLocalDateString } from '@/lib/testContracts'
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -93,6 +93,7 @@ export default function TestRunDetailPage() {
         verdict: r.verdict || null,
         tool: r.tool || null,
         is_essential: r.is_essential === 'yes',
+        comment: r.comment || null,
       })),
     [results]
   )
@@ -139,12 +140,13 @@ export default function TestRunDetailPage() {
     results.length > 0 ? Math.round((completedCount / results.length) * 100) : 0
 
   const progressSegments = useMemo(() => {
-    const segs = { pass: 0, fail: 0, advisory: 0, pending: 0, running: 0 }
+    const segs = { pass: 0, fail: 0, advisory: 0, info: 0, pending: 0, running: 0 }
     for (const r of results as TestResult[]) {
       const v = r.verdict?.toLowerCase()
       if (v === 'pass' || v === 'qualified_pass') segs.pass++
-      else if (v === 'fail') segs.fail++
+      else if (v === 'fail' || v === 'error') segs.fail++
       else if (v === 'advisory') segs.advisory++
+      else if (v === 'info' || v === 'na' || v === 'n/a') segs.info++
       else if (runningTestId && r.test_id === runningTestId) segs.running++
       else segs.pending++
     }
@@ -200,6 +202,21 @@ export default function TestRunDetailPage() {
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } }
       toast.error(axiosErr.response?.data?.detail || 'Failed to resume')
+    } finally {
+      setIsActioning(false)
+    }
+  }
+
+  const handleCancel = async () => {
+    setIsActioning(true)
+    try {
+      await testRunsApi.cancel(id!)
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+      toast.success('Test run cancelled')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to cancel')
     } finally {
       setIsActioning(false)
     }
@@ -307,6 +324,16 @@ export default function TestRunDetailPage() {
       toast.error(axiosErr.response?.data?.detail || 'Failed to save result')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleSaveNotes = async (resultId: string, notes: string) => {
+    try {
+      await testResultsApi.update(resultId, { engineer_notes: notes })
+      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } }
+      toast.error(axiosErr.response?.data?.detail || 'Failed to save notes')
     }
   }
 
@@ -437,7 +464,7 @@ export default function TestRunDetailPage() {
                 </span>
               )}
               {run.started_at && (
-                <span>Started {new Date(run.started_at).toLocaleString()}</span>
+                <span>Started {toLocalDateString(run.started_at)}</span>
               )}
             </div>
           </div>
@@ -580,6 +607,7 @@ export default function TestRunDetailPage() {
               userRole={user?.role || 'engineer'}
               onSubmitManual={handleSubmitManual}
               onOverride={handleOverride}
+              onSaveNotes={handleSaveNotes}
               isSubmitting={isSubmitting}
             />
           ) : resultsLoading ? (
@@ -614,6 +642,7 @@ export default function TestRunDetailPage() {
           onStart={handleStartTests}
           onPause={handlePause}
           onResume={handleResume}
+          onCancel={handleCancel}
           onFlagCable={handleFlagCable}
           onGenerateReport={handleGenerateReport}
           onApprove={handleApprove}

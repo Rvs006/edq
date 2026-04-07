@@ -7,6 +7,7 @@ import { Monitor, Plus, Search, Loader2, X, Radar, LayoutGrid, Network } from 'l
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge from '@/components/common/VerdictBadge'
+import { toLocalDateOnly } from '@/lib/testContracts'
 import CategoryBadge from '@/components/common/CategoryBadge'
 import Callout from '@/components/common/Callout'
 import NetworkTopology from '@/components/common/NetworkTopology'
@@ -133,7 +134,7 @@ export default function DevicesPage() {
                       <CategoryBadge category={device.category || 'unknown'} />
                     </td>
                     <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
-                      {device.last_tested ? new Date(device.last_tested).toLocaleDateString() : '—'}
+                      {device.last_tested ? toLocalDateOnly(device.last_tested) : '—'}
                     </td>
                     <td className="py-3 px-4 hidden sm:table-cell">
                       {device.last_verdict ? (
