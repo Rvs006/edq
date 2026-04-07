@@ -40,13 +40,14 @@ export default function TemplatesPage() {
           <h1 className="section-title">Test Templates</h1>
           <p className="section-subtitle">Configure test suites for device qualification</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary">
+        <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
           <Plus className="w-4 h-4" /> New Template
         </button>
       </div>
 
       <div className="card mb-5">
         <button
+          type="button"
           onClick={() => setExpanded(expanded === 'library' ? null : 'library')}
           className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors"
         >
@@ -127,10 +128,10 @@ export default function TemplatesPage() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit">
+                        <button type="button" onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit">
                           <Pencil className="w-3.5 h-3.5 text-zinc-500" />
                         </button>
-                        <button onClick={() => handleDelete(t.id, t.name)} className="p-1.5 rounded hover:bg-red-50" title="Delete">
+                        <button type="button" onClick={() => handleDelete(t.id, t.name)} className="p-1.5 rounded hover:bg-red-50" title="Delete">
                           <Trash2 className="w-3.5 h-3.5 text-red-500" />
                         </button>
                       </div>
@@ -146,7 +147,7 @@ export default function TemplatesPage() {
           <FileText className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
           <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No templates yet</h3>
           <p className="text-sm text-zinc-500 mb-4">Create a test template to define which tests to run</p>
-          <button onClick={() => setShowCreate(true)} className="btn-primary">
+          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Template
           </button>
         </div>
@@ -201,7 +202,7 @@ function CreateTemplateModal({ library, onClose }: { library: TestLibraryItem[];
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">New Test Template</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -296,7 +297,7 @@ function EditTemplateModal({ template, library, onClose }: { template: TestTempl
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Edit Template</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>

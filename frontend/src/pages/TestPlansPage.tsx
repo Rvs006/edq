@@ -94,7 +94,7 @@ export default function TestPlansPage() {
           <h1 className="section-title">Test Plans</h1>
           <p className="section-subtitle">Create custom test configurations with per-test toggles</p>
         </div>
-        <button onClick={() => setCreating(true)} className="btn-primary">
+        <button type="button" onClick={() => setCreating(true)} className="btn-primary">
           <Plus className="w-4 h-4" /> Create Plan
         </button>
       </div>
@@ -110,7 +110,7 @@ export default function TestPlansPage() {
           </div>
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">No test plans yet</p>
           <p className="text-xs text-zinc-500 mb-4">Create a custom plan to select which tests run and override their tiers.</p>
-          <button onClick={() => setCreating(true)} className="btn-primary mx-auto">
+          <button type="button" onClick={() => setCreating(true)} className="btn-primary mx-auto">
             <Plus className="w-4 h-4" /> Create Plan
           </button>
         </div>
@@ -146,13 +146,13 @@ export default function TestPlansPage() {
                     <td className="px-3 py-3 text-xs text-zinc-400 dark:text-zinc-500">{new Date(p.created_at).toLocaleDateString()}</td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => setEditing(p)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Edit">
+                        <button type="button" onClick={() => setEditing(p)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Edit">
                           <Pencil className="w-3.5 h-3.5 text-zinc-500" />
                         </button>
-                        <button onClick={() => handleClone(p.id)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Clone">
+                        <button type="button" onClick={() => handleClone(p.id)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Clone">
                           <Copy className="w-3.5 h-3.5 text-zinc-500" />
                         </button>
-                        <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">
+                        <button type="button" onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">
                           <Trash2 className="w-3.5 h-3.5 text-red-500" />
                         </button>
                       </div>
@@ -258,8 +258,8 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
           <p className="section-subtitle">Configure which tests are enabled and their execution tiers</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onCancel} className="btn-secondary"><X className="w-4 h-4" /> Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="btn-primary">
+          <button type="button" onClick={onCancel} className="btn-secondary"><X className="w-4 h-4" /> Cancel</button>
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Saving...' : 'Save Plan'}
           </button>
@@ -287,8 +287,8 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
               <span className="badge bg-brand-50 text-brand-600 border border-brand-100 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800">{enabledCount} enabled</span>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={enableAll} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Enable All</button>
-              <button onClick={disableAll} className="text-xs text-zinc-500 hover:text-zinc-600 font-medium">Disable All</button>
+              <button type="button" onClick={enableAll} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Enable All</button>
+              <button type="button" onClick={disableAll} className="text-xs text-zinc-500 hover:text-zinc-600 font-medium">Disable All</button>
             </div>
           </div>
 
@@ -300,6 +300,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                 return (
                   <div key={cat} className="border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden">
                     <button
+                      type="button"
                       onClick={() => {
                         const next = new Set(expandedCats)
                         expanded ? next.delete(cat) : next.add(cat)
@@ -317,7 +318,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                           <div key={c.test_id} className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-xs font-mono text-zinc-400">{c.test_id}</span>
-                              <button onClick={() => removeCustom(c.test_id)} aria-label={`Remove custom test ${c.test_id}`} className="p-1 rounded hover:bg-red-50">
+                              <button type="button" onClick={() => removeCustom(c.test_id)} aria-label={`Remove custom test ${c.test_id}`} className="p-1 rounded hover:bg-red-50">
                                 <Trash2 className="w-3.5 h-3.5 text-red-500" />
                               </button>
                             </div>
@@ -349,6 +350,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                           </div>
                         ))}
                         <button
+                          type="button"
                           onClick={addCustomTest}
                           className="w-full py-2 border border-dashed border-purple-300 dark:border-purple-700 rounded-lg text-sm text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/30 transition-colors flex items-center justify-center gap-1"
                         >
@@ -366,6 +368,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
               return (
                 <div key={cat} className="border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden">
                   <button
+                    type="button"
                     onClick={() => {
                       const next = new Set(expandedCats)
                       expanded ? next.delete(cat) : next.add(cat)
@@ -387,7 +390,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                             key={test.id}
                             className={`flex items-center gap-3 px-3 py-2 ${!enabled ? 'opacity-50' : ''}`}
                           >
-                            <button onClick={() => toggleEnabled(test.id)} className="shrink-0">
+                            <button type="button" onClick={() => toggleEnabled(test.id)} className="shrink-0">
                               {enabled
                                 ? <ToggleRight className="w-5 h-5 text-brand-500" />
                                 : <ToggleLeft className="w-5 h-5 text-zinc-300 dark:text-zinc-600" />

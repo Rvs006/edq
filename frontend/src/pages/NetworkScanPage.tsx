@@ -550,6 +550,7 @@ function ConfigureStep({
 
       <div className="flex justify-end">
         <button
+          type="button"
           onClick={onDiscover}
           disabled={!cidrValid || hostCount === 0 || selectedTests.size === 0 || discovering}
           className="btn-primary"
@@ -641,6 +642,7 @@ function ReviewStep({
             {/* View mode toggle */}
             <div className="flex items-center rounded-lg border border-zinc-200 dark:border-slate-700/50 overflow-hidden">
               <button
+                type="button"
                 onClick={() => setViewMode('grid')}
                 className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
                   viewMode === 'grid'
@@ -653,6 +655,7 @@ function ReviewStep({
                 Grid
               </button>
               <button
+                type="button"
                 onClick={() => setViewMode('tree')}
                 className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors border-l border-zinc-200 dark:border-slate-700/50 ${
                   viewMode === 'tree'
@@ -826,10 +829,11 @@ function ReviewStep({
       </div>
 
       <div className="flex items-center justify-between">
-        <button onClick={onBack} className="btn-secondary">Back</button>
+        <button type="button" onClick={onBack} className="btn-secondary">Back</button>
         <div className="flex items-center gap-3">
           <span className="text-xs text-zinc-500">{selectedDevices.size} device(s) × {testCount} test(s)</span>
           <button
+            type="button"
             onClick={onStart}
             disabled={selectedDevices.size === 0 || starting}
             className="btn-primary"
@@ -879,7 +883,7 @@ function MonitorStep({ results, scanStatus, navigate, onNewScan, selectedTests }
       </div>
 
       <div className="flex justify-start">
-        <button onClick={onNewScan} className="btn-secondary">
+        <button type="button" onClick={onNewScan} className="btn-secondary">
           <RotateCcw className="w-4 h-4" /> New Scan
         </button>
       </div>
@@ -1086,6 +1090,7 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
                                     {detail?.duration_seconds && <span className="text-[10px] text-zinc-400 dark:text-slate-500 tabular-nums">{formatDuration(detail.duration_seconds)}</span>}
                                     {isTestRunning && (
                                       <button
+                                        type="button"
                                         onClick={(e) => { e.stopPropagation(); setLiveOutputTestId(isLiveOpen ? null : test.id) }}
                                         className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors ${
                                           isLiveOpen
@@ -1179,6 +1184,7 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
               {/* Footer action */}
               <div className="px-4 py-3">
                 <button
+                  type="button"
                   onClick={(e) => { e.stopPropagation(); navigate(`/test-runs/${result.run_id}`) }}
                   className="btn-primary text-xs py-1.5 px-3 w-full"
                 >
@@ -1234,7 +1240,7 @@ function ResultsStep({
               <th className="px-3 py-2.5">Failed</th>
               <th className="px-3 py-2.5">Advisory</th>
               <th className="px-3 py-2.5">Verdict</th>
-              <th className="px-3 py-2.5"></th>
+              <th className="px-3 py-2.5"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -1249,6 +1255,7 @@ function ResultsStep({
                 <td className="px-3 py-2.5"><StatusBadge status={r.status} verdict={r.overall_verdict} /></td>
                 <td className="px-3 py-2.5">
                   <button
+                    type="button"
                     onClick={() => navigate(`/test-runs/${r.run_id}`)}
                     className="text-xs text-brand-500 hover:text-brand-600 font-medium"
                   >View Details</button>
@@ -1260,7 +1267,7 @@ function ResultsStep({
       </div>
 
       <div className="flex justify-between">
-        <button onClick={onReset} className="btn-secondary">
+        <button type="button" onClick={onReset} className="btn-secondary">
           <RotateCcw className="w-4 h-4" /> New Scan
         </button>
       </div>

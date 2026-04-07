@@ -149,6 +149,7 @@ export default function AuthorizedNetworksPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handleAdd}
               disabled={!cidrValid || saving}
               className="btn-primary"
@@ -156,14 +157,14 @@ export default function AuthorizedNetworksPage() {
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
               {saving ? 'Adding...' : 'Authorize Network'}
             </button>
-            <button onClick={() => { setShowAdd(false); setCidr(''); setLabel(''); setDescription('') }} className="btn-secondary">
+            <button type="button" onClick={() => { setShowAdd(false); setCidr(''); setLabel(''); setDescription('') }} className="btn-secondary">
               Cancel
             </button>
           </div>
         </div>
       ) : (
         <div className="mb-4">
-          <button onClick={() => setShowAdd(true)} className="btn-primary">
+          <button type="button" onClick={() => setShowAdd(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> Add Network
           </button>
         </div>
@@ -229,6 +230,7 @@ export default function AuthorizedNetworksPage() {
 
               <div className="flex items-center gap-1 shrink-0">
                 <button
+                  type="button"
                   onClick={() => handleToggle(network)}
                   className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
                   title={network.is_active ? 'Disable network' : 'Enable network'}
@@ -239,6 +241,7 @@ export default function AuthorizedNetworksPage() {
                   }
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDelete(network)}
                   disabled={deletingId === network.id}
                   className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-zinc-400 hover:text-red-500 transition-colors"

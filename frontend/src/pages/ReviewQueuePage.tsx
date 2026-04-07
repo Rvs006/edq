@@ -55,7 +55,7 @@ export default function ReviewQueuePage() {
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50/50 dark:bg-slate-800/50">
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">
-                    <button onClick={() => toggleSort('device_name')} className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-300">
+                    <button type="button" onClick={() => toggleSort('device_name')} className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-300">
                       Device <ArrowUpDown className="w-3 h-3" />
                     </button>
                   </th>
@@ -63,7 +63,7 @@ export default function ReviewQueuePage() {
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Status</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Verdict</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden md:table-cell">
-                    <button onClick={() => toggleSort('created_at')} className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-300">
+                    <button type="button" onClick={() => toggleSort('created_at')} className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-300">
                       Date <ArrowUpDown className="w-3 h-3" />
                     </button>
                   </th>

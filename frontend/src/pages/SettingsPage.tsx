@@ -31,6 +31,7 @@ export default function SettingsPage({ tourState }: { tourState?: TourState }) {
         <div className="sm:w-48 flex sm:flex-col gap-1 overflow-x-auto pb-1 sm:pb-0">
           {tabs.map(tab => (
             <button
+              type="button"
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
@@ -91,15 +92,15 @@ function ProfileSettings({ user }: { user: { full_name?: string | null; username
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-semibold text-zinc-900 dark:text-slate-100">Profile Information</h2>
         {!editing ? (
-          <button onClick={() => setEditing(true)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
+          <button type="button" onClick={() => setEditing(true)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
             Edit Profile
           </button>
         ) : (
           <div className="flex gap-2">
-            <button onClick={() => { setEditing(false); setForm({ full_name: (user?.full_name as string) || '', email: (user?.email as string) || '' }) }} className="text-xs text-zinc-500 hover:text-zinc-600 font-medium">
+            <button type="button" onClick={() => { setEditing(false); setForm({ full_name: (user?.full_name as string) || '', email: (user?.email as string) || '' }) }} className="text-xs text-zinc-500 hover:text-zinc-600 font-medium">
               Cancel
             </button>
-            <button onClick={handleSave} disabled={saving} className="btn-primary text-xs py-1 px-3">
+            <button type="button" onClick={handleSave} disabled={saving} className="btn-primary text-xs py-1 px-3">
               {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
               Save
             </button>
@@ -249,7 +250,7 @@ function TwoFactorSettings() {
               className="input"
               placeholder="Your password"
             />
-            <button onClick={handleDisable} disabled={submitting || disableCode.length !== 6 || !disablePassword} className="btn-secondary text-sm py-1.5 px-3 text-red-500 border-red-200 hover:bg-red-50">
+            <button type="button" onClick={handleDisable} disabled={submitting || disableCode.length !== 6 || !disablePassword} className="btn-secondary text-sm py-1.5 px-3 text-red-500 border-red-200 hover:bg-red-50">
               {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
               Disable 2FA
             </button>
@@ -287,11 +288,11 @@ function TwoFactorSettings() {
                 autoFocus
               />
             </div>
-            <button onClick={handleVerify} disabled={submitting || verifyCode.length !== 6} className="btn-primary w-full">
+            <button type="button" onClick={handleVerify} disabled={submitting || verifyCode.length !== 6} className="btn-primary w-full">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
               Verify & Enable 2FA
             </button>
-            <button onClick={() => { setSetupData(null); setVerifyCode('') }} className="text-xs text-zinc-500 hover:text-zinc-600">
+            <button type="button" onClick={() => { setSetupData(null); setVerifyCode('') }} className="text-xs text-zinc-500 hover:text-zinc-600">
               Cancel setup
             </button>
           </div>
@@ -302,7 +303,7 @@ function TwoFactorSettings() {
             Add an extra layer of security to your account. You'll need an authenticator app like
             Google Authenticator, Authy, or 1Password.
           </p>
-          <button onClick={handleSetup} disabled={submitting} className="btn-primary text-sm">
+          <button type="button" onClick={handleSetup} disabled={submitting} className="btn-primary text-sm">
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
             Set Up Two-Factor Authentication
           </button>
@@ -399,6 +400,7 @@ function AppearanceSettings() {
       <div className="grid grid-cols-3 gap-3 max-w-md">
         {options.map(opt => (
           <button
+            type="button"
             key={opt.value}
             onClick={() => setMode(opt.value)}
             className={`flex flex-col items-center gap-2 p-4 rounded-lg border transition-colors ${
@@ -647,6 +649,7 @@ function HelpSection({ tourState }: { tourState?: TourState }) {
               Restart the interactive walkthrough to learn about EDQ features.
             </p>
             <button
+              type="button"
               onClick={() => {
                 if (tourState?.restartTour) {
                   tourState.restartTour()

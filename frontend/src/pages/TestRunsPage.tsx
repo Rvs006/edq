@@ -137,7 +137,7 @@ export default function TestRunsPage() {
           <h1 className="section-title">Test Runs</h1>
           <p className="section-subtitle">Monitor and manage device qualification test runs</p>
         </div>
-        <button onClick={() => setShowCreateModal(true)} className="btn-primary">
+        <button type="button" onClick={() => setShowCreateModal(true)} className="btn-primary">
           <Plus className="w-4 h-4" /> New Test Run
         </button>
       </div>
@@ -145,6 +145,7 @@ export default function TestRunsPage() {
       {/* Status filter bar — grouped with labels */}
       <div className="flex flex-wrap items-center gap-1.5 mb-5">
         <button
+          type="button"
           onClick={() => setStatusFilter('')}
           className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
             statusFilter === ''
@@ -167,6 +168,7 @@ export default function TestRunsPage() {
               const Icon = f.icon
               return (
                 <button
+                  type="button"
                   key={f.key}
                   onClick={() => setStatusFilter(active ? '' : f.key)}
                   className={`group relative inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
@@ -300,6 +302,7 @@ export default function TestRunsPage() {
                       <td className="py-3 px-4">
                         {(isCancelled || isFailed) && (
                           <button
+                            type="button"
                             onClick={() => handleResume(run.id)}
                             className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 rounded transition-colors"
                             title="Resume this test run from where it stopped"
@@ -320,7 +323,7 @@ export default function TestRunsPage() {
           <Play className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
           <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No test runs</h3>
           <p className="text-sm text-zinc-500 mb-4">Create a test run to start qualifying devices</p>
-          <button onClick={() => setShowCreateModal(true)} className="btn-primary">
+          <button type="button" onClick={() => setShowCreateModal(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Test Run
           </button>
         </div>
@@ -402,7 +405,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">New Test Run</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>

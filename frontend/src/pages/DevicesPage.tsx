@@ -36,6 +36,7 @@ export default function DevicesPage() {
         <div className="flex gap-2">
           <div className="flex border border-zinc-200 dark:border-slate-700/50 rounded-lg overflow-hidden">
             <button
+              type="button"
               onClick={() => setViewMode('table')}
               className={`p-2 ${viewMode === 'table' ? 'bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300'}`}
               title="Table view"
@@ -43,6 +44,7 @@ export default function DevicesPage() {
               <LayoutGrid className="w-4 h-4" />
             </button>
             <button
+              type="button"
               onClick={() => setViewMode('topology')}
               className={`p-2 ${viewMode === 'topology' ? 'bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-300' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300'}`}
               title="Topology view"
@@ -50,10 +52,10 @@ export default function DevicesPage() {
               <Network className="w-4 h-4" />
             </button>
           </div>
-          <button onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
+          <button type="button" onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
             <Radar className="w-4 h-4" /> Discover
           </button>
-          <button onClick={() => setShowAddModal(true)} className="btn-primary">
+          <button type="button" onClick={() => setShowAddModal(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> Add Device
           </button>
         </div>
@@ -155,10 +157,10 @@ export default function DevicesPage() {
           </p>
           {!search && !categoryFilter && (
             <div className="flex gap-2 justify-center">
-              <button onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
+              <button type="button" onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
                 <Radar className="w-4 h-4" /> Discover Devices
               </button>
-              <button onClick={() => setShowAddModal(true)} className="btn-primary">
+              <button type="button" onClick={() => setShowAddModal(true)} className="btn-primary">
                 <Plus className="w-4 h-4" /> Add Device
               </button>
             </div>
@@ -211,7 +213,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Discover by IP or Subnet</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -339,7 +341,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Add New Device</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>

@@ -90,7 +90,7 @@ function CreateScheduleDialog({
       <div className="bg-white dark:bg-dark-card rounded-xl shadow-xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-zinc-100 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Create Scan Schedule</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200 text-xl leading-none">&times;</button>
+          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-200 text-xl leading-none">&times;</button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {error && (
@@ -240,7 +240,7 @@ export default function ScanSchedulesPage() {
           <h1 className="section-title">Scan Schedules</h1>
           <p className="section-subtitle">Schedule recurring security scans for your devices</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
+        <button type="button" onClick={() => setShowCreate(true)} className="btn-primary text-sm">
           <Plus className="w-4 h-4" /> New Schedule
         </button>
       </div>
@@ -256,7 +256,7 @@ export default function ScanSchedulesPage() {
           <p className="text-sm text-zinc-500 mb-4">
             Create a schedule to automatically re-scan devices on a recurring basis.
           </p>
-          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm mx-auto">
+          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary text-sm mx-auto">
             <Plus className="w-4 h-4" /> Create First Schedule
           </button>
         </div>
@@ -292,6 +292,7 @@ export default function ScanSchedulesPage() {
 
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
+                      type="button"
                       onClick={() => toggleMutation.mutate({ id: schedule.id, is_active: !schedule.is_active })}
                       disabled={toggleMutation.isPending}
                       className="p-2 rounded-lg hover:bg-zinc-100 transition-colors text-zinc-500 hover:text-zinc-700"
@@ -300,6 +301,7 @@ export default function ScanSchedulesPage() {
                       {schedule.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         if (confirm('Delete this schedule? This cannot be undone.')) {
                           deleteMutation.mutate(schedule.id)

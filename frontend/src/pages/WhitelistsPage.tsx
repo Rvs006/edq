@@ -43,7 +43,7 @@ export default function WhitelistsPage() {
           <h1 className="section-title">Protocol Whitelists</h1>
           <p className="section-subtitle">Define allowed ports and services for compliance checking</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary">
+        <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
           <Plus className="w-4 h-4" /> New Whitelist
         </button>
       </div>
@@ -57,6 +57,7 @@ export default function WhitelistsPage() {
           {whitelists.map((wl: Whitelist) => (
             <div key={wl.id} className="card">
               <button
+                type="button"
                 onClick={() => setExpanded(expanded === wl.id ? null : wl.id)}
                 className="w-full flex items-center justify-between p-4 hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors"
               >
@@ -69,15 +70,15 @@ export default function WhitelistsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {wl.is_default && <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">Default</span>}
-                  <button onClick={(e) => { e.stopPropagation(); setEditingWhitelist(wl) }}
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setEditingWhitelist(wl) }}
                     className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit">
                     <Pencil className="w-4 h-4 text-zinc-400" />
                   </button>
-                  <button onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(wl.id) }}
+                  <button type="button" onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(wl.id) }}
                     className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Duplicate">
                     <Copy className="w-4 h-4 text-zinc-400" />
                   </button>
-                  <button onClick={(e) => { e.stopPropagation(); handleDelete(wl.id, wl.name) }}
+                  <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(wl.id, wl.name) }}
                     className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30" title="Delete">
                     <Trash2 className="w-4 h-4 text-red-400" />
                   </button>
@@ -122,7 +123,7 @@ export default function WhitelistsPage() {
           <Shield className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
           <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No whitelists</h3>
           <p className="text-sm text-zinc-500 mb-4">Create a protocol whitelist for compliance checking</p>
-          <button onClick={() => setShowCreate(true)} className="btn-primary">
+          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> New Whitelist
           </button>
         </div>
@@ -184,7 +185,7 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">{isEdit ? 'Edit' : 'New'} Protocol Whitelist</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>

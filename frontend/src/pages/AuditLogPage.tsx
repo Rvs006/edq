@@ -65,7 +65,7 @@ export default function AuditLogPage() {
           <h1 className="section-title">Audit Log</h1>
           <p className="section-subtitle">Track all system actions and compliance events</p>
         </div>
-        <button onClick={handleExportCsv} className="btn-secondary text-xs">
+        <button type="button" onClick={handleExportCsv} className="btn-secondary text-xs">
           <Download className="w-3.5 h-3.5" /> Export CSV
         </button>
       </div>
@@ -74,6 +74,7 @@ export default function AuditLogPage() {
         <div className="flex gap-2 overflow-x-auto pb-1 flex-1">
           {['', 'device_created', 'test_run_started', 'test_run_completed', 'report_generated', 'user_login'].map(a => (
             <button
+              type="button"
               key={a}
               onClick={() => { setActionFilter(a); setPage(0) }}
               className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
@@ -148,6 +149,7 @@ export default function AuditLogPage() {
               <p className="text-xs text-zinc-500">{total} total entries</p>
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => setPage(p => Math.max(0, p - 1))}
                   disabled={page === 0}
                   className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-50"
@@ -158,6 +160,7 @@ export default function AuditLogPage() {
                   Page {page + 1} of {totalPages}
                 </span>
                 <button
+                  type="button"
                   onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                   disabled={page >= totalPages - 1}
                   className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-50"
