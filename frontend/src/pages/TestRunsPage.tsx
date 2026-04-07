@@ -402,14 +402,14 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">New Test Run</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
             <label className="label">Device</label>
-            <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="input" required>
+            <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} aria-label="Select device" className="input" required>
               <option value="">Select a device...</option>
               {devices?.map((d: Device) => (
                 <option key={d.id} value={d.id}>
@@ -423,6 +423,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
             <select
               value={templateId || defaultTemplate?.id || ''}
               onChange={(e) => setTemplateId(e.target.value)}
+              aria-label="Select test template"
               className="input"
               required
             >

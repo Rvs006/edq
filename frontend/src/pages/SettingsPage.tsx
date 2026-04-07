@@ -125,19 +125,19 @@ function ProfileSettings({ user }: { user: { full_name?: string | null; username
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Username</label>
-            <input type="text" value={(user?.username as string) || ''} className="input bg-zinc-50" disabled />
+            <input type="text" value={(user?.username as string) || ''} aria-label="Username" className="input bg-zinc-50" disabled />
           </div>
           <div>
             <label className="label">Email</label>
-            <input type="email" value={editing ? form.email : ((user?.email as string) || '')} onChange={e => setForm({ ...form, email: e.target.value })} className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
+            <input type="email" value={editing ? form.email : ((user?.email as string) || '')} onChange={e => setForm({ ...form, email: e.target.value })} aria-label="Email" className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
           </div>
           <div>
             <label className="label">Full Name</label>
-            <input type="text" value={editing ? form.full_name : ((user?.full_name as string) || '')} onChange={e => setForm({ ...form, full_name: e.target.value })} className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
+            <input type="text" value={editing ? form.full_name : ((user?.full_name as string) || '')} onChange={e => setForm({ ...form, full_name: e.target.value })} aria-label="Full name" className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
           </div>
           <div>
             <label className="label">Role</label>
-            <input type="text" value={(user?.role as string) || ''} className="input bg-zinc-50 capitalize" disabled />
+            <input type="text" value={(user?.role as string) || ''} aria-label="Role" className="input bg-zinc-50 capitalize" disabled />
           </div>
         </div>
 
@@ -362,19 +362,19 @@ function SecuritySettings() {
           <label className="label">Current Password</label>
           <input type="password" value={form.current_password}
             onChange={(e) => setForm({ ...form, current_password: e.target.value })}
-            className="input" required />
+            aria-label="Current password" className="input" required />
         </div>
         <div>
           <label className="label">New Password</label>
           <input type="password" value={form.new_password}
             onChange={(e) => setForm({ ...form, new_password: e.target.value })}
-            className="input" placeholder="Min 8 chars, uppercase, lowercase, digit" required />
+            aria-label="New password" className="input" placeholder="Min 8 chars, uppercase, lowercase, digit" required />
         </div>
         <div>
           <label className="label">Confirm New Password</label>
           <input type="password" value={form.confirm_password}
             onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
-            className="input" required />
+            aria-label="Confirm new password" className="input" required />
         </div>
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
@@ -598,6 +598,7 @@ function BrandingSettings() {
               type="color"
               value={form.primary_color}
               onChange={(e) => setForm({ ...form, primary_color: e.target.value })}
+              aria-label="Brand color"
               className="w-10 h-10 rounded border border-zinc-200 cursor-pointer"
             />
             <input

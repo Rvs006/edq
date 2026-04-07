@@ -73,6 +73,7 @@ export default function DevicesPage() {
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
+          aria-label="Filter by category"
           className="input w-full sm:w-48"
         >
           <option value="">All Categories</option>
@@ -210,7 +211,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Discover by IP or Subnet</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -338,7 +339,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Add New Device</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -368,6 +369,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
               <label className="label">Category</label>
               <select value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
+                aria-label="Device category"
                 className="input">
                 {CATEGORIES.map(c => (
                   <option key={c} value={c}>{c.replace('_', ' ')}</option>

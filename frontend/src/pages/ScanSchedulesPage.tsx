@@ -106,6 +106,7 @@ function CreateScheduleDialog({
               <select
                 value={deviceId}
                 onChange={(e) => setDeviceId(e.target.value)}
+                aria-label="Select device"
                 className="input appearance-none pr-8"
               >
                 <option value="">Select a device...</option>
@@ -125,6 +126,7 @@ function CreateScheduleDialog({
               <select
                 value={templateId}
                 onChange={(e) => setTemplateId(e.target.value)}
+                aria-label="Select test template"
                 className="input appearance-none pr-8"
               >
                 <option value="">Select a template...</option>

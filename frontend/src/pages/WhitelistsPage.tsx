@@ -184,7 +184,7 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">{isEdit ? 'Edit' : 'New'} Protocol Whitelist</h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
@@ -219,6 +219,7 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
                   <div className="w-24">
                     <select value={entry.protocol}
                       onChange={(e) => { const n = [...entries]; n[i].protocol = e.target.value; setEntries(n) }}
+                      aria-label="Protocol"
                       className="input text-xs">
                       <option>TCP</option><option>UDP</option><option>TCP/UDP</option>
                     </select>
@@ -228,7 +229,7 @@ function WhitelistModal({ whitelist, onClose }: { whitelist?: Whitelist; onClose
                       onChange={(e) => { const n = [...entries]; n[i].service = e.target.value; setEntries(n) }}
                       className="input text-xs" />
                   </div>
-                  <button type="button" onClick={() => removeEntry(i)} className="p-1.5 text-zinc-400 hover:text-red-500">
+                  <button type="button" onClick={() => removeEntry(i)} aria-label="Remove entry" className="p-1.5 text-zinc-400 hover:text-red-500">
                     <X className="w-4 h-4" />
                   </button>
                 </div>

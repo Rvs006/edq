@@ -171,6 +171,10 @@ uploads/
 .agents/
 NEXT_SESSION_PROMPT.md
 .claude/
+.codex/
+.gemini/
+.mcp.json
+EPIC_SYSTEM_PROMPT.md
 
 # Electron build artifacts
 electron/dist/

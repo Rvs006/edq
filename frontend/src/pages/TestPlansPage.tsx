@@ -317,7 +317,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                           <div key={c.test_id} className="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-xs font-mono text-zinc-400">{c.test_id}</span>
-                              <button onClick={() => removeCustom(c.test_id)} className="p-1 rounded hover:bg-red-50">
+                              <button onClick={() => removeCustom(c.test_id)} aria-label={`Remove custom test ${c.test_id}`} className="p-1 rounded hover:bg-red-50">
                                 <Trash2 className="w-3.5 h-3.5 text-red-500" />
                               </button>
                             </div>
@@ -339,6 +339,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                               <select
                                 value={c.custom?.tier || 'guided_manual'}
                                 onChange={e => updateCustom(c.test_id, 'tier', e.target.value)}
+                                aria-label={`Tier for ${c.test_id}`}
                                 className="input text-sm"
                               >
                                 <option value="guided_manual">Guided Manual</option>
@@ -402,6 +403,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
                               value={tierOverride}
                               onChange={e => setTierOverride(test.id, e.target.value)}
                               disabled={!enabled}
+                              aria-label={`Tier override for ${test.id}`}
                               className="text-xs border border-zinc-200 dark:border-zinc-700 rounded px-2 py-1 bg-white dark:bg-zinc-800 dark:text-zinc-200 w-28 shrink-0"
                             >
                               {TIER_OPTIONS.map(o => (

@@ -116,6 +116,7 @@ function UsersTab() {
                   <select
                     value={u.role}
                     onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                    aria-label={`Role for ${u.username}`}
                     className="text-xs border border-zinc-200 dark:border-slate-700/50 rounded px-2 py-1 bg-white dark:bg-slate-800 dark:text-slate-200 capitalize"
                   >
                     <option value="admin">Admin</option>

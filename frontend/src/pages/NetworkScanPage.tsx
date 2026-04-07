@@ -496,13 +496,15 @@ function ConfigureStep({
             const expanded = expandedCategories.has(cat)
             return (
               <div key={cat} className="border border-zinc-200 dark:border-slate-700/50 rounded-lg overflow-hidden">
-                <button
+                <div
+                  role="group"
+                  aria-label={`${cat} test category`}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-slate-800 hover:bg-zinc-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                   onClick={() => {
                     const next = new Set(expandedCategories)
                     expanded ? next.delete(cat) : next.add(cat)
                     setExpandedCategories(next)
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-slate-800 hover:bg-zinc-100 dark:hover:bg-slate-700 transition-colors"
                 >
                   {expanded ? <ChevronDown className="w-4 h-4 text-zinc-400" /> : <ChevronRight className="w-4 h-4 text-zinc-400" />}
                   <span className="text-sm font-medium text-zinc-700 dark:text-slate-300 flex-1 text-left">{cat}</span>
@@ -513,9 +515,10 @@ function ConfigureStep({
                     ref={el => { if (el) el.indeterminate = someSelected && !allSelected }}
                     onChange={() => toggleCategory(cat)}
                     onClick={e => e.stopPropagation()}
+                    aria-label={`Select all ${cat} tests`}
                     className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500"
                   />
-                </button>
+                </div>
                 {expanded && (
                   <div className="divide-y divide-zinc-100">
                     {catTests.map(t => (
@@ -702,6 +705,7 @@ function ReviewStep({
                       checked={selectedDevices.has(d.ip)}
                       onChange={() => toggleDeviceSelection(d.ip)}
                       onClick={e => e.stopPropagation()}
+                      aria-label={`Select device ${d.ip}`}
                       className="w-4 h-4 rounded border-zinc-300 text-brand-500"
                     />
                   </div>
@@ -751,13 +755,15 @@ function ReviewStep({
               const vendorSomeSelected = vendorDevices.some(d => selectedDevices.has(d.ip))
               return (
                 <div key={vendor}>
-                  <button
+                  <div
+                    role="group"
+                    aria-label={`${vendor} devices`}
+                    className="w-full flex items-center gap-2 px-5 py-2.5 bg-zinc-50 dark:bg-slate-800/50 hover:bg-zinc-100 dark:hover:bg-slate-700/50 transition-colors cursor-pointer"
                     onClick={() => {
                       const next = new Set(expandedVendors)
                       expanded ? next.delete(vendor) : next.add(vendor)
                       setExpandedVendors(next)
                     }}
-                    className="w-full flex items-center gap-2 px-5 py-2.5 bg-zinc-50 dark:bg-slate-800/50 hover:bg-zinc-100 dark:hover:bg-slate-700/50 transition-colors"
                   >
                     {expanded
                       ? <ChevronDown className="w-4 h-4 text-zinc-400 dark:text-slate-500" />
@@ -769,6 +775,7 @@ function ReviewStep({
                     <input
                       type="checkbox"
                       checked={vendorAllSelected}
+                      aria-label={`Select all ${vendor} devices`}
                       ref={el => { if (el) el.indeterminate = vendorSomeSelected && !vendorAllSelected }}
                       onChange={(e) => {
                         e.stopPropagation()
@@ -779,7 +786,7 @@ function ReviewStep({
                       onClick={e => e.stopPropagation()}
                       className="w-4 h-4 rounded border-zinc-300 text-brand-500"
                     />
-                  </button>
+                  </div>
                   <AnimatePresence>
                     {expanded && (
                       <motion.div

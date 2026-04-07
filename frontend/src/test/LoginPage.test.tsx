@@ -51,7 +51,7 @@ describe('LoginPage', () => {
       logout: vi.fn(),
       refreshUser: vi.fn(),
     })
-    vi.mocked(authApi.oidcConfig).mockResolvedValue({ data: { enabled: false } })
+    vi.mocked(authApi.oidcConfig).mockResolvedValue({ data: { enabled: false }, status: 200, statusText: 'OK', headers: {}, config: {} as any })
   })
 
   it('renders the login form with all required elements', async () => {
@@ -137,7 +137,7 @@ describe('LoginPage', () => {
     sessionStorage.setItem('edq_oidc_nonce', 'nonce-123')
     sessionStorage.setItem('edq_oidc_code_verifier', 'v'.repeat(43))
     window.history.replaceState({}, '', '/login?code=code-123&state=expected-state')
-    vi.mocked(authApi.oidcCallback).mockResolvedValue({ data: {} })
+    vi.mocked(authApi.oidcCallback).mockResolvedValue({ data: {}, status: 200, statusText: 'OK', headers: {}, config: {} as any })
 
     await renderLoginPage()
 

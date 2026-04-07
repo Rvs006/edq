@@ -100,7 +100,7 @@ export default function ReportsPage() {
           <div className="space-y-4">
             <div>
               <label className="label">Test Run</label>
-              <select value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)} className="input">
+              <select value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)} aria-label="Select test run" className="input">
                 <option value="">Select a completed test run...</option>
                 {runs?.map((run: TestRun) => (
                 <option key={run.id} value={run.id}>
@@ -140,7 +140,7 @@ export default function ReportsPage() {
                   <LayoutTemplate className="w-4 h-4 text-zinc-400" />
                   Report Template
                 </label>
-                <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} className="input">
+                <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} aria-label="Select report template" className="input">
                   {availableTemplates.map((t: ReportTemplate) => (
                     <option key={t.key} value={t.key}>
                       {t.name || t.label}
