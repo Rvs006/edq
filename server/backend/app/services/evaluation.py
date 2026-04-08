@@ -55,9 +55,10 @@ def _eval_u02(data: dict, _wl: list) -> tuple[str, str]:
 
 def _eval_u03(data: dict, _wl: list) -> tuple[str, str]:
     """Switch Negotiation — ethtool not in sidecar, mark N/A."""
-    return ("na", "Switch Negotiation (Speed/Duplex) — This test checks Ethernet link speed and duplex settings using ethtool. "
-                   "It cannot run remotely from the Docker sidecar. To verify: physically check the switch port configuration "
-                   "or run 'ethtool <interface>' from a device with direct network access.")
+    return ("na", "Switch Negotiation (Speed/Duplex) — Cannot run remotely from Docker. "
+                   "To verify: check the switch port LED indicators, or run 'show interface status' "
+                   "on the switch CLI, or use 'ethtool <interface>' from a host with direct access. "
+                   "Expected: auto-negotiation enabled, 100Mbps or 1Gbps full-duplex.")
 
 
 def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
@@ -95,12 +96,13 @@ def _eval_u07(data: dict, _wl: list) -> tuple[str, str]:
     """UDP Top-100 Port Scan."""
     open_ports = data.get("open_ports", [])
     count = len(open_ports)
+    caveat = " Note: UDP scanning through Docker may miss some ports due to NAT/firewall behaviour."
     if count == 0:
-        return ("info", "UDP Port Scan — No open UDP ports detected in top 100 scan.")
+        return ("info", f"UDP Port Scan — No open UDP ports detected in top 100 scan.{caveat}")
     port_list = ", ".join(
         f"{p['port']}/{p.get('service', '?')}" for p in open_ports[:20]
     )
-    return ("info", f"UDP Port Scan — {count} open/filtered UDP port(s) found: {port_list}.")
+    return ("info", f"UDP Port Scan — {count} open/filtered UDP port(s) found: {port_list}.{caveat}")
 
 
 def _eval_u08(data: dict, _wl: list) -> tuple[str, str]:
@@ -382,10 +384,16 @@ def _eval_u36(data: dict, _wl: list) -> tuple[str, str]:
         protocol = p.get("protocol", "tcp") or "tcp"
         state = p.get("state", "open") or "open"
         port_num = p.get("port", "?")
-        # Build detailed service line: port/protocol service version (state)
+        # Build detailed service line: port/protocol service [version] (product) extra_info (state)
         detail = f"{port_num}/{protocol} {service}"
         if version:
             detail += f" [{version}]"
+        product = p.get("product", "") or ""
+        extra_info = p.get("extra_info", "") or ""
+        if product:
+            detail += f" ({product})"
+        if extra_info:
+            detail += f" {extra_info}"
         detail += f" ({state})"
         services_detail.append(detail)
         banner = f"{service} {version}".lower()

@@ -1,6 +1,7 @@
-"""Universal Test Library — 43 tests that apply to every IP device.
+"""Universal Test Library — 60 tests that apply to every IP device.
 
-Based on EDQ PRD v1.3 Section 9. Tests U01–U43.
+Based on EDQ PRD v1.3 Section 9. Tests U01–U43, extended with U44–U60
+to match the Electracom qualification template.
 """
 
 UNIVERSAL_TESTS = [
@@ -50,22 +51,22 @@ UNIVERSAL_TESTS = [
         "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials", "SOC2 CC6.1"]
     },
     {
-        "test_id": "U10", "name": "TLS Version Assessment", "tier": "automatic", "tool": "sslyze",
+        "test_id": "U10", "name": "TLS Version Assessment", "tier": "automatic", "tool": "testssl",
         "is_essential": True, "description": "Verify TLS protocol versions (must support TLS 1.2+, reject SSL/TLS 1.0/1.1).",
         "compliance_map": ["ISO 27001 A.10.1.1", "Cyber Essentials", "SOC2 CC6.1"]
     },
     {
-        "test_id": "U11", "name": "Cipher Suite Strength", "tier": "automatic", "tool": "sslyze",
+        "test_id": "U11", "name": "Cipher Suite Strength", "tier": "automatic", "tool": "testssl",
         "is_essential": False, "description": "Evaluate cipher suite strength and reject weak ciphers.",
         "compliance_map": ["ISO 27001 A.10.1.1"]
     },
     {
-        "test_id": "U12", "name": "Certificate Validity", "tier": "automatic", "tool": "sslyze",
+        "test_id": "U12", "name": "Certificate Validity", "tier": "automatic", "tool": "testssl",
         "is_essential": False, "description": "Check certificate expiry, chain, and trust.",
         "compliance_map": ["ISO 27001 A.10.1.1"]
     },
     {
-        "test_id": "U13", "name": "HSTS Header Presence", "tier": "automatic", "tool": "sslyze",
+        "test_id": "U13", "name": "HSTS Header Presence", "tier": "automatic", "tool": "testssl",
         "is_essential": False, "description": "Verify HTTP Strict Transport Security header is set.",
         "compliance_map": ["ISO 27001 A.14.1.2"]
     },
@@ -191,7 +192,7 @@ UNIVERSAL_TESTS = [
     },
     {
         "test_id": "U38", "name": "MQTT Support & Security", "tier": "guided_manual", "tool": None,
-        "is_essential": False, "description": "Check MQTT broker support, TLS enforcement, and authentication requirements.",
+        "is_essential": False, "description": "Check if the device supports MQTT. If so, state the MQTT version supported. If not, state how the device sends data to a broker (e.g. via HTTPS or middleware). See U49-U53 for detailed MQTT sub-tests.",
         "compliance_map": ["ISO 27001 A.13.1.1"]
     },
     {
@@ -218,6 +219,92 @@ UNIVERSAL_TESTS = [
         "test_id": "U43", "name": "End-of-Life / Vendor Support", "tier": "guided_manual", "tool": None,
         "is_essential": False, "description": "Verify device is not end-of-life and manufacturer provides active security patches.",
         "compliance_map": ["ISO 27001 A.14.2.5"]
+    },
+    # --- Extended tests to match Electracom qualification template ---
+    {
+        "test_id": "U44", "name": "Static IP Configuration", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Confirm the device can have a static IPv4 address configured. Verify IP persists after reboot.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U45", "name": "Hostname Resolution", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify the device can be reached via hostname (DNS/mDNS). Test M2M connections using hostname rather than IP.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U46", "name": "Data Flow Analysis", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Record the device's data flow types, endpoints, and keepalive traffic. Confirm there are no unencrypted communications. Use Wireshark or similar packet capture tool.",
+        "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials"]
+    },
+    {
+        "test_id": "U47", "name": "x509 Certificate Replacement", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify the device allows replacement of self-signed certificates with CA-signed x509 certificates. Test certificate upload and activation.",
+        "compliance_map": ["ISO 27001 A.10.1.1"]
+    },
+    {
+        "test_id": "U48", "name": "BACnet PIC/BIBB Statement", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Confirm the device has a valid BACnet Protocol Implementation Conformance Statement (PICS) and BACnet Interoperability Building Block (BIBB) statement.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U49", "name": "MQTT Custom Payloads", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify the device supports UDMI JSON payload creation and/or custom JSON payload configuration for MQTT publishing.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U50", "name": "MQTT Write-back Commands", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify the device can receive and act on commands sent via MQTT publish messages (write-back capability).",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U51", "name": "MQTT Over TLS", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify the device supports MQTT over TLS (port 8883). Confirm TLS is enforced and unencrypted MQTT (port 1883) is disabled or redirected.",
+        "compliance_map": ["ISO 27001 A.10.1.1", "Cyber Essentials"]
+    },
+    {
+        "test_id": "U52", "name": "MQTT Client Certificate Auth", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify the device supports client certificate authentication (X.509) for MQTT broker connections.",
+        "compliance_map": ["ISO 27001 A.9.4.3"]
+    },
+    {
+        "test_id": "U53", "name": "MQTT Username/Password Auth", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify the device supports username/password authentication for MQTT broker connections.",
+        "compliance_map": ["ISO 27001 A.9.4.3"]
+    },
+    {
+        "test_id": "U54", "name": "PKI Integration", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify custom CA certificates can be installed into the device's trust store to enable integration into a private PKI infrastructure.",
+        "compliance_map": ["ISO 27001 A.10.1.1"]
+    },
+    {
+        "test_id": "U55", "name": "Wi-Fi Standards Supported", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Document which Wi-Fi standards are supported: 802.11g / 802.11n / 802.11ac / 802.11ax. Record from device specifications or admin interface.",
+        "compliance_map": []
+    },
+    {
+        "test_id": "U56", "name": "Wi-Fi Disablement", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "If Wi-Fi is not required for normal operations, verify it can be disabled on the device.",
+        "compliance_map": ["ISO 27001 A.13.1.1"]
+    },
+    {
+        "test_id": "U57", "name": "Wi-Fi Encryption", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Verify the device supports WPA2-AES as a minimum for Wi-Fi encryption. Document if WPA3 is supported.",
+        "compliance_map": ["ISO 27001 A.10.1.1", "Cyber Essentials"]
+    },
+    {
+        "test_id": "U58", "name": "PoE Standards Supported", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Document the Power over Ethernet standards supported by the device (802.3af/at/bt). Record PoE class and power draw.",
+        "compliance_map": []
+    },
+    {
+        "test_id": "U59", "name": "SOAK Test (7-Day Stability)", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Leave the device connected to the network for seven days. Check switch logs to ensure the port remained stable and the device can still be reached. Record any connectivity drops or anomalies.",
+        "compliance_map": ["ISO 27001 A.17.1.1"]
+    },
+    {
+        "test_id": "U60", "name": "Additional Information / Notes", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Record any additional observations, vulnerabilities, or notes not covered by other tests. Refer to the 'Additional Info' tab in the qualification template.",
+        "compliance_map": []
     },
 ]
 

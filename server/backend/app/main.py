@@ -167,7 +167,14 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     print(f"[EDQ] Frontend directory: {FRONTEND_DIR} (exists: {os.path.isdir(FRONTEND_DIR)})")
     await init_db()
-    _seed_on_startup()
+    admin_created = _seed_on_startup()
+    # If the admin user was just created by the sync engine, re-sync the
+    # password hash through the async engine so that API requests (which use
+    # the async connection) can verify it.  This fixes a SQLite WAL isolation
+    # issue where the async connection cannot see uncommitted/uncheckpointed
+    # writes made by the separate sync connection.
+    if admin_created:
+        await _ensure_admin_password_synced()
     try:
         from app.services.test_engine import recover_orphaned_runs
         await recover_orphaned_runs()
@@ -185,13 +192,68 @@ async def lifespan(app: FastAPI):
         stop_scheduler()
 
 
-def _seed_on_startup() -> None:
-    """Run synchronous seed logic (idempotent) after tables are created."""
+def _seed_on_startup() -> bool:
+    """Run synchronous seed logic (idempotent) after tables are created.
+
+    Returns True if the admin user was newly created (first boot).
+    """
     try:
         from init_db import init_db as seed_db
-        seed_db()
+        return seed_db()
     except Exception as e:
         print(f"[EDQ] Warning: seed data error (may be already seeded): {e}")
+        return False
+
+
+async def _ensure_admin_password_synced() -> None:
+    """Re-write the admin password hash through the async engine.
+
+    On first boot the admin user is created by init_db.py using a *sync*
+    SQLAlchemy session.  The running server uses an *async* engine which
+    holds a separate SQLite connection.  Due to WAL isolation the async
+    connection may not see the sync write until a checkpoint occurs.
+
+    This function reads the admin row through the async engine and, if the
+    password does not verify, re-hashes and writes it so the async
+    connection's own WAL view is authoritative.
+
+    Only called when the admin was just created (first run / fresh DB).
+    On subsequent restarts the admin already exists in the DB and the
+    password is left untouched — this avoids overwriting a password that
+    was changed by the user, especially when INITIAL_ADMIN_PASSWORD is
+    auto-generated and differs each restart.
+    """
+    from app.models.database import async_session
+    from app.models.user import User
+    from app.security.auth import hash_password, verify_password
+    from app.config import settings
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.username == "admin"))
+        admin = result.scalar_one_or_none()
+        if admin is None:
+            # Admin not visible to async engine at all — write a fresh row
+            import uuid
+            admin = User(
+                id=str(uuid.uuid4()),
+                username="admin",
+                email="admin@electracom.co.uk",
+                password_hash=hash_password(settings.INITIAL_ADMIN_PASSWORD),
+                full_name="System Administrator",
+                role="admin",
+                is_active=True,
+            )
+            db.add(admin)
+            await db.commit()
+            print("[EDQ] Admin user created through async engine (WAL isolation workaround)")
+        elif not verify_password(settings.INITIAL_ADMIN_PASSWORD, admin.password_hash):
+            # Row visible but hash doesn't match (stale WAL page) — re-hash
+            admin.password_hash = hash_password(settings.INITIAL_ADMIN_PASSWORD)
+            await db.commit()
+            print("[EDQ] Admin password re-synced through async engine (WAL isolation workaround)")
+        else:
+            print("[EDQ] Admin password verified OK through async engine")
 
 
 def create_app() -> FastAPI:
@@ -306,7 +368,11 @@ def create_app() -> FastAPI:
         async def serve_spa(request: Request, full_path: str):
             if full_path.startswith("api/") or full_path in ("docs", "redoc", "openapi.json"):
                 return {"detail": "Not Found"}
+            from pathlib import Path
             file_path = os.path.join(FRONTEND_DIR, full_path)
+            resolved = Path(file_path).resolve()
+            if not resolved.is_relative_to(Path(FRONTEND_DIR).resolve()):
+                return {"detail": "Not Found"}
             if full_path and os.path.isfile(file_path):
                 return FileResponse(file_path)
             return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))

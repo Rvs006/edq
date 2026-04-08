@@ -30,7 +30,7 @@ const verdictIcons: Record<string, { icon: string; color: string }> = {
   na: { icon: '\u2298', color: 'text-zinc-400' },
   skipped_safe_mode: { icon: '\uD83D\uDD12', color: 'text-zinc-400' },
   skipped_scenario: { icon: '\u26A1', color: 'text-yellow-500' },
-  pending: { icon: '\u23F3', color: 'text-zinc-400' },
+  pending: { icon: '\u23F3', color: 'text-blue-400' },
 }
 
 type DisplayState = 'waiting' | 'running' | 'done' | 'manual_pending'
@@ -224,7 +224,7 @@ const SidebarItem = forwardRef<HTMLButtonElement, {
       className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-all group relative
         ${isSelected ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-300' : ''}
         ${isRunning ? 'bg-blue-50/60 dark:bg-blue-950/30' : ''}
-        ${state === 'waiting' && !isSelected ? 'opacity-40' : ''}
+        ${state === 'waiting' && !isSelected ? 'opacity-60' : ''}
         ${state !== 'waiting' || isSelected ? 'hover:bg-zinc-50 dark:hover:bg-slate-700/40' : 'hover:opacity-60'}
         text-zinc-700 dark:text-slate-200`}
     >

@@ -110,18 +110,33 @@ def _resolve_script_flag(result) -> str:
 
 
 def _resolve_comment(result) -> str:
-    # Include override reason when a result has been overridden by a reviewer
+    """Build the comment string for a test result.
+
+    Combines comment_override/comment, engineer notes, and override info.
+    Engineer notes are included in the combined comment so they appear in
+    the Test Comments column of the report.  The separate Engineer Notes
+    column in the scratch report receives the raw engineer_notes field.
+    """
+    parts = []
+    # Base comment (auto-generated or manual)
+    base = result.comment_override or result.comment or ""
+    if base:
+        parts.append(base)
+    # Engineer notes
+    eng_notes = getattr(result, "engineer_notes", None)
+    if eng_notes:
+        parts.append(f"[Engineer Notes: {eng_notes}]")
+    # Override info
     override_reason = getattr(result, "override_reason", None)
     if override_reason:
-        base = result.comment_override or result.comment or ""
         overridden_by = getattr(result, "overridden_by_username", None) or "Reviewer"
         override_verdict = getattr(result, "override_verdict", None) or ""
-        suffix = f" [OVERRIDE by {overridden_by}: {override_reason}"
+        suffix = f"[OVERRIDE by {overridden_by}: {override_reason}"
         if override_verdict:
-            suffix += f" → {override_verdict.upper()}"
+            suffix += f" \u2192 {override_verdict.upper()}"
         suffix += "]"
-        return (base + suffix).strip()
-    return result.comment_override or result.comment or ""
+        parts.append(suffix)
+    return " ".join(parts).strip() if parts else ""
 
 
 def _safe_attr(obj, attr: str, default: str = "") -> str:
@@ -326,108 +341,218 @@ async def generate_excel_report(
 
 
 async def generate_excel_report_scratch(test_run, test_results, report_config=None) -> str:
+    """Scratch Excel report matching the Electracom qualification template structure.
+
+    Sheet 1 -- TEST SUMMARY: device metadata, tester info, overall result.
+    Sheet 2 -- TESTPLAN: per-test rows with template-matching columns.
+    """
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
     wb = Workbook()
 
+    device = getattr(test_run, "device", None)
+    engineer = getattr(test_run, "engineer", None)
+    overall_verdict_str = _resolve_overall_verdict(test_run)
+
+    # --- Sheet 1: TEST SUMMARY (mirrors template Synopsis sheet) ---
     ws_summary = wb.active
-    ws_summary.title = "Summary"
-    ws_summary.column_dimensions["A"].width = 25
-    ws_summary.column_dimensions["B"].width = 40
+    ws_summary.title = "TEST SUMMARY"
+    ws_summary.column_dimensions["A"].width = 5
+    ws_summary.column_dimensions["B"].width = 25
+    ws_summary.column_dimensions["C"].width = 5
+    ws_summary.column_dimensions["D"].width = 5
+    ws_summary.column_dimensions["E"].width = 5
+    ws_summary.column_dimensions["F"].width = 5
+    ws_summary.column_dimensions["G"].width = 40
 
     label_font = Font(name="Calibri", size=11, bold=True)
     value_font = Font(name="Calibri", size=11)
+    title_font = Font(name="Calibri", size=18, bold=True, color="1F4E79")
 
-    ws_summary["A1"] = "EDQ Device Qualification Report"
-    ws_summary["A1"].font = Font(name="Calibri", size=18, bold=True, color="1F4E79")
+    ws_summary.merge_cells("B2:G2")
+    ws_summary["B2"] = "IP Device Qualification Report"
+    ws_summary["B2"].font = title_font
 
-    ws_summary["A3"] = "Test Run ID"
-    ws_summary["A3"].font = label_font
-    ws_summary["B3"] = _sanitize_for_excel(test_run.id)
-    ws_summary["B3"].font = value_font
+    ws_summary.merge_cells("B4:F4")
+    ws_summary["B4"] = "Electracom Projects Ltd"
+    ws_summary["B4"].font = Font(name="Calibri", size=14, bold=True, color="595959")
 
-    ws_summary["A4"] = "Device ID"
-    ws_summary["A4"].font = label_font
-    ws_summary["B4"] = _sanitize_for_excel(test_run.device_id)
+    # Metadata rows matching template layout (labels in B, values in G)
+    meta_rows = [
+        (7, "Test Attempt:", "1"),
+        (8, "Date Range:", _format_date_range(test_run)),
+        (9, "System:", _safe_attr(device, "category", "")),
+        (11, "Manufacturer:", _safe_attr(device, "manufacturer", "")),
+        (12, "Model:", _safe_attr(device, "model", "")),
+        (13, "Firmware:", _safe_attr(device, "firmware_version", "")),
+        (14, "Serial:", ""),
+        (15, "Tester Name:", _safe_attr(engineer, "full_name", "")),
+        (16, "Overall Result:", overall_verdict_str),
+    ]
 
-    ws_summary["A5"] = "Overall Verdict"
-    ws_summary["A5"].font = label_font
-    overall_verdict_str = _resolve_overall_verdict(test_run)
-    ws_summary["B5"] = _sanitize_for_excel(overall_verdict_str)
-    verdict_colors = {"PASS": "27AE60", "QUALIFIED PASS": "F39C12", "FAIL": "E74C3C"}
-    ws_summary["B5"].font = Font(
-        name="Calibri", size=11, bold=True, color=verdict_colors.get(overall_verdict_str, "000000")
-    )
+    for row_num, label, value in meta_rows:
+        ws_summary[f"B{row_num}"] = label
+        ws_summary[f"B{row_num}"].font = label_font
+        ws_summary[f"G{row_num}"] = _sanitize_for_excel(value)
+        ws_summary[f"G{row_num}"].font = value_font
 
-    ws_summary["A7"] = "Tests Passed"
-    ws_summary["B7"] = test_run.passed_tests
-    ws_summary["A8"] = "Tests Failed"
-    ws_summary["B8"] = test_run.failed_tests
-    ws_summary["A9"] = "Advisories"
-    ws_summary["B9"] = test_run.advisory_tests
-    ws_summary["A10"] = "N/A"
-    ws_summary["B10"] = test_run.na_tests
-    ws_summary["A11"] = "Total Tests"
-    ws_summary["B11"] = test_run.total_tests
+    # Color-code overall result cell
+    verdict_fills_summary = {
+        "PASS": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
+        "QUALIFIED PASS": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
+        "FAIL": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+    }
+    verdict_fonts_summary = {
+        "PASS": Font(name="Calibri", size=11, bold=True, color="006100"),
+        "QUALIFIED PASS": Font(name="Calibri", size=11, bold=True, color="9C6500"),
+        "FAIL": Font(name="Calibri", size=11, bold=True, color="9C0006"),
+    }
+    fill = verdict_fills_summary.get(overall_verdict_str)
+    if fill:
+        ws_summary["G16"].fill = fill
+        ws_summary["G16"].font = verdict_fonts_summary.get(
+            overall_verdict_str, Font(name="Calibri", size=11, bold=True)
+        )
+
+    # Synopsis text
+    synopsis_text = test_run.synopsis or ""
+    if synopsis_text:
+        ws_summary.merge_cells("B19:G22")
+        ws_summary["B19"] = _sanitize_for_excel(synopsis_text)
+        ws_summary["B19"].font = value_font
+        ws_summary["B19"].alignment = Alignment(wrap_text=True, vertical="top")
+
+    # Test statistics
+    ws_summary["B24"] = "Test Statistics"
+    ws_summary["B24"].font = label_font
+    stats_rows = [
+        (25, "Tests Passed:", test_run.passed_tests),
+        (26, "Tests Failed:", test_run.failed_tests),
+        (27, "Advisories:", test_run.advisory_tests),
+        (28, "N/A:", test_run.na_tests),
+        (29, "Total Tests:", test_run.total_tests),
+    ]
+    for row_num, label, value in stats_rows:
+        ws_summary[f"B{row_num}"] = label
+        ws_summary[f"B{row_num}"].font = label_font
+        ws_summary[f"G{row_num}"] = value
+        ws_summary[f"G{row_num}"].font = value_font
 
     tool_versions = _get_tool_versions(test_run)
+    tv_start = 31
     if tool_versions:
-        ws_summary["A13"] = "Tool Versions"
-        ws_summary["A13"].font = label_font
-        row_offset = 14
+        ws_summary[f"B{tv_start}"] = "Tool Versions"
+        ws_summary[f"B{tv_start}"].font = label_font
+        row_offset = tv_start + 1
         for tool_name, tool_ver in tool_versions.items():
-            ws_summary[f"A{row_offset}"] = _sanitize_for_excel(tool_name)
-            ws_summary[f"B{row_offset}"] = _sanitize_for_excel(tool_ver)
+            ws_summary[f"B{row_offset}"] = _sanitize_for_excel(tool_name)
+            ws_summary[f"G{row_offset}"] = _sanitize_for_excel(tool_ver)
             row_offset += 1
-        ws_summary[f"A{row_offset + 1}"] = "Generated"
-        ws_summary[f"B{row_offset + 1}"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        gen_row = row_offset + 1
     else:
-        ws_summary["A13"] = "Generated"
-        ws_summary["B13"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        gen_row = tv_start
 
-    ws_results = wb.create_sheet("Test Results")
-    headers = ["Test ID", "Test Name", "Tier", "Tool", "Essential", "Verdict", "Comment", "Compliance"]
-    ws_results.column_dimensions["A"].width = 10
-    ws_results.column_dimensions["B"].width = 35
-    ws_results.column_dimensions["C"].width = 15
-    ws_results.column_dimensions["D"].width = 12
-    ws_results.column_dimensions["E"].width = 10
-    ws_results.column_dimensions["F"].width = 12
-    ws_results.column_dimensions["G"].width = 50
-    ws_results.column_dimensions["H"].width = 30
+    ws_summary[f"B{gen_row}"] = "Generated"
+    ws_summary[f"B{gen_row}"].font = label_font
+    ws_summary[f"G{gen_row}"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    # --- Sheet 2: TESTPLAN (matches template columns) ---
+    ws_results = wb.create_sheet("TESTPLAN")
+
+    # Column widths matching template
+    ws_results.column_dimensions["A"].width = 3
+    ws_results.column_dimensions["B"].width = 12   # Test Number
+    ws_results.column_dimensions["C"].width = 30   # Brief Description
+    ws_results.column_dimensions["D"].width = 50   # Test Description
+    ws_results.column_dimensions["E"].width = 12   # Script (Yes/No)
+    ws_results.column_dimensions["F"].width = 14   # Essential Pass
+    ws_results.column_dimensions["G"].width = 14   # Test Result
+    ws_results.column_dimensions["H"].width = 50   # Test Comments
+    ws_results.column_dimensions["I"].width = 35   # Engineer Notes
+
+    # Header row matching generic template column order
+    headers = [
+        ("B", "Test Number"),
+        ("C", "Brief Description"),
+        ("D", "Test Description"),
+        ("E", "Script (Yes/No)"),
+        ("F", "Essential Pass"),
+        ("G", "Test Result"),
+        ("H", "Test Comments"),
+        ("I", "Engineer Notes"),
+    ]
 
     header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
     header_font_white = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
 
-    for col, header in enumerate(headers, 1):
-        cell = ws_results.cell(row=1, column=col, value=header)
+    header_row = 10  # Match template start area
+    for col_letter, header_text in headers:
+        cell = ws_results[f"{col_letter}{header_row}"]
+        cell.value = header_text
         cell.font = header_font_white
         cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
 
     verdict_fills = {
-        "pass": PatternFill(start_color="D5F5E3", end_color="D5F5E3", fill_type="solid"),
-        "fail": PatternFill(start_color="FADBD8", end_color="FADBD8", fill_type="solid"),
-        "advisory": PatternFill(start_color="FEF9E7", end_color="FEF9E7", fill_type="solid"),
+        "pass": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
+        "fail": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+        "advisory": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
         "na": PatternFill(start_color="EAEDED", end_color="EAEDED", fill_type="solid"),
     }
 
-    for row_idx, result in enumerate(test_results, 2):
+    start_row = header_row + 1
+    for i, result in enumerate(test_results):
+        row = start_row + i
         verdict_val = _get_verdict_raw(result)
-        tier_val = _get_tier_raw(result)
-        compliance = ", ".join(result.compliance_map) if result.compliance_map else ""
+        verdict_display = _DEFAULT_VERDICT_MAP.get(verdict_val, verdict_val.upper())
 
-        ws_results.cell(row=row_idx, column=1, value=_sanitize_for_excel(result.test_id))
-        ws_results.cell(row=row_idx, column=2, value=_sanitize_for_excel(result.test_name))
-        ws_results.cell(row=row_idx, column=3, value=_sanitize_for_excel(tier_val))
-        ws_results.cell(row=row_idx, column=4, value=_sanitize_for_excel(result.tool or "—"))
-        ws_results.cell(row=row_idx, column=5, value=_sanitize_for_excel((result.is_essential or "no").upper()))
-        verdict_cell = ws_results.cell(row=row_idx, column=6, value=_sanitize_for_excel(verdict_val.upper()))
+        ws_results[f"B{row}"] = _sanitize_for_excel(result.test_id)
+        ws_results[f"B{row}"].border = thin_border
+
+        ws_results[f"C{row}"] = _sanitize_for_excel(result.test_name)
+        ws_results[f"C{row}"].border = thin_border
+
+        # Test description: use compliance map as supplementary description
+        test_desc = ""
+        if result.compliance_map:
+            test_desc = ", ".join(result.compliance_map)
+        ws_results[f"D{row}"] = _sanitize_for_excel(test_desc)
+        ws_results[f"D{row}"].border = thin_border
+        ws_results[f"D{row}"].alignment = Alignment(wrap_text=True)
+
+        ws_results[f"E{row}"] = _sanitize_for_excel(_resolve_script_flag(result))
+        ws_results[f"E{row}"].border = thin_border
+        ws_results[f"E{row}"].alignment = Alignment(horizontal="center")
+
+        ws_results[f"F{row}"] = _sanitize_for_excel((result.is_essential or "no").upper())
+        ws_results[f"F{row}"].border = thin_border
+        ws_results[f"F{row}"].alignment = Alignment(horizontal="center")
+
+        verdict_cell = ws_results[f"G{row}"]
+        verdict_cell.value = _sanitize_for_excel(verdict_display)
+        verdict_cell.border = thin_border
+        verdict_cell.alignment = Alignment(horizontal="center")
         verdict_cell.fill = verdict_fills.get(verdict_val, PatternFill())
-        ws_results.cell(row=row_idx, column=7, value=_sanitize_for_excel(_resolve_comment(result)))
-        ws_results.cell(row=row_idx, column=8, value=_sanitize_for_excel(compliance))
 
+        ws_results[f"H{row}"] = _sanitize_for_excel(_resolve_comment(result))
+        ws_results[f"H{row}"].border = thin_border
+        ws_results[f"H{row}"].alignment = Alignment(wrap_text=True)
+
+        eng_notes = getattr(result, "engineer_notes", None) or ""
+        ws_results[f"I{row}"] = _sanitize_for_excel(eng_notes)
+        ws_results[f"I{row}"].border = thin_border
+        ws_results[f"I{row}"].alignment = Alignment(wrap_text=True)
+
+    output_dir = Path(settings.REPORT_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"EDQ_Report_{test_run.id[:8]}_scratch_{timestamp}.xlsx"
     file_path = os.path.join(settings.REPORT_DIR, filename)
@@ -517,7 +642,7 @@ async def generate_word_report(
 
     title_p = doc.add_paragraph()
     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title_run = title_p.add_run("DEVICE QUALIFICATION REPORT")
+    title_run = title_p.add_run("IP DEVICE QUALIFICATION REPORT")
     title_run.font.name = "Calibri"
     title_run.font.size = Pt(28)
     title_run.bold = True
@@ -535,13 +660,14 @@ async def generate_word_report(
     doc.add_paragraph()
 
     info_items = [
-        ("Device", _safe_attr(device, "hostname") or _safe_attr(device, "ip_address", "Unknown")),
         ("Manufacturer", _safe_attr(device, "manufacturer", "N/A")),
         ("Model", _safe_attr(device, "model", "N/A")),
         ("Firmware", _safe_attr(device, "firmware_version", "N/A")),
+        ("Serial", ""),
         ("IP Address", _safe_attr(device, "ip_address", "N/A")),
+        ("System", _safe_attr(device, "category", "N/A")),
         ("Test Date", _format_date_range(test_run)),
-        ("Engineer", _safe_attr(engineer, "full_name", "N/A")),
+        ("Tester", _safe_attr(engineer, "full_name", "N/A")),
         ("Connection", getattr(test_run, "connection_scenario", "direct")),
     ]
 
@@ -653,12 +779,16 @@ async def generate_word_report(
 
     doc.add_page_break()
 
-    # --- Test Results Table ---
+    # --- Test Results Table (matching template columns) ---
     doc.add_heading("Test Results", level=1)
 
-    results_table = doc.add_table(rows=1, cols=6)
+    results_table = doc.add_table(rows=1, cols=8)
     results_table.style = "Table Grid"
-    result_headers = ["#", "Test Name", "Tier", "Essential", "Verdict", "Comments"]
+    result_headers = [
+        "Test Number", "Brief Description", "Test Description",
+        "Script", "Essential Pass", "Test Result",
+        "Test Comments", "Engineer Notes",
+    ]
     for i, header in enumerate(result_headers):
         cell = results_table.rows[0].cells[i]
         cell.text = header
@@ -673,14 +803,20 @@ async def generate_word_report(
     for result in filtered_results:
         row = results_table.add_row()
         verdict_raw = _get_verdict_raw(result)
-        tier_raw = _get_tier_raw(result)
 
         row.cells[0].text = _sanitize_for_excel(result.test_id)
         row.cells[1].text = _sanitize_for_excel(result.test_name)
-        row.cells[2].text = _sanitize_for_excel(tier_raw.replace("_", " ").title())
-        row.cells[3].text = _sanitize_for_excel((result.is_essential or "no").upper())
-        row.cells[4].text = _sanitize_for_excel(_resolve_verdict(result, {}))
-        row.cells[5].text = _sanitize_for_excel(_resolve_comment(result)[:200])
+        # Test description: compliance map or empty
+        test_desc = ""
+        if result.compliance_map:
+            test_desc = ", ".join(result.compliance_map)
+        row.cells[2].text = _sanitize_for_excel(test_desc)
+        row.cells[3].text = _sanitize_for_excel(_resolve_script_flag(result))
+        row.cells[4].text = _sanitize_for_excel((result.is_essential or "no").upper())
+        row.cells[5].text = _sanitize_for_excel(_resolve_verdict(result, {}))
+        row.cells[6].text = _sanitize_for_excel(_resolve_comment(result)[:500])
+        eng_notes = getattr(result, "engineer_notes", None) or ""
+        row.cells[7].text = _sanitize_for_excel(eng_notes[:300])
 
         bg_hex = _VERDICT_BG_COLORS.get(verdict_raw)
         if bg_hex:
@@ -714,7 +850,7 @@ async def generate_word_report(
             color_tuple = _VERDICT_COLORS.get(verdict_raw, (0, 0, 0))
 
             h = doc.add_heading(level=2)
-            h_run = h.add_run(f"{result.test_id} — {result.test_name}")
+            h_run = h.add_run(f"{result.test_id} \u2014 {result.test_name}")
             h_run.font.name = "Calibri"
 
             verdict_p = doc.add_paragraph()

@@ -6,6 +6,7 @@ Streams progress via WebSocket and integrates the Wobbly Cable Handler.
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -84,6 +85,17 @@ class TestEngine:
                 await self._set_run_error(db, run, "Device not found")
                 return
 
+            if not device.ip_address:
+                logger.error(
+                    "Device %s has no IP address (DHCP device awaiting assignment) — cannot run tests",
+                    device.id,
+                )
+                await self._set_run_error(
+                    db, run,
+                    "Device has no IP address. Discover the IP first for DHCP devices.",
+                )
+                return
+
             template = await self._load_template(db, run.template_id)
             if template is None:
                 logger.error("Template %s not found for run %s", run.template_id, test_run_id)
@@ -149,14 +161,22 @@ class TestEngine:
             skip_test_ids: set[str] = set()
             skip_reasons: dict[str, str] = {}
 
-            # Scenario-based skipping: DHCP test is meaningless on site_network
+            # Scenario-based skipping: certain tests are not applicable in some scenarios
             connection_scenario = getattr(run, "connection_scenario", "direct") or "direct"
             if connection_scenario == "site_network":
-                skip_test_ids.add("U04")
+                skip_test_ids.update({"U03", "U04"})
+                skip_reasons["U03"] = (
+                    "Skipped — Switch negotiation test not applicable in site network scenario."
+                )
                 skip_reasons["U04"] = (
                     "Skipped — DHCP behaviour test not applicable in site network scenario. "
                     "The device is already on an existing network with established DHCP. "
                     "To test DHCP, use the direct cable scenario."
+                )
+            elif connection_scenario == "test_lab":
+                skip_test_ids.add("U03")
+                skip_reasons["U03"] = (
+                    "Skipped — Switch negotiation test not applicable in test lab scenario."
                 )
             fingerprint_done = False
             fingerprint_result: FingerprintResult | None = None
@@ -418,7 +438,6 @@ class TestEngine:
 
                 # Extract firmware from version strings (e.g. "EasyIO FW-14 v2.3")
                 if version and not device_row.firmware_version:
-                    import re
                     fw_match = re.search(r'[Vv]?(\d+\.\d+[\.\d]*)', version)
                     if fw_match:
                         device_row.firmware_version = fw_match.group(0)
@@ -611,7 +630,7 @@ class TestEngine:
 
         if test_id == "U06":
             raw = await tools_client.nmap_stream(
-                device_ip, ["-sS", "-p-", "-T4", "--min-rate", "300", "--defeat-rst-ratelimit", "--open", "-oX", "-"], timeout=600, on_line=on_line
+                device_ip, ["-sS", "-p-", "-T4", "--min-rate", "500", "--max-retries", "2", "--defeat-rst-ratelimit", "--open", "-oX", "-"], timeout=600, on_line=on_line
             )
             if raw.get("exit_code") not in (None, 0):
                 logger.warning("U06 nmap exited %s: %s", raw.get("exit_code"), raw.get("stderr", ""))
@@ -628,8 +647,18 @@ class TestEngine:
             return (parsed, raw.get("stdout"))
 
         if test_id == "U08":
+            # Use U06's discovered ports if available for consistency
+            u08_args = ["-sV", "--open", "-oX", "-"]
+            u06_cached = _PORT_SCAN_CACHE.get(run_id)
+            if u06_cached and u06_cached.get("open_ports"):
+                port_list = ",".join(
+                    str(p["port"]) for p in u06_cached["open_ports"] if "port" in p
+                )
+                if port_list:
+                    u08_args = ["-sV", "-p", port_list, "--open", "-oX", "-"]
+                    logger.info("U08: targeting %d ports from U06 scan", len(u06_cached["open_ports"]))
             raw = await tools_client.nmap_stream(
-                device_ip, ["-sV", "--open", "-oX", "-"], timeout=300, on_line=on_line
+                device_ip, u08_args, timeout=300, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
             # Store U08 data as fallback for U09 when U06 cache is empty
@@ -672,7 +701,7 @@ class TestEngine:
                 if found:
                     tls_port = found[0]
             target = f"{device_ip}:{tls_port}" if tls_port != 443 else device_ip
-            raw = await tools_client.testssl_stream(target, [], timeout=300, on_line=on_line)
+            raw = await tools_client.testssl_stream(target, ["--ip", "one", "--fast"], timeout=300, on_line=on_line)
             output_file = raw.get("output_file", "")
             if output_file:
                 parsed = testssl_parser.parse(output_file)
@@ -681,20 +710,29 @@ class TestEngine:
             _TESTSSL_CACHE[run_id] = parsed
             return (parsed, raw.get("stdout"))
 
-        if test_id == "U14":
-            raw = await tools_client.nikto_stream(device_ip, ["-host", device_ip], timeout=300, on_line=on_line)
+        if test_id in ("U14", "U35"):
+            # Auto-detect HTTP/HTTPS port from scan cache
+            nikto_args = []
+            port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
+            open_ports = port_cache.get("open_ports", [])
+            http_ports = [p["port"] for p in open_ports if p.get("service") in ("http", "https", "ssl/http", "ssl/https")]
+            if http_ports:
+                nikto_args.extend(["-p", str(http_ports[0])])
+                if any(p.get("service") in ("https", "ssl/http", "ssl/https") for p in open_ports if p["port"] == http_ports[0]):
+                    nikto_args.append("-ssl")
+            raw = await tools_client.nikto_stream(device_ip, nikto_args, timeout=300, on_line=on_line)
             parsed = {"raw": raw.get("stdout", ""), "stdout": raw.get("stdout", "")}
             return (parsed, raw.get("stdout"))
 
         if test_id == "U15":
-            raw = await tools_client.ssh_audit_stream(device_ip, [], timeout=120, on_line=on_line)
+            raw = await tools_client.ssh_audit_stream(device_ip, ["-j"], timeout=120, on_line=on_line)
             parsed = ssh_audit_parser.parse(raw)
             return (parsed, raw.get("stdout"))
 
         if test_id == "U16":
             raw = await tools_client.hydra_stream(
                 device_ip,
-                ["-l", "admin", "-P", "/usr/share/wordlists/common.txt", device_ip, "http-get"],
+                ["-C", "/usr/share/wordlists/common.txt", "-f", device_ip, "http-get"],
                 timeout=120,
                 on_line=on_line,
             )
@@ -715,25 +753,45 @@ class TestEngine:
             return (parsed, raw.get("stdout"))
 
         if test_id == "U26":
+            # NTP runs on UDP 123 — check TCP cache first, then run a quick UDP probe
             cached = _PORT_SCAN_CACHE.get(run_id)
+            ntp_open = False
             if cached:
                 ntp_open = any(p["port"] == 123 for p in cached.get("open_ports", []))
-                return ({"ntp_open": ntp_open}, None)
-            return ({"ntp_open": False}, None)
+            if not ntp_open:
+                raw = await tools_client.nmap_stream(
+                    device_ip, ["-sU", "-p", "123", "--open", "-oX", "-"], timeout=30, on_line=on_line
+                )
+                udp_parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+                ntp_open = any(p["port"] == 123 for p in udp_parsed.get("open_ports", []))
+            return ({"ntp_open": ntp_open}, None)
 
         if test_id == "U28":
+            # BACnet runs on UDP 47808 — check TCP cache first, then run a quick UDP probe
             cached = _PORT_SCAN_CACHE.get(run_id)
+            bacnet = False
             if cached:
                 bacnet = any(p["port"] == 47808 for p in cached.get("open_ports", []))
-                return ({"bacnet_open": bacnet}, None)
-            return ({"bacnet_open": False}, None)
+            if not bacnet:
+                raw = await tools_client.nmap_stream(
+                    device_ip, ["-sU", "-p", "47808", "--open", "-oX", "-"], timeout=30, on_line=on_line
+                )
+                udp_parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+                bacnet = any(p["port"] == 47808 for p in udp_parsed.get("open_ports", []))
+            return ({"bacnet_open": bacnet}, None)
 
         if test_id == "U29":
             cached = _PORT_SCAN_CACHE.get(run_id)
+            dns = False
             if cached:
                 dns = any(p["port"] == 53 for p in cached.get("open_ports", []))
-                return ({"dns_open": dns}, None)
-            return ({"dns_open": False}, None)
+            if not dns:
+                raw = await tools_client.nmap_stream(
+                    device_ip, ["-sU", "-p", "53", "--open", "-oX", "-"], timeout=30, on_line=on_line
+                )
+                udp_parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+                dns = any(p["port"] == 53 for p in udp_parsed.get("open_ports", []))
+            return ({"dns_open": dns}, None)
 
         if test_id == "U31":
             raw = await tools_client.nmap_stream(
@@ -770,11 +828,6 @@ class TestEngine:
             open_ports = {p["port"] for p in parsed.get("open_ports", [])}
             return ({"telnet_open": 23 in open_ports, "ftp_open": 21 in open_ports, "insecure_ports": sorted(open_ports)}, raw.get("stdout"))
 
-        if test_id == "U35":
-            raw = await tools_client.nikto_stream(device_ip, ["-host", device_ip], timeout=300, on_line=on_line)
-            parsed = {"raw": raw.get("stdout", ""), "stdout": raw.get("stdout", "")}
-            return (parsed, raw.get("stdout"))
-
         if test_id == "U36":
             raw = await tools_client.nmap_stream(
                 device_ip, ["-sV", "--script", "banner", "--open", "-oX", "-"], timeout=180, on_line=on_line
@@ -792,74 +845,100 @@ class TestEngine:
         """Test brute force protection by sending rapid login attempts.
 
         First detects whether the device uses form-based or HTTP basic auth,
-        then runs Hydra with the appropriate module.
+        then runs Hydra with the appropriate module.  Tries HTTPS if HTTP is
+        not available.
         """
         import httpx
 
         auth_type = "http-get"
         form_path = "/"
         form_fields = ""
+        use_ssl = False
 
-        # Detect auth type by checking for a login form
+        # Detect auth type by checking for a login form (try HTTP, then HTTPS)
         try:
             async with httpx.AsyncClient(timeout=10, verify=False, follow_redirects=True) as client:
-                resp = await client.get(f"http://{device_ip}/")
-                body = resp.text.lower()
-                # Look for common login form patterns
-                if "<form" in body and ("password" in body or "passwd" in body or "login" in body):
-                    auth_type = "http-post-form"
-                    # Try common login paths
-                    for path in ["/login", "/auth", "/user/login", "/api/login", "/"]:
-                        try:
-                            r = await client.get(f"http://{device_ip}{path}")
-                            if "<form" in r.text.lower() and "password" in r.text.lower():
-                                form_path = path
-                                break
-                        except Exception:
-                            continue
-                    form_fields = f"{form_path}:username=^USER^&password=^PASS^:F=incorrect:H=Content-Type: application/x-www-form-urlencoded"
-                elif resp.status_code == 401:
-                    auth_type = "http-get"
+                resp = None
+                for scheme in ("http", "https"):
+                    try:
+                        resp = await client.get(f"{scheme}://{device_ip}/")
+                        if scheme == "https":
+                            use_ssl = True
+                        break
+                    except Exception:
+                        continue
+                if resp is not None:
+                    body = resp.text.lower()
+                    # Look for common login form patterns
+                    if "<form" in body and ("password" in body or "passwd" in body or "login" in body):
+                        auth_type = "http-post-form"
+                        # Try common login paths
+                        scheme = "https" if use_ssl else "http"
+                        for path in ["/login", "/auth", "/user/login", "/api/login", "/"]:
+                            try:
+                                r = await client.get(f"{scheme}://{device_ip}{path}")
+                                if "<form" in r.text.lower() and "password" in r.text.lower():
+                                    form_path = path
+                                    break
+                            except Exception:
+                                continue
+                        form_fields = f"{form_path}:username=^USER^&password=^PASS^:F=incorrect:H=Content-Type: application/x-www-form-urlencoded"
+                    elif resp.status_code == 401:
+                        auth_type = "http-get"
         except Exception:
             pass
 
         lockout_detected = False
         error_msg = ""
         try:
+            # Build base args — hydra syntax: hydra [options] target service
+            # The sidecar does NOT append target, so we include device_ip here.
+            base_args = ["-l", "admin", "-e", "nsr", "-t", "4"]
+            if use_ssl:
+                base_args.extend(["-s", "443"])
+            base_args.append(device_ip)
             if auth_type == "http-post-form":
-                args = [
-                    "-l", "admin",
-                    "-p", "wrongpassword",
-                    "-t", "16",
-                    "-f",
-                    device_ip,
-                    "http-post-form",
-                ]
-                # Hydra http-post-form needs the form spec as the last positional arg
-                # Format: /path:user=^USER^&pass=^PASS^:F=failure_string
+                svc = "https-post-form" if use_ssl else "http-post-form"
+                base_args.append(svc)
                 if form_fields:
-                    args[-1] = "http-post-form"
-                    args.append(form_fields)
+                    base_args.append(form_fields)
             else:
-                args = [
-                    "-l", "admin",
-                    "-p", "wrongpassword",
-                    "-t", "16",
-                    "-f",
-                    device_ip,
-                    "http-get",
-                ]
+                base_args.append("https-get" if use_ssl else "http-get")
 
-            raw = await tools_client.hydra(device_ip, args, timeout=60)
-            stdout = raw.get("stdout", "")
-            exit_code = raw.get("exit_code", 1)
+            # Run multiple rounds to accumulate enough attempts to trigger
+            # brute-force protection (3 attempts per round via -e nsr).
+            rounds = 5
+            for attempt in range(rounds):
+                raw = await tools_client.hydra(device_ip, base_args, timeout=60)
+                stdout = raw.get("stdout", "")
+                exit_code = raw.get("exit_code", 1)
 
-            if "blocked" in stdout.lower() or "locked" in stdout.lower():
-                lockout_detected = True
-            elif exit_code != 0 and ("connection refused" in stdout.lower() or "timeout" in stdout.lower()):
-                lockout_detected = True
+                if "blocked" in stdout.lower() or "locked" in stdout.lower():
+                    lockout_detected = True
+                    break
+                if exit_code != 0 and ("connection refused" in stdout.lower() or "timeout" in stdout.lower()):
+                    lockout_detected = True
+                    break
 
-            error_msg = stdout
+                error_msg = stdout
+
+                if attempt < rounds - 1:
+                    await asyncio.sleep(0.5)
+
+            # Post-hydra verification: try connecting again to detect lockout
+            # via HTTP 429/403 or connection refusal
+            if not lockout_detected:
+                try:
+                    async with httpx.AsyncClient(timeout=10, verify=False) as client:
+                        scheme = "https" if use_ssl else "http"
+                        verify_resp = await client.get(f"{scheme}://{device_ip}/")
+                        if verify_resp.status_code in (429, 403):
+                            lockout_detected = True
+                except (httpx.ConnectError, httpx.ConnectTimeout):
+                    lockout_detected = True
+                except Exception:
+                    pass
+
         except Exception as exc:
             error_msg = str(exc)
             if "refused" in error_msg.lower() or "timeout" in error_msg.lower():

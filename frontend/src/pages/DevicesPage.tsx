@@ -138,7 +138,14 @@ export default function DevicesPage() {
                         </p>
                       )}
                     </td>
-                    <td className="py-3 px-4 font-mono text-xs text-zinc-600 dark:text-slate-400">{device.ip_address}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-zinc-600 dark:text-slate-400">
+                      {device.ip_address ? device.ip_address : (
+                        <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-sans">
+                          <Loader2 className="w-3 h-3" />
+                          Awaiting DHCP
+                        </span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 text-zinc-600 dark:text-slate-400 hidden md:table-cell">{device.manufacturer || '—'}</td>
                     <td className="py-3 px-4 text-zinc-600 dark:text-slate-400 hidden md:table-cell">{device.model || '—'}</td>
                     <td className="py-3 px-4 text-zinc-500 dark:text-slate-400 text-xs hidden lg:table-cell">{device.firmware_version || '—'}</td>
@@ -327,6 +334,7 @@ function isValidMac(mac: string): boolean {
 }
 
 function AddDeviceModal({ onClose }: { onClose: () => void }) {
+  const [isDhcp, setIsDhcp] = useState(false)
   const [form, setForm] = useState({
     ip_address: '', hostname: '', mac_address: '', manufacturer: '',
     model: '', firmware_version: '', category: 'unknown', location: '',
@@ -337,13 +345,21 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
 
   const validate = (): boolean => {
     const errors: { ip_address?: string; mac_address?: string } = {}
-    if (!form.ip_address.trim()) {
-      errors.ip_address = 'IP address is required'
-    } else if (!isValidIp(form.ip_address.trim())) {
-      errors.ip_address = 'Invalid IP address (e.g. 192.168.1.100)'
-    }
-    if (form.mac_address.trim() && !isValidMac(form.mac_address.trim())) {
-      errors.mac_address = 'Invalid MAC address (e.g. AA:BB:CC:DD:EE:FF)'
+    if (isDhcp) {
+      if (!form.mac_address.trim()) {
+        errors.mac_address = 'MAC address is required for DHCP devices'
+      } else if (!isValidMac(form.mac_address.trim())) {
+        errors.mac_address = 'Invalid MAC address (e.g. AA:BB:CC:DD:EE:FF)'
+      }
+    } else {
+      if (!form.ip_address.trim()) {
+        errors.ip_address = 'IP address is required'
+      } else if (!isValidIp(form.ip_address.trim())) {
+        errors.ip_address = 'Invalid IP address (e.g. 192.168.1.100)'
+      }
+      if (form.mac_address.trim() && !isValidMac(form.mac_address.trim())) {
+        errors.mac_address = 'Invalid MAC address (e.g. AA:BB:CC:DD:EE:FF)'
+      }
     }
     setFormErrors(errors)
     return Object.keys(errors).length === 0
@@ -354,9 +370,14 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
     if (!validate()) return
     setLoading(true)
     try {
-      const payload = Object.fromEntries(
-        Object.entries(form).filter(([k, v]) => v !== '' && k !== 'location')
-      )
+      const entries = Object.entries(form).filter(([, v]) => v !== '')
+      const payload: Record<string, string> = Object.fromEntries(entries)
+      if (isDhcp) {
+        payload.addressing_mode = 'dhcp'
+        delete payload.ip_address
+      } else {
+        payload.addressing_mode = 'static'
+      }
       await devicesApi.create(payload as Parameters<typeof devicesApi.create>[0])
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       toast.success('Device added successfully')
@@ -385,14 +406,35 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* DHCP toggle */}
+          <label className="flex items-center gap-3 p-3 rounded-lg border border-zinc-200 dark:border-slate-700/50 cursor-pointer hover:bg-zinc-50 dark:hover:bg-slate-800/50 transition-colors">
+            <input
+              type="checkbox"
+              checked={isDhcp}
+              onChange={(e) => {
+                setIsDhcp(e.target.checked)
+                setFormErrors({})
+              }}
+              className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500"
+            />
             <div>
-              <label className="label">IP Address *</label>
-              <input type="text" value={form.ip_address}
-                onChange={(e) => { setForm({ ...form, ip_address: e.target.value }); setFormErrors(prev => ({ ...prev, ip_address: undefined })) }}
-                className={`input ${formErrors.ip_address ? 'border-red-500' : ''}`} placeholder="192.168.1.100" required />
-              {formErrors.ip_address && <p className="text-xs text-red-500 mt-1">{formErrors.ip_address}</p>}
+              <span className="text-sm font-medium text-zinc-900 dark:text-slate-100">Device uses DHCP (no IP yet)</span>
+              <p className="text-xs text-zinc-500 dark:text-slate-400 mt-0.5">
+                Add by MAC address only. Discover the IP later when the device comes online.
+              </p>
             </div>
+          </label>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {!isDhcp && (
+              <div>
+                <label className="label">IP Address *</label>
+                <input type="text" value={form.ip_address}
+                  onChange={(e) => { setForm({ ...form, ip_address: e.target.value }); setFormErrors(prev => ({ ...prev, ip_address: undefined })) }}
+                  className={`input ${formErrors.ip_address ? 'border-red-500' : ''}`} placeholder="192.168.1.100" />
+                {formErrors.ip_address && <p className="text-xs text-red-500 mt-1">{formErrors.ip_address}</p>}
+              </div>
+            )}
             <div>
               <label className="label">Hostname</label>
               <input type="text" value={form.hostname}
@@ -402,7 +444,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="label">MAC Address</label>
+              <label className="label">MAC Address {isDhcp ? '*' : ''}</label>
               <input type="text" value={form.mac_address}
                 onChange={(e) => { setForm({ ...form, mac_address: e.target.value }); setFormErrors(prev => ({ ...prev, mac_address: undefined })) }}
                 className={`input ${formErrors.mac_address ? 'border-red-500' : ''}`} placeholder="AA:BB:CC:DD:EE:FF" />

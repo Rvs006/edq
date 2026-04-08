@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 
+from collections import defaultdict
 from typing import Tuple, Union
 
 from functools import wraps
@@ -132,6 +133,8 @@ ALLOWED_NMAP_SCRIPTS = frozenset({
     "smb-os-discovery", "smb-protocols", "smb-security-mode",
     "snmp-info", "snmp-brute", "ftp-anon", "telnet-encryption",
     "nbstat", "ntp-info", "dns-zone-transfer",
+    # Additional protocol scripts
+    "upnp-info",
 })
 
 # Whitelist of allowed flags per tool to prevent argument injection
@@ -141,6 +144,7 @@ ALLOWED_FLAGS = {
         "-T0", "-T1", "-T2", "-T3", "-T4", "-T5", "--top-ports", "--open",
         "-oX", "-oN", "-oG", "-v", "-vv", "--version-intensity",
         "--script", "-F", "-n", "-R", "-6", "--max-rate", "-",
+        "--min-rate", "--max-retries", "--defeat-rst-ratelimit", "--send-ip", "-PR",
     },
     "hydra": {
         "-l", "-L", "-p", "-P", "-s", "-t", "-f", "-V", "-v", "-e",
@@ -152,13 +156,16 @@ ALLOWED_FLAGS = {
         "-p", "-s", "-f", "-U", "-S", "-P", "-h", "-E",
     },
     "ssh-audit": {
-        "-p", "-T", "-t", "-n", "-v", "-l",
+        "-p", "-T", "-t", "-n", "-v", "-l", "-j",
     },
     "nikto": {
         "-h", "-host", "-p", "-ssl", "-nossl", "-Tuning", "-Display", "-output",
         "-Format", "-timeout", "-maxtime", "-Cgidirs", "-id", "-ask",
     },
 }
+
+# Approved directory for hydra wordlist files (-L, -P, -C flags)
+HYDRA_APPROVED_WORDLIST_DIRS = ("/app/wordlists/", "/usr/share/wordlists/")
 
 
 def _tool_available(binary: str) -> bool:
@@ -218,6 +225,37 @@ def _validate_nmap_script_arg(script_value: str) -> None:
             )
 
 
+def _validate_hydra_wordlist_paths(args: list) -> None:
+    """Validate that -L, -P, -C file paths point to approved directories only."""
+    wordlist_flags = {"-L", "-P", "-C"}
+    i = 0
+    while i < len(args):
+        arg = str(args[i])
+        if arg in wordlist_flags:
+            if i + 1 >= len(args):
+                raise ValueError(f"Flag '{arg}' requires a file path argument")
+            file_path = str(args[i + 1])
+            # Resolve the path to catch traversal attempts (e.g. /app/wordlists/../../etc/passwd)
+            resolved = os.path.normpath(file_path)
+            if os.path.isabs(resolved):
+                if not any(resolved.startswith(d) for d in HYDRA_APPROVED_WORDLIST_DIRS):
+                    app.logger.warning(
+                        "Blocked hydra wordlist path outside approved dirs: %s", file_path
+                    )
+                    raise ValueError(
+                        f"Wordlist path '{file_path}' is not in an approved directory. "
+                        f"Allowed: {', '.join(HYDRA_APPROVED_WORDLIST_DIRS)}"
+                    )
+            # Relative paths: block any traversal attempts
+            elif ".." in resolved:
+                raise ValueError(
+                    f"Wordlist path '{file_path}' contains directory traversal"
+                )
+            i += 2
+        else:
+            i += 1
+
+
 def _validate_args_for_tool(args: list, tool_name: str) -> list:
     """Validate args against both blocked chars and per-tool flag whitelist."""
     sanitised = _validate_args(args)
@@ -242,6 +280,11 @@ def _validate_args_for_tool(args: list, tool_name: str) -> list:
                     # --script value form (next arg is the value)
                     _validate_nmap_script_arg(sanitised[i + 1])
         i += 1
+
+    # Validate hydra wordlist paths are in approved directories
+    if tool_name == "hydra":
+        _validate_hydra_wordlist_paths(sanitised)
+
     return sanitised
 
 
@@ -329,6 +372,36 @@ def _parse_scan_request(tool_name=None):
 ESSENTIAL_TOOLS = {"nmap", "ssh_audit"}
 
 
+# ---------------------------------------------------------------------------
+# Concurrency limit — max concurrent subprocess scans
+# ---------------------------------------------------------------------------
+MAX_CONCURRENT_SCANS = int(os.environ.get("MAX_CONCURRENT_SCANS", "10"))
+_scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
+
+
+# ---------------------------------------------------------------------------
+# Per-target rate limiter — max 5 scans per target per minute
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_MAX = 5
+_RATE_LIMIT_WINDOW = 60  # seconds
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+_rate_limit_lock = threading.Lock()
+
+
+def _check_rate_limit(target: str) -> bool:
+    """Return True if request is allowed, False if rate-limited."""
+    key = target.split()[0].strip()
+    now = time.time()
+    with _rate_limit_lock:
+        timestamps = _rate_limit_store[key]
+        # Prune expired entries
+        _rate_limit_store[key] = [t for t in timestamps if now - t < _RATE_LIMIT_WINDOW]
+        if len(_rate_limit_store[key]) >= _RATE_LIMIT_MAX:
+            return False
+        _rate_limit_store[key].append(now)
+        return True
+
+
 @app.route("/health", methods=["GET"])
 def health() -> Response:
     tools_status = {}
@@ -408,14 +481,14 @@ def detect_networks() -> Response:
     host_ip = None
     debug_info: dict = {}
 
-    # ── Step 1: Resolve the Docker host IP ──
+    # -- Step 1: Resolve the Docker host IP --
     try:
         host_ip = socket.gethostbyname("host.docker.internal")
         debug_info["host_docker_internal"] = host_ip
     except socket.gaierror as e:
         debug_info["host_docker_internal_error"] = str(e)
 
-    # ── Step 2: Detect subnets based on host IP ──
+    # -- Step 2: Detect subnets based on host IP --
     if host_ip and host_ip.startswith("192.168.65."):
         # Docker Desktop VM gateway — probe common LAN subnets
         debug_info["mode"] = "docker_desktop_gateway"
@@ -492,7 +565,7 @@ def detect_networks() -> Response:
         except ValueError:
             pass
 
-    # ── Step 3: Fallback — detect via container route table ──
+    # -- Step 3: Fallback — detect via container route table --
     if not interfaces:
         debug_info["fallback"] = "container_routes"
         container_subnets = _get_container_subnets()
@@ -535,7 +608,7 @@ def detect_networks() -> Response:
                 if interfaces:
                     break
 
-    # ── Step 4: Link-local detection (direct Cat6 cable — 169.254.x.x) ──
+    # -- Step 4: Link-local detection (direct Cat6 cable — 169.254.x.x) --
     try:
         result = subprocess.run(
             ["nmap", "-sn", "169.254.0.0/16", "--max-retries", "0", "-T5"],
@@ -584,6 +657,9 @@ def scan_nmap() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("nmap"):
         return jsonify({"error": "nmap not available"}), 503
 
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+
     cmd = ["nmap"] + args + [target]
     result = _run_tool(cmd, timeout, target=target)
     return jsonify(result)
@@ -598,6 +674,9 @@ def scan_testssl() -> Union[Response, Tuple[Response, int]]:
 
     if not _tool_available("testssl.sh"):
         return jsonify({"error": "testssl.sh not available"}), 503
+
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
         json_output_path = tmp.name
@@ -626,6 +705,9 @@ def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("ssh-audit"):
         return jsonify({"error": "ssh-audit not available"}), 503
 
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+
     cmd = ["ssh-audit"] + args + [target]
     result = _run_tool(cmd, timeout, target=target)
     return jsonify(result)
@@ -634,6 +716,13 @@ def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
 @app.route("/scan/hydra", methods=["POST"])
 @require_api_key
 def scan_hydra() -> Union[Response, Tuple[Response, int]]:
+    """Run hydra credential test.
+
+    NOTE: The caller is responsible for including the target IP and service
+    in the args list (e.g. [..., "192.168.1.1", "http-get"]).  The sidecar
+    does NOT append target to avoid double-IP issues since hydra requires
+    the target to appear before the service name in the argument list.
+    """
     target, args, timeout, err = _parse_scan_request(tool_name="hydra")
     if err:
         return jsonify({"error": err[0]}), err[1]
@@ -641,7 +730,11 @@ def scan_hydra() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("hydra"):
         return jsonify({"error": "hydra not available"}), 503
 
-    cmd = ["hydra"] + args + [target]
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+
+    # Do not append target — the caller includes target+service in args
+    cmd = ["hydra"] + args
     result = _run_tool(cmd, timeout, target=target)
     return jsonify(result)
 
@@ -655,6 +748,9 @@ def scan_nikto() -> Union[Response, Tuple[Response, int]]:
 
     if not _tool_available("nikto"):
         return jsonify({"error": "nikto not available"}), 503
+
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
 
     cmd = ["nikto"] + args + ["-h", target]
     result = _run_tool(cmd, timeout, target=target)
@@ -672,6 +768,9 @@ def scan_ping() -> Union[Response, Tuple[Response, int]]:
         target = _validate_target(data["target"])
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
 
     try:
         count = min(int(data.get("count", 3)), 10)
@@ -704,6 +803,69 @@ def tool_versions() -> Response:
         except Exception:
             versions[tool] = "unavailable"
     return jsonify({"versions": versions})
+
+
+# Pinned latest-known versions — update these when rebuilding the image
+LATEST_KNOWN_VERSIONS = {
+    "nmap": "7.95",
+    "testssl": "3.2.3",
+    "ssh_audit": "3.3.0",
+    "hydra": "9.5",
+    "nikto": "2.5.0",
+}
+
+_VERSION_PARSE = {
+    "nmap": re.compile(r"Nmap version ([\d.]+)"),
+    "testssl": re.compile(r"testssl\.sh\s+([\d.]+)"),
+    "ssh_audit": re.compile(r"([\d.]+)"),
+    "hydra": re.compile(r"Hydra v([\d.]+)"),
+    "nikto": re.compile(r"Nikto\s+v?([\d.]+)"),
+}
+
+
+@app.route("/check-updates", methods=["GET"])
+@require_api_key
+def check_updates() -> Response:
+    """Compare installed tool versions against latest known versions."""
+    version_cmds = {
+        "nmap": ["nmap", "--version"],
+        "testssl": ["testssl.sh", "--version"],
+        "ssh_audit": ["ssh-audit", "--help"],
+        "hydra": ["hydra", "-h"],
+        "nikto": ["nikto", "-Version"],
+    }
+    results = {}
+    for tool, cmd in version_cmds.items():
+        installed = None
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            output = (proc.stdout.strip() or proc.stderr.strip())
+            pattern = _VERSION_PARSE.get(tool)
+            if pattern and output:
+                match = pattern.search(output)
+                if match:
+                    installed = match.group(1)
+        except Exception:
+            pass
+
+        latest = LATEST_KNOWN_VERSIONS.get(tool, "unknown")
+        up_to_date = (installed == latest) if installed else None
+        results[tool] = {
+            "installed": installed or "unknown",
+            "latest_known": latest,
+            "up_to_date": up_to_date,
+            "action": "none" if up_to_date else "rebuild image to update",
+        }
+
+    any_outdated = any(not r["up_to_date"] for r in results.values())
+    return jsonify({
+        "tools": results,
+        "image_rebuild_recommended": any_outdated,
+        "update_instructions": (
+            "Run 'docker compose build tools' to rebuild with latest pinned versions. "
+            "Do NOT auto-update tools at runtime — untested versions may break scans."
+        ) if any_outdated else "All tools are up to date.",
+    })
 
 
 @app.route("/kill", methods=["POST"])
@@ -803,6 +965,14 @@ def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
     yield f"data: {_json.dumps({'type': 'result', 'data': result})}\n\n"
 
 
+def _guarded_stream(generator):
+    """Wrap a streaming generator with concurrency semaphore control."""
+    try:
+        yield from generator
+    finally:
+        _scan_semaphore.release()
+
+
 @app.route("/stream/nmap", methods=["POST"])
 @require_api_key
 def stream_nmap() -> Union[Response, Tuple[Response, int]]:
@@ -811,8 +981,15 @@ def stream_nmap() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": err[0]}), err[1]
     if not _tool_available("nmap"):
         return jsonify({"error": "nmap not available"}), 503
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["nmap"] + args + [target]
-    return Response(_run_tool_stream(cmd, timeout, target=target), mimetype="text/event-stream")
+    return Response(
+        _guarded_stream(_run_tool_stream(cmd, timeout, target=target)),
+        mimetype="text/event-stream",
+    )
 
 
 @app.route("/stream/testssl", methods=["POST"])
@@ -823,6 +1000,10 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": err[0]}), err[1]
     if not _tool_available("testssl.sh"):
         return jsonify({"error": "testssl.sh not available"}), 503
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
 
     # Create temp file for JSON output like the sync endpoint
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
@@ -878,7 +1059,10 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
 
         yield f"data: {_json.dumps({'type': 'result', 'data': result})}\n\n"
 
-    return Response(_stream_testssl_gen(), mimetype="text/event-stream")
+    return Response(
+        _guarded_stream(_stream_testssl_gen()),
+        mimetype="text/event-stream",
+    )
 
 
 @app.route("/stream/ssh-audit", methods=["POST"])
@@ -889,20 +1073,41 @@ def stream_ssh_audit() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": err[0]}), err[1]
     if not _tool_available("ssh-audit"):
         return jsonify({"error": "ssh-audit not available"}), 503
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["ssh-audit"] + args + [target]
-    return Response(_run_tool_stream(cmd, timeout), mimetype="text/event-stream")
+    return Response(
+        _guarded_stream(_run_tool_stream(cmd, timeout)),
+        mimetype="text/event-stream",
+    )
 
 
 @app.route("/stream/hydra", methods=["POST"])
 @require_api_key
 def stream_hydra() -> Union[Response, Tuple[Response, int]]:
+    """Stream hydra output.
+
+    NOTE: The caller is responsible for including the target IP and service
+    in the args list.  The sidecar does NOT append target to avoid
+    double-IP issues.
+    """
     target, args, timeout, err = _parse_scan_request(tool_name="hydra")
     if err:
         return jsonify({"error": err[0]}), err[1]
     if not _tool_available("hydra"):
         return jsonify({"error": "hydra not available"}), 503
-    cmd = ["hydra"] + args + [target]
-    return Response(_run_tool_stream(cmd, timeout), mimetype="text/event-stream")
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
+    # Do not append target — the caller includes target+service in args
+    cmd = ["hydra"] + args
+    return Response(
+        _guarded_stream(_run_tool_stream(cmd, timeout, target=target)),
+        mimetype="text/event-stream",
+    )
 
 
 @app.route("/stream/nikto", methods=["POST"])
@@ -913,9 +1118,18 @@ def stream_nikto() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": err[0]}), err[1]
     if not _tool_available("nikto"):
         return jsonify({"error": "nikto not available"}), 503
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["nikto"] + args + ["-h", target]
-    return Response(_run_tool_stream(cmd, timeout), mimetype="text/event-stream")
+    return Response(
+        _guarded_stream(_run_tool_stream(cmd, timeout)),
+        mimetype="text/event-stream",
+    )
 
 
+# Production entry point — use gunicorn in Docker (see Dockerfile CMD).
+# This block is only used for local development.
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8001, debug=False)

@@ -15,8 +15,9 @@ export type TestRunStatus =
 
 export interface Device {
   id: string
-  ip_address: string
+  ip_address: string | null
   mac_address: string | null
+  addressing_mode: 'static' | 'dhcp' | 'unknown' | null
   hostname: string | null
   name: string | null
   manufacturer: string | null

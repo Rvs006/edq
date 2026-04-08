@@ -7,12 +7,11 @@ import type { TestResult, TestRun, TestRunStatus } from './types'
  */
 export function toLocalDateString(utcTimestamp: string | null | undefined): string {
   if (!utcTimestamp) return ''
-  // Append Z if no timezone indicator present
   let ts = utcTimestamp
   if (!ts.endsWith('Z') && !ts.includes('+') && !/\d{2}:\d{2}$/.test(ts.slice(-6))) {
     ts += 'Z'
   }
-  return new Date(ts).toLocaleString()
+  return new Date(ts).toLocaleString('en-GB', { timeZone: 'Europe/London' })
 }
 
 export function toLocalDateOnly(utcTimestamp: string | null | undefined, options?: Intl.DateTimeFormatOptions): string {
@@ -21,7 +20,7 @@ export function toLocalDateOnly(utcTimestamp: string | null | undefined, options
   if (!ts.endsWith('Z') && !ts.includes('+') && !/\d{2}:\d{2}$/.test(ts.slice(-6))) {
     ts += 'Z'
   }
-  return new Date(ts).toLocaleDateString(undefined, options)
+  return new Date(ts).toLocaleDateString('en-GB', { timeZone: 'Europe/London', ...options })
 }
 
 const RUN_STATUS_ALIASES: Record<string, TestRunStatus> = {

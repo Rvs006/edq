@@ -21,6 +21,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./data/edq.db
       - TOOLS_SIDECAR_URL=http://tools:8001
       - TOOLS_API_KEY=${TOOLS_API_KEY}
+      - INITIAL_ADMIN_PASSWORD=Edq@2026!
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -53,7 +54,7 @@ services:
       dockerfile: Dockerfile
     container_name: edq-frontend
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -66,7 +67,7 @@ services:
           memory: 512M
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost/"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://0.0.0.0/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -141,7 +142,8 @@ volumes:
   #   driver: local
 
 networks:
-  # Internal network: backend ↔ tools (not internal — tools needs outbound for device scanning)
+  # Backend ↔ tools network. Not marked `internal: true` because the tools
+  # sidecar needs outbound access to reach devices on the LAN for scanning.
   edq-internal:
     driver: bridge
     internal: false

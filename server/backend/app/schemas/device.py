@@ -14,13 +14,14 @@ _MAC_RE = re.compile(
 
 
 class DeviceCreate(BaseModel):
-    ip_address: str = Field(..., max_length=45)
+    ip_address: Optional[str] = Field(None, max_length=45)
     mac_address: Optional[str] = Field(None, max_length=17)
+    addressing_mode: Optional[str] = Field("static", max_length=16)
 
     @field_validator("ip_address")
     @classmethod
-    def validate_ip(cls, v: str) -> str:
-        if not _IP_RE.match(v):
+    def validate_ip(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _IP_RE.match(v):
             raise ValueError("Invalid IPv4 address")
         return v
 
@@ -29,6 +30,13 @@ class DeviceCreate(BaseModel):
     def validate_mac(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and not _MAC_RE.match(v):
             raise ValueError("Invalid MAC address format (expected AA:BB:CC:DD:EE:FF)")
+        return v
+
+    @field_validator("addressing_mode")
+    @classmethod
+    def validate_addressing_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("static", "dhcp", "unknown"):
+            raise ValueError("addressing_mode must be 'static', 'dhcp', or 'unknown'")
         return v
     hostname: Optional[str] = Field(None, max_length=255)
     manufacturer: Optional[str] = Field(None, max_length=128)
@@ -62,6 +70,7 @@ class DeviceUpdate(BaseModel):
     firmware_version: Optional[str] = Field(None, max_length=64)
     category: Optional[str] = Field(None, max_length=64)
     status: Optional[str] = Field(None, max_length=32)
+    addressing_mode: Optional[str] = Field(None, max_length=16)
     notes: Optional[str] = Field(None, max_length=2000)
     profile_id: Optional[str] = Field(None, max_length=36)
     open_ports: Optional[List[Any]] = None
@@ -70,8 +79,9 @@ class DeviceUpdate(BaseModel):
 
 class DeviceResponse(BaseModel):
     id: str
-    ip_address: str
+    ip_address: Optional[str] = None
     mac_address: Optional[str] = None
+    addressing_mode: Optional[str] = "static"
     hostname: Optional[str] = None
     manufacturer: Optional[str] = None
     model: Optional[str] = None

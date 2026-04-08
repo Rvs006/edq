@@ -155,6 +155,30 @@ class SshAuditParser:
 
         return result
 
+    @staticmethod
+    def _extract_alg_name(line: str) -> str:
+        """Extract an algorithm name from an ssh-audit text line.
+
+        Handles formats like:
+          `ecdh-sha2-nistp256`             (backtick-wrapped)
+          ecdh-sha2-nistp256 -- [fail]     (bare name with annotation)
+          (kex) ecdh-sha2-nistp256 -- ...  (section-prefixed)
+        """
+        s = line.strip()
+        # Remove leading section markers like "(kex)", "(enc)", "(mac)", "(key)"
+        if s.startswith("(") and ")" in s:
+            s = s[s.index(")") + 1:].strip()
+        # Strip backticks
+        s = s.strip("`")
+        # Take everything before " -- " annotation
+        if " -- " in s:
+            s = s.split(" -- ")[0].strip()
+        # Take the first whitespace-delimited token (algorithm name)
+        s = s.split()[0] if s.split() else ""
+        # Strip leftover punctuation
+        s = s.strip("`- ")
+        return s
+
     def _parse_text(self, stdout: str, result: dict[str, Any]) -> dict[str, Any]:
         """Fallback: parse ssh-audit text output."""
         if not stdout:
@@ -186,44 +210,51 @@ class SshAuditParser:
                 section = "rec"
                 continue
 
-            if stripped.startswith("(") or stripped.startswith("[") or stripped.startswith("--"):
+            # Skip pure annotation lines like "[info]", "-- [warn]", but allow
+            # algorithm lines prefixed with section markers like "(kex) algo ..."
+            if stripped.startswith("[") or stripped.startswith("--"):
+                continue
+            if stripped.startswith("(") and "--" not in stripped and "`" not in stripped:
+                # Pure section marker or info line without algorithm data
                 continue
 
-            if section == "kex" and stripped.startswith("`"):
-                alg = stripped.strip("`- ")
-                if alg:
-                    result["kex_algorithms"].append(alg)
-                    if alg.lower() in WEAK_KEX:
-                        result["weak_kex"].append(alg)
-            elif section == "enc" and stripped.startswith("`"):
-                alg = stripped.strip("`- ")
-                if alg:
-                    result["ciphers"].append(alg)
-                    if alg.lower() in WEAK_CIPHERS:
-                        result["weak_ciphers"].append(alg)
-            elif section == "mac" and stripped.startswith("`"):
-                alg = stripped.strip("`- ")
-                if alg:
-                    result["macs"].append(alg)
-                    if alg.lower() in WEAK_MACS:
-                        result["weak_macs"].append(alg)
-            elif section == "hostkey" and stripped.startswith("`"):
-                alg = stripped.strip("`- ")
-                if alg:
-                    result["host_keys"].append(alg)
-                    if alg.lower() in WEAK_HOST_KEYS:
-                        result["weak_host_keys"].append(alg)
+            # Extract algorithm name from the line.  ssh-audit text output
+            # uses various prefixes: backtick (``algo``), bare name, or
+            # ``(kex) algo -- [info/warn/fail] ...`` format.
+            alg_name = self._extract_alg_name(stripped)
+
+            if section == "kex" and alg_name:
+                if alg_name not in result["kex_algorithms"]:
+                    result["kex_algorithms"].append(alg_name)
+                if alg_name.lower() in WEAK_KEX and alg_name not in result["weak_kex"]:
+                    result["weak_kex"].append(alg_name)
+            elif section == "enc" and alg_name:
+                if alg_name not in result["ciphers"]:
+                    result["ciphers"].append(alg_name)
+                if alg_name.lower() in WEAK_CIPHERS and alg_name not in result["weak_ciphers"]:
+                    result["weak_ciphers"].append(alg_name)
+            elif section == "mac" and alg_name:
+                if alg_name not in result["macs"]:
+                    result["macs"].append(alg_name)
+                if alg_name.lower() in WEAK_MACS and alg_name not in result["weak_macs"]:
+                    result["weak_macs"].append(alg_name)
+            elif section == "hostkey" and alg_name:
+                if alg_name not in result["host_keys"]:
+                    result["host_keys"].append(alg_name)
+                if alg_name.lower() in WEAK_HOST_KEYS and alg_name not in result["weak_host_keys"]:
+                    result["weak_host_keys"].append(alg_name)
             elif section == "rec":
                 result["recommendations"].append(stripped)
 
+            # Also flag anything ssh-audit explicitly marks as warn/fail
             if "(warn)" in stripped.lower() or "(fail)" in stripped.lower():
-                name = stripped.split("--")[0].strip().strip("`")
+                name = self._extract_alg_name(stripped)
                 if name:
-                    if section == "kex":
+                    if section == "kex" and name not in result["weak_kex"]:
                         result["weak_kex"].append(name)
-                    elif section == "enc":
+                    elif section == "enc" and name not in result["weak_ciphers"]:
                         result["weak_ciphers"].append(name)
-                    elif section == "mac":
+                    elif section == "mac" and name not in result["weak_macs"]:
                         result["weak_macs"].append(name)
 
         total_weak = (

@@ -102,11 +102,13 @@ class NmapParser:
         service_name = ""
         service_version = ""
         service_product = ""
+        service_extra_info = ""
         service_elem = port_elem.find("service")
         if service_elem is not None:
             service_name = service_elem.get("name", "")
             service_product = service_elem.get("product", "")
             service_version = service_elem.get("version", "")
+            service_extra_info = service_elem.get("extrainfo", "")
 
         state_str = "unknown"
         state_elem = port_elem.find("state")
@@ -123,6 +125,8 @@ class NmapParser:
             "state": state_str,
             "service": service_name,
             "version": version_str,
+            "product": service_product,
+            "extra_info": service_extra_info,
         }
 
     def parse_ping(self, raw_output: dict[str, Any]) -> dict[str, Any]:

@@ -87,16 +87,21 @@ DISCOURAGED_PORTS = [
 ]
 
 
-def init_db() -> None:
-    """Create all tables and seed default data."""
+def init_db() -> bool:
+    """Create all tables and seed default data.
+
+    Returns True if the admin user was newly created in this run (first boot),
+    False if the admin already existed.
+    """
     print("Creating database tables...")
     Base.metadata.create_all(bind=sync_engine)
     print("Tables created successfully.")
 
+    admin_created = False
     db = SessionLocal()
     try:
         _run_migrations(db)
-        admin = _seed_admin_user(db)
+        admin, admin_created = _seed_admin_user(db)
         whitelist = _seed_protocol_whitelist(db, admin)
         _seed_device_profiles(db, admin, whitelist)
         _seed_test_templates(db, admin, whitelist)
@@ -111,6 +116,8 @@ def init_db() -> None:
         raise
     finally:
         db.close()
+
+    return admin_created
 
 
 def _run_migrations(db: Session) -> None:
@@ -160,7 +167,8 @@ def _dedup_template_test_ids(db: Session) -> None:
     db.commit()
 
 
-def _seed_admin_user(db: Session) -> User:
+def _seed_admin_user(db: Session) -> tuple:
+    """Seed the admin user. Returns (user, was_created) tuple."""
     admin = db.query(User).filter(User.username == "admin").first()
     if admin:
         updated = []
@@ -173,7 +181,7 @@ def _seed_admin_user(db: Session) -> User:
         if updated:
             db.flush()
             print(f"Updated default admin user fields: {', '.join(updated)}")
-        return admin
+        return admin, False
 
     from app.config import settings
     initial_password = settings.INITIAL_ADMIN_PASSWORD
@@ -189,7 +197,7 @@ def _seed_admin_user(db: Session) -> User:
     db.add(admin)
     db.flush()
     print(f"Created default admin user. Set INITIAL_ADMIN_PASSWORD in .env before first run.")
-    return admin
+    return admin, True
 
 
 def _seed_protocol_whitelist(db: Session, admin: User) -> ProtocolWhitelist:
@@ -320,6 +328,25 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
             created_by=admin.id,
         ))
     print("Seeded 'EasyIO Controller Assessment' template")
+
+    # Extended Qualification template — matches Electracom Excel qualification template
+    ext_template = db.query(TestTemplate).filter(TestTemplate.name == "Extended Qualification (Dylan Template)").first()
+    if ext_template:
+        ext_template.test_ids = all_test_ids
+        ext_template.description = f"Full {len(all_test_ids)}-test qualification matching the Electracom Excel template including Wi-Fi, PoE, MQTT detailed, and SOAK tests."
+    else:
+        ext_template = TestTemplate(
+            id=str(uuid.uuid4()),
+            name="Extended Qualification (Dylan Template)",
+            description=f"Full {len(all_test_ids)}-test qualification matching the Electracom Excel template including Wi-Fi, PoE, MQTT detailed, and SOAK tests.",
+            test_ids=all_test_ids,
+            whitelist_id=whitelist.id,
+            report_config={"template_key": "generic", "device_category": "generic"},
+            is_default=False,
+            created_by=admin.id,
+        )
+        db.add(ext_template)
+    print(f"Seeded 'Extended Qualification (Dylan Template)' template with {len(all_test_ids)} tests")
 
     db.flush()
 

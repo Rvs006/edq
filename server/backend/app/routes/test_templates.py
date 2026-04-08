@@ -19,7 +19,7 @@ router = APIRouter()
 
 @router.get("/library")
 async def get_test_library(_: User = Depends(get_current_active_user)):
-    """Return the full universal test library (all 30 tests)."""
+    """Return the full universal test library (all 60 tests)."""
     return UNIVERSAL_TESTS
 
 

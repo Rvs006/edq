@@ -30,12 +30,19 @@ class DeviceStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class AddressingMode(str, enum.Enum):
+    STATIC = "static"
+    DHCP = "dhcp"
+    UNKNOWN = "unknown"
+
+
 class Device(Base):
     __tablename__ = "devices"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    ip_address = Column(String(45), nullable=False, index=True)
+    ip_address = Column(String(45), nullable=True, index=True)
     mac_address = Column(String(17), nullable=True)
+    addressing_mode = Column(SAEnum(AddressingMode), default=AddressingMode.STATIC)
     hostname = Column(String(255), nullable=True)
     manufacturer = Column(String(128), nullable=True)
     model = Column(String(128), nullable=True)

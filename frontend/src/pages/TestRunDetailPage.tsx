@@ -331,10 +331,17 @@ export default function TestRunDetailPage() {
   }
 
   const handleSaveNotes = async (resultId: string, notes: string) => {
+    // Optimistic update - immediately update the cache
+    queryClient.setQueryData(['test-results', id], (old: TestResult[] | undefined) => {
+      if (!old) return old
+      return old.map(r => r.id === resultId ? { ...r, engineer_notes: notes } : r)
+    })
     try {
       await testResultsApi.update(resultId, { engineer_notes: notes })
-      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+      // No need to invalidate - we already updated the cache
     } catch (err: unknown) {
+      // Revert on error
+      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
       toast.error(getApiErrorMessage(err, 'Failed to save notes'))
     }
   }
@@ -477,6 +484,7 @@ export default function TestRunDetailPage() {
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors flex-shrink-0"
             title="Toggle test list"
+            aria-label="Toggle test list"
           >
             {sidebarOpen ? <X className="w-5 h-5 text-zinc-600" /> : <Menu className="w-5 h-5 text-zinc-600" />}
           </button>

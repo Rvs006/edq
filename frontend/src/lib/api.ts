@@ -123,9 +123,10 @@ export const authApi = {
 export const devicesApi = {
   list: (params?: { category?: string; status?: string; search?: string; skip?: number; limit?: number }) => api.get<Device[]>('/devices/', { params }),
   get: (id: string) => api.get<Device>(`/devices/${id}`),
-  create: (data: { ip_address: string; mac_address?: string; hostname?: string; manufacturer?: string; model?: string; category?: string; notes?: string }) => api.post<Device>('/devices/', data),
+  create: (data: { ip_address?: string; mac_address?: string; hostname?: string; manufacturer?: string; model?: string; category?: string; notes?: string; addressing_mode?: string }) => api.post<Device>('/devices/', data),
   update: (id: string, data: Partial<Device>) => api.patch<Device>(`/devices/${id}`, data),
   delete: (id: string) => api.delete(`/devices/${id}`),
+  discoverIp: (id: string) => api.post<Device>(`/devices/${id}/discover-ip`),
   stats: () => api.get<{ total: number; by_status: Record<string, number>; by_category: Record<string, number> }>('/devices/stats'),
 }
 

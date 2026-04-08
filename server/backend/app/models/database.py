@@ -17,6 +17,9 @@ def _set_sqlite_pragmas(dbapi_connection, connection_record):
     cursor.execute("PRAGMA busy_timeout=5000")
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-64000")       # 64 MB page cache
+    cursor.execute("PRAGMA mmap_size=268435456")     # 256 MB memory-mapped I/O
+    cursor.execute("PRAGMA temp_store=MEMORY")       # Temp tables in RAM
     cursor.close()
 
 
@@ -52,6 +55,13 @@ async def get_db():
 
 
 async def init_db():
-    """Create all tables on startup."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Create all tables on startup (safe for multiple workers)."""
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("Tables created successfully.")
+    except Exception as e:
+        if "already exists" in str(e):
+            print("Tables already exist (another worker created them).")
+        else:
+            raise

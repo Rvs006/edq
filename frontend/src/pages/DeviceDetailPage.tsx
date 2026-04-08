@@ -64,9 +64,20 @@ export default function DeviceDetailPage() {
   })
 
   const autoDetectMutation = useMutation({
-    mutationFn: () => discoveryApi.scan({ ip_address: device!.ip_address }),
+    mutationFn: () => discoveryApi.scan({ ip_address: device!.ip_address! }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['device', id] })
+    },
+  })
+
+  const discoverIpMutation = useMutation({
+    mutationFn: () => devicesApi.discoverIp(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['device', id] })
+      toast.success('IP address discovered successfully!')
+    },
+    onError: (err: unknown) => {
+      toast.error(getApiErrorMessage(err, 'Failed to discover IP. Ensure the device is on the network.'))
     },
   })
 
@@ -150,8 +161,11 @@ export default function DeviceDetailPage() {
     )
   }
 
+  const isDhcpWithoutIp = device.addressing_mode === 'dhcp' && !device.ip_address
+
   const infoFields = [
-    ['IP Address', device.ip_address],
+    ['IP Address', device.ip_address || (device.addressing_mode === 'dhcp' ? 'Awaiting DHCP assignment' : null)],
+    ['Addressing', device.addressing_mode === 'dhcp' ? 'DHCP' : device.addressing_mode === 'static' ? 'Static' : null],
     ['MAC Address', device.mac_address],
     ['Hostname', device.hostname || device.name],
     ['Manufacturer', device.manufacturer],
@@ -181,12 +195,28 @@ export default function DeviceDetailPage() {
             </div>
           </div>
           <div className="flex gap-2">
+            {isDhcpWithoutIp && (
+              <button
+                type="button"
+                onClick={() => discoverIpMutation.mutate()}
+                disabled={discoverIpMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/50 transition-colors disabled:opacity-50"
+                title="Scan the network to discover this device's IP address via ARP"
+              >
+                {discoverIpMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Search className="w-4 h-4" />
+                )}
+                Discover IP
+              </button>
+            )}
             <button
               type="button"
               onClick={() => autoDetectMutation.mutate()}
-              disabled={autoDetectMutation.isPending}
+              disabled={autoDetectMutation.isPending || isDhcpWithoutIp}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
-              title="Re-scan device to auto-detect manufacturer, model, and open ports"
+              title={isDhcpWithoutIp ? 'Discover the IP first before auto-detecting' : 'Re-scan device to auto-detect manufacturer, model, and open ports'}
             >
               {autoDetectMutation.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -208,9 +238,15 @@ export default function DeviceDetailPage() {
             >
               <Trash2 className="w-4 h-4" />
             </button>
-            <Link to={`/test-runs?device_id=${device.id}`} className="btn-primary text-sm">
-              <Play className="w-4 h-4" /> Start New Test Run
-            </Link>
+            {isDhcpWithoutIp ? (
+              <span className="btn-primary text-sm opacity-50 cursor-not-allowed" title="Discover the device IP before starting tests">
+                <Play className="w-4 h-4" /> Start New Test Run
+              </span>
+            ) : (
+              <Link to={`/test-runs?device_id=${device.id}`} className="btn-primary text-sm">
+                <Play className="w-4 h-4" /> Start New Test Run
+              </Link>
+            )}
           </div>
         </div>
         {autoDetectMutation.isSuccess && (
@@ -223,6 +259,21 @@ export default function DeviceDetailPage() {
           <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             Auto-detect failed. Make sure the tools sidecar is running and the device is reachable.
+          </div>
+        )}
+        {isDhcpWithoutIp && (
+          <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <div>
+              <span className="font-medium">Awaiting IP assignment.</span>{' '}
+              This DHCP device has no IP address yet. Click &ldquo;Discover IP&rdquo; to scan the network for MAC {device.mac_address}, or wait until the device obtains an address.
+            </div>
+          </div>
+        )}
+        {discoverIpMutation.isError && (
+          <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            IP discovery failed. Ensure the device is powered on and connected to the network.
           </div>
         )}
       </div>
@@ -406,7 +457,7 @@ export default function DeviceDetailPage() {
                     <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                       <td className="py-2.5 px-4">
                         <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-zinc-100 hover:text-brand-500">
-                          {run.id.slice(0, 8)}
+                          {device.hostname || device.manufacturer || 'Device'} – {toLocalDateOnly(run.created_at, { day: 'numeric', month: 'short' })} – Test #{(runs as TestRun[]).indexOf(run) + 1}
                         </Link>
                       </td>
                       <td className="py-2.5 px-4"><StatusBadge status={run.status} /></td>
@@ -434,11 +485,20 @@ export default function DeviceDetailPage() {
       </div>
 
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowDeleteConfirm(false)} />
-          <div className="relative w-full max-w-sm bg-white dark:bg-dark-card rounded-lg shadow-2xl p-6">
-            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Delete Device?</h3>
-            <p className="text-sm text-zinc-500 mb-4">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+            aria-describedby="delete-dialog-desc"
+            className="relative w-full max-w-sm bg-white dark:bg-dark-card rounded-lg shadow-2xl p-6"
+            onKeyDown={(e) => { if (e.key === 'Escape') setShowDeleteConfirm(false) }}
+            tabIndex={-1}
+            ref={(el) => el?.focus()}
+          >
+            <h3 id="delete-dialog-title" className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Delete Device?</h3>
+            <p id="delete-dialog-desc" className="text-sm text-zinc-500 mb-4">
               This will permanently delete <strong>{getPreferredDeviceName(device)}</strong> ({device.ip_address}).
               Any test runs associated with this device will become orphaned.
             </p>
