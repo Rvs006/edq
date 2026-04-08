@@ -38,7 +38,8 @@ class ConnectionManager:
             for connection in self.active_connections[channel].copy():
                 try:
                     await connection.send_json(message)
-                except Exception:
+                except Exception as exc:
+                    logger.warning("WebSocket send failed on channel %s: %s", channel, exc)
                     self.active_connections[channel].discard(connection)
 
 

@@ -24,7 +24,7 @@ class Agent(Base):
     capabilities = Column(JSON, nullable=True)  # {nmap, sslyze, testssl, ssh_audit, nikto, hydra}
     current_task = Column(String(36), nullable=True)  # Current test_run_id
     is_active = Column(Boolean, default=True)
-    registered_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    registered_by = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

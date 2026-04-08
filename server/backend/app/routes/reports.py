@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -187,14 +188,14 @@ async def generate_report(
 async def download_report(filename: str, _: User = Depends(get_current_active_user)):
     """Download a generated report file."""
     safe_filename = os.path.basename(filename)
-    file_path = os.path.join(settings.REPORT_DIR, safe_filename)
-    # Prevent path traversal by verifying the resolved path stays inside REPORT_DIR
-    report_dir_real = os.path.realpath(settings.REPORT_DIR)
-    file_path_real = os.path.realpath(file_path)
-    if not file_path_real.startswith(report_dir_real + os.sep):
+    report_dir = Path(settings.REPORT_DIR).resolve()
+    file_path_resolved = (report_dir / safe_filename).resolve()
+    # Prevent path traversal — works correctly on case-insensitive Windows paths
+    if not file_path_resolved.is_relative_to(report_dir):
         raise HTTPException(status_code=400, detail="Invalid filename")
-    if not os.path.exists(file_path_real):
+    if not file_path_resolved.exists():
         raise HTTPException(status_code=404, detail="Report file not found")
+    file_path_real = str(file_path_resolved)
 
     media_types = {
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

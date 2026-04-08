@@ -96,7 +96,7 @@ const colorMap: Record<string, { bg: string; border: string; text: string; badge
   purple: { bg: 'bg-purple-50 dark:bg-purple-950/30', border: 'border-purple-200 dark:border-purple-800', text: 'text-purple-700 dark:text-purple-300', badge: 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300', iconBg: 'bg-purple-100 dark:bg-purple-900', ring: 'ring-purple-400/30' },
   green: { bg: 'bg-green-50 dark:bg-green-950/30', border: 'border-green-200 dark:border-green-800', text: 'text-green-700 dark:text-green-300', badge: 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300', iconBg: 'bg-green-100 dark:bg-green-900', ring: 'ring-green-400/30' },
   amber: { bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-300', badge: 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300', iconBg: 'bg-amber-100 dark:bg-amber-900', ring: 'ring-amber-400/30' },
-  zinc: { bg: 'bg-zinc-50 dark:bg-slate-800/50', border: 'border-zinc-200 dark:border-slate-700/50', text: 'text-zinc-700 dark:text-slate-300', badge: 'bg-zinc-100 dark:bg-slate-800 text-zinc-700 dark:text-slate-300', iconBg: 'bg-zinc-100 dark:bg-slate-800', ring: 'ring-zinc-400/30' },
+  zinc: { bg: 'bg-zinc-50 dark:bg-dark-card/50', border: 'border-zinc-200 dark:border-slate-700/50', text: 'text-zinc-700 dark:text-slate-300', badge: 'bg-zinc-100 dark:bg-dark-card text-zinc-700 dark:text-slate-300', iconBg: 'bg-zinc-100 dark:bg-dark-card', ring: 'ring-zinc-400/30' },
   indigo: { bg: 'bg-indigo-50 dark:bg-indigo-950/30', border: 'border-indigo-200 dark:border-indigo-800', text: 'text-indigo-700 dark:text-indigo-300', badge: 'bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300', iconBg: 'bg-indigo-100 dark:bg-indigo-900', ring: 'ring-indigo-400/30' },
 }
 
@@ -278,10 +278,10 @@ export default function DeviceProfilesPage() {
                 {selected.testIds.length} tests will run when this profile is assigned
               </p>
               <div className="flex flex-wrap items-center gap-2 mt-2">
-                <span className="badge text-[10px] bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-300">
+                <span className="badge text-[10px] bg-zinc-100 dark:bg-dark-card text-zinc-600 dark:text-slate-300">
                   {automaticCount} automatic
                 </span>
-                <span className="badge text-[10px] bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-300">
+                <span className="badge text-[10px] bg-zinc-100 dark:bg-dark-card text-zinc-600 dark:text-slate-300">
                   {manualCount} guided manual
                 </span>
                 <span className="badge text-[10px] bg-brand-50 dark:bg-brand-950/30 text-brand-600 dark:text-brand-300">
@@ -315,7 +315,7 @@ export default function DeviceProfilesPage() {
             {selectedTests.map((test) => (
               <div
                 key={test.id}
-                className="px-3 py-3 rounded-lg bg-zinc-50 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700/50"
+                className="px-3 py-3 rounded-lg bg-zinc-50 dark:bg-dark-card border border-zinc-200 dark:border-slate-700/50"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Shield className="w-3.5 h-3.5 text-brand-500 flex-shrink-0" />
@@ -343,7 +343,7 @@ export default function DeviceProfilesPage() {
 
       {!selected && (
         <div className="card p-8 text-center">
-          <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-3">
+          <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-dark-card flex items-center justify-center mx-auto mb-3">
             <ChevronRight className="w-6 h-6 text-zinc-400" />
           </div>
           <p className="text-sm text-zinc-500 dark:text-slate-400">

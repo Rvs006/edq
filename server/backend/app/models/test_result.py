@@ -45,6 +45,8 @@ class TestResult(Base):
     parsed_data = Column(JSON, nullable=True)  # Structured parsed results
     findings = Column(JSON, nullable=True)  # Detailed findings array
     override_reason = Column(Text, nullable=True)
+    # Stored as String (not SAEnum) because the override endpoint writes
+    # verdict.value (a string) here — see test_results.py override_result().
     override_verdict = Column(String(32), nullable=True)
     overridden_by_user_id = Column(String(36), nullable=True)
     overridden_by_username = Column(String(64), nullable=True)

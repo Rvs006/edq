@@ -13,6 +13,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
   const [isConnected, setIsConnected] = useState(false)
   const [cableStatus, setCableStatus] = useState<CableStatus>('connected')
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string>>({})
+  const [reconnectCount, setReconnectCount] = useState(0)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cableReconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -32,6 +33,10 @@ export function useTestRunWebSocket(runId: string | undefined) {
 
       ws.onopen = () => {
         setIsConnected(true)
+        if (reconnectAttempts.current > 0) {
+          setReconnectCount(c => c + 1)
+          console.warn('[WS] Reconnected — triggering state sync')
+        }
         reconnectAttempts.current = 0
       }
 
@@ -137,5 +142,6 @@ export function useTestRunWebSocket(runId: string | undefined) {
     cableStatus,
     terminalOutput,
     clearTerminalOutput,
+    reconnectCount,
   }
 }

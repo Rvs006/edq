@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { devicesApi, discoveryApi } from '@/lib/api'
+import { devicesApi, discoveryApi, getApiErrorMessage } from '@/lib/api'
 import type { Device, DiscoveredDevice } from '@/lib/types'
 import { Monitor, Plus, Search, Loader2, X, Radar, LayoutGrid, Network } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -207,8 +207,7 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       toast.success(`Found ${resp.data.devices_found} device(s)`)
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Discovery failed — is the tools sidecar running?')
+      toast.error(getApiErrorMessage(err, 'Discovery failed — is the tools sidecar running?'))
     } finally {
       setLoading(false)
     }
@@ -363,8 +362,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
       toast.success('Device added successfully')
       onClose()
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to add device')
+      toast.error(getApiErrorMessage(err, 'Failed to add device'))
     } finally {
       setLoading(false)
     }

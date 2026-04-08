@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { testRunsApi, testResultsApi, reportsApi } from '@/lib/api'
+import { testRunsApi, testResultsApi, reportsApi, getApiErrorMessage } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
@@ -77,6 +77,14 @@ export default function TestRunDetailPage() {
       }
     }
   }, [ws.lastProgress, id, queryClient, results])
+
+  // Sync state after WebSocket reconnection (catch missed messages)
+  useEffect(() => {
+    if (ws.reconnectCount > 0) {
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+    }
+  }, [ws.reconnectCount, id, queryClient])
 
   const runningTestId = useMemo(() => {
     if (!ws.lastProgress) return null
@@ -176,8 +184,7 @@ export default function TestRunDetailPage() {
         toast.success(resp.data?.message || 'Automated tests started')
       }
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to start tests')
+      toast.error(getApiErrorMessage(err, 'Failed to start tests'))
     } finally {
       setIsActioning(false)
     }
@@ -190,8 +197,7 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run paused')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to pause')
+      toast.error(getApiErrorMessage(err, 'Failed to pause'))
     } finally {
       setIsActioning(false)
     }
@@ -204,8 +210,7 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run resumed')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to resume')
+      toast.error(getApiErrorMessage(err, 'Failed to resume'))
     } finally {
       setIsActioning(false)
     }
@@ -219,8 +224,7 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
       toast.success('Test run cancelled')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to cancel')
+      toast.error(getApiErrorMessage(err, 'Failed to cancel'))
     } finally {
       setIsActioning(false)
     }
@@ -232,8 +236,7 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Cable disconnect flagged')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to flag cable')
+      toast.error(getApiErrorMessage(err, 'Failed to flag cable'))
     }
   }
 
@@ -255,8 +258,7 @@ export default function TestRunDetailPage() {
         URL.revokeObjectURL(url)
       }
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Report generation failed')
+      toast.error(getApiErrorMessage(err, 'Report generation failed'))
     }
   }
 
@@ -267,8 +269,7 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Test run approved and completed')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to approve')
+      toast.error(getApiErrorMessage(err, 'Failed to approve'))
     } finally {
       setIsActioning(false)
     }
@@ -281,8 +282,7 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
       toast.success('Submitted for review')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to submit for review')
+      toast.error(getApiErrorMessage(err, 'Failed to submit for review'))
     } finally {
       setIsActioning(false)
     }
@@ -324,8 +324,7 @@ export default function TestRunDetailPage() {
         setTimeout(() => setSelectedTestId(nextId), 600)
       }
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to save result')
+      toast.error(getApiErrorMessage(err, 'Failed to save result'))
     } finally {
       setIsSubmitting(false)
     }
@@ -336,8 +335,7 @@ export default function TestRunDetailPage() {
       await testResultsApi.update(resultId, { engineer_notes: notes })
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to save notes')
+      toast.error(getApiErrorMessage(err, 'Failed to save notes'))
     }
   }
 
@@ -347,8 +345,7 @@ export default function TestRunDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
       toast.success('Verdict overridden')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Override failed')
+      toast.error(getApiErrorMessage(err, 'Override failed'))
     }
   }
 
@@ -368,8 +365,7 @@ export default function TestRunDetailPage() {
         toast.error(resp.data?.message || 'Could not create profile')
       }
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to save profile')
+      toast.error(getApiErrorMessage(err, 'Failed to save profile'))
     }
   }
 

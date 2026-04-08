@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { devicesApi, testRunsApi, cveApi, discoveryApi } from '@/lib/api'
+import { devicesApi, testRunsApi, cveApi, discoveryApi, getApiErrorMessage } from '@/lib/api'
 import type { Device, TestRun, CVELookupResponse } from '@/lib/types'
 import {
   ArrowLeft, Monitor, Play, Loader2, Shield, Search,
@@ -112,8 +112,7 @@ export default function DeviceDetailPage() {
       }
       setIsEditing(false)
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to update device')
+      toast.error(getApiErrorMessage(err, 'Failed to update device'))
     } finally {
       setIsSaving(false)
     }
@@ -127,8 +126,7 @@ export default function DeviceDetailPage() {
       toast.success('Device deleted')
       navigate('/devices')
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to delete device')
+      toast.error(getApiErrorMessage(err, 'Failed to delete device'))
     } finally {
       setIsDeleting(false)
       setShowDeleteConfirm(false)

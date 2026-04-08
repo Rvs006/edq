@@ -12,6 +12,7 @@ from app.models.database import async_session
 from app.models.user import User
 from app.security.auth import get_current_active_user
 from app.services.system_status import get_system_status
+from app.middleware.rate_limit import check_rate_limit
 
 router = APIRouter()
 
@@ -27,8 +28,9 @@ def _increment_requests():
 
 
 @router.get("")
-async def health_check():
+async def health_check(request: Request):
     """Public health endpoint for load balancers. No auth required."""
+    check_rate_limit(request, max_requests=60, window_seconds=60, action="health")
     _increment_requests()
     db_status = "ok"
     try:

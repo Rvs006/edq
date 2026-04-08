@@ -530,10 +530,10 @@ async def pause_test_run_for_cable(
     run = await _get_authorized_test_run(run_id, user, db)
     run_status = normalize_test_run_status(run.status)
 
-    if run_status != TestRunStatus.RUNNING.value:
+    if run_status not in (TestRunStatus.RUNNING.value, TestRunStatus.AWAITING_MANUAL.value):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot flag cable issue in '{run_status}' status. Must be 'running'.",
+            detail=f"Cannot flag cable issue in '{run_status}' status. Must be 'running' or 'awaiting_manual'.",
         )
 
     run.status = TestRunStatus.PAUSED_CABLE

@@ -12,7 +12,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     action = Column(String(64), nullable=False, index=True)  # e.g. "device.create", "test_run.start"
     resource_type = Column(String(64), nullable=False)  # e.g. "device", "test_run"
     resource_id = Column(String(36), nullable=True)

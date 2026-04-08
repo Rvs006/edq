@@ -295,3 +295,8 @@ export const brandingApi = {
     })
   },
 }
+
+export function getApiErrorMessage(err: unknown, fallback = 'An error occurred'): string {
+  const axiosErr = err as { response?: { data?: { detail?: string } } }
+  return axiosErr?.response?.data?.detail || fallback
+}

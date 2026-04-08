@@ -22,7 +22,7 @@ class TestTemplate(Base):
     branding = Column(JSON, nullable=True)  # Logo, company name, colors
     is_default = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    created_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

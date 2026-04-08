@@ -119,7 +119,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     if user.totp_secret:
         if not data.totp_code:
             # Signal the frontend that 2FA is required
-            return {"requires_2fa": True, "message": "Two-factor authentication code required"}
+            return {"requires_2fa": True, "detail": "Additional verification required"}
         from app.routes.two_factor import verify_totp_for_user
         if not verify_totp_for_user(user, data.totp_code):
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1

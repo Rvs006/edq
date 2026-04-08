@@ -47,8 +47,8 @@ class Device(Base):
     open_ports = Column(JSON, nullable=True)  # [{port, protocol, service, version}]
     discovery_data = Column(JSON, nullable=True)  # Full discovery fingerprint
     notes = Column(Text, nullable=True)
-    profile_id = Column(String(36), ForeignKey("device_profiles.id"), nullable=True)
-    discovered_by = Column(String(36), ForeignKey("agents.id"), nullable=True)
+    profile_id = Column(String(36), ForeignKey("device_profiles.id"), nullable=True, index=True)
+    discovered_by = Column(String(36), ForeignKey("agents.id"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

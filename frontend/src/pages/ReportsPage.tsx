@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { reportsApi, testRunsApi } from '@/lib/api'
+import { reportsApi, testRunsApi, getApiErrorMessage } from '@/lib/api'
 import type { TestRun, ReportTemplate } from '@/lib/types'
 import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
 import Callout from '@/components/common/Callout'
@@ -72,8 +72,7 @@ export default function ReportsPage() {
         }
       }
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Report generation failed')
+      toast.error(getApiErrorMessage(err, 'Report generation failed'))
     } finally {
       setGenerating(false)
     }

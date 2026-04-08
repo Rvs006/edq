@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { testRunsApi, devicesApi, templatesApi } from '@/lib/api'
+import { testRunsApi, devicesApi, templatesApi, getApiErrorMessage } from '@/lib/api'
 import type { TestRun, Device, TestTemplate } from '@/lib/types'
 import {
   Play, Plus, Loader2, X, Activity, RotateCcw, AlertTriangle,
@@ -153,8 +153,7 @@ export default function TestRunsPage() {
       toast.success('Test run resumed')
       navigate(`/test-runs/${runId}`)
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to resume')
+      toast.error(getApiErrorMessage(err, 'Failed to resume'))
     }
   }
 
@@ -403,7 +402,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
     let cancelled = false
     testRunsApi.checkDuplicate(deviceId, effectiveTemplateId).then(res => {
       if (!cancelled) setDuplicateInfo(res.data)
-    }).catch(() => {})
+    }).catch((err) => { console.error('Failed to check for duplicate test runs:', err) })
     return () => { cancelled = true }
   }, [deviceId, effectiveTemplateId])
 
@@ -420,8 +419,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
       toast.success('Test run created')
       onClose()
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } }
-      toast.error(axiosErr.response?.data?.detail || 'Failed to create test run')
+      toast.error(getApiErrorMessage(err, 'Failed to create test run'))
     } finally {
       setLoading(false)
     }
