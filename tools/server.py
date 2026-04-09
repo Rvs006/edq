@@ -382,7 +382,7 @@ _scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
 # ---------------------------------------------------------------------------
 # Per-target rate limiter — max 5 scans per target per minute
 # ---------------------------------------------------------------------------
-_RATE_LIMIT_MAX = 5
+_RATE_LIMIT_MAX = 30
 _RATE_LIMIT_WINDOW = 60  # seconds
 _rate_limit_store: dict[str, list[float]] = defaultdict(list)
 _rate_limit_lock = threading.Lock()
