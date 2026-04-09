@@ -355,8 +355,8 @@ def create_app() -> FastAPI:
                 data.get("url", "unknown"),
                 data.get("message", "unknown"),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to log client error: %s", e)
         return Response(status_code=204)
 
     if os.path.isdir(FRONTEND_DIR):

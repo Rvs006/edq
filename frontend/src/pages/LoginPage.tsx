@@ -208,8 +208,9 @@ export default function LoginPage() {
               {!requires2FA ? (
                 <>
                   <div>
-                    <label className="label">Username or Email</label>
+                    <label htmlFor="login-username" className="label">Username or Email</label>
                     <input
+                      id="login-username"
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
@@ -222,9 +223,10 @@ export default function LoginPage() {
                   </div>
 
                   <div>
-                    <label className="label">Password</label>
+                    <label htmlFor="login-password" className="label">Password</label>
                     <div className="relative">
                       <input
+                        id="login-password"
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -249,8 +251,9 @@ export default function LoginPage() {
                     <Shield className="w-5 h-5" />
                     <span className="text-sm font-medium">Two-Factor Authentication</span>
                   </div>
-                  <label className="label">Authentication Code</label>
+                  <label htmlFor="login-totp" className="label">Authentication Code</label>
                   <input
+                    id="login-totp"
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"

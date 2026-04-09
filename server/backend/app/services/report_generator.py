@@ -294,8 +294,8 @@ async def generate_excel_report(
         if tools_cell:
             try:
                 synopsis_ws[tools_cell] = _sanitize_for_excel(tools_text)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Could not write to tools cell %s: %s", tools_cell, e)
 
     testplan_ws = wb[mapping["testplan_sheet"]]
     cols = mapping["testplan_columns"]
@@ -327,8 +327,8 @@ async def generate_excel_report(
                 if col_letter:
                     try:
                         testplan_ws[f"{col_letter}{row_idx}"] = None
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Could not clear cell %s%s: %s", col_letter, row_idx, e)
 
     output_dir = Path(settings.REPORT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)

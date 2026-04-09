@@ -21,7 +21,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./data/edq.db
       - TOOLS_SIDECAR_URL=http://tools:8001
       - TOOLS_API_KEY=${TOOLS_API_KEY}
-      - INITIAL_ADMIN_PASSWORD=Edq@2026!
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

@@ -70,8 +70,8 @@ class TestEngine:
         try:
             ver_result = await tools_client.versions()
             tool_versions = ver_result.get("versions", {})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not fetch tool versions: %s", e)
 
         async with async_session() as db:
             run = await self._load_run(db, test_run_id)
@@ -885,8 +885,8 @@ class TestEngine:
                         form_fields = f"{form_path}:username=^USER^&password=^PASS^:F=incorrect:H=Content-Type: application/x-www-form-urlencoded"
                     elif resp.status_code == 401:
                         auth_type = "http-get"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Auth type detection failed for %s: %s", device_ip, e)
 
         lockout_detected = False
         error_msg = ""
@@ -936,8 +936,8 @@ class TestEngine:
                             lockout_detected = True
                 except (httpx.ConnectError, httpx.ConnectTimeout):
                     lockout_detected = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Unexpected error during hydra probe: %s", e)
 
         except Exception as exc:
             error_msg = str(exc)
@@ -962,8 +962,8 @@ class TestEngine:
                     redirects_to_https = True
         except httpx.ConnectError:
             http_open = False
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("HTTP redirect check failed for %s: %s", device_ip, e)
 
         return {"redirects_to_https": redirects_to_https, "http_open": http_open}
 
@@ -999,8 +999,8 @@ class TestEngine:
             await writer.wait_closed()
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             rtsp_open = False
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("RTSP auth check failed for %s: %s", device_ip, e)
 
         return {"rtsp_open": rtsp_open, "auth_required": auth_required}
 

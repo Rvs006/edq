@@ -276,8 +276,9 @@ function TwoFactorSettings() {
           </div>
           <div className="max-w-sm space-y-3">
             <div>
-              <label className="label">Verification Code</label>
+              <label htmlFor="totp-verify" className="label">Verification Code</label>
               <input
+                id="totp-verify"
                 type="text"
                 inputMode="numeric"
                 maxLength={6}
@@ -360,20 +361,20 @@ function SecuritySettings() {
       <h2 className="font-semibold text-zinc-900 dark:text-slate-100 mb-4">Change Password</h2>
       <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
         <div>
-          <label className="label">Current Password</label>
-          <input type="password" value={form.current_password}
+          <label htmlFor="current-password" className="label">Current Password</label>
+          <input id="current-password" type="password" value={form.current_password}
             onChange={(e) => setForm({ ...form, current_password: e.target.value })}
             aria-label="Current password" className="input" required />
         </div>
         <div>
-          <label className="label">New Password</label>
-          <input type="password" value={form.new_password}
+          <label htmlFor="new-password" className="label">New Password</label>
+          <input id="new-password" type="password" value={form.new_password}
             onChange={(e) => setForm({ ...form, new_password: e.target.value })}
             aria-label="New password" className="input" placeholder="Min 8 chars, uppercase, lowercase, digit" required />
         </div>
         <div>
-          <label className="label">Confirm New Password</label>
-          <input type="password" value={form.confirm_password}
+          <label htmlFor="confirm-password" className="label">Confirm New Password</label>
+          <input id="confirm-password" type="password" value={form.confirm_password}
             onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
             aria-label="Confirm new password" className="input" required />
         </div>

@@ -1,5 +1,6 @@
 """Health check route — database + tools sidecar status + Prometheus metrics."""
 
+import logging
 import time
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -13,6 +14,8 @@ from app.models.user import User
 from app.security.auth import get_current_active_user
 from app.services.system_status import get_system_status
 from app.middleware.rate_limit import check_rate_limit
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -82,8 +85,8 @@ async def prometheus_metrics(request: Request):
                     table_counts[table] = result.scalar() or 0
                 except Exception:
                     table_counts[table] = 0
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not collect table counts: %s", e)
 
     lines = [
         "# HELP edq_up Whether the EDQ backend is up (1=healthy, 0=unhealthy)",
