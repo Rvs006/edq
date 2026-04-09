@@ -48,7 +48,7 @@ describe('NetworkScanPage', () => {
 
   it('renders the page title', () => {
     renderWithProviders(<NetworkScanPage />)
-    expect(screen.getByText('Network Discovery')).toBeInTheDocument()
+    expect(screen.getByText('Bulk Discovery')).toBeInTheDocument()
   })
 
   it('renders CIDR input', () => {
@@ -56,8 +56,8 @@ describe('NetworkScanPage', () => {
     expect(screen.getByText('CIDR Range')).toBeInTheDocument()
   })
 
-  it('renders scan button', () => {
+  it('renders discover button', () => {
     renderWithProviders(<NetworkScanPage />)
-    expect(screen.getByText('Scan Network')).toBeInTheDocument()
+    expect(screen.getByText('Discover Devices')).toBeInTheDocument()
   })
 })
