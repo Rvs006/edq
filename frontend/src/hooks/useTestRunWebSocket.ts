@@ -14,6 +14,12 @@ export function useTestRunWebSocket(runId: string | undefined) {
   const [cableStatus, setCableStatus] = useState<CableStatus>('connected')
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string>>({})
   const [reconnectCount, setReconnectCount] = useState(0)
+  const [cableProbe, setCableProbe] = useState<{
+    reachable: boolean
+    consecutiveFailures: number
+    failThreshold: number
+    timestamp: string
+  } | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cableReconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -49,15 +55,23 @@ export function useTestRunWebSocket(runId: string | undefined) {
         }
         if (!msg) return
 
-        setMessages((prev) => [...prev, msg])
+        setMessages((prev) => {
+          const next = [...prev, msg]
+          return next.length > 500 ? next.slice(-500) : next
+        })
         setLastProgress(msg)
 
         if (msg.type === 'stdout_line' && msg.data.test_id) {
-          setTerminalOutput((prev) => ({
-            ...prev,
-            [msg.data.test_id!]:
-              (prev[msg.data.test_id!] || '') + (msg.data.stdout_line || '') + '\n',
-          }))
+          setTerminalOutput((prev) => {
+            const existing = prev[msg.data.test_id!] || ''
+            const updated = existing + (msg.data.stdout_line || '') + '\n'
+            return {
+              ...prev,
+              [msg.data.test_id!]: updated.length > 50000
+                ? '[output truncated]\n' + updated.slice(-50000)
+                : updated,
+            }
+          })
         }
 
         if (msg.type === 'cable_disconnected') {
@@ -76,6 +90,15 @@ export function useTestRunWebSocket(runId: string | undefined) {
             cableReconnectTimer.current = null
           }
           setCableStatus('disconnected')
+        }
+
+        if (msg.type === 'cable_probe') {
+          setCableProbe({
+            reachable: Boolean(msg.data.reachable),
+            consecutiveFailures: Number(msg.data.consecutive_failures) || 0,
+            failThreshold: Number(msg.data.fail_threshold) || 2,
+            timestamp: String(msg.data.timestamp || ''),
+          })
         }
 
         if (msg.type === 'cable_reconnected') {
@@ -143,5 +166,6 @@ export function useTestRunWebSocket(runId: string | undefined) {
     terminalOutput,
     clearTerminalOutput,
     reconnectCount,
+    cableProbe,
   }
 }

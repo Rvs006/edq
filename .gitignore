@@ -158,7 +158,9 @@ __pycache__/
 *.pyo
 .venv/
 .venv-backend*/
+.venv-wsl/
 server/backend/.venv/
+server/backend/.venv-wsl/
 
 # Database
 *.db
@@ -169,6 +171,9 @@ uploads/
 
 # AI agent/session artifacts
 .agents/
+.claude-flow/
+.hive-mind/
+.swarm/
 NEXT_SESSION_PROMPT.md
 .claude/
 .codex/

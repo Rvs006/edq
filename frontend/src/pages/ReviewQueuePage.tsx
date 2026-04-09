@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { testRunsApi } from '@/lib/api'
 import type { TestRun } from '@/lib/types'
+import { toLocalDateOnly } from '@/lib/testContracts'
 import { Eye, Loader2, ClipboardCheck, ArrowUpDown } from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 
@@ -85,7 +86,7 @@ export default function ReviewQueuePage() {
                       {run.overall_verdict ? <VerdictBadge verdict={run.overall_verdict} /> : <span className="text-xs text-zinc-400">&mdash;</span>}
                     </td>
                     <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
-                      {new Date(run.created_at).toLocaleDateString()}
+                      {toLocalDateOnly(run.created_at)}
                     </td>
                     <td className="py-3 px-4">
                       <Link

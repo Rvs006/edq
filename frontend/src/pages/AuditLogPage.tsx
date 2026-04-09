@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { auditApi } from '@/lib/api'
 import type { AuditLogEntry } from '@/lib/types'
+import { toLocalDateString } from '@/lib/testContracts'
 import { ListChecks, Loader2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -139,7 +140,7 @@ export default function AuditLogPage() {
                         {log.details ? (typeof log.details === 'string' ? log.details : JSON.stringify(log.details)) : '\u2014'}
                       </td>
                       <td className="py-3 px-4 text-zinc-500 text-xs whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString()}
+                        {toLocalDateString(log.created_at)}
                       </td>
                     </tr>
                   ))}

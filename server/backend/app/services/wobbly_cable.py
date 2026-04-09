@@ -12,11 +12,11 @@ logger = logging.getLogger("edq.wobbly_cable")
 
 
 class WobblyCableHandler:
-    FAIL_THRESHOLD = 3
+    FAIL_THRESHOLD = 2
     RETRY_INTERVAL = 30
-    STABILITY_WAIT = 10
+    STABILITY_WAIT = 8
     TIMEOUT_MINUTES = 5
-    PING_INTERVAL = 5
+    PING_INTERVAL = 3
 
     def __init__(self, ip: str, run_id: str, ws_manager, probe_ports: list[int] | None = None):
         self.ip = ip
@@ -42,6 +42,21 @@ class WobblyCableHandler:
         try:
             while self.is_running:
                 reachable = await self.check_connectivity()
+
+                # Broadcast probe status for UI cable indicator
+                if not self.is_paused:
+                    await self.manager.broadcast(
+                        f"test-run:{self.run_id}",
+                        {
+                            "type": "cable_probe",
+                            "data": {
+                                "reachable": reachable,
+                                "consecutive_failures": self.consecutive_failures,
+                                "fail_threshold": self.FAIL_THRESHOLD,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            },
+                        },
+                    )
 
                 if reachable:
                     if self.is_paused:

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { reportsApi, testRunsApi, getApiErrorMessage } from '@/lib/api'
 import type { TestRun, ReportTemplate } from '@/lib/types'
+import { toLocalDateOnly } from '@/lib/testContracts'
 import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
 import Callout from '@/components/common/Callout'
 import toast from 'react-hot-toast'
@@ -110,7 +111,7 @@ export default function ReportsPage() {
                 <option value="">Select a completed test run...</option>
                 {runs?.map((run: TestRun) => (
                 <option key={run.id} value={run.id}>
-                    {getPreferredDeviceName(run)} &mdash; {run.passed_tests}/{run.total_tests} passed &mdash; {new Date(run.created_at).toLocaleDateString()}
+                    {getPreferredDeviceName(run)} &mdash; {run.passed_tests}/{run.total_tests} passed &mdash; {toLocalDateOnly(run.created_at)}
                   </option>
                 ))}
               </select>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '@/lib/api'
 import type { UserProfile } from '@/lib/types'
+import { toLocalDateString } from '@/lib/testContracts'
 import { Users, Server, Loader2 } from 'lucide-react'
 import Callout from '@/components/common/Callout'
 import toast from 'react-hot-toast'
@@ -135,7 +136,7 @@ function UsersTab() {
                   </span>
                 </td>
                 <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
-                  {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}
+                  {u.last_login ? toLocalDateString(u.last_login) : 'Never'}
                 </td>
                 <td className="py-3 px-4">
                   <button
@@ -226,7 +227,7 @@ function SystemTab() {
       </div>
       {systemInfo.checked_at && (
         <p className="text-[11px] text-zinc-400 dark:text-slate-500 mt-3">
-          Last checked: {new Date(systemInfo.checked_at).toLocaleTimeString()}
+          Last checked: {toLocalDateString(systemInfo.checked_at)}
         </p>
       )}
     </div>

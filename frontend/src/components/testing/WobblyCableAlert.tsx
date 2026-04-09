@@ -3,11 +3,18 @@ import { WifiOff, Wifi, Cable } from 'lucide-react'
 
 type CableStatus = 'connected' | 'disconnected' | 'reconnecting'
 
-interface WobblyCableAlertProps {
-  status: CableStatus
+interface CableProbe {
+  reachable: boolean
+  consecutiveFailures: number
+  failThreshold: number
 }
 
-export default function WobblyCableAlert({ status }: WobblyCableAlertProps) {
+interface WobblyCableAlertProps {
+  status: CableStatus
+  probe?: CableProbe | null
+}
+
+export default function WobblyCableAlert({ status, probe }: WobblyCableAlertProps) {
   const [visible, setVisible] = useState(false)
   const [hiding, setHiding] = useState(false)
 
@@ -32,7 +39,30 @@ export default function WobblyCableAlert({ status }: WobblyCableAlertProps) {
     }
   }, [status])
 
-  if (!visible) return null
+  const showProbeOnly = !visible && status === 'connected' && probe
+  const probeWarning = probe && probe.consecutiveFailures > 0 && probe.consecutiveFailures < probe.failThreshold
+
+  if (!visible && !showProbeOnly) return null
+
+  if (showProbeOnly) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-transparent">
+        {probeWarning ? (
+          <>
+            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
+            <span className="text-yellow-700">
+              Cable: {probe.consecutiveFailures}/{probe.failThreshold} checks failed
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+            <span className="text-green-700">Cable OK</span>
+          </>
+        )}
+      </div>
+    )
+  }
 
   const isDisconnected = status === 'disconnected'
 

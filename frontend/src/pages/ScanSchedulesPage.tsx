@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { scanSchedulesApi, devicesApi, templatesApi } from '@/lib/api'
 import type { ScanSchedule, Device, TestTemplate } from '@/lib/types'
+import { toLocalDateString } from '@/lib/testContracts'
 import {
   Clock, Plus, Trash2, Pause, Play, Loader2, AlertCircle,
   CalendarClock, RefreshCw, ChevronDown,
@@ -285,7 +286,7 @@ export default function ScanSchedulesPage() {
                       <p className="text-xs text-zinc-500 mt-0.5">
                         Template: {template?.name || 'Unknown'} &middot;
                         Runs: {schedule.run_count}{schedule.max_runs ? `/${schedule.max_runs}` : ''} &middot;
-                        Next: {new Date(schedule.next_run_at).toLocaleString()}
+                        Next: {toLocalDateString(schedule.next_run_at)}
                       </p>
                     </div>
                   </div>
@@ -319,7 +320,7 @@ export default function ScanSchedulesPage() {
                 {schedule.last_run_at && (
                   <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-slate-700/50 flex items-center gap-2 text-xs text-zinc-500">
                     <Clock className="w-3.5 h-3.5" />
-                    Last run: {new Date(schedule.last_run_at).toLocaleString()}
+                    Last run: {toLocalDateString(schedule.last_run_at)}
                   </div>
                 )}
               </div>

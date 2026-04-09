@@ -60,24 +60,38 @@ async def probe_device_connectivity(
     probe_ports: list[int] | None = None,
     tcp_timeout: float = 1.5,
 ) -> tuple[bool, str | None]:
-    """Return whether the target is reachable via ICMP or a quick TCP probe."""
-    try:
-        ping_result = await tools_client.ping(ip, count=1)
-        if ping_result.get("exit_code") == 0:
-            return (True, "icmp")
-    except Exception as exc:
-        logger.warning("ICMP probe failed for %s: %s", ip, exc)
+    """Return whether the target is reachable via ICMP or a quick TCP probe.
 
+    Runs ICMP and TCP probes in parallel for faster detection.
+    """
     ports = probe_ports or list(DEFAULT_CONNECTIVITY_PORTS[:MAX_PROBE_PORTS])
-    results = await asyncio.gather(
-        *(_tcp_probe(ip, port, tcp_timeout) for port in ports),
-        return_exceptions=True,
-    )
 
-    for result in results:
-        if isinstance(result, tuple):
-            port, reachable = result
-            if reachable:
-                return (True, f"tcp:{port}")
+    # Run ICMP and TCP probes in parallel
+    async def _icmp_probe():
+        try:
+            result = await tools_client.ping(ip, count=1)
+            if result.get("exit_code") == 0:
+                return (True, "icmp")
+        except Exception as exc:
+            logger.debug("ICMP probe failed for %s: %s", ip, exc)
+        return (False, None)
 
+    async def _tcp_probes():
+        results = await asyncio.gather(
+            *(_tcp_probe(ip, port, tcp_timeout) for port in ports),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, tuple):
+                port, reachable = result
+                if reachable:
+                    return (True, f"tcp:{port}")
+        return (False, None)
+
+    icmp_result, tcp_result = await asyncio.gather(_icmp_probe(), _tcp_probes())
+
+    if icmp_result[0]:
+        return icmp_result
+    if tcp_result[0]:
+        return tcp_result
     return (False, None)

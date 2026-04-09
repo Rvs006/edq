@@ -10,6 +10,7 @@ import {
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import VerdictBadge from '@/components/common/VerdictBadge'
 import type { TestRun, TourState } from '@/lib/types'
+import { toLocalDateOnly } from '@/lib/testContracts'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
 export default function DashboardPage({ tourState }: { tourState?: TourState }) {
@@ -183,7 +184,7 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
                         )}
                       </td>
                       <td className="py-2.5 px-4 text-zinc-500 text-xs hidden md:table-cell">
-                        {new Date(run.created_at).toLocaleDateString()}
+                        {toLocalDateOnly(run.created_at)}
                       </td>
                     </tr>
                   ))}
@@ -206,20 +207,20 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
             <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Quick Actions</h3>
             <div className="space-y-2">
               <Link to="/test-runs" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                  <Plus className="w-4 h-4 text-blue-600" />
+                <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950 flex items-center justify-center">
+                  <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 </div>
                 <span className="text-sm font-medium text-zinc-700 dark:text-slate-300">New Test Run</span>
               </Link>
               <Link to="/devices" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
-                <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-                  <Monitor className="w-4 h-4 text-green-600" />
+                <div className="w-8 h-8 rounded-lg bg-green-50 dark:bg-green-950 flex items-center justify-center">
+                  <Monitor className="w-4 h-4 text-green-600 dark:text-green-400" />
                 </div>
                 <span className="text-sm font-medium text-zinc-700 dark:text-slate-300">Add Device</span>
               </Link>
               <Link to="/reports" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
-                <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
-                  <FileText className="w-4 h-4 text-purple-600" />
+                <div className="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-950 flex items-center justify-center">
+                  <FileText className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 </div>
                 <span className="text-sm font-medium text-zinc-700 dark:text-slate-300">Generate Report</span>
               </Link>

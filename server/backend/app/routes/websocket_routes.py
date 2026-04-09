@@ -4,7 +4,8 @@ import logging
 from typing import Dict, Optional, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError
 from sqlalchemy import select
 
 from app.config import settings
@@ -46,8 +47,21 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def _validate_ws_origin(websocket: WebSocket) -> bool:
+    """Validate that the WebSocket Origin header matches allowed origins."""
+    origin = websocket.headers.get("origin", "")
+    if not origin:
+        return True  # Same-origin requests may omit Origin
+    allowed = getattr(settings, "CORS_ORIGINS", [])
+    if "*" in allowed:
+        return True
+    return origin in allowed
+
+
 def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
     """Validate JWT from httpOnly cookie only. Return payload or None."""
+    if not _validate_ws_origin(websocket):
+        return None
     token = websocket.cookies.get(SESSION_COOKIE)
     if not token:
         return None
@@ -56,7 +70,7 @@ def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
         if payload.get("type") != "access":
             return None
         return payload
-    except JWTError:
+    except InvalidTokenError:
         return None
 
 

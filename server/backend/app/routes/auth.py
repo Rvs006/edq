@@ -147,7 +147,6 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     return {
         "message": "Login successful",
         "csrf_token": csrf_token,
-        "refresh_token": refresh_token,
         "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         "user": {
             "id": user.id,
@@ -211,7 +210,6 @@ async def refresh(
     return {
         "message": "Token refreshed",
         "csrf_token": csrf_token,
-        "refresh_token": refresh_token,
         "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     }
 

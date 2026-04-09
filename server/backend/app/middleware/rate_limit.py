@@ -36,8 +36,19 @@ class InMemoryRateLimiter:
 
     def __init__(self) -> None:
         self._buckets: Dict[str, _Bucket] = defaultdict(_Bucket)
+        self._request_count = 0
 
     def check(self, key: str, max_requests: int, window_seconds: int = 60) -> bool:
+        self._request_count += 1
+        # Prune stale buckets every 1000 requests to prevent memory leak
+        if self._request_count % 1000 == 0:
+            now = time.monotonic()
+            stale_keys = [
+                k for k, b in self._buckets.items()
+                if not b.timestamps or b.timestamps[-1] < now - 300
+            ]
+            for k in stale_keys:
+                del self._buckets[k]
         return self._buckets[key].is_allowed(time.monotonic(), window_seconds, max_requests)
 
 

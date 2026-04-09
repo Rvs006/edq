@@ -103,7 +103,8 @@ async def _exchange_code_for_tokens(
 
 
 async def _validate_id_token(id_token: str, discovery: dict, expected_nonce: str) -> dict:
-    from jose import JWTError, jwt as jose_jwt
+    import jwt as jose_jwt
+    from jwt.exceptions import InvalidTokenError as JWTError
 
     jwks_uri = discovery.get("jwks_uri")
     issuer = discovery.get("issuer")

@@ -55,7 +55,8 @@ async def prometheus_metrics(request: Request):
     """
     if settings.METRICS_API_KEY:
         auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer ") or auth_header[7:] != settings.METRICS_API_KEY:
+        import hmac
+        if not auth_header.startswith("Bearer ") or not hmac.compare_digest(auth_header[7:], settings.METRICS_API_KEY):
             return JSONResponse(status_code=401, content={"detail": "Invalid or missing metrics API key"})
     db_ok = 1
     try:

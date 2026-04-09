@@ -170,7 +170,7 @@ class DeviceFingerprinter:
             result = self._heuristic_classify(open_ports, services, vendor)
 
         # 3. Compute which tests to skip based on detected ports
-        port_skip_reasons = self._compute_port_skips(open_ports)
+        port_skip_reasons = self._compute_port_skips(open_ports, services)
         # Merge profile-level skips (no specific reason) with port-based skips
         for tid in result.skip_test_ids:
             if tid not in port_skip_reasons:
@@ -323,16 +323,23 @@ class DeviceFingerprinter:
     # Port-based test skips
     # ------------------------------------------------------------------
 
-    def _compute_port_skips(self, open_ports: set[int]) -> dict[str, str]:
+    def _compute_port_skips(self, open_ports: set[int], services: dict[int, str] | None = None) -> dict[str, str]:
         """Determine which tests to skip based on absent ports/services.
 
         Returns a dict mapping test_id → human-readable skip reason.
         """
         skips: dict[str, str] = {}
 
-        # No HTTPS (443) → skip TLS tests
-        if 443 not in open_ports:
-            reason = "Skipped — port 443 (HTTPS) is not open on this device, so TLS tests cannot run."
+        # No HTTPS/TLS → skip TLS tests. Check port 443 first, then any HTTPS service.
+        has_https = 443 in open_ports
+        if not has_https and services:
+            https_keywords = {"ssl", "https", "ssl/http", "ssl/https"}
+            has_https = any(
+                svc.lower() in https_keywords or "https" in svc.lower() or "ssl" in svc.lower()
+                for svc in services.values()
+            )
+        if not has_https:
+            reason = "Skipped — no HTTPS/TLS service detected on this device, so TLS tests cannot run."
             for tid in ("U10", "U11", "U12", "U13"):
                 skips[tid] = reason
 

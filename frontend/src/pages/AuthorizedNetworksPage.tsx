@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Shield, Plus, Trash2, ToggleLeft, ToggleRight, Network, AlertTriangle, Loader2 } from 'lucide-react'
 import { authorizedNetworksApi } from '@/lib/api'
+import { toLocalDateOnly } from '@/lib/testContracts'
 import toast from 'react-hot-toast'
 
 interface AuthorizedNetwork {
@@ -224,7 +225,7 @@ export default function AuthorizedNetworksPage() {
                   <p className="text-xs text-zinc-500 dark:text-slate-400 mt-0.5 truncate">{network.description}</p>
                 )}
                 <p className="text-[10px] text-zinc-400 dark:text-slate-500 mt-0.5">
-                  Added {new Date(network.created_at).toLocaleDateString()}
+                  Added {toLocalDateOnly(network.created_at)}
                 </p>
               </div>
 

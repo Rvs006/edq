@@ -3,6 +3,7 @@ import {
   ListChecks, Plus, Copy, Trash2, Pencil, X, Save, Loader2,
   ChevronDown, ChevronRight, ToggleLeft, ToggleRight, Info
 } from 'lucide-react'
+import { toLocalDateOnly } from '@/lib/testContracts'
 import { testPlansApi, templatesApi } from '@/lib/api'
 import { UNIVERSAL_TESTS } from '@/lib/universal-tests'
 import type { UniversalTest } from '@/lib/universal-tests'
@@ -143,7 +144,7 @@ export default function TestPlansPage() {
                     <td className="px-3 py-3 text-center">
                       {custom > 0 ? <span className="badge bg-purple-50 text-purple-600 border border-purple-100">{custom}</span> : <span className="text-zinc-400">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-xs text-zinc-400 dark:text-zinc-500">{new Date(p.created_at).toLocaleDateString()}</td>
+                    <td className="px-3 py-3 text-xs text-zinc-400 dark:text-zinc-500">{toLocalDateOnly(p.created_at)}</td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1 justify-end">
                         <button type="button" onClick={() => setEditing(p)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Edit">
