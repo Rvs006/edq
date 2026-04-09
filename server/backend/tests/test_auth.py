@@ -57,7 +57,8 @@ async def test_login_success(client: AsyncClient):
     data = resp.json()
     assert data["message"] == "Login successful"
     assert "csrf_token" in data
-    assert "refresh_token" in data
+    # Refresh token is set as an httpOnly cookie, not in the JSON body
+    assert client.cookies.get("edq_refresh")
 
 
 @pytest.mark.asyncio
@@ -152,12 +153,12 @@ async def test_refresh_token_single_use(client: AsyncClient):
         "password": "TestPass1",
     })
     assert login_resp.status_code == 200
-    refresh_token = login_resp.json()["refresh_token"]
+    refresh_token = client.cookies.get("edq_refresh")
+    assert refresh_token
 
     # First use should succeed
     resp1 = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
     assert resp1.status_code == 200
-    assert "refresh_token" in resp1.json()
 
     # Second use of the SAME token should fail (single-use rotation)
     resp2 = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
@@ -176,12 +177,12 @@ async def test_refresh_token_rotation(client: AsyncClient):
         "username": "rotateuser",
         "password": "TestPass1",
     })
-    refresh_token = login_resp.json()["refresh_token"]
+    refresh_token = client.cookies.get("edq_refresh")
 
     # Rotate
     resp1 = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
     assert resp1.status_code == 200
-    new_token = resp1.json()["refresh_token"]
+    new_token = client.cookies.get("edq_refresh")
 
     # New token should work
     resp2 = await client.post("/api/auth/refresh", json={"refresh_token": new_token})
@@ -206,9 +207,9 @@ async def test_refresh_token_cookie_rotation(client: AsyncClient):
 
     refresh_resp = await client.post("/api/auth/refresh")
     assert refresh_resp.status_code == 200
-    assert refresh_resp.json()["refresh_token"]
-    assert client.cookies.get("edq_refresh")
-    assert client.cookies.get("edq_refresh") != original_cookie
+    new_cookie = client.cookies.get("edq_refresh")
+    assert new_cookie
+    assert new_cookie != original_cookie
 
 
 @pytest.mark.asyncio
@@ -223,12 +224,12 @@ async def test_refresh_token_reuse_revokes_family(client: AsyncClient):
         "username": "reuseuser",
         "password": "TestPass1",
     })
-    old_token = login_resp.json()["refresh_token"]
+    old_token = client.cookies.get("edq_refresh")
 
     # Rotate to get a new token (old_token is now revoked)
     resp1 = await client.post("/api/auth/refresh", json={"refresh_token": old_token})
     assert resp1.status_code == 200
-    new_token = resp1.json()["refresh_token"]
+    new_token = client.cookies.get("edq_refresh")
 
     # Reuse the old (revoked) token — should trigger family revocation
     resp2 = await client.post("/api/auth/refresh", json={"refresh_token": old_token})

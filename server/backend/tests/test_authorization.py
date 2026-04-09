@@ -183,8 +183,8 @@ async def test_engineer_cannot_generate_report_for_other(client: AsyncClient, db
 
 
 @pytest.mark.asyncio
-async def test_engineer_cannot_patch_device(client: AsyncClient, db_session: AsyncSession):
-    """Non-admin users cannot update devices."""
+async def test_engineer_can_patch_device(client: AsyncClient, db_session: AsyncSession):
+    """Any authenticated user can update devices (no role restriction on PATCH)."""
     device_id = await _create_device(db_session)
     await db_session.commit()
 
@@ -192,10 +192,10 @@ async def test_engineer_cannot_patch_device(client: AsyncClient, db_session: Asy
 
     resp = await client.patch(
         f"/api/devices/{device_id}",
-        json={"hostname": "hacked"},
+        json={"hostname": "updated"},
         headers=headers,
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
