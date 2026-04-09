@@ -179,6 +179,11 @@ NEXT_SESSION_PROMPT.md
 .codex/
 .gemini/
 .mcp.json
+ruvector.db
+
+# Root-level MCP/tooling deps (not part of EDQ)
+/package.json
+/package-lock.json
 
 # Electron build artifacts
 electron/dist/

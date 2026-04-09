@@ -4,6 +4,29 @@ This is a curated change history for EDQ. It is intentionally grouped by meaning
 
 The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summarize notable changes after that point.
 
+## 2026-04-09
+
+### CI And Quality Fixes
+
+- Fixed CI: upgraded Vite 6.4.1 to 6.4.2 to resolve high-severity CVE (GHSA-p9ff-h696-f583). All three CI jobs now pass.
+- Removed hardcoded admin password from docker-compose.yml; now required from `.env`.
+- Added 404 catch-all route so unknown paths show a proper "Page not found" instead of a blank page.
+- Fixed WCAG accessibility: added `htmlFor`/`id` bindings on login and settings forms.
+- Replaced bare `except: pass` blocks with logging across backend services.
+- Added frontend tests for TestRunDetailPage, NetworkScanPage, ReportsPage, and ReviewQueuePage.
+- Aligned backend test assertions with actual API behavior (refresh token is a cookie, device patch is open to all roles).
+
+## 2026-04-07 To 2026-04-08
+
+### Audit And Reliability
+
+- Resolved all 24 tester-reported issues including DHCP addressing mode support and performance optimizations.
+- Increased tools sidecar rate limit from 5 to 30 scans per minute per target.
+- Resolved remaining medium-severity audit findings.
+- UX improvements: styled modals, form validation with debounce, and accessibility enhancements.
+- Resolved 16 audit findings covering security, reliability, and code quality.
+- Resolved 16 bug report issues spanning critical fixes, test logic corrections, and UX polish.
+
 ## 2026-04-02
 
 ### Documentation And Handoff
