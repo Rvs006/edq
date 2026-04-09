@@ -22,6 +22,10 @@ vi.mock('@/lib/api', () => ({
   },
 }))
 
+vi.mock('@/hooks/useTestRunWebSocket', () => ({
+  useTestRunWebSocket: vi.fn().mockReturnValue({ terminalOutput: [], lastProgress: null }),
+}))
+
 vi.mock('react-hot-toast', () => ({
   default: { success: vi.fn(), error: vi.fn() },
 }))
