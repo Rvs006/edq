@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.models.user import User
-from tests.conftest import register_and_login
+from .conftest import register_and_login
 
 
 @pytest.mark.asyncio

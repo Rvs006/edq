@@ -3,7 +3,7 @@
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import register_and_login
+from ..conftest import register_and_login
 
 
 @pytest.mark.asyncio

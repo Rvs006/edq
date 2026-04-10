@@ -266,7 +266,7 @@ class ToolsClient:
 
     async def versions(self) -> Dict[str, Any]:
         """Get installed tool versions from the sidecar."""
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=3) as client:
             resp = await client.get(f"{self.base_url}/versions", headers=self._headers)
             resp.raise_for_status()
             return resp.json()

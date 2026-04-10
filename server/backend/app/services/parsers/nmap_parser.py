@@ -68,6 +68,9 @@ class NmapParser:
                 if addr_type == "ipv4" or addr_type == "ipv6":
                     host_data["ip"] = addr.get("addr")
                 elif addr_type == "mac":
+                    host_data["mac_address"] = addr.get("addr")
+                    host_data["oui_vendor"] = addr.get("vendor", "")
+                    # Also store at top level for single-host scans
                     result["mac_address"] = addr.get("addr")
                     result["oui_vendor"] = addr.get("vendor", "")
 

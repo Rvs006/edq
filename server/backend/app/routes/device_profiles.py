@@ -89,7 +89,7 @@ async def create_profile(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["admin"])),
 ):
-    clean = sanitize_dict(data.model_dump(), ["name", "manufacturer", "description"])
+    clean = sanitize_dict(data.model_dump(), ["name", "manufacturer", "model_pattern", "category", "description"])
     profile = DeviceProfile(**clean, created_by=user.id)
     db.add(profile)
     await db.flush()
@@ -123,7 +123,7 @@ async def update_profile(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["name", "manufacturer", "description"])
+    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["name", "manufacturer", "model_pattern", "category", "description"])
     if "name" in updates:
         profile.name = updates["name"]
     if "manufacturer" in updates:

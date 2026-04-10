@@ -25,6 +25,7 @@ from app.models.audit_log import AuditLog
 from app.models.report_config import ReportConfig
 from app.models.sync_queue import SyncQueue
 from app.models.protocol_whitelist import ProtocolWhitelist
+from app.models.project import Project
 from app.security.auth import hash_password
 from app.services.test_library import UNIVERSAL_TESTS
 from sqlalchemy import text
@@ -122,18 +123,25 @@ def init_db() -> bool:
 
 def _run_migrations(db: Session) -> None:
     """Add columns that may be missing from existing databases."""
+    # Use TIMESTAMP for PostgreSQL compatibility (SQLite treats both the same)
     migrations = [
         "ALTER TABLE report_configs ADD COLUMN client_name TEXT",
         "ALTER TABLE report_configs ADD COLUMN logo_path TEXT",
         "ALTER TABLE report_configs ADD COLUMN compliance_standards TEXT",
         "ALTER TABLE report_configs ADD COLUMN branding_colours TEXT",
         "ALTER TABLE test_runs ADD COLUMN connection_scenario TEXT DEFAULT 'direct'",
+        "ALTER TABLE test_runs ADD COLUMN project_id TEXT",
         "ALTER TABLE test_results ADD COLUMN engineer_notes TEXT",
         "ALTER TABLE test_results ADD COLUMN override_reason TEXT",
         "ALTER TABLE test_results ADD COLUMN override_verdict TEXT",
         "ALTER TABLE test_results ADD COLUMN overridden_by_user_id TEXT",
         "ALTER TABLE test_results ADD COLUMN overridden_by_username TEXT",
-        "ALTER TABLE test_results ADD COLUMN overridden_at DATETIME",
+        "ALTER TABLE test_results ADD COLUMN overridden_at TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN access_tokens_revoked_at TIMESTAMP",
+        "ALTER TABLE devices ADD COLUMN addressing_mode TEXT DEFAULT 'dhcp'",
+        "ALTER TABLE devices ADD COLUMN project_id TEXT",
+        "ALTER TABLE devices ADD COLUMN location TEXT",
+        "ALTER TABLE devices ADD COLUMN serial_number TEXT",
     ]
     for sql in migrations:
         try:

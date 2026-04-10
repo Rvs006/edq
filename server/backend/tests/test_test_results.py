@@ -12,7 +12,7 @@ from app.models.test_result import TestResult, TestTier, TestVerdict
 from app.models.test_run import TestRun, TestRunStatus
 from app.models.test_template import TestTemplate
 from app.models.user import User
-from tests.conftest import register_and_login
+from .conftest import register_and_login
 
 
 async def _create_device(db: AsyncSession) -> str:

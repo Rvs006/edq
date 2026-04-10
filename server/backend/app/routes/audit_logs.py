@@ -128,23 +128,29 @@ async def export_audit_logs(
         )
         user_map = {row[0]: row[1] for row in users_result.all()}
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Timestamp", "User", "Action", "Resource Type", "Resource ID", "Details", "IP Address"])
-    for log in logs:
-        writer.writerow([
-            log.created_at.isoformat() if log.created_at else "",
-            user_map.get(log.user_id, log.user_id or "") if log.user_id else "",
-            log.action,
-            log.resource_type,
-            log.resource_id or "",
-            str(log.details) if log.details else "",
-            log.ip_address or "",
-        ])
+    def generate_csv():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["Timestamp", "User", "Action", "Resource Type", "Resource ID", "Details", "IP Address"])
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        for log in logs:
+            writer.writerow([
+                log.created_at.isoformat() if log.created_at else "",
+                user_map.get(log.user_id, log.user_id or "") if log.user_id else "",
+                log.action,
+                log.resource_type,
+                log.resource_id or "",
+                str(log.details) if log.details else "",
+                log.ip_address or "",
+            ])
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
 
-    output.seek(0)
     return StreamingResponse(
-        iter([output.getvalue()]),
+        generate_csv(),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=audit_logs.csv"},
     )

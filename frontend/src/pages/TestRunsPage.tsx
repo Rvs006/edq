@@ -416,6 +416,9 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
     try {
       await testRunsApi.create({ device_id: deviceId, template_id: effectiveTemplateId })
       queryClient.invalidateQueries({ queryKey: ['test-runs'] })
+      queryClient.invalidateQueries({ queryKey: ['test-runs-all-for-counts'] })
+      queryClient.invalidateQueries({ queryKey: ['run-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['recent-runs'] })
       toast.success('Test run created')
       onClose()
     } catch (err: unknown) {

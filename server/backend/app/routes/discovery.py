@@ -1,5 +1,6 @@
 """Discovery routes — device auto-detection pipeline."""
 
+import asyncio
 import base64
 import logging
 import socket
@@ -16,6 +17,7 @@ from app.models.user import User
 from app.schemas.device import DiscoveryRequest
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit
+from app.services.connectivity_probe import probe_device_connectivity
 from app.services.discovery_service import (
     build_device_display_name,
     guess_category,
@@ -167,11 +169,37 @@ async def initiate_discovery(
     discovered_devices: List[Dict[str, Any]] = []
 
     if data.ip_address:
+        # Best-effort pre-flight: use it to bound scan time, but do not hard-fail
+        # the request. Some real devices block ICMP or only expose non-default
+        # services, so a quick probe can miss a device that nmap can still find.
+        scan_timeout = 300
+        try:
+            is_reachable, probe_source = await asyncio.wait_for(
+                probe_device_connectivity(data.ip_address),
+                timeout=5.0,
+            )
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.warning("Connectivity pre-check failed for %s: %s", data.ip_address, exc)
+            is_reachable = False
+            probe_source = None
+
+        if not is_reachable:
+            logger.info(
+                "Connectivity pre-check did not confirm %s; proceeding with full scan timeout anyway",
+                data.ip_address,
+            )
+        else:
+            logger.debug(
+                "Connectivity pre-check confirmed %s via %s",
+                data.ip_address,
+                probe_source,
+            )
+
         try:
             raw = await tools_client.nmap(
                 data.ip_address,
                 ["-sV", "-O", "-p-", "--max-rate", "300", "-oX", "-"],
-                timeout=300,
+                timeout=scan_timeout,
             )
         except Exception:
             logger.exception("Nmap service scan failed for %s", data.ip_address)

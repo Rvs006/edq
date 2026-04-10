@@ -15,6 +15,7 @@ from app.models.database import get_db
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
 from app.utils.audit import log_action
+from app.utils.sanitize import sanitize_dict
 
 logger = logging.getLogger("edq.routes.authorized_networks")
 
@@ -137,6 +138,8 @@ async def create_authorized_network(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(["admin"])),
 ):
+    clean = sanitize_dict(data.model_dump(), ["label", "description"])
+
     existing = await db.execute(
         select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == data.cidr)
     )
@@ -145,8 +148,8 @@ async def create_authorized_network(
 
     network = AuthorizedNetwork(
         cidr=data.cidr,
-        label=data.label,
-        description=data.description,
+        label=clean["label"],
+        description=clean["description"],
         created_by=user.id,
     )
     db.add(network)
@@ -189,7 +192,7 @@ async def update_authorized_network(
     if not network:
         raise HTTPException(status_code=404, detail="Authorized network not found")
 
-    updates = data.model_dump(exclude_unset=True)
+    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["label", "description"])
     for key, value in updates.items():
         setattr(network, key, value)
     network.updated_at = datetime.now(timezone.utc)

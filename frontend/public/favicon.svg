@@ -1,19 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="scan" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0099ff"/>
-      <stop offset="100%" stop-color="#1e40af"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e40af"/>
+      <stop offset="100%" stop-color="#0099ff"/>
     </linearGradient>
   </defs>
-  <!-- C icon shape -->
-  <rect x="8" y="4" width="48" height="56" rx="12" ry="12" fill="none" stroke="#27272a" stroke-width="6" stroke-linecap="round"/>
-  <!-- Opening gap on right side of C -->
-  <rect x="38" y="28" width="26" height="28" fill="white"/>
-  <!-- Horizontal bar inside C -->
-  <rect x="20" y="22" width="16" height="6" rx="3" fill="#27272a"/>
-  <!-- Blue scan line -->
-  <line x1="12" y1="52" x2="40" y2="52" stroke="url(#scan)" stroke-width="3" stroke-linecap="round" opacity="0.9">
-    <animate attributeName="y1" values="52;12;52" dur="2s" repeatCount="indefinite"/>
-    <animate attributeName="y2" values="52;12;52" dur="2s" repeatCount="indefinite"/>
-  </line>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <text x="32" y="46" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-weight="700" font-size="38" fill="white">E</text>
 </svg>

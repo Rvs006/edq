@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -27,21 +28,49 @@ async def get_system_status(include_tool_versions: bool = True) -> dict[str, Any
     """Return the live status of the backend dependencies."""
     database_status = await _get_database_status()
     tools_status = "ok"
+    tools_message: str | None = None
     versions: dict[str, str] = {}
 
-    try:
-        result = await tools_client.versions()
-        raw_versions = result.get("versions", {}) if isinstance(result, dict) else {}
-        versions = {
-            key: str(raw_versions.get(key, "unavailable"))
-            for key in TOOL_KEYS
-        }
-    except Exception:
-        tools_status = "error"
-        if include_tool_versions:
-            versions = {key: "unavailable" for key in TOOL_KEYS}
+    # Check if tools sidecar is configured at all
+    _tools_url = (settings.TOOLS_SIDECAR_URL or "").strip()
+    _tools_configured = bool(_tools_url) and _tools_url not in (
+        "http://localhost:0",
+        "http://tools:0",
+        "",
+    )
 
-    overall = "ok" if database_status == "ok" and tools_status == "ok" else "degraded"
+    if not _tools_configured:
+        tools_status = "not_configured"
+        tools_message = "Tools sidecar URL is not configured. Manual tests are still available."
+        if include_tool_versions:
+            versions = {key: "not_configured" for key in TOOL_KEYS}
+    else:
+        try:
+            result = await asyncio.wait_for(
+                tools_client.versions(),
+                timeout=2.0,
+            )
+            raw_versions = result.get("versions", {}) if isinstance(result, dict) else {}
+            versions = {
+                key: str(raw_versions.get(key, "unavailable"))
+                for key in TOOL_KEYS
+            }
+        except asyncio.TimeoutError:
+            tools_status = "unavailable"
+            tools_message = "Tools sidecar did not respond within 2s. Manual tests are still available."
+            if include_tool_versions:
+                versions = {key: "unavailable" for key in TOOL_KEYS}
+        except Exception:
+            tools_status = "unavailable"
+            tools_message = "Tools sidecar is unreachable. Manual tests are still available."
+            if include_tool_versions:
+                versions = {key: "unavailable" for key in TOOL_KEYS}
+
+    # The app is fully functional without tools — only mark degraded when the
+    # database is down.  Tools being unreachable is a warning, not an error.
+    overall = "ok"
+    if database_status != "ok" or tools_status == "unavailable":
+        overall = "degraded"
 
     payload: dict[str, Any] = {
         "status": overall,
@@ -54,6 +83,9 @@ async def get_system_status(include_tool_versions: bool = True) -> dict[str, Any
         "database": {"status": database_status},
         "tools_sidecar": {"status": tools_status},
     }
+
+    if tools_message:
+        payload["tools_sidecar"]["message"] = tools_message
 
     if include_tool_versions:
         payload["tools"] = versions

@@ -1,0 +1,47 @@
+# PostgreSQL override — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
+#
+# Requires POSTGRES_PASSWORD in .env (or it defaults to edq-postgres-secret).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: edq-postgres
+    environment:
+      POSTGRES_DB: edq
+      POSTGRES_USER: edq
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edq-postgres-secret}
+    volumes:
+      - edq-pgdata:/var/lib/postgresql/data
+    networks:
+      - edq-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edq"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  backend:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://edq:${POSTGRES_PASSWORD:-edq-postgres-secret}@postgres:5432/edq
+      - TOOLS_SIDECAR_URL=http://localhost:8001
+      - TOOLS_API_KEY=${TOOLS_API_KEY}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
+
+volumes:
+  edq-pgdata:
+    driver: local

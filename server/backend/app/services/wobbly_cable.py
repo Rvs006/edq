@@ -17,6 +17,10 @@ class WobblyCableHandler:
     STABILITY_WAIT = 8
     TIMEOUT_MINUTES = 5
     PING_INTERVAL = 3
+    # Exponential backoff ceiling for the probe loop while the device is
+    # unreachable. Keeps CPU/network burn low when the host has no route to
+    # the target. Reset to PING_INTERVAL on the first successful probe.
+    MAX_PING_INTERVAL = 30
 
     def __init__(self, ip: str, run_id: str, ws_manager, probe_ports: list[int] | None = None):
         self.ip = ip
@@ -28,10 +32,10 @@ class WobblyCableHandler:
         self.consecutive_failures = 0
 
     async def check_connectivity(self) -> bool:
-        """Return True when the device is reachable on the network."""
+        """Return True when the device is reachable on a usable TCP service."""
         try:
-            reachable, _probe_method = await probe_device_connectivity(self.ip, self.probe_ports)
-            return reachable
+            _reachable, probe_method = await probe_device_connectivity(self.ip, self.probe_ports)
+            return bool(probe_method) and probe_method.startswith("tcp:")
         except Exception as exc:
             logger.warning("Connectivity probe error for %s: %s", self.ip, exc)
             return False
@@ -39,6 +43,9 @@ class WobblyCableHandler:
     async def monitor(self) -> None:
         """Continuous monitoring loop during test execution."""
         logger.info("Cable monitor started for run %s (device %s)", self.run_id, self.ip)
+        # Adaptive probe interval: starts at PING_INTERVAL, doubles on each
+        # failed probe up to MAX_PING_INTERVAL, and resets on any success.
+        probe_interval = self.PING_INTERVAL
         try:
             while self.is_running:
                 reachable = await self.check_connectivity()
@@ -69,6 +76,7 @@ class WobblyCableHandler:
                         if await self.check_connectivity():
                             await self._resume_testing()
                     self.consecutive_failures = 0
+                    probe_interval = self.PING_INTERVAL
                 else:
                     self.consecutive_failures += 1
                     logger.debug(
@@ -81,8 +89,15 @@ class WobblyCableHandler:
                     if self.consecutive_failures >= self.FAIL_THRESHOLD and not self.is_paused:
                         await self.pause_for_disconnect()
                         await self._wait_for_reconnection()
+                        # _wait_for_reconnection handles its own pacing; reset
+                        # the probe interval so the main loop resumes normally.
+                        probe_interval = self.PING_INTERVAL
+                    else:
+                        # Back off exponentially while unreachable to avoid
+                        # burning CPU/network when the host has no route.
+                        probe_interval = min(probe_interval * 2, self.MAX_PING_INTERVAL)
 
-                await asyncio.sleep(self.PING_INTERVAL)
+                await asyncio.sleep(probe_interval)
         except asyncio.CancelledError:
             logger.info("Cable monitor cancelled for run %s", self.run_id)
         except Exception as exc:

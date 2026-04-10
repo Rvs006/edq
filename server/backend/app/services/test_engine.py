@@ -32,7 +32,7 @@ from app.services.parsers.testssl_parser import testssl_parser
 from app.services.parsers.ssh_audit_parser import ssh_audit_parser
 from app.services.parsers.hydra_parser import hydra_parser
 from app.services.evaluation import evaluate_result
-from app.services.connectivity_probe import extract_probe_ports
+from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
 from app.services.wobbly_cable import WobblyCableHandler
 from app.services.test_library import get_test_by_id
 from app.services.device_fingerprinter import fingerprinter, FingerprintResult
@@ -117,11 +117,18 @@ class TestEngine:
             manager,
             probe_ports=probe_ports,
         )
-        initial_reachable = await cable_handler.check_connectivity()
+        # Strict pre-flight: require at least one TCP service port to accept a
+        # connection. ICMP alone isn't sufficient — a gateway/router on the
+        # user's network may respond to ping at the target IP without actually
+        # being the device under test. Tests need real services to exercise.
+        initial_reachable, probe_method = await probe_device_connectivity(
+            device.ip_address, probe_ports=probe_ports
+        )
+        has_tcp_service = bool(probe_method) and probe_method.startswith("tcp:")
         cable_task = asyncio.create_task(cable_handler.monitor())
-        run_started_broadcasted = initial_reachable
+        run_started_broadcasted = False
 
-        if initial_reachable:
+        if has_tcp_service:
             async with async_session() as db:
                 run = await db.get(TestRun, test_run_id)
                 if run:
@@ -134,9 +141,31 @@ class TestEngine:
                 "type": "run_started",
                 "data": {"run_id": test_run_id, "status": "running"},
             })
+            run_started_broadcasted = True
         else:
+            if initial_reachable:
+                logger.warning(
+                    "Device %s responded to %s but has no open probeable service ports for run %s; pausing until it becomes testable",
+                    device.ip_address,
+                    probe_method or "ping",
+                    test_run_id,
+                )
+                pause_message = (
+                    f"Device {device.ip_address} is reachable but no supported service "
+                    "ports are open yet. Testing is paused until a service port becomes reachable."
+                )
+            else:
+                logger.warning(
+                    "Device %s is unreachable for run %s; pausing until connectivity returns",
+                    device.ip_address,
+                    test_run_id,
+                )
+                pause_message = (
+                    f"Target device {device.ip_address} is unreachable from this "
+                    "network. Testing is paused until connectivity is restored."
+                )
             await cable_handler.pause_for_disconnect(
-                message="Device not reachable - waiting for connection before tests start",
+                message=pause_message,
                 kill_tools=False,
             )
 

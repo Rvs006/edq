@@ -34,6 +34,7 @@ from app.models.branding import BrandingSettings
 from app.models.scan_schedule import ScanSchedule
 from app.models.refresh_token import RefreshToken
 from app.models.authorized_network import AuthorizedNetwork
+from app.models.project import Project
 
 config = context.config
 
@@ -42,9 +43,11 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-db_url = os.environ.get("DATABASE_URL", "").replace("+aiosqlite", "")
+db_url = os.environ.get("DATABASE_URL", "")
 if db_url:
-    config.set_main_option("sqlalchemy.url", db_url)
+    # Convert async driver URLs to sync equivalents for Alembic
+    sync_url = db_url.replace("+aiosqlite", "").replace("+asyncpg", "")
+    config.set_main_option("sqlalchemy.url", sync_url)
 
 
 def run_migrations_offline() -> None:

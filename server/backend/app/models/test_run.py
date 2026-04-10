@@ -75,6 +75,7 @@ class TestRun(Base):
     device_id = Column(String(36), ForeignKey("devices.id"), nullable=False, index=True)
     template_id = Column(String(36), ForeignKey("test_templates.id"), nullable=False)
     engineer_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
     agent_id = Column(String(36), ForeignKey("agents.id"), nullable=True)
     connection_scenario = Column(String(32), nullable=False, default="direct")  # direct, test_lab, site_network
     status = Column(SAEnum(TestRunStatus), default=TestRunStatus.PENDING)

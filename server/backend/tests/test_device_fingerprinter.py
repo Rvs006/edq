@@ -7,7 +7,7 @@ and auto-learn from completed runs.
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import register_and_login
+from .conftest import register_and_login
 from app.services.device_fingerprinter import DeviceFingerprinter, FingerprintResult
 
 
