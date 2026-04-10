@@ -117,7 +117,7 @@ async def _get_previous_results(db: AsyncSession, device_id: str, template_id: s
     results_stmt = select(TestResult).where(TestResult.test_run_id == prev_run.id)
     results = await db.execute(results_stmt)
     return [
-        {"test_id": r.test_id, "verdict": r.verdict}
+        {"test_id": r.test_id, "verdict": r.verdict.value if hasattr(r.verdict, "value") else str(r.verdict)}
         for r in results.scalars().all()
     ]
 

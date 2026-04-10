@@ -1,0 +1,566 @@
+[
+  {
+    "id": "TC001",
+    "title": "Sign in and land on the dashboard",
+    "description": "Verifies an operator can sign in with valid credentials and reaches the dashboard successfully.",
+    "category": "Authentication & Session Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the user lands on the dashboard"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Start a new test run with live output",
+    "description": "This test verifies a user can start a test run from a template for selected devices and see live output while the run is in progress.",
+    "category": "Test Runs & Live Execution",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /test-runs"
+      },
+      {
+        "type": "action",
+        "description": "Start creating a new test run using a template"
+      },
+      {
+        "type": "action",
+        "description": "Select one or more target devices"
+      },
+      {
+        "type": "action",
+        "description": "Start the test run"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a live output stream is displayed for the running test"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "View completed test run results and findings",
+    "description": "This test verifies a user can open a completed test run and see summarized results with parsed findings.",
+    "category": "Test Runs & Live Execution",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /test-runs"
+      },
+      {
+        "type": "action",
+        "description": "Select a completed test run from the list"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify summarized results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify parsed findings are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "Discover devices via IP range scan and add one to inventory",
+    "description": "This test verifies a user can run an IP range discovery scan, review discovered devices with open ports, and add a selected device to inventory.",
+    "category": "Network Scanning & Discovery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /network-scan"
+      },
+      {
+        "type": "action",
+        "description": "Start a discovery scan for an IP range"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid IP range into the IP range field"
+      },
+      {
+        "type": "action",
+        "description": "Start the scan"
+      },
+      {
+        "type": "action",
+        "description": "Wait for discovered devices to populate"
+      },
+      {
+        "type": "action",
+        "description": "Select a discovered device from the results"
+      },
+      {
+        "type": "action",
+        "description": "Add the selected discovered device to inventory"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected device is shown as added to inventory"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "View dashboard overview content",
+    "description": "Verifies a signed-in operator can view summary counts and recent activity with trend charts on the dashboard.",
+    "category": "Dashboard & Trends",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify summary counts for devices, projects, and recent test runs are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify trend charts for device history are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "Create a new project",
+    "description": "This test verifies an operator can create a project with required metadata and the new project appears in the projects list.",
+    "category": "Project Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /projects"
+      },
+      {
+        "type": "action",
+        "description": "Start creating a new project"
+      },
+      {
+        "type": "action",
+        "description": "Fill Project name with Project Alpha"
+      },
+      {
+        "type": "action",
+        "description": "Fill valid project metadata in the available metadata fields"
+      },
+      {
+        "type": "action",
+        "description": "Save the project"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new project appears in the projects list"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Add a device to inventory",
+    "description": "Verifies an operator can add a new device with valid details and the device appears in the inventory list.",
+    "category": "Device Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to open device inventory"
+      },
+      {
+        "type": "action",
+        "description": "Start the add device flow"
+      },
+      {
+        "type": "action",
+        "description": "Fill Device-UI-Automation-01 into the device name field"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid IP address into the IP address field"
+      },
+      {
+        "type": "action",
+        "description": "Save the device"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new device is listed in the device inventory"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Assign devices to a project",
+    "description": "This test verifies a user can assign devices to a project and the assigned devices are listed under the project.",
+    "category": "Project Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /projects"
+      },
+      {
+        "type": "action",
+        "description": "Start creating a new project"
+      },
+      {
+        "type": "action",
+        "description": "Fill Project name with Project Devices"
+      },
+      {
+        "type": "action",
+        "description": "Save the project"
+      },
+      {
+        "type": "action",
+        "description": "Open the newly created project"
+      },
+      {
+        "type": "action",
+        "description": "Assign one or more available devices to the project"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify assigned devices are displayed under the project"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC009",
+    "title": "Open a device detail view",
+    "description": "Verifies an operator can open an existing device from inventory and see its fingerprint and history sections.",
+    "category": "Device Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to open device inventory"
+      },
+      {
+        "type": "action",
+        "description": "Start the add device flow"
+      },
+      {
+        "type": "action",
+        "description": "Fill Device-UI-Automation-Detail-01 into the device name field"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid IP address into the IP address field"
+      },
+      {
+        "type": "action",
+        "description": "Save the device"
+      },
+      {
+        "type": "action",
+        "description": "Select the newly created device from the device list"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify device fingerprint information is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify device history information is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC010",
+    "title": "View discovered device open ports and services from scan results",
+    "description": "This test verifies a user can open a discovered device from scan results and view its open ports and service details.",
+    "category": "Network Scanning & Discovery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /network-scan"
+      },
+      {
+        "type": "action",
+        "description": "Start a discovery scan for an IP range"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid IP range into the IP range field"
+      },
+      {
+        "type": "action",
+        "description": "Start the scan"
+      },
+      {
+        "type": "action",
+        "description": "Wait for discovered devices to populate"
+      },
+      {
+        "type": "action",
+        "description": "Open a discovered device details view from the results"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify open ports and service details are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC011",
+    "title": "Keep run creation blocked until required selections are made",
+    "description": "This test verifies the user cannot start a new test run until required inputs like template and target devices are selected.",
+    "category": "Test Runs & Live Execution",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /test-runs"
+      },
+      {
+        "type": "action",
+        "description": "Start creating a new test run"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to start the run without selecting required fields"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify required-field validation errors are visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC012",
+    "title": "Create a device profile",
+    "description": "Verifies an operator can create a device profile and the profile appears in the profile list.",
+    "category": "Device Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to open device profiles"
+      },
+      {
+        "type": "action",
+        "description": "Start the create device profile flow"
+      },
+      {
+        "type": "action",
+        "description": "Fill Profile-UI-Automation-01 into the profile name field"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid description into the profile description field"
+      },
+      {
+        "type": "action",
+        "description": "Save the device profile"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new device profile is listed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC013",
+    "title": "Filter dashboard trends by time range",
+    "description": "Verifies a signed-in operator can apply a time range filter and the dashboard trends and activity update accordingly.",
+    "category": "Dashboard & Trends",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Select a valid time range in the dashboard time range filter"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the trend charts and recent activity reflect the selected time range"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC014",
+    "title": "Validate IP range input for discovery scan",
+    "description": "This test verifies the user cannot start a discovery scan with an invalid IP range and an input validation error is shown.",
+    "category": "Network Scanning & Discovery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /network-scan"
+      },
+      {
+        "type": "action",
+        "description": "Start a discovery scan for an IP range"
+      },
+      {
+        "type": "action",
+        "description": "Fill 999.999.999.999/99 into the IP range field"
+      },
+      {
+        "type": "action",
+        "description": "Start the scan"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an IP range validation error is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC015",
+    "title": "Prevent saving a project without a name",
+    "description": "This test verifies the user cannot create a project without a required name and a validation error is shown.",
+    "category": "Project Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /projects"
+      },
+      {
+        "type": "action",
+        "description": "Start creating a new project"
+      },
+      {
+        "type": "action",
+        "description": "Clear the Project name field"
+      },
+      {
+        "type": "action",
+        "description": "Save the project"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a required-field validation error is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC016",
+    "title": "Reject invalid credentials on login",
+    "description": "Verifies a user cannot sign in with an incorrect password and sees a credentials validation error.",
+    "category": "Authentication & Session Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the email field"
+      },
+      {
+        "type": "action",
+        "description": "Fill invalid-password into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a credentials validation error is visible"
+      }
+    ],
+    "priority": "Low"
+  }
+]

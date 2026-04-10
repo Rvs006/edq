@@ -178,7 +178,6 @@ async def generate_report(
         await log_action(db, user, "report.generate", "report", data.test_run_id, {"type": data.report_type, "filename": filename}, request)
         return {
             "filename": filename,
-            "file_path": file_path,
             "report_type": data.report_type,
             "template_key": data.template_key if data.report_type == "excel" else None,
             "download_url": f"/api/reports/download/{filename}",

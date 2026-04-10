@@ -18,6 +18,7 @@ from app.models.database import async_session
 from app.models.test_run import (
     TestRun,
     TestRunStatus,
+    TestRunVerdict,
     is_paused_test_run_status,
     normalize_test_run_status,
 )
@@ -42,8 +43,25 @@ from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.test_engine")
 
-_PORT_SCAN_CACHE: dict[str, dict[str, Any]] = {}
-_TESTSSL_CACHE: dict[str, dict[str, Any]] = {}
+# Bounded caches — max 50 entries each; old entries are evicted automatically.
+# Cleaned per-run in the finally block, but bounded to prevent leaks from crashes.
+_MAX_CACHE_SIZE = 50
+
+
+class _BoundedDict(dict):
+    """Dict that evicts the oldest entry when it exceeds max_size."""
+    def __init__(self, max_size: int):
+        super().__init__()
+        self._max_size = max_size
+    def __setitem__(self, key, value):
+        if len(self) >= self._max_size and key not in self:
+            oldest = next(iter(self))
+            del self[oldest]
+        super().__setitem__(key, value)
+
+
+_PORT_SCAN_CACHE: dict[str, dict[str, Any]] = _BoundedDict(_MAX_CACHE_SIZE)
+_TESTSSL_CACHE: dict[str, dict[str, Any]] = _BoundedDict(_MAX_CACHE_SIZE)
 
 
 class TestEngine:
@@ -228,8 +246,8 @@ class TestEngine:
                         test_run_id, device
                     )
                     if fingerprint_result:
-                        skip_test_ids = set(fingerprint_result.skip_test_ids)
-                        skip_reasons = dict(fingerprint_result.skip_reasons)
+                        skip_test_ids.update(fingerprint_result.skip_test_ids)
+                        skip_reasons.update(fingerprint_result.skip_reasons)
                         logger.info(
                             "Fingerprint phase complete for run %s: category=%s, skipping %s",
                             test_run_id, fingerprint_result.category, skip_test_ids,
@@ -318,6 +336,7 @@ class TestEngine:
                         },
                     })
 
+                    test_started_at = utcnow_naive()
                     verdict, comment, parsed, raw_out, duration = await self._run_single_test(
                         test_def, device.ip_address, test_run_id, whitelist_entries
                     )
@@ -342,7 +361,7 @@ class TestEngine:
                         result_row.parsed_data = parsed
                         result_row.raw_output = raw_out[:50000] if raw_out else None
                         result_row.duration_seconds = duration
-                        result_row.started_at = utcnow_naive()
+                        result_row.started_at = test_started_at
                         result_row.completed_at = utcnow_naive()
 
                         # Auto-populate Device fields from test results as they complete
@@ -1091,13 +1110,13 @@ class TestEngine:
                 run.status = TestRunStatus.COMPLETED
                 run.completed_at = utcnow_naive()
                 if essential_failed:
-                    run.overall_verdict = "fail"
+                    run.overall_verdict = TestRunVerdict.FAIL
                 elif failed > 0:
-                    run.overall_verdict = "fail"
+                    run.overall_verdict = TestRunVerdict.FAIL
                 elif advisory > 0:
-                    run.overall_verdict = "qualified_pass"
+                    run.overall_verdict = TestRunVerdict.QUALIFIED_PASS
                 else:
-                    run.overall_verdict = "pass"
+                    run.overall_verdict = TestRunVerdict.PASS
 
             run.progress_pct = 100.0
             await db.commit()

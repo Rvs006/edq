@@ -22,10 +22,8 @@ logger = logging.getLogger("edq.audit")
 def _extract_ip(request: Optional[Request]) -> Optional[str]:
     if not request:
         return None
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else None
+    from app.middleware.rate_limit import get_client_ip
+    return get_client_ip(request)
 
 
 def _emit_audit_log(

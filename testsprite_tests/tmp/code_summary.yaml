@@ -1,0 +1,456 @@
+version: "2"
+type: frontend
+tech_stack:
+  - TypeScript
+  - React 19
+  - Vite 6
+  - Tailwind CSS 3
+  - TanStack React Query v5
+  - Axios
+  - React Router v6
+  - Framer Motion
+  - Zustand
+  - Radix UI
+  - Lucide React
+  - react-hot-toast
+  - Sentry
+routes:
+  - path: /
+    file: src/pages/LandingPage.tsx
+    auth_required: false
+    description: Marketing landing page shown to unauthenticated users
+  - path: /login
+    file: src/pages/LoginPage.tsx
+    auth_required: false
+    description: User login page with credentials, optional 2FA TOTP, and OIDC SSO
+  - path: /
+    file: src/pages/DashboardPage.tsx
+    auth_required: true
+    description: KPI dashboard with device stats, recent test runs, and quick actions
+  - path: /projects
+    file: src/pages/ProjectsPage.tsx
+    auth_required: true
+    description: Project folder management with card grid view
+  - path: /devices
+    file: src/pages/DevicesPage.tsx
+    auth_required: true
+    description: Device list with search, filters, topology view, add, discover, CSV import/export
+  - path: /devices/compare
+    file: src/pages/DeviceComparePage.tsx
+    auth_required: true
+    description: Side-by-side comparison of 2-5 selected devices
+  - path: /devices/:id
+    file: src/pages/DeviceDetailPage.tsx
+    auth_required: true
+    description: Device info, test history, open ports, CVE scan, edit, auto-detect
+  - path: /test-runs
+    file: src/pages/TestRunsPage.tsx
+    auth_required: true
+    description: Test run list with status filters, create run modal
+  - path: /test-runs/:id
+    file: src/pages/TestRunDetailPage.tsx
+    auth_required: true
+    description: Live test run workspace with WebSocket updates and session controls
+  - path: /templates
+    file: src/pages/TemplatesPage.tsx
+    auth_required: true
+    description: Test template CRUD and universal test library browser
+  - path: /whitelists
+    file: src/pages/WhitelistsPage.tsx
+    auth_required: true
+    description: Port whitelist CRUD with duplicate functionality
+  - path: /reports
+    file: src/pages/ReportsPage.tsx
+    auth_required: true
+    description: Generate Excel/Word/PDF/CSV reports from completed test runs
+  - path: /review
+    file: src/pages/ReviewQueuePage.tsx
+    auth_required: true
+    description: Queue of test runs awaiting reviewer sign-off (reviewer/admin only)
+  - path: /admin
+    file: src/pages/AdminPage.tsx
+    auth_required: true
+    description: User management and system status (admin only)
+  - path: /audit-log
+    file: src/pages/AuditLogPage.tsx
+    auth_required: true
+    description: Paginated audit log with action filters and CSV export (reviewer/admin only)
+  - path: /settings
+    file: src/pages/SettingsPage.tsx
+    auth_required: true
+    description: Profile edit, password change, 2FA setup, theme toggle, report branding
+  - path: /network-scan
+    file: src/pages/NetworkScanPage.tsx
+    auth_required: true
+    description: 4-step bulk network discovery wizard
+  - path: /test-plans
+    file: src/pages/TestPlansPage.tsx
+    auth_required: true
+    description: Test plan CRUD with per-test config and tier overrides
+  - path: /scan-schedules
+    file: src/pages/ScanSchedulesPage.tsx
+    auth_required: true
+    description: Recurring scan scheduling (daily/weekly/monthly)
+  - path: /agents
+    file: src/pages/AgentsPage.tsx
+    auth_required: true
+    description: Distributed agent fleet view with live heartbeat via WebSocket
+  - path: /device-profiles
+    file: src/pages/DeviceProfilesPage.tsx
+    auth_required: true
+    description: Device fingerprint profiles with auto-learned profiles
+  - path: /authorized-networks
+    file: src/pages/AuthorizedNetworksPage.tsx
+    auth_required: true
+    description: CIDR allowlist for scan targets (admin managed)
+features:
+  - name: User Login
+    description: Login with username and password, optional TOTP 2FA, and OIDC SSO support
+    files:
+      - src/pages/LoginPage.tsx
+      - src/contexts/AuthContext.tsx
+      - src/lib/api.ts
+    entry_route: /login
+    user_interactions:
+      - Fill username input field
+      - Fill password input field
+      - Click Login button to submit
+      - Enter 6-digit TOTP code if 2FA is enabled
+      - Click Sign in with SSO button for OIDC login
+      - See error message on invalid credentials
+    api_calls:
+      - method: POST
+        endpoint: /api/auth/login
+      - method: GET
+        endpoint: /api/auth/me
+      - method: GET
+        endpoint: /api/auth/oidc/config
+      - method: POST
+        endpoint: /api/auth/oidc/callback
+    auth_required: false
+  - name: Dashboard
+    description: KPI overview with device stats, recent test runs, and quick action links
+    files:
+      - src/pages/DashboardPage.tsx
+    entry_route: /
+    user_interactions:
+      - View KPI cards showing total devices, active runs, completed this week, pass rate
+      - View recent test sessions table
+      - Click quick action links to navigate to other pages
+      - View device category breakdown
+    api_calls:
+      - method: GET
+        endpoint: /api/devices/stats
+      - method: GET
+        endpoint: /api/test-runs/stats
+      - method: GET
+        endpoint: /api/test-runs/?limit=8
+    auth_required: true
+  - name: Device Management
+    description: Device list with search, category filter, add, discover, CSV import/export, bulk operations
+    files:
+      - src/pages/DevicesPage.tsx
+    entry_route: /devices
+    user_interactions:
+      - Search devices with debounced text input
+      - Filter by device category
+      - Toggle between table and topology view
+      - Click Add Device button and fill modal form
+      - Click Discover button to scan by IP or CIDR
+      - Drag and drop CSV file for bulk import
+      - Select multiple devices with checkboxes
+      - Click Compare to compare 2-5 selected devices
+      - Click bulk delete for selected devices (admin only)
+    api_calls:
+      - method: GET
+        endpoint: /api/devices/
+      - method: POST
+        endpoint: /api/discovery/scan
+      - method: POST
+        endpoint: /api/devices/import
+      - method: GET
+        endpoint: /api/devices/export
+    auth_required: true
+  - name: Device Detail
+    description: Device info with inline editing, test history, open ports, CVE lookup, auto-detect
+    files:
+      - src/pages/DeviceDetailPage.tsx
+    entry_route: /devices/:id
+    user_interactions:
+      - View device information fields
+      - Click edit to inline-edit device fields
+      - Click Auto-detect to re-scan device
+      - Click Scan NVD to lookup CVEs
+      - View test history table
+      - View test trend chart
+      - Click delete device (admin only)
+    api_calls:
+      - method: GET
+        endpoint: /api/devices/:id
+      - method: PATCH
+        endpoint: /api/devices/:id
+      - method: DELETE
+        endpoint: /api/devices/:id
+      - method: POST
+        endpoint: /api/cve/lookup
+      - method: POST
+        endpoint: /api/discovery/scan
+    auth_required: true
+  - name: Test Runs
+    description: Test run list with status filters, create new run, resume cancelled runs
+    files:
+      - src/pages/TestRunsPage.tsx
+    entry_route: /test-runs
+    user_interactions:
+      - Filter test runs by status (Active, Review, Done)
+      - Click Create Test Run button
+      - Select device and template in create modal
+      - See duplicate warning if similar run exists
+      - Click on a test run to view details
+      - Resume cancelled or failed runs
+    api_calls:
+      - method: GET
+        endpoint: /api/test-runs/
+      - method: POST
+        endpoint: /api/test-runs/
+      - method: GET
+        endpoint: /api/test-runs/check-duplicate
+      - method: GET
+        endpoint: /api/devices/
+      - method: GET
+        endpoint: /api/test-templates/
+    auth_required: true
+  - name: Test Run Detail
+    description: Live test run workspace with WebSocket updates, test controls, manual verdicts, report generation
+    files:
+      - src/pages/TestRunDetailPage.tsx
+    entry_route: /test-runs/:id
+    user_interactions:
+      - Start, pause, resume, or cancel a test run
+      - View live terminal output per test
+      - Submit manual test verdicts with notes
+      - Override automatic verdicts with reason
+      - Save engineer notes
+      - Generate Excel report on demand
+      - Request review or self-approve
+    api_calls:
+      - method: GET
+        endpoint: /api/test-runs/:id
+      - method: GET
+        endpoint: /api/test-results/?test_run_id=
+      - method: POST
+        endpoint: /api/test-runs/:id/start
+      - method: POST
+        endpoint: /api/test-runs/:id/pause
+      - method: POST
+        endpoint: /api/test-runs/:id/resume
+      - method: POST
+        endpoint: /api/test-runs/:id/cancel
+      - method: PATCH
+        endpoint: /api/test-results/:id
+      - method: POST
+        endpoint: /api/reports/generate
+    auth_required: true
+  - name: Test Templates
+    description: CRUD for test templates with universal test library browser
+    files:
+      - src/pages/TemplatesPage.tsx
+    entry_route: /templates
+    user_interactions:
+      - Browse universal test library
+      - Create new template by selecting tests
+      - Edit existing template
+      - Delete template with confirmation
+    api_calls:
+      - method: GET
+        endpoint: /api/test-templates/
+      - method: GET
+        endpoint: /api/test-templates/library
+      - method: POST
+        endpoint: /api/test-templates/
+      - method: PATCH
+        endpoint: /api/test-templates/:id
+      - method: DELETE
+        endpoint: /api/test-templates/
+    auth_required: true
+  - name: Reports
+    description: Generate and download reports in Excel, Word, PDF, or CSV format
+    files:
+      - src/pages/ReportsPage.tsx
+    entry_route: /reports
+    user_interactions:
+      - Select a completed test run
+      - Choose report format (Excel/Word/PDF/CSV)
+      - Choose report template
+      - Toggle include AI synopsis
+      - Click Generate and download report
+    api_calls:
+      - method: GET
+        endpoint: /api/test-runs/?status=completed
+      - method: GET
+        endpoint: /api/reports/templates
+      - method: POST
+        endpoint: /api/reports/generate
+      - method: GET
+        endpoint: /api/reports/download/:filename
+    auth_required: true
+  - name: Admin Panel
+    description: User management with create, role change, activate/deactivate and system status
+    files:
+      - src/pages/AdminPage.tsx
+    entry_route: /admin
+    user_interactions:
+      - View list of all users
+      - Create new user with username, email, password, role
+      - Change user role via inline select
+      - Activate or deactivate user accounts
+      - View system health status
+    api_calls:
+      - method: GET
+        endpoint: /api/users/
+      - method: POST
+        endpoint: /api/users/
+      - method: PATCH
+        endpoint: /api/users/:id
+      - method: GET
+        endpoint: /api/admin/system-info
+    auth_required: true
+  - name: Settings
+    description: Profile editing, password change, 2FA setup, theme toggle, report branding
+    files:
+      - src/pages/SettingsPage.tsx
+    entry_route: /settings
+    user_interactions:
+      - Edit profile name and email
+      - Change password with complexity requirements
+      - Setup 2FA by scanning QR code and verifying TOTP
+      - Disable 2FA with current TOTP and password
+      - Toggle light/dark theme
+      - Upload company logo for report branding
+      - Set company name, brand color, footer text
+    api_calls:
+      - method: PATCH
+        endpoint: /api/auth/me
+      - method: POST
+        endpoint: /api/auth/change-password
+      - method: GET
+        endpoint: /api/auth/2fa/status
+      - method: POST
+        endpoint: /api/auth/2fa/setup
+      - method: POST
+        endpoint: /api/auth/2fa/verify
+      - method: POST
+        endpoint: /api/auth/2fa/disable
+      - method: GET
+        endpoint: /api/settings/branding
+      - method: PUT
+        endpoint: /api/settings/branding
+    auth_required: true
+  - name: Network Scan
+    description: 4-step bulk network discovery wizard with live monitoring
+    files:
+      - src/pages/NetworkScanPage.tsx
+    entry_route: /network-scan
+    user_interactions:
+      - Enter CIDR range for scanning
+      - Select connection scenario and tests
+      - Review discovered devices
+      - Monitor live per-device test progress
+      - View results summary
+    api_calls:
+      - method: GET
+        endpoint: /api/authorized-networks/
+      - method: POST
+        endpoint: /api/network-scan/discover
+      - method: POST
+        endpoint: /api/network-scan/start
+      - method: GET
+        endpoint: /api/network-scan/:id
+      - method: GET
+        endpoint: /api/network-scan/:id/results
+    auth_required: true
+  - name: Audit Log
+    description: Paginated audit log with action filters, date range, and CSV export
+    files:
+      - src/pages/AuditLogPage.tsx
+    entry_route: /audit-log
+    user_interactions:
+      - Filter by action type
+      - Set date range filter
+      - Browse paginated log entries
+      - Export audit log as CSV
+    api_calls:
+      - method: GET
+        endpoint: /api/audit-logs/
+      - method: GET
+        endpoint: /api/audit-logs/export
+    auth_required: true
+  - name: Projects
+    description: Project folder management with card grid view
+    files:
+      - src/pages/ProjectsPage.tsx
+    entry_route: /projects
+    user_interactions:
+      - View project cards with device and run counts
+      - Create new project with name, description, client, location
+      - Archive a project
+      - Delete a project
+    api_calls:
+      - method: GET
+        endpoint: /api/projects/
+      - method: POST
+        endpoint: /api/projects/
+      - method: PATCH
+        endpoint: /api/projects/:id
+      - method: DELETE
+        endpoint: /api/projects/:id
+    auth_required: true
+  - name: Port Whitelists
+    description: Port whitelist CRUD with duplicate functionality
+    files:
+      - src/pages/WhitelistsPage.tsx
+    entry_route: /whitelists
+    user_interactions:
+      - View list of port whitelists
+      - Create new whitelist with port, protocol, service, required version
+      - Edit existing whitelist
+      - Delete whitelist
+      - Duplicate existing whitelist
+    api_calls:
+      - method: GET
+        endpoint: /api/whitelists/
+      - method: POST
+        endpoint: /api/whitelists/
+      - method: PUT
+        endpoint: /api/whitelists/:id
+      - method: DELETE
+        endpoint: /api/whitelists/:id
+      - method: POST
+        endpoint: /api/whitelists/:id/duplicate
+    auth_required: true
+  - name: Review Queue
+    description: Queue of test runs awaiting reviewer sign-off
+    files:
+      - src/pages/ReviewQueuePage.tsx
+    entry_route: /review
+    user_interactions:
+      - View sortable table of pending reviews
+      - Sort by device name or date
+      - Click Review to navigate to test run detail
+    api_calls:
+      - method: GET
+        endpoint: /api/test-runs/?status=awaiting_review
+    auth_required: true
+known_limitations:
+  - issue: No pagination on Devices or Test Runs pages
+    location: src/pages/DevicesPage.tsx, src/pages/TestRunsPage.tsx
+    impact: Large datasets could hit performance issues
+  - issue: Bulk delete operations are sequential not parallel
+    location: src/pages/DevicesPage.tsx
+    impact: First failure aborts remaining deletes
+  - issue: Device delete leaves orphaned test runs
+    location: src/pages/DeviceDetailPage.tsx
+    impact: Test runs associated with deleted devices become orphaned
+  - issue: WebSocket connection limit on network scan
+    location: src/pages/NetworkScanPage.tsx
+    impact: Large subnet scans could open many concurrent WebSocket connections

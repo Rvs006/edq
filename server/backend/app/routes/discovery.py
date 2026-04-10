@@ -80,15 +80,20 @@ def _append_interface_arg(args: list[str], interface: Optional[str]) -> list[str
 
 
 def _resolve_hostname(ip: str) -> Optional[str]:
-    """Attempt reverse DNS lookup for an IP address."""
+    """Attempt reverse DNS lookup for an IP address (sync, run via to_thread)."""
     try:
         hostname, _, _ = socket.gethostbyaddr(ip)
-        # Ignore generic PTR records that are just the IP reversed
         if hostname and not hostname.startswith(ip.replace(".", "-")):
             return hostname
     except (socket.herror, socket.gaierror, OSError):
         pass
     return None
+
+
+async def _resolve_hostname_async(ip: str) -> Optional[str]:
+    """Non-blocking reverse DNS lookup."""
+    import asyncio
+    return await asyncio.to_thread(_resolve_hostname, ip)
 
 
 async def _upsert_device(
@@ -106,7 +111,7 @@ async def _upsert_device(
     """Create or update a device record. Returns (device, is_new)."""
     # Active reverse DNS if nmap didn't provide hostname
     if not hostname:
-        hostname = _resolve_hostname(ip)
+        hostname = await _resolve_hostname_async(ip)
 
     result = await db.execute(select(Device).where(Device.ip_address == ip))
     device = result.scalar_one_or_none()
@@ -358,7 +363,7 @@ async def register_discovered_device(
         open_ports=data.open_ports,
         os_fingerprint=data.os_fingerprint,
         category=data.category,
-        status="discovered",
+        status=DeviceStatus.DISCOVERED,
     )
     db.add(device)
     await db.flush()

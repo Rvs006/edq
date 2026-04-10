@@ -63,6 +63,22 @@ class ToolsClient:
         # Detect Docker environment — nmap needs -sT -Pn through NAT
         import os
         self.in_docker: bool = os.path.exists("/.dockerenv")
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self, timeout: int = 300) -> httpx.AsyncClient:
+        """Return a persistent shared AsyncClient, creating it on first use."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=timeout + 30,
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the persistent HTTP client. Call on app shutdown."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     def docker_nmap_flags(self, args: List[str]) -> List[str]:
         """Adjust nmap flags for container NAT without breaking discovery scans."""
@@ -89,18 +105,19 @@ class ToolsClient:
         last_exc: Optional[Exception] = None
         for attempt in range(_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=timeout + 10) as client:
-                    resp = await client.post(
-                        f"{self.base_url}{path}",
-                        json=payload,
-                        headers=self._headers,
-                    )
-                    if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
-                        logger.warning("Retryable %d from %s (attempt %d)", resp.status_code, path, attempt + 1)
-                        await asyncio.sleep(_RETRY_BACKOFF * (2 ** attempt))
-                        continue
-                    resp.raise_for_status()
-                    return resp.json()
+                client = self._get_client(timeout)
+                resp = await client.post(
+                    f"{self.base_url}{path}",
+                    json=payload,
+                    headers=self._headers,
+                    timeout=timeout + 10,
+                )
+                if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
+                    logger.warning("Retryable %d from %s (attempt %d)", resp.status_code, path, attempt + 1)
+                    await asyncio.sleep(_RETRY_BACKOFF * (2 ** attempt))
+                    continue
+                resp.raise_for_status()
+                return resp.json()
             except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
                 last_exc = exc
                 if attempt < _MAX_RETRIES - 1:
@@ -124,25 +141,26 @@ class ToolsClient:
         """
         result: Dict[str, Any] = {}
         try:
-            async with httpx.AsyncClient(timeout=timeout + 30) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}{path}",
-                    json=payload,
-                    headers=self._headers,
-                ) as resp:
-                    resp.raise_for_status()
-                    async for raw_line in resp.aiter_lines():
-                        if not raw_line.startswith("data: "):
-                            continue
-                        try:
-                            event = json.loads(raw_line[6:])
-                        except json.JSONDecodeError:
-                            continue
-                        if event.get("type") == "stdout" and on_line:
-                            await on_line(event.get("line", ""))
-                        elif event.get("type") == "result":
-                            result = event.get("data", {})
+            client = self._get_client(timeout)
+            async with client.stream(
+                "POST",
+                f"{self.base_url}{path}",
+                json=payload,
+                headers=self._headers,
+                timeout=timeout + 30,
+            ) as resp:
+                resp.raise_for_status()
+                async for raw_line in resp.aiter_lines():
+                    if not raw_line.startswith("data: "):
+                        continue
+                    try:
+                        event = json.loads(raw_line[6:])
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") == "stdout" and on_line:
+                        await on_line(event.get("line", ""))
+                    elif event.get("type") == "result":
+                        result = event.get("data", {})
         except Exception as exc:
             logger.warning("Streaming failed for %s, falling back to sync: %s", path, exc)
             # Fall back to non-streaming endpoint
@@ -232,10 +250,10 @@ class ToolsClient:
 
     async def health(self) -> Dict[str, Any]:
         """Check sidecar health and tool availability."""
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{self.base_url}/health", headers=self._headers)
-            resp.raise_for_status()
-            return resp.json()
+        client = self._get_client(10)
+        resp = await client.get(f"{self.base_url}/health", headers=self._headers, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
 
     async def nmap(
         self,
@@ -304,17 +322,17 @@ class ToolsClient:
 
     async def versions(self) -> Dict[str, Any]:
         """Get installed tool versions from the sidecar."""
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{self.base_url}/versions", headers=self._headers)
-            resp.raise_for_status()
-            return resp.json()
+        client = self._get_client(10)
+        resp = await client.get(f"{self.base_url}/versions", headers=self._headers, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
 
     async def detect_networks(self) -> Dict[str, Any]:
         """Get detected host/container networks from the sidecar."""
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(f"{self.base_url}/detect-networks", headers=self._headers)
-            resp.raise_for_status()
-            return resp.json()
+        client = self._get_client(30)
+        resp = await client.get(f"{self.base_url}/detect-networks", headers=self._headers, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
 
     async def ping(
         self,
@@ -332,14 +350,15 @@ class ToolsClient:
     async def kill_target(self, target: str) -> Dict[str, Any]:
         """Kill all running tool processes for a target IP on the sidecar."""
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(
-                    f"{self.base_url}/kill",
-                    json={"target": target},
-                    headers=self._headers,
-                )
-                resp.raise_for_status()
-                return resp.json()
+            client = self._get_client(10)
+            resp = await client.post(
+                f"{self.base_url}/kill",
+                json={"target": target},
+                headers=self._headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json()
         except Exception as exc:
             logger.warning("Failed to kill sidecar processes for %s: %s", target, exc)
             return {"killed": 0, "error": str(exc)}
@@ -347,28 +366,30 @@ class ToolsClient:
     async def kill_all(self) -> Dict[str, Any]:
         """Kill ALL running tool processes on the sidecar. Used during orphan recovery."""
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(
-                    f"{self.base_url}/kill-all",
-                    json={},
-                    headers=self._headers,
-                )
-                resp.raise_for_status()
-                return resp.json()
+            client = self._get_client(10)
+            resp = await client.post(
+                f"{self.base_url}/kill-all",
+                json={},
+                headers=self._headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json()
         except Exception as exc:
             logger.warning("Failed to kill all sidecar processes: %s", exc)
             return {"killed": 0, "error": str(exc)}
 
     async def rotate_key(self, new_key: str) -> Dict[str, Any]:
         """Push a new API key to the sidecar, then update local headers."""
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                f"{self.base_url}/rotate-key",
-                json={"new_key": new_key},
-                headers=self._headers,
-            )
-            resp.raise_for_status()
-            result = resp.json()
+        client = self._get_client(10)
+        resp = await client.post(
+            f"{self.base_url}/rotate-key",
+            json={"new_key": new_key},
+            headers=self._headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        result = resp.json()
         # Update local headers after successful sidecar update
         self._headers["X-Tools-Key"] = new_key
         return result

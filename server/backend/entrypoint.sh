@@ -19,7 +19,7 @@ trap 'shutdown; exit 143' INT TERM
 # in memory, but allow multiple threads so health checks and control endpoints
 # are not blocked by one long-running scan request.
 cd /app/tools
-gunicorn --bind 127.0.0.1:8001 --workers 1 --worker-class gthread --threads 8 --timeout 600 server:app &
+gunicorn --bind 0.0.0.0:8001 --workers 1 --worker-class gthread --threads 8 --timeout 600 server:app &
 TOOLS_PID=$!
 
 ready=0

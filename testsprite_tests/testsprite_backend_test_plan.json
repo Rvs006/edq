@@ -1,0 +1,52 @@
+[
+  {
+    "id": "TC001",
+    "title": "test_authentication_and_session_management",
+    "description": "Verify user can successfully log in with valid credentials and access the dashboard, and that invalid credentials show appropriate validation errors."
+  },
+  {
+    "id": "TC002",
+    "title": "test_dashboard_and_trends_overview",
+    "description": "Verify the dashboard displays correct summary counts for devices, projects, and recent test runs, and that trend charts update correctly when applying time range filters."
+  },
+  {
+    "id": "TC003",
+    "title": "test_device_management_crud_operations",
+    "description": "Verify adding a new device, viewing device details including fingerprint and history, and creating/editing device profiles function correctly."
+  },
+  {
+    "id": "TC004",
+    "title": "test_project_management_functionality",
+    "description": "Verify creating a new project, saving it, and assigning devices to the project works as expected with correct listing."
+  },
+  {
+    "id": "TC005",
+    "title": "test_test_runs_and_live_execution",
+    "description": "Verify starting a new test run with a template against selected devices shows live output streaming, and completed test runs display summarized results and findings."
+  },
+  {
+    "id": "TC006",
+    "title": "test_network_scanning_and_discovery",
+    "description": "Verify starting a network discovery scan for an IP range returns discovered devices and open ports, and that selected devices can be added to inventory."
+  },
+  {
+    "id": "TC007",
+    "title": "test_reporting_and_export_features",
+    "description": "Verify creating and generating reports with selected scope and format works, and that audit logs can be filtered and exported as CSV."
+  },
+  {
+    "id": "TC008",
+    "title": "test_device_comparison_view",
+    "description": "Verify selecting multiple devices for comparison displays side-by-side configuration and vulnerability differences along with risk summary."
+  },
+  {
+    "id": "TC009",
+    "title": "test_agents_registration_and_real_time_terminal",
+    "description": "Verify registering a new agent with metadata, viewing heartbeat status, and starting remote test runs with live terminal output streaming."
+  },
+  {
+    "id": "TC010",
+    "title": "test_administration_and_audit_logging",
+    "description": "Verify admin user creation with role assignment, viewing audit logs with filters, detailed entries, and exporting filtered logs as CSV."
+  }
+]

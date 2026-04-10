@@ -801,6 +801,21 @@ async def update_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     updates = sanitize_dict(data.model_dump(exclude_unset=True), ["hostname", "manufacturer", "model", "notes", "location", "serial_number"])
+
+    # Duplicate IP/MAC validation
+    if "ip_address" in updates and updates["ip_address"]:
+        dup = await db.execute(
+            select(Device).where(Device.ip_address == updates["ip_address"], Device.id != device_id)
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail=f"A device with IP address {updates['ip_address']} already exists")
+    if "mac_address" in updates and updates["mac_address"]:
+        dup = await db.execute(
+            select(Device).where(Device.mac_address == updates["mac_address"], Device.id != device_id)
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail=f"A device with MAC address {updates['mac_address']} already exists")
+
     allowed_fields = [
         "ip_address", "mac_address", "hostname", "manufacturer", "model",
         "firmware_version", "category", "status", "notes", "addressing_mode",

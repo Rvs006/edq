@@ -1,0 +1,23 @@
+{
+  "status": "init",
+  "scope": "codebase",
+  "type": "backend",
+  "localEndpoint": "http://localhost:8000/",
+  "executionArgs": {
+    "projectName": "edq",
+    "projectPath": "C:\\Users\\ASUS\\Desktop\\edq",
+    "testIds": [
+      "TC001",
+      "TC002",
+      "TC003",
+      "TC010"
+    ],
+    "additionalInstruction": "Python FastAPI backend on port 8000 in Docker. API prefix: /api/v1/. Health: GET /api/v1/health. Login: POST /api/v1/auth/login with JSON {username, password}. Admin user: username=admin. Uses PostgreSQL. CSRF protection on mutating requests via X-CSRF-Token header. Test the API endpoints directly with HTTP requests, not browser-based tests.",
+    "serverMode": "production",
+    "envs": {
+      "API_KEY": "sk-user-Y20KSObxZF8OP9x4kRumkpX6gz_rwQ0_yZaSXJkjRvlYbxLYCo16DMSJItIj35PLbrdrpX5I-ZBGgmMGO5JL1gfWjbcsGPsrlAZPZ7SSQoUWeqHNbhiEiNYl66owhNrVU54"
+    }
+  },
+  "serverPort": 60321,
+  "proxy": "http://f55c1e81-9d19-44d2-a6ea-c2267f680cd4:WAn4enVICUvGFNUpaTteo5WDUTb2wDGh@tun.testsprite.com:8080"
+}

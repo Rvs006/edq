@@ -90,7 +90,8 @@ function AppShell() {
         </main>
       )
     }
-    const next = `${location.pathname}${location.search}${location.hash}`
+    const raw = `${location.pathname}${location.search}${location.hash}`
+    const next = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/'
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
   }
 

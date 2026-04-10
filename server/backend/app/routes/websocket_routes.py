@@ -1,5 +1,6 @@
 """WebSocket routes for real-time test progress streaming."""
 
+import asyncio
 import logging
 from typing import Dict, Optional, Set
 
@@ -23,25 +24,43 @@ router = APIRouter()
 class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket, channel: str) -> None:
         await websocket.accept()
-        if channel not in self.active_connections:
-            self.active_connections[channel] = set()
-        self.active_connections[channel].add(websocket)
+        async with self._lock:
+            if channel not in self.active_connections:
+                self.active_connections[channel] = set()
+            self.active_connections[channel].add(websocket)
 
-    def disconnect(self, websocket: WebSocket, channel: str) -> None:
-        if channel in self.active_connections:
-            self.active_connections[channel].discard(websocket)
+    async def disconnect(self, websocket: WebSocket, channel: str) -> None:
+        async with self._lock:
+            if channel in self.active_connections:
+                self.active_connections[channel].discard(websocket)
+                if not self.active_connections[channel]:
+                    del self.active_connections[channel]
 
     async def broadcast(self, channel: str, message: dict) -> None:
-        if channel in self.active_connections:
-            for connection in self.active_connections[channel].copy():
-                try:
-                    await connection.send_json(message)
-                except Exception as exc:
-                    logger.warning("WebSocket send failed on channel %s: %s", channel, exc)
-                    self.active_connections[channel].discard(connection)
+        async with self._lock:
+            connections = self.active_connections.get(channel)
+            if not connections:
+                return
+            snapshot = connections.copy()
+        dead: list[WebSocket] = []
+        for connection in snapshot:
+            try:
+                await connection.send_json(message)
+            except Exception as exc:
+                logger.warning("WebSocket send failed on channel %s: %s", channel, exc)
+                dead.append(connection)
+        if dead:
+            async with self._lock:
+                conns = self.active_connections.get(channel)
+                if conns:
+                    for ws in dead:
+                        conns.discard(ws)
+                    if not conns:
+                        del self.active_connections[channel]
 
 
 manager = ConnectionManager()
@@ -122,7 +141,7 @@ async def test_run_ws(websocket: WebSocket, run_id: str):
             # The server is the sole broadcaster via manager.broadcast().
             await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket, channel)
+        await manager.disconnect(websocket, channel)
 
 
 async def _authorize_discovery_task(payload: dict, task_id: str) -> bool:
@@ -163,7 +182,7 @@ async def discovery_ws(websocket: WebSocket, task_id: str):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket, channel)
+        await manager.disconnect(websocket, channel)
 
 
 @router.websocket("/agents")
@@ -184,4 +203,4 @@ async def agents_ws(websocket: WebSocket):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket, channel)
+        await manager.disconnect(websocket, channel)

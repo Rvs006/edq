@@ -136,6 +136,12 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # Reject password-based login for OIDC-only accounts
+    if user.oidc_provider and not user.totp_secret:
+        # OIDC users should authenticate via the OIDC flow, not password
+        if not verify_password(data.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+
     # Check account lockout — return 401 (not 403) to avoid leaking whether the account exists
     if user.locked_until and user.locked_until > _utcnow():
         raise HTTPException(

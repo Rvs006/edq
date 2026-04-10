@@ -55,27 +55,38 @@ class InMemoryRateLimiter:
 class RedisRateLimiter:
     """Redis-backed sliding-window rate limiter for multi-instance deployments."""
 
+    # Atomic Lua script: prune expired entries, check count, conditionally add.
+    # This eliminates the TOCTOU race in the previous pipeline-based approach.
+    _LUA_SCRIPT = """
+    local key = KEYS[1]
+    local now = tonumber(ARGV[1])
+    local window = tonumber(ARGV[2])
+    local max_requests = tonumber(ARGV[3])
+    local ttl = tonumber(ARGV[4])
+    redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
+    local count = redis.call('ZCARD', key)
+    if count >= max_requests then
+        return 0
+    end
+    redis.call('ZADD', key, now, tostring(now) .. ':' .. tostring(math.random(1000000)))
+    redis.call('EXPIRE', key, ttl)
+    return 1
+    """
+
     def __init__(self, redis_url: str) -> None:
         import redis
         self._redis = redis.from_url(redis_url, decode_responses=True)
+        self._script = self._redis.register_script(self._LUA_SCRIPT)
         logger.info("Rate limiter using Redis: %s", redis_url.split("@")[-1])
 
     def check(self, key: str, max_requests: int, window_seconds: int = 60) -> bool:
         now = time.time()
-        pipe = self._redis.pipeline()
         redis_key = f"ratelimit:{key}"
-        cutoff = now - window_seconds
-        pipe.zremrangebyscore(redis_key, 0, cutoff)
-        pipe.zcard(redis_key)
-        pipe.zadd(redis_key, {str(now): now})
-        pipe.expire(redis_key, window_seconds + 1)
-        results = pipe.execute()
-        current_count = results[1]
-        if current_count >= max_requests:
-            # Remove the entry we just added since we're denying the request
-            self._redis.zrem(redis_key, str(now))
-            return False
-        return True
+        result = self._script(
+            keys=[redis_key],
+            args=[now, window_seconds, max_requests, window_seconds + 1],
+        )
+        return bool(result)
 
 
 def _create_rate_limiter():
@@ -95,7 +106,23 @@ rate_limiter = _create_rate_limiter()
 
 # IPs that are trusted to set X-Forwarded-For (nginx in Docker resolves as 172.x.x.x)
 # Only trust X-Forwarded-For when the direct connection comes from a known proxy.
-_TRUSTED_PROXY_NETWORKS = ("127.0.0.1", "::1", "172.")
+import ipaddress as _ipaddress
+
+_TRUSTED_PROXY_CIDRS = (
+    _ipaddress.ip_network("127.0.0.0/8"),
+    _ipaddress.ip_network("::1/128"),
+    _ipaddress.ip_network("172.16.0.0/12"),  # Docker bridge range only, not all 172.x
+    _ipaddress.ip_network("10.0.0.0/8"),
+)
+
+
+def _is_trusted_proxy(peer_ip: str) -> bool:
+    """Return True if the peer IP is in a trusted proxy network."""
+    try:
+        addr = _ipaddress.ip_address(peer_ip)
+    except ValueError:
+        return False
+    return any(addr in network for network in _TRUSTED_PROXY_CIDRS)
 
 
 def get_client_ip(request: Request) -> str:
@@ -105,7 +132,7 @@ def get_client_ip(request: Request) -> str:
     This prevents attackers from spoofing X-Forwarded-For to bypass rate limits.
     """
     peer = request.client.host if request.client else None
-    if peer and any(peer.startswith(p) for p in _TRUSTED_PROXY_NETWORKS):
+    if peer and _is_trusted_proxy(peer):
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
             return forwarded.split(",")[0].strip()

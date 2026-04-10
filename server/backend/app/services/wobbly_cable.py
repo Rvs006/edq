@@ -31,6 +31,7 @@ class WobblyCableHandler:
         self.is_running = True
         self.is_paused = False
         self.consecutive_failures = 0
+        self._resume_lock = asyncio.Lock()
 
     async def check_connectivity(self) -> bool:
         """Return True when the device is reachable on a usable TCP service."""
@@ -184,8 +185,11 @@ class WobblyCableHandler:
             await self._mark_paused_cable()
 
     async def _resume_testing(self) -> None:
-        """Resume the test run after reconnection."""
-        self.is_paused = False
+        """Resume the test run after reconnection (idempotent)."""
+        async with self._resume_lock:
+            if not self.is_paused:
+                return
+            self.is_paused = False
         self.consecutive_failures = 0
         logger.info("Resuming test run %s after cable reconnection", self.run_id)
 

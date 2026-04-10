@@ -234,10 +234,13 @@ async def oidc_callback(
 
             username = f"{username}_{uuid.uuid4().hex[:4]}"
 
+        import secrets as _secrets
+        from app.security.auth import hash_password
+
         user = User(
             email=email,
             username=username,
-            password_hash="OIDC_NO_PASSWORD",
+            password_hash=hash_password(_secrets.token_urlsafe(64)),
             full_name=name,
             role=UserRole.ENGINEER,
             oidc_provider=provider,
@@ -269,7 +272,6 @@ async def oidc_callback(
     return {
         "message": "Login successful",
         "csrf_token": csrf_token,
-        "refresh_token": refresh_token,
         "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         "user": {
             "id": user.id,

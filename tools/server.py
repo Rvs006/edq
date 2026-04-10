@@ -142,13 +142,14 @@ ALLOWED_FLAGS = {
     "nmap": {
         "-sn", "-sS", "-sT", "-sU", "-sV", "-sC", "-A", "-O", "-Pn", "-p", "-p-",
         "-T0", "-T1", "-T2", "-T3", "-T4", "-T5", "--top-ports", "--open",
-        "-oX", "-oN", "-oG", "-v", "-vv", "--version-intensity",
+        "-v", "-vv", "--version-intensity",
         "--script", "-F", "-n", "-R", "-6", "--max-rate", "-",
         "--min-rate", "--max-retries", "--defeat-rst-ratelimit", "--send-ip", "-PR", "-e",
+        "--host-timeout",
     },
     "hydra": {
         "-l", "-L", "-p", "-P", "-s", "-t", "-f", "-V", "-v", "-e",
-        "nsr", "-o", "-M", "-C",
+        "nsr", "-M", "-C",
     },
     "testssl": {
         "--jsonfile", "--csv", "--html", "--quiet", "--wide", "--color",
@@ -159,7 +160,7 @@ ALLOWED_FLAGS = {
         "-p", "-T", "-t", "-n", "-v", "-l", "-j",
     },
     "nikto": {
-        "-h", "-host", "-p", "-ssl", "-nossl", "-Tuning", "-Display", "-output",
+        "-h", "-host", "-p", "-ssl", "-nossl", "-Tuning", "-Display",
         "-Format", "-timeout", "-maxtime", "-Cgidirs", "-id", "-ask",
     },
 }
@@ -393,7 +394,7 @@ _scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
 
 
 # ---------------------------------------------------------------------------
-# Per-target rate limiter — max 5 scans per target per minute
+# Per-target rate limiter — max 30 scans per target per minute
 # ---------------------------------------------------------------------------
 _RATE_LIMIT_MAX = 30
 _RATE_LIMIT_WINDOW = 60  # seconds
@@ -671,11 +672,17 @@ def scan_nmap() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "nmap not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
 
-    cmd = ["nmap"] + args + target.split()
-    result = _run_tool(cmd, timeout, target=target)
-    return jsonify(result)
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
+
+    try:
+        cmd = ["nmap"] + args + target.split()
+        result = _run_tool(cmd, timeout, target=target)
+        return jsonify(result)
+    finally:
+        _scan_semaphore.release()
 
 
 @app.route("/scan/testssl", methods=["POST"])
@@ -689,23 +696,29 @@ def scan_testssl() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "testssl.sh not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
 
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-        json_output_path = tmp.name
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
 
     try:
-        cmd = ["testssl.sh", "--jsonfile", json_output_path] + args + [target]
-        result = _run_tool(cmd, timeout, target=target)
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            json_output_path = tmp.name
 
-        if os.path.isfile(json_output_path) and os.path.getsize(json_output_path) > 0:
-            with open(json_output_path, "rb") as f:
-                result["output_file"] = base64.b64encode(f.read()).decode("utf-8")
+        try:
+            cmd = ["testssl.sh", "--jsonfile", json_output_path] + args + [target]
+            result = _run_tool(cmd, timeout, target=target)
+
+            if os.path.isfile(json_output_path) and os.path.getsize(json_output_path) > 0:
+                with open(json_output_path, "rb") as f:
+                    result["output_file"] = base64.b64encode(f.read()).decode("utf-8")
+        finally:
+            if os.path.isfile(json_output_path):
+                os.unlink(json_output_path)
+
+        return jsonify(result)
     finally:
-        if os.path.isfile(json_output_path):
-            os.unlink(json_output_path)
-
-    return jsonify(result)
+        _scan_semaphore.release()
 
 
 @app.route("/scan/ssh-audit", methods=["POST"])
@@ -719,11 +732,17 @@ def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "ssh-audit not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
 
-    cmd = ["ssh-audit"] + args + [target]
-    result = _run_tool(cmd, timeout, target=target)
-    return jsonify(result)
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
+
+    try:
+        cmd = ["ssh-audit"] + args + [target]
+        result = _run_tool(cmd, timeout, target=target)
+        return jsonify(result)
+    finally:
+        _scan_semaphore.release()
 
 
 @app.route("/scan/hydra", methods=["POST"])
@@ -744,12 +763,18 @@ def scan_hydra() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "hydra not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
 
-    # Do not append target — the caller includes target+service in args
-    cmd = ["hydra"] + args
-    result = _run_tool(cmd, timeout, target=target)
-    return jsonify(result)
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
+
+    try:
+        # Do not append target — the caller includes target+service in args
+        cmd = ["hydra"] + args
+        result = _run_tool(cmd, timeout, target=target)
+        return jsonify(result)
+    finally:
+        _scan_semaphore.release()
 
 
 @app.route("/scan/nikto", methods=["POST"])
@@ -763,11 +788,17 @@ def scan_nikto() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "nikto not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
 
-    cmd = ["nikto"] + args + ["-h", target]
-    result = _run_tool(cmd, timeout, target=target)
-    return jsonify(result)
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
+
+    try:
+        cmd = ["nikto"] + args + ["-h", target]
+        result = _run_tool(cmd, timeout, target=target)
+        return jsonify(result)
+    finally:
+        _scan_semaphore.release()
 
 
 @app.route("/scan/ping", methods=["POST"])
@@ -783,7 +814,7 @@ def scan_ping() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": str(e)}), 400
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
 
     try:
         count = min(int(data.get("count", 3)), 10)
@@ -995,7 +1026,7 @@ def stream_nmap() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("nmap"):
         return jsonify({"error": "nmap not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["nmap"] + args + target.split()
@@ -1014,7 +1045,7 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("testssl.sh"):
         return jsonify({"error": "testssl.sh not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
 
@@ -1087,7 +1118,7 @@ def stream_ssh_audit() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("ssh-audit"):
         return jsonify({"error": "ssh-audit not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["ssh-audit"] + args + [target]
@@ -1112,7 +1143,7 @@ def stream_hydra() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("hydra"):
         return jsonify({"error": "hydra not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     # Do not append target — the caller includes target+service in args
@@ -1132,7 +1163,7 @@ def stream_nikto() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("nikto"):
         return jsonify({"error": "nikto not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["nikto"] + args + ["-h", target]

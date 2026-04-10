@@ -351,8 +351,17 @@ async def generate_word_report(
 
 
 async def _generate_pdf_via_libreoffice(docx_path: str) -> str:
+    import asyncio
     output_dir = str(Path(docx_path).parent)
-    subprocess.run(["libreoffice", "--headless", "--norestore", "--convert-to", "pdf", "--outdir", output_dir, docx_path], check=True, timeout=120, capture_output=True)
+    proc = await asyncio.create_subprocess_exec(
+        "libreoffice", "--headless", "--norestore", "--convert-to", "pdf",
+        "--outdir", output_dir, docx_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    if proc.returncode != 0:
+        raise RuntimeError(f"LibreOffice conversion failed: {stderr.decode()[:200]}")
     pdf_path = Path(docx_path).with_suffix(".pdf")
     if not pdf_path.exists():
         raise RuntimeError(f"Expected PDF file not found at {pdf_path}")
