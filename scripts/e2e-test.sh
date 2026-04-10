@@ -54,6 +54,8 @@ if [ -z "$ADMIN_PASS" ] || [[ "$ADMIN_PASS" == CHANGE_ME* ]] || [[ "$ADMIN_PASS"
   echo "ERROR: Set EDQ_ADMIN_PASS or configure INITIAL_ADMIN_PASSWORD in $REPO_ROOT/.env" >&2
   exit 1
 fi
+export EDQ_LOGIN_USER="$ADMIN_USER"
+export EDQ_LOGIN_PASS="$ADMIN_PASS"
 
 cleanup() {
   rm -f "$COOKIE"
@@ -243,9 +245,10 @@ test_case "1.4 Tool versions requires authentication" bash -c "
 section "2. Authentication"
 
 test_case "2.1 Login as admin" bash -c "
+  payload=\$(python3 -c 'import json, os; print(json.dumps({\"username\": os.environ[\"EDQ_LOGIN_USER\"], \"password\": os.environ[\"EDQ_LOGIN_PASS\"]}))')
   resp=\$(curl -sf -X POST '$API/auth/login' \
     -H 'Content-Type: application/json' \
-    -d '{\"username\":\"'$ADMIN_USER'\",\"password\":\"'$ADMIN_PASS'\"}' \
+    -d \"\$payload\" \
     -b '$COOKIE' -c '$COOKIE')
   echo \"\$resp\" | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"csrf_token\"])' > /tmp/edq_e2e_csrf
   echo 'logged in'

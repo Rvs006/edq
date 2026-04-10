@@ -197,17 +197,8 @@ ENV_USE_BUILTIN_TLS=$(strip_quotes "$(read_env_value EDQ_USE_BUILTIN_TLS)")
 
 COMPOSE_ARGS=(-f docker-compose.yml)
 COMPOSE_HINT="docker compose"
-if [ "${ENV_USE_BUILTIN_TLS}" = "true" ]; then
-    COMPOSE_ARGS+=(-f docker-compose.prod.yml)
-    COMPOSE_HINT="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
-    if [ -z "${EDQ_PUBLIC_URL}" ]; then
-        if [ -n "${ENV_DOMAIN}" ]; then
-            EDQ_PUBLIC_URL="https://${ENV_DOMAIN}"
-        else
-            EDQ_PUBLIC_URL="https://localhost"
-        fi
-    fi
-elif [ -z "${EDQ_PUBLIC_URL}" ]; then
+TLS_COMPOSE_HINT="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+if [ -z "${EDQ_PUBLIC_URL}" ]; then
     EDQ_PUBLIC_URL="http://localhost:${EDQ_PUBLIC_PORT}"
 fi
 
@@ -216,15 +207,21 @@ echo
 docker compose "${COMPOSE_ARGS[@]}" up -d --build
 
 warn "Waiting for services to become healthy..."
+HEALTHY="false"
 for _ in $(seq 1 60); do
     if curl -skf "${EDQ_PUBLIC_URL}/api/health" >/dev/null 2>&1; then
         info "All services are healthy"
+        HEALTHY="true"
         break
     fi
     echo -n "."
     sleep 2
 done
 echo
+
+if [ "${HEALTHY}" != "true" ]; then
+    fail "Services did not become healthy. Inspect logs with: ${COMPOSE_HINT} logs -f"
+fi
 
 echo "=================================================="
 echo "EDQ is running"
@@ -247,4 +244,15 @@ echo "  ${COMPOSE_HINT} logs -f"
 echo "  ${COMPOSE_HINT} down"
 echo "  ${COMPOSE_HINT} up -d"
 echo "  ${COMPOSE_HINT} up -d --build"
+if [ "${ENV_USE_BUILTIN_TLS}" = "true" ]; then
+    echo
+    echo "Built-in TLS next steps:"
+    if [ -n "${ENV_DOMAIN}" ]; then
+        echo "  1. Provision certificates for ${ENV_DOMAIN}"
+    else
+        echo "  1. Set DOMAIN in .env and provision certificates"
+    fi
+    echo "  2. Start the HTTPS override with:"
+    echo "     ${TLS_COMPOSE_HINT} up -d"
+fi
 echo

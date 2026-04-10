@@ -80,6 +80,8 @@ docker compose up --build -d
    - password: the value of `INITIAL_ADMIN_PASSWORD` in the root `.env`
 3. Change the password after first login
 
+After you change the admin password, pass the current password to the smoke scripts with `EDQ_ADMIN_PASS`, `-AdminPass`, or the matching PowerShell parameter. The root `.env` keeps the initial seed password and is no longer correct after rotation.
+
 If `setup.sh` or `setup.bat` generated the initial admin password for you, the script prints it once and also saves it in the root `.env`.
 
 ## Baseline Validation
