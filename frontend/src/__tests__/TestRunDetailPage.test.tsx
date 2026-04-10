@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import TestRunDetailPage from '@/pages/TestRunDetailPage'
@@ -60,13 +60,21 @@ describe('TestRunDetailPage', () => {
     vi.clearAllMocks()
   })
 
-  it('renders without crashing', () => {
+  it('renders without crashing and shows content', async () => {
     renderWithProviders(<TestRunDetailPage />)
-    expect(document.body).toBeTruthy()
+    await waitFor(() => {
+      const found =
+        screen.queryByText(/192\.168\.1\.100/i) ||
+        screen.queryByText(/cam-lobby/i) ||
+        screen.queryByText(/Full Security Scan/i) ||
+        screen.queryByText(/completed/i)
+      expect(found).toBeInTheDocument()
+    }, { timeout: 3000 })
   })
 
   it('shows loading state initially', () => {
     renderWithProviders(<TestRunDetailPage />)
-    expect(document.querySelector('.animate-spin') || true).toBeTruthy()
+    const spinner = document.querySelector('.animate-spin')
+    expect(spinner).toBeInTheDocument()
   })
 })

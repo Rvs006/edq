@@ -274,35 +274,64 @@ async def generate_excel_report(
     whitelist_entries: Optional[list[Any]] = None,
     include_synopsis: bool = False,
 ) -> str:
+    import asyncio
+
     report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
-    from openpyxl import Workbook, load_workbook
+    path = _output_path(test_run, template_key, ".xlsx")
 
     if report.template_path.exists() and report.mapping:
-        wb = load_workbook(str(report.template_path))
-        summary_ws = wb[report.mapping["synopsis_sheet"]]
+        # Build cell updates per sheet — ZIP-level patcher preserves ALL
+        # template assets (images, drawings, printer settings, styles, etc.)
+        from app.services.xlsx_template_patcher import patch_xlsx
+
+        sheet_updates: dict[str, dict[str, str | None]] = {}
+
+        # TEST SUMMARY metadata cells
+        synopsis_sheet = report.mapping["synopsis_sheet"]
+        summary_cells: dict[str, str | None] = {}
         for key, cell in report.mapping.get("metadata_cells", {}).items():
-            summary_ws[cell] = _sanitize(report.metadata.get(key, ""))
-        testplan_ws = wb[report.mapping["testplan_sheet"]]
+            value = _sanitize(report.metadata.get(key, ""))
+            summary_cells[cell] = value if value else None
+        if summary_cells:
+            sheet_updates[synopsis_sheet] = summary_cells
+
+        # TESTPLAN test result + comment cells
+        testplan_sheet = report.mapping["testplan_sheet"]
         cols = report.mapping["testplan_columns"]
         start = report.mapping["testplan_start_row"]
+        testplan_cells: dict[str, str | None] = {}
         for offset, row in enumerate(report.rows):
-            testplan_ws[f"{cols['test_result']}{start + offset}"] = _sanitize(row.test_result) or None
-            testplan_ws[f"{cols['test_comments']}{start + offset}"] = _sanitize(row.test_comments) or None
-        additional_ws = wb[report.mapping["additional_sheet"]]
-        cells = report.mapping.get("additional_cells", {})
+            result_val = _sanitize(row.test_result) or None
+            comment_val = _sanitize(row.test_comments) or None
+            testplan_cells[f"{cols['test_result']}{start + offset}"] = result_val
+            testplan_cells[f"{cols['test_comments']}{start + offset}"] = comment_val
+        if testplan_cells:
+            sheet_updates[testplan_sheet] = testplan_cells
+
+        # ADDITIONAL INFORMATION sections
+        additional_sheet = report.mapping["additional_sheet"]
+        add_cells_map = report.mapping.get("additional_cells", {})
+        additional_cells: dict[str, str | None] = {}
         if report.additional_sections:
-            additional_ws[cells["section_1_title"]] = report.additional_sections[0].title
-            additional_ws[cells["section_1_body"]] = report.additional_sections[0].body
+            additional_cells[add_cells_map["section_1_title"]] = report.additional_sections[0].title
+            additional_cells[add_cells_map["section_1_body"]] = report.additional_sections[0].body
         if len(report.additional_sections) > 1:
-            additional_ws[cells["section_2_title"]] = report.additional_sections[1].title
-            additional_ws[cells["section_2_body"]] = report.additional_sections[1].body
+            additional_cells[add_cells_map["section_2_title"]] = report.additional_sections[1].title
+            additional_cells[add_cells_map["section_2_body"]] = report.additional_sections[1].body
+        if additional_cells:
+            sheet_updates[additional_sheet] = additional_cells
+
+        await asyncio.to_thread(patch_xlsx, report.template_path, path, sheet_updates)
     else:
+        # Fallback: no template to preserve — plain openpyxl workbook
+        from openpyxl import Workbook
+
         wb = Workbook()
         wb.active.title = "TEST SUMMARY"
         wb.create_sheet("TESTPLAN")
         wb.create_sheet("ADDITIONAL INFORMATION")
-    path = _output_path(test_run, template_key, ".xlsx")
-    wb.save(str(path))
+        wb.save(str(path))
+
     return str(path)
 
 
@@ -419,11 +448,16 @@ async def generate_pdf_report(
     whitelist_entries: Optional[list[Any]] = None,
     template_key: str = "generic",
 ) -> str:
-    try:
-        docx_path = await generate_word_report(test_run, test_results, report_config, include_synopsis, enabled_test_ids, whitelist_entries, template_key)
-        return await _generate_pdf_via_libreoffice(docx_path)
-    except Exception:
-        return await _generate_pdf_via_fpdf(test_run, test_results, report_config, include_synopsis, enabled_test_ids, whitelist_entries, template_key)
+    use_libreoffice = os.getenv("EDQ_USE_LIBREOFFICE", "").lower() in ("1", "true", "yes")
+
+    if use_libreoffice:
+        try:
+            docx_path = await generate_word_report(test_run, test_results, report_config, include_synopsis, enabled_test_ids, whitelist_entries, template_key)
+            return await _generate_pdf_via_libreoffice(docx_path)
+        except Exception:
+            logger.warning("LibreOffice PDF conversion failed, falling back to fpdf2")
+
+    return await _generate_pdf_via_fpdf(test_run, test_results, report_config, include_synopsis, enabled_test_ids, whitelist_entries, template_key)
 
 
 async def generate_csv_report(

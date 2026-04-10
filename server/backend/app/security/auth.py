@@ -6,7 +6,7 @@ from typing import Optional, List
 from fastapi import Depends, HTTPException, Request, Response, status
 import jwt
 from jwt.exceptions import InvalidTokenError as JWTError
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 import secrets
@@ -64,15 +64,26 @@ def is_access_token_revoked_for_user(user: User, payload: dict) -> bool:
         revoked_at = revoked_at.astimezone(timezone.utc)
     return issued_at <= revoked_at
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+_BCRYPT_MAX_PASSWORD_BYTES = 72
+_BCRYPT_ROUNDS = 12
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    pwd_bytes = password.encode("utf-8")
+    if len(pwd_bytes) > _BCRYPT_MAX_PASSWORD_BYTES:
+        raise ValueError("Password exceeds 72-byte bcrypt limit")
+    salt = bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)
+    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except Exception:
+        return False
 
 
 def generate_api_key() -> str:

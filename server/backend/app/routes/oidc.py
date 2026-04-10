@@ -240,7 +240,7 @@ async def oidc_callback(
         user = User(
             email=email,
             username=username,
-            password_hash=hash_password(_secrets.token_urlsafe(64)),
+            password_hash=hash_password(_secrets.token_urlsafe(48)),
             full_name=name,
             role=UserRole.ENGINEER,
             oidc_provider=provider,

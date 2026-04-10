@@ -5,6 +5,7 @@ import io
 import ipaddress
 import logging
 import re
+import xml.etree.ElementTree as ET
 from datetime import timezone
 from typing import List, Optional
 
@@ -773,6 +774,158 @@ async def device_trends(
         worst_pass_rate=min(all_rates) if all_rates else 0.0,
         latest_pass_rate=pass_rates[0] if pass_rates else 0.0,
     )
+
+
+# ---------------------------------------------------------------------------
+# Latency (ping) and traceroute
+# ---------------------------------------------------------------------------
+
+
+def _parse_ping_samples(stdout: str) -> List[dict]:
+    """Parse individual ping response lines into latency samples."""
+    samples = []
+    for line in stdout.splitlines():
+        match = re.search(r"icmp_seq=(\d+).*time=([\d.]+)\s*ms", line)
+        if match:
+            samples.append({
+                "seq": int(match.group(1)),
+                "time_ms": round(float(match.group(2)), 2),
+            })
+    return samples
+
+
+def _parse_ping_summary(stdout: str) -> dict:
+    """Parse the summary line from ping output."""
+    summary: dict = {
+        "packets_sent": 0,
+        "packets_received": 0,
+        "packet_loss": 100.0,
+        "min_ms": None,
+        "avg_ms": None,
+        "max_ms": None,
+    }
+    for line in stdout.splitlines():
+        loss_match = re.search(
+            r"(\d+) packets? transmitted, (\d+) received.*?([\d.]+)% packet loss",
+            line,
+        )
+        if loss_match:
+            summary["packets_sent"] = int(loss_match.group(1))
+            summary["packets_received"] = int(loss_match.group(2))
+            summary["packet_loss"] = float(loss_match.group(3))
+
+        rtt_match = re.search(
+            r"(?:rtt|round-trip)\s+min/avg/max(?:/\w+)?\s*=\s*([\d.]+)/([\d.]+)/([\d.]+)",
+            line,
+        )
+        if rtt_match:
+            summary["min_ms"] = round(float(rtt_match.group(1)), 2)
+            summary["avg_ms"] = round(float(rtt_match.group(2)), 2)
+            summary["max_ms"] = round(float(rtt_match.group(3)), 2)
+
+    return summary
+
+
+def _parse_traceroute_xml(xml_str: str) -> List[dict]:
+    """Parse nmap XML output to extract traceroute hop data."""
+    hops = []
+    try:
+        root = ET.fromstring(xml_str)
+    except ET.ParseError:
+        return hops
+
+    for trace in root.iter("trace"):
+        for hop in trace.iter("hop"):
+            ttl = hop.get("ttl")
+            ipaddr = hop.get("ipaddr", "")
+            rtt = hop.get("rtt")
+            host = hop.get("host", "")
+            hops.append({
+                "ttl": int(ttl) if ttl else 0,
+                "ip": ipaddr,
+                "hostname": host if host and host != ipaddr else None,
+                "rtt_ms": round(float(rtt), 2) if rtt else None,
+            })
+
+    hops.sort(key=lambda h: h["ttl"])
+    return hops
+
+
+@router.get("/{device_id}/ping")
+async def ping_device(
+    device_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    """Ping a device and return latency measurements."""
+    check_rate_limit(request, max_requests=30, window_seconds=60, action="device_ping")
+
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if not device.ip_address:
+        raise HTTPException(status_code=422, detail="Device has no IP address")
+
+    try:
+        ping_result = await tools_client.ping(device.ip_address, count=5)
+    except Exception as exc:
+        logger.warning("Ping failed for %s: %s", device.ip_address, exc)
+        raise HTTPException(
+            status_code=get_tools_error_status(exc),
+            detail=describe_tools_error(exc, fallback="Ping failed"),
+        )
+
+    stdout = ping_result.get("stdout", "")
+    return {
+        "device_id": device_id,
+        "ip_address": device.ip_address,
+        "reachable": ping_result.get("exit_code") == 0,
+        "samples": _parse_ping_samples(stdout),
+        "summary": _parse_ping_summary(stdout),
+    }
+
+
+@router.get("/{device_id}/traceroute")
+async def traceroute_device(
+    device_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    """Run traceroute to a device and return the network path."""
+    check_rate_limit(request, max_requests=5, window_seconds=60, action="device_traceroute")
+
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if not device.ip_address:
+        raise HTTPException(status_code=422, detail="Device has no IP address")
+
+    try:
+        raw = await tools_client.nmap(
+            device.ip_address,
+            ["-sn", "--traceroute", "-oX", "-"],
+            timeout=60,
+        )
+    except Exception as exc:
+        logger.warning("Traceroute failed for %s: %s", device.ip_address, exc)
+        raise HTTPException(
+            status_code=get_tools_error_status(exc),
+            detail=describe_tools_error(exc, fallback="Traceroute failed"),
+        )
+
+    xml_out = raw.get("stdout", "")
+    hops = _parse_traceroute_xml(xml_out)
+
+    return {
+        "device_id": device_id,
+        "ip_address": device.ip_address,
+        "hops": hops,
+        "total_hops": len(hops),
+    }
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)

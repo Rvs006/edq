@@ -4,26 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-EDQ (Electracom Device Qualifier) is a local-first qualification app for smart building IP devices. The default deployment is a two-container Docker stack (frontend plus a combined backend+tools container) with optional Postgres and TLS overlays, plus an optional Electron desktop wrapper. Engineers discover devices on a network, run automated and manual security checks, and generate qualification reports.
+EDQ (Electracom Device Qualifier) is a local-first qualification app for smart building IP devices. The default deployment is a three-container Docker stack (frontend, backend+tools, and PostgreSQL) with optional TLS overlays, plus an optional Electron desktop wrapper. Engineers discover devices on a network, run automated and manual security checks, and generate qualification reports.
 
 ## Architecture
 
-**Default deployment uses two services** orchestrated via Docker Compose:
+**Default deployment uses three services** orchestrated via Docker Compose:
 - **frontend** — React 19 SPA served by nginx. Proxies `/api/` and `/ws/` to the backend.
-- **backend** — FastAPI (Python 3.12, async SQLAlchemy, SQLite WAL default). All routes under `/api/v1/`.
+- **backend** — FastAPI (Python 3.12, async SQLAlchemy, PostgreSQL). All routes under `/api/v1/`.
+- **postgres** — PostgreSQL 16 primary database.
 - **tools sidecar** — starts inside the backend container by default (gunicorn on `127.0.0.1:8001`). It still runs the scanning toolchain (nmap, testssl.sh, hydra, nikto) and requires Linux capabilities.
 
 **Electron** (`electron/`) is a desktop wrapper that manages Docker Compose lifecycle; it is not a dev launcher.
 
 **Docker Compose variants:**
-- `docker-compose.yml` — default (SQLite).
-- `docker-compose.postgres.yml` — PostgreSQL overlay (`docker compose -f docker-compose.yml -f docker-compose.postgres.yml up`).
+- `docker-compose.yml` — default (PostgreSQL + backend + frontend).
 - `docker-compose.tls.yml` — TLS via Caddy reverse proxy (`docker compose -f docker-compose.yml -f docker-compose.tls.yml up`). Uses `Caddyfile` at repo root.
 
 ### Key backend patterns
 - Route handlers stay thin; business logic lives in `server/backend/app/services/`.
-- Auth: JWT access token (cookie `edq_session`, 1h) + refresh token (30d) with family revocation. CSRF via `X-CSRF-Token` header on mutating methods. 2FA and OIDC/SSO supported.
+- Auth: JWT access token (cookie `edq_session`, 1h) + refresh token (30d) with family revocation. CSRF via `X-CSRF-Token` header on mutating methods. 2FA and OIDC/SSO supported. Set `ENVIRONMENT` for consistent auth behavior across deployments.
 - Roles: admin, reviewer, engineer. Policy enforcement in route dependencies.
+- MAC addresses: best-effort data. nmap only reports MAC on the same L2 segment; in Docker, MAC is typically `null` due to NAT boundary. The `nmap_parser.parse_host_discovery()` handles this gracefully.
 - Background jobs: APScheduler (scan_scheduler), periodic token cleanup, started in FastAPI lifespan.
 - Database seeds idempotently on startup via `init_db.py`.
 - Route mounting: all routers prefixed `/api/v1/`. A `LegacyAPIRewriteMiddleware` transparently rewrites `/api/*` → `/api/v1/*` for backward compat.
@@ -95,8 +96,9 @@ pytest tests -k "test_login" -v       # Single test by name
 
 - Root `.env` is the single source of truth for all config. Do NOT create `server/backend/.env`.
 - `.env.example` documents every variable. Key secrets: `JWT_SECRET`, `JWT_REFRESH_SECRET`, `SECRET_KEY`, `TOOLS_API_KEY`.
-- `COOKIE_SECURE=false` for local HTTP dev, `true` for production HTTPS.
-- Default database: `sqlite+aiosqlite:///./data/edq.db`. PostgreSQL supported via `DATABASE_URL`.
+- Set `ENVIRONMENT` to `local` (default), `docker`, or `cloud` to auto-derive DB, cookie, and CORS defaults.
+- `COOKIE_SECURE=false` for local HTTP dev, `true` for production HTTPS (auto-set when `ENVIRONMENT=cloud`).
+- Default database: PostgreSQL via `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
 
 ## Code Standards
 

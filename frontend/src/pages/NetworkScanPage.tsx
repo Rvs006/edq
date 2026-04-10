@@ -92,7 +92,7 @@ function _loadScanState(): { scanId: string | null; step: Step } {
     const raw = sessionStorage.getItem('edq_active_scan')
     if (raw) {
       const s = JSON.parse(raw)
-      if (s.scanId && (s.step === 'monitor' || s.step === 'results')) {
+      if (s.scanId && (s.step === 'review' || s.step === 'monitor' || s.step === 'results')) {
         return { scanId: s.scanId, step: s.step }
       }
     }
@@ -101,7 +101,7 @@ function _loadScanState(): { scanId: string | null; step: Step } {
 }
 
 function _saveScanState(scanId: string | null, step: Step) {
-  if (scanId && (step === 'monitor' || step === 'results')) {
+  if (scanId && (step === 'review' || step === 'monitor' || step === 'results')) {
     sessionStorage.setItem('edq_active_scan', JSON.stringify({ scanId, step }))
   } else {
     sessionStorage.removeItem('edq_active_scan')
@@ -175,7 +175,9 @@ export default function NetworkScanPage() {
         setDevices(restoredDevices)
         setSelectedDevices(new Set(restoredDevices.map((device: DiscoveredDevice) => device.ip)))
         setScanStatus(restoredStatus || 'pending')
-        if (restoredStatus === 'error') {
+        if (restoredStatus === 'complete') {
+          setStep('results')
+        } else if (restoredStatus === 'error') {
           setStep('configure')
           setScanId(null)
           toast.error(scan.error_message || 'Bulk discovery failed')
@@ -935,7 +937,7 @@ function MonitorStep({ results, scanStatus, navigate, onNewScan, selectedTests }
   const isError = normalizedScanStatus === 'error'
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-h-[70vh] overflow-y-auto">
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -1025,12 +1027,13 @@ function getTestRelevance(testId: string, deviceCategory: string | null): 'high'
 }
 
 function DeviceTestDashboard({ result, navigate, selectedTests }: { result: ScanResult; navigate: (path: string) => void; selectedTests: Set<string> }) {
-  const [expanded, setExpanded] = useState(true)
+  const runStatus = normalizeStatus(result.status)
+  const isRunning = ACTIVE_TEST_RUN_STATUSES.has(runStatus)
+  const [expanded, setExpanded] = useState(isRunning)
   const [expandedOutput, setExpandedOutput] = useState<string | null>(null)
   const [liveOutputTestId, setLiveOutputTestId] = useState<string | null>(null)
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
-  const runStatus = normalizeStatus(result.status)
-  const isRunning = ACTIVE_TEST_RUN_STATUSES.has(runStatus)
+  const [showUnselected, setShowUnselected] = useState(false)
   const { terminalOutput, lastProgress } = useTestRunWebSocket(isRunning ? result.run_id : undefined)
   const runningTestId = isRunning && lastProgress?.type === 'test_start' ? lastProgress.data.test_id : null
   const pct = Math.round(result.progress_pct || 0)
@@ -1252,21 +1255,29 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
                 )
               })}
 
-              {/* Unselected tests — shown dimmed at bottom */}
+              {/* Unselected tests — collapsed summary with optional expand */}
               {unselectedTestList.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 px-4 py-2 bg-zinc-50/50 dark:bg-slate-800/40 border-b border-zinc-100 dark:border-slate-700/30">
-                    <span className="text-[10px] font-semibold text-zinc-400 dark:text-slate-500 uppercase tracking-wider">Not included in this scan</span>
+                  <div
+                    className="flex items-center gap-2 px-4 py-2 bg-zinc-50/50 dark:bg-slate-800/40 border-b border-zinc-100 dark:border-slate-700/30 cursor-pointer hover:bg-zinc-100 dark:hover:bg-slate-700/50"
+                    onClick={() => setShowUnselected(!showUnselected)}
+                  >
+                    {showUnselected ? <ChevronDown className="w-3 h-3 text-zinc-400" /> : <ChevronRight className="w-3 h-3 text-zinc-400" />}
+                    <span className="text-[10px] font-semibold text-zinc-400 dark:text-slate-500 uppercase tracking-wider">
+                      {unselectedTestList.length} test{unselectedTestList.length !== 1 ? 's' : ''} not included in this scan
+                    </span>
                   </div>
-                  <div className="opacity-30">
-                    {unselectedTestList.map(test => (
-                      <div key={test.id} className="flex items-center gap-3 px-4 py-1.5 border-b border-zinc-50 dark:border-slate-700/10">
-                        <Circle className="w-3.5 h-3.5 text-zinc-300 dark:text-slate-600" />
-                        <span className="text-xs font-mono w-8 text-zinc-300 dark:text-slate-600">{test.id}</span>
-                        <span className="text-xs text-zinc-400 dark:text-slate-500">{test.name}</span>
-                      </div>
-                    ))}
-                  </div>
+                  {showUnselected && (
+                    <div className="opacity-30 max-h-48 overflow-y-auto">
+                      {unselectedTestList.map(test => (
+                        <div key={test.id} className="flex items-center gap-3 px-4 py-1.5 border-b border-zinc-50 dark:border-slate-700/10">
+                          <Circle className="w-3.5 h-3.5 text-zinc-300 dark:text-slate-600" />
+                          <span className="text-xs font-mono w-8 text-zinc-300 dark:text-slate-600">{test.id}</span>
+                          <span className="text-xs text-zinc-400 dark:text-slate-500">{test.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

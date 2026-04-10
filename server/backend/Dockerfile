@@ -1,5 +1,5 @@
 # ---------- Stage 1: clone testssl.sh ----------
-FROM ubuntu:22.04 AS tools-builder
+FROM ubuntu:24.04 AS tools-builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -7,7 +7,7 @@ RUN git clone --depth 1 --branch v3.2.3 https://github.com/drwetter/testssl.sh.g
     chmod +x /opt/testssl/testssl.sh
 
 # ---------- Stage 2: build Python dependencies ----------
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -18,15 +18,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY server/backend/requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # Also install tools sidecar deps
-RUN pip install --no-cache-dir --prefix=/install "ssh-audit==3.3.0" "flask==3.0.*" "gunicorn==22.0.*"
+RUN pip install --no-cache-dir --prefix=/install "ssh-audit==3.3.0" "flask==3.1.3" "gunicorn==25.3.0"
 
 # ---------- Stage 3: runtime (backend + tools combined) ----------
-FROM python:3.12-slim
+FROM python:3.13-slim
+
+# Set INSTALL_LIBREOFFICE=true to include LibreOffice for PDF conversion
+# (optional — fpdf2 is used by default; set EDQ_USE_LIBREOFFICE=true at runtime)
+ARG INSTALL_LIBREOFFICE=false
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
-    libreoffice-writer \
     nmap \
     hydra \
     openssh-client \
@@ -41,11 +44,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && setcap cap_net_raw,cap_net_admin+ep /usr/bin/nmap \
     && rm -rf /var/lib/apt/lists/*
 
+RUN if [ "$INSTALL_LIBREOFFICE" = "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends libreoffice-writer \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # Install nikto from source (not in Debian repos)
-RUN cd /opt && wget -q https://github.com/sullo/nikto/archive/refs/tags/2.5.0.tar.gz \
-    && tar xzf 2.5.0.tar.gz && rm 2.5.0.tar.gz \
-    && ln -s /opt/nikto-2.5.0/program/nikto.pl /usr/local/bin/nikto \
-    && chmod +x /opt/nikto-2.5.0/program/nikto.pl
+RUN cd /opt && wget -q https://github.com/sullo/nikto/archive/refs/tags/2.6.0.tar.gz \
+    && tar xzf 2.6.0.tar.gz && rm 2.6.0.tar.gz \
+    && ln -s /opt/nikto-2.6.0/program/nikto.pl /usr/local/bin/nikto \
+    && chmod +x /opt/nikto-2.6.0/program/nikto.pl
 
 # Copy testssl.sh from builder
 COPY --from=tools-builder /opt/testssl /opt/testssl
@@ -65,7 +73,7 @@ COPY templates/ /app/templates/
 COPY tools/server.py /app/tools/server.py
 COPY tools/wordlists/ /usr/share/wordlists/
 
-RUN mkdir -p data uploads reports /app/.cache/dconf /app/.config/libreoffice /app/tools && \
+RUN mkdir -p data uploads reports /app/.cache/dconf /app/tools && \
     chmod +x /app/entrypoint.sh
 
 # Run as root — nmap SYN scan and OS detection require raw socket access.

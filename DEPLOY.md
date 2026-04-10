@@ -14,6 +14,8 @@ EDQ runs as three containers:
 
 Optional production HTTPS support is provided through `docker-compose.prod.yml`.
 
+Tip: Set `ENVIRONMENT=cloud` in `.env` for production deployments — this auto-derives `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`, and Postgres defaults.
+
 ## Prerequisites
 
 - Docker Engine or Docker Desktop
