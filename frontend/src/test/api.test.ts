@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let requestInterceptor: ((config: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>) | undefined
 let responseErrorInterceptor: ((error: { response?: { status?: number }; config?: Record<string, unknown> }) => Promise<unknown>) | undefined
@@ -30,36 +30,37 @@ mockAxios.create.mockImplementation(() => mockAxios)
 vi.mock('axios', () => ({ default: mockAxios }))
 
 describe('API module', () => {
+  let apiModule: Awaited<typeof import('@/lib/api')>
+
+  beforeAll(async () => {
+    apiModule = await import('@/lib/api')
+  })
+
   beforeEach(() => {
-    vi.resetModules()
     vi.clearAllMocks()
-    requestInterceptor = undefined
-    responseErrorInterceptor = undefined
     document.cookie = 'edq_csrf=test-csrf'
   })
 
-  it('exports all expected API namespaces', async () => {
-    const api = await import('@/lib/api')
-
-    expect(api.authApi).toBeDefined()
-    expect(api.devicesApi).toBeDefined()
-    expect(api.profilesApi).toBeDefined()
-    expect(api.templatesApi).toBeDefined()
-    expect(api.testRunsApi).toBeDefined()
-    expect(api.testResultsApi).toBeDefined()
-    expect(api.reportsApi).toBeDefined()
-    expect(api.whitelistsApi).toBeDefined()
-    expect(api.discoveryApi).toBeDefined()
-    expect(api.auditApi).toBeDefined()
-    expect(api.adminApi).toBeDefined()
-    expect(api.synopsisApi).toBeDefined()
-    expect(api.networkScanApi).toBeDefined()
-    expect(api.testPlansApi).toBeDefined()
-    expect(api.healthApi).toBeDefined()
+  it('exports all expected API namespaces', () => {
+    expect(apiModule.authApi).toBeDefined()
+    expect(apiModule.devicesApi).toBeDefined()
+    expect(apiModule.profilesApi).toBeDefined()
+    expect(apiModule.templatesApi).toBeDefined()
+    expect(apiModule.testRunsApi).toBeDefined()
+    expect(apiModule.testResultsApi).toBeDefined()
+    expect(apiModule.reportsApi).toBeDefined()
+    expect(apiModule.whitelistsApi).toBeDefined()
+    expect(apiModule.discoveryApi).toBeDefined()
+    expect(apiModule.auditApi).toBeDefined()
+    expect(apiModule.adminApi).toBeDefined()
+    expect(apiModule.synopsisApi).toBeDefined()
+    expect(apiModule.networkScanApi).toBeDefined()
+    expect(apiModule.testPlansApi).toBeDefined()
+    expect(apiModule.healthApi).toBeDefined()
   })
 
-  it('authApi has login, register, logout, me, changePassword methods', async () => {
-    const { authApi } = await import('@/lib/api')
+  it('authApi has login, register, logout, me, changePassword methods', () => {
+    const { authApi } = apiModule
 
     expect(typeof authApi.login).toBe('function')
     expect(typeof authApi.register).toBe('function')
@@ -69,8 +70,8 @@ describe('API module', () => {
     expect(typeof authApi.changePassword).toBe('function')
   })
 
-  it('devicesApi has CRUD methods plus stats', async () => {
-    const { devicesApi } = await import('@/lib/api')
+  it('devicesApi has CRUD methods plus stats', () => {
+    const { devicesApi } = apiModule
 
     expect(typeof devicesApi.list).toBe('function')
     expect(typeof devicesApi.get).toBe('function')
@@ -80,8 +81,8 @@ describe('API module', () => {
     expect(typeof devicesApi.stats).toBe('function')
   })
 
-  it('healthApi exposes the health status methods', async () => {
-    const { healthApi } = await import('@/lib/api')
+  it('healthApi exposes the health status methods', () => {
+    const { healthApi } = apiModule
 
     expect(typeof healthApi.check).toBe('function')
     expect(typeof healthApi.toolVersions).toBe('function')
@@ -89,7 +90,7 @@ describe('API module', () => {
   })
 
   it('normalizes test run responses returned through the API wrapper', async () => {
-    const { testRunsApi } = await import('@/lib/api')
+    const { testRunsApi } = apiModule
     mockAxios.get.mockResolvedValueOnce({
       data: {
         id: 'run-1',
@@ -109,7 +110,7 @@ describe('API module', () => {
   })
 
   it('normalizes test result responses returned through the API wrapper', async () => {
-    const { testResultsApi } = await import('@/lib/api')
+    const { testResultsApi } = apiModule
     mockAxios.get.mockResolvedValueOnce({
       data: {
         id: 'result-1',
@@ -132,7 +133,6 @@ describe('API module', () => {
   })
 
   it('refreshes once and retries the original request after a 401', async () => {
-    await import('@/lib/api')
     mockAxios.post.mockResolvedValueOnce({ data: { message: 'Token refreshed' } })
     mockAxios.request.mockResolvedValueOnce({ data: { ok: true } })
 
