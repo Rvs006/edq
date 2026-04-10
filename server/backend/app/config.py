@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production-use-openssl-rand-hex-32"
 
+    # Environment — controls auto-derived defaults for DB, cookies, and CORS.
+    # Values: "local" (default), "docker", "cloud"
+    # Explicit overrides (e.g. DB_HOST=myhost) always take precedence.
+    ENVIRONMENT: str = "local"
+
     # Database — PostgreSQL is the primary runtime for both Docker and local runs.
     # DATABASE_URL can still be set explicitly when needed (for tests, SQLite fallback,
     # managed cloud Postgres URLs, etc).
@@ -127,8 +132,42 @@ class Settings(BaseSettings):
                 return True
         return value
 
+    @field_validator("ENVIRONMENT", mode="before")
+    @classmethod
+    def normalize_environment(cls, value: str) -> str:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"local", "dev", "development"}:
+                return "local"
+            if normalized in {"docker", "container"}:
+                return "docker"
+            if normalized in {"cloud", "prod", "production", "staging"}:
+                return "cloud"
+        return value
+
     @model_validator(mode="after")
     def finalize_runtime_defaults(self):
+        # --- Environment-aware auto-derive ---
+        # Only override values that still match their class defaults,
+        # so explicit env var overrides always take precedence.
+        _LOCAL_DB_HOST = "127.0.0.1"
+        _LOCAL_DB_PORT = 55432
+
+        if self.ENVIRONMENT == "docker":
+            if self.DB_HOST == _LOCAL_DB_HOST:
+                self.DB_HOST = "postgres"
+            if self.DB_PORT == _LOCAL_DB_PORT:
+                self.DB_PORT = 5432
+        elif self.ENVIRONMENT == "cloud":
+            if self.DB_HOST == _LOCAL_DB_HOST:
+                self.DB_HOST = "postgres"
+            if self.DB_PORT == _LOCAL_DB_PORT:
+                self.DB_PORT = 5432
+            if not self.COOKIE_SECURE:
+                self.COOKIE_SECURE = True
+            if self.COOKIE_SAMESITE == "strict":
+                self.COOKIE_SAMESITE = "lax"
+
         if not self.DATABASE_URL:
             self.DATABASE_URL = (
                 f"{self.DB_DRIVER}://"
@@ -214,6 +253,17 @@ if settings.DATABASE_URL.startswith("sqlite") and not settings.DEBUG:
         "runtime for concurrent or production workloads.",
         stacklevel=2,
     )
+
+# Log effective auth/env config (non-secret) at startup for debugging drift
+print(
+    f"[EDQ CONFIG] ENVIRONMENT={settings.ENVIRONMENT} "
+    f"DB_HOST={settings.DB_HOST}:{settings.DB_PORT} "
+    f"COOKIE_SECURE={settings.COOKIE_SECURE} "
+    f"COOKIE_SAMESITE={settings.COOKIE_SAMESITE} "
+    f"DEBUG={settings.DEBUG} "
+    f"CORS_ORIGINS={settings.CORS_ORIGINS}",
+    file=_sys.stderr,
+)
 
 _sentry_configured = False
 

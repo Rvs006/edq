@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { devicesApi, discoveryApi, healthApi, projectsApi, getApiErrorMessage } from '@/lib/api'
 import type { Device, DiscoveredDevice } from '@/lib/types'
-import { Monitor, Plus, Search, Loader2, X, Radar, LayoutGrid, Network, Upload, Download, FileText, CheckCircle2, AlertCircle, GitCompare, Trash2 } from 'lucide-react'
+import { Monitor, Plus, Search, Loader2, X, Radar, LayoutGrid, Network, Upload, Download, FileText, CheckCircle2, AlertCircle, GitCompare, Trash2, Activity } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge from '@/components/common/VerdictBadge'
@@ -11,6 +11,7 @@ import { toLocalDateOnly } from '@/lib/testContracts'
 import CategoryBadge from '@/components/common/CategoryBadge'
 import Callout from '@/components/common/Callout'
 import TopologyMap from '@/components/devices/TopologyMap'
+import LatencySparkline from '@/components/devices/LatencySparkline'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -50,7 +51,15 @@ export default function DevicesPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [showDiscoverModal, setShowDiscoverModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
-  const [viewMode, setViewMode] = useState<'table' | 'topology'>('table')
+  const urlView = searchParams.get('view') as 'table' | 'topology' | null
+  const viewMode = urlView === 'topology' ? 'topology' : 'table'
+  const setViewMode = (mode: 'table' | 'topology') => {
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      if (mode === 'topology') params.set('view', 'topology'); else params.delete('view')
+      return params
+    }, { replace: true })
+  }
   const canDeleteDevices = user?.role === 'admin'
 
   const { data: devices, isLoading, isError } = useQuery({
@@ -181,12 +190,23 @@ export default function DevicesPage() {
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
         </div>
-      ) : devices && devices.length > 0 && viewMode === 'topology' ? (
+      ) : viewMode === 'topology' ? (
         <div className="card p-4">
-          <TopologyMap
-            devices={devices}
-            onDeviceClick={(d) => navigate(`/devices/${d.id}`)}
-          />
+          {devices && devices.length > 0 ? (
+            <TopologyMap
+              devices={devices}
+              onDeviceClick={(d) => navigate(`/devices/${d.id}`)}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Network className="w-8 h-8 text-zinc-300 dark:text-slate-600 mb-2" />
+              <p className="text-sm text-zinc-500 dark:text-slate-400">
+                {searchInput || categoryFilter
+                  ? 'No devices match the current filters. Adjust your search to see the network map.'
+                  : 'No devices registered yet. Add devices to see the network topology.'}
+              </p>
+            </div>
+          )}
         </div>
       ) : devices && devices.length > 0 ? (
         <div className="card overflow-hidden">
@@ -206,6 +226,7 @@ export default function DevicesPage() {
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden md:table-cell">Model</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Firmware</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Category</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Latency</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Last Tested</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">Verdict</th>
                 </tr>
@@ -246,6 +267,9 @@ export default function DevicesPage() {
                     <td className="py-3 px-4 text-zinc-500 dark:text-slate-400 text-xs hidden lg:table-cell">{device.firmware_version || '—'}</td>
                     <td className="py-3 px-4">
                       <CategoryBadge category={device.category || 'unknown'} />
+                    </td>
+                    <td className="py-3 px-4 hidden lg:table-cell">
+                      <LatencySparkline deviceId={device.id} hasIp={!!device.ip_address} />
                     </td>
                     <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
                       {device.last_tested ? toLocalDateOnly(device.last_tested) : '—'}

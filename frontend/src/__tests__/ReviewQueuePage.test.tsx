@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import ReviewQueuePage from '@/pages/ReviewQueuePage'
@@ -36,13 +36,16 @@ describe('ReviewQueuePage', () => {
     expect(screen.getByText('Review Queue')).toBeInTheDocument()
   })
 
-  it('renders without crashing', () => {
+  it('renders without crashing and has meaningful content', () => {
     renderWithProviders(<ReviewQueuePage />)
-    expect(document.body).toBeTruthy()
+    expect(screen.getByText('Review Queue')).toBeInTheDocument()
   })
 
-  it('shows empty state when no runs pending review', () => {
+  it('shows empty state when no runs pending review', async () => {
     renderWithProviders(<ReviewQueuePage />)
-    expect(screen.queryByText(/no.*review/i) || document.body).toBeTruthy()
+    await waitFor(() => {
+      const emptyText = screen.queryByText(/no.*review/i) || screen.queryByText(/no.*pending/i) || screen.queryByText(/empty/i)
+      expect(emptyText).toBeInTheDocument()
+    }, { timeout: 3000 })
   })
 })

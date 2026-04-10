@@ -1,566 +1,419 @@
 [
   {
     "id": "TC001",
-    "title": "Sign in and land on the dashboard",
-    "description": "Verifies an operator can sign in with valid credentials and reaches the dashboard successfully.",
+    "title": "Sign in with valid credentials and land on dashboard",
+    "description": "Verifies admin can sign in and sees the dashboard with KPI cards (Total Devices, Active Test Runs, Completed This Week, Pass Rate) and Recent Test Sessions table.",
     "category": "Authentication & Session Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the user lands on the dashboard"
-      }
+      { "type": "action", "description": "Navigate to /login" },
+      { "type": "action", "description": "Fill 'admin' into the username field" },
+      { "type": "action", "description": "Fill 'SLLui7QVK3fTrzmdzc0ygXkZ25t9LStd' into the password field" },
+      { "type": "action", "description": "Click the Sign In button" },
+      { "type": "assertion", "description": "Verify the dashboard page loads with KPI summary cards visible" },
+      { "type": "assertion", "description": "Verify 'Recent Test Sessions' table is displayed" }
     ],
     "priority": "High"
   },
   {
     "id": "TC002",
-    "title": "Start a new test run with live output",
-    "description": "This test verifies a user can start a test run from a template for selected devices and see live output while the run is in progress.",
-    "category": "Test Runs & Live Execution",
+    "title": "Reject login with invalid password and show error toast",
+    "description": "Verifies entering wrong password shows 'Invalid credentials' error toast and user stays on /login page.",
+    "category": "Authentication & Session Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /test-runs"
-      },
-      {
-        "type": "action",
-        "description": "Start creating a new test run using a template"
-      },
-      {
-        "type": "action",
-        "description": "Select one or more target devices"
-      },
-      {
-        "type": "action",
-        "description": "Start the test run"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify a live output stream is displayed for the running test"
-      }
+      { "type": "action", "description": "Navigate to /login" },
+      { "type": "action", "description": "Fill 'admin' into the username field" },
+      { "type": "action", "description": "Fill 'wrongpassword123' into the password field" },
+      { "type": "action", "description": "Click the Sign In button" },
+      { "type": "assertion", "description": "Verify 'Invalid credentials' error message is shown" },
+      { "type": "assertion", "description": "Verify user remains on the /login page" }
     ],
     "priority": "High"
   },
   {
     "id": "TC003",
-    "title": "View completed test run results and findings",
-    "description": "This test verifies a user can open a completed test run and see summarized results with parsed findings.",
-    "category": "Test Runs & Live Execution",
+    "title": "Add a static IP device and verify it appears in inventory",
+    "description": "Login, navigate to /devices, click Add Device, fill IP Address (192.168.50.10), Hostname (Camera-Lobby-01), Manufacturer (Axis), click Add Device, verify new device row appears in table.",
+    "category": "Device Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /test-runs"
-      },
-      {
-        "type": "action",
-        "description": "Select a completed test run from the list"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify summarized results are displayed"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify parsed findings are displayed"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /devices" },
+      { "type": "action", "description": "Click the 'Add Device' button" },
+      { "type": "action", "description": "Fill '192.168.50.10' into the IP Address field" },
+      { "type": "action", "description": "Fill 'Camera-Lobby-01' into the Hostname field" },
+      { "type": "action", "description": "Fill 'Axis' into the Manufacturer field" },
+      { "type": "action", "description": "Click the 'Add Device' submit button in the form" },
+      { "type": "assertion", "description": "Verify 'Camera-Lobby-01' appears in the devices table" }
     ],
     "priority": "High"
   },
   {
     "id": "TC004",
-    "title": "Discover devices via IP range scan and add one to inventory",
-    "description": "This test verifies a user can run an IP range discovery scan, review discovered devices with open ports, and add a selected device to inventory.",
-    "category": "Network Scanning & Discovery",
+    "title": "Open device detail page and view device info sections",
+    "description": "Login, navigate to /devices, click on a device name link in the table to open its detail page at /devices/:id. Verify device info fields (IP, hostname, manufacturer, model), test history section, and open ports section are visible.",
+    "category": "Device Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /network-scan"
-      },
-      {
-        "type": "action",
-        "description": "Start a discovery scan for an IP range"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid IP range into the IP range field"
-      },
-      {
-        "type": "action",
-        "description": "Start the scan"
-      },
-      {
-        "type": "action",
-        "description": "Wait for discovered devices to populate"
-      },
-      {
-        "type": "action",
-        "description": "Select a discovered device from the results"
-      },
-      {
-        "type": "action",
-        "description": "Add the selected discovered device to inventory"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the selected device is shown as added to inventory"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /devices" },
+      { "type": "action", "description": "Click on a device name link in the devices table" },
+      { "type": "assertion", "description": "Verify the device detail page loads at /devices/:id" },
+      { "type": "assertion", "description": "Verify device info fields (IP Address, Hostname, Manufacturer) are displayed" },
+      { "type": "assertion", "description": "Verify a Test History section is visible on the device detail page" }
     ],
     "priority": "High"
   },
   {
     "id": "TC005",
-    "title": "View dashboard overview content",
-    "description": "Verifies a signed-in operator can view summary counts and recent activity with trend charts on the dashboard.",
-    "category": "Dashboard & Trends",
+    "title": "Edit device fields inline on device detail page",
+    "description": "Open a device detail page, click the Edit button, modify the Location field to 'Building A Floor 3', save changes, verify the updated location is shown.",
+    "category": "Device Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify summary counts for devices, projects, and recent test runs are displayed"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify trend charts for device history are displayed"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /devices" },
+      { "type": "action", "description": "Click on a device name to open its detail page" },
+      { "type": "action", "description": "Click the Edit button to enable inline editing" },
+      { "type": "action", "description": "Change the Location field to 'Building A Floor 3'" },
+      { "type": "action", "description": "Click Save to save the changes" },
+      { "type": "assertion", "description": "Verify 'Building A Floor 3' is displayed as the device location" }
     ],
     "priority": "High"
   },
   {
     "id": "TC006",
-    "title": "Create a new project",
-    "description": "This test verifies an operator can create a project with required metadata and the new project appears in the projects list.",
-    "category": "Project Management",
+    "title": "Search devices by hostname in the devices list",
+    "description": "Login, navigate to /devices, type a device hostname into the search input, verify the table filters to show only matching devices.",
+    "category": "Device Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /projects"
-      },
-      {
-        "type": "action",
-        "description": "Start creating a new project"
-      },
-      {
-        "type": "action",
-        "description": "Fill Project name with Project Alpha"
-      },
-      {
-        "type": "action",
-        "description": "Fill valid project metadata in the available metadata fields"
-      },
-      {
-        "type": "action",
-        "description": "Save the project"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the new project appears in the projects list"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /devices" },
+      { "type": "action", "description": "Type a known device name into the search input field" },
+      { "type": "assertion", "description": "Verify the devices table filters to show only devices matching the search term" }
     ],
-    "priority": "High"
+    "priority": "Medium"
   },
   {
     "id": "TC007",
-    "title": "Add a device to inventory",
-    "description": "Verifies an operator can add a new device with valid details and the device appears in the inventory list.",
-    "category": "Device Management",
+    "title": "Create a new project with full metadata",
+    "description": "Login, navigate to /projects, click New Project, fill Name ('Office Renovation Q3'), Description, Client Name ('Electracom'), Location, click Create Project, verify project card appears.",
+    "category": "Project Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation item to open device inventory"
-      },
-      {
-        "type": "action",
-        "description": "Start the add device flow"
-      },
-      {
-        "type": "action",
-        "description": "Fill Device-UI-Automation-01 into the device name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid IP address into the IP address field"
-      },
-      {
-        "type": "action",
-        "description": "Save the device"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the new device is listed in the device inventory"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /projects" },
+      { "type": "action", "description": "Click the 'New Project' button" },
+      { "type": "action", "description": "Fill 'Office Renovation Q3' into the Project Name field" },
+      { "type": "action", "description": "Fill 'Quarterly office network upgrade project' into the Description field" },
+      { "type": "action", "description": "Fill 'Electracom' into the Client field" },
+      { "type": "action", "description": "Click 'Create Project' button to save" },
+      { "type": "assertion", "description": "Verify 'Office Renovation Q3' project card appears in the project list" }
     ],
     "priority": "High"
   },
   {
     "id": "TC008",
-    "title": "Assign devices to a project",
-    "description": "This test verifies a user can assign devices to a project and the assigned devices are listed under the project.",
+    "title": "View devices filtered by project",
+    "description": "After creating a project, click the project name link to navigate to /devices?project_id=X and verify the filtered device list for that project loads.",
     "category": "Project Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /projects"
-      },
-      {
-        "type": "action",
-        "description": "Start creating a new project"
-      },
-      {
-        "type": "action",
-        "description": "Fill Project name with Project Devices"
-      },
-      {
-        "type": "action",
-        "description": "Save the project"
-      },
-      {
-        "type": "action",
-        "description": "Open the newly created project"
-      },
-      {
-        "type": "action",
-        "description": "Assign one or more available devices to the project"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify assigned devices are displayed under the project"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /projects" },
+      { "type": "action", "description": "Click on a project name link (e.g. the device count link) to navigate to the filtered devices view" },
+      { "type": "assertion", "description": "Verify the Devices page loads and shows devices filtered by the selected project" }
     ],
-    "priority": "High"
+    "priority": "Medium"
   },
   {
     "id": "TC009",
-    "title": "Open a device detail view",
-    "description": "Verifies an operator can open an existing device from inventory and see its fingerprint and history sections.",
-    "category": "Device Management",
+    "title": "Create a test run and select device and template",
+    "description": "Login, navigate to /test-runs, click New Test Run, select a device from the dropdown, select a template from the dropdown, click Create Run, verify the new run appears in the list.",
+    "category": "Test Runs & Execution",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation item to open device inventory"
-      },
-      {
-        "type": "action",
-        "description": "Start the add device flow"
-      },
-      {
-        "type": "action",
-        "description": "Fill Device-UI-Automation-Detail-01 into the device name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid IP address into the IP address field"
-      },
-      {
-        "type": "action",
-        "description": "Save the device"
-      },
-      {
-        "type": "action",
-        "description": "Select the newly created device from the device list"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify device fingerprint information is displayed"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify device history information is displayed"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /test-runs" },
+      { "type": "action", "description": "Click the 'New Test Run' button" },
+      { "type": "action", "description": "Select a device from the Device dropdown" },
+      { "type": "action", "description": "Select a template from the Template dropdown" },
+      { "type": "action", "description": "Click 'Create Run' button" },
+      { "type": "assertion", "description": "Verify the new test run appears in the test runs list" }
     ],
     "priority": "High"
   },
   {
     "id": "TC010",
-    "title": "View discovered device open ports and services from scan results",
-    "description": "This test verifies a user can open a discovered device from scan results and view its open ports and service details.",
-    "category": "Network Scanning & Discovery",
+    "title": "View completed test run detail with test results",
+    "description": "Login, navigate to /test-runs, click on a completed test run to open /test-runs/:id, verify test results sidebar with individual test names, verdicts (pass/fail/manual), and engineer notes section are visible.",
+    "category": "Test Runs & Execution",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /network-scan"
-      },
-      {
-        "type": "action",
-        "description": "Start a discovery scan for an IP range"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid IP range into the IP range field"
-      },
-      {
-        "type": "action",
-        "description": "Start the scan"
-      },
-      {
-        "type": "action",
-        "description": "Wait for discovered devices to populate"
-      },
-      {
-        "type": "action",
-        "description": "Open a discovered device details view from the results"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify open ports and service details are displayed"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /test-runs" },
+      { "type": "action", "description": "Click on a completed test run from the list" },
+      { "type": "assertion", "description": "Verify the test run detail page loads at /test-runs/:id" },
+      { "type": "assertion", "description": "Verify individual test results are listed with verdict status (pass/fail/pending)" },
+      { "type": "assertion", "description": "Verify the engineer notes section is visible" }
     ],
-    "priority": "Medium"
+    "priority": "High"
   },
   {
     "id": "TC011",
-    "title": "Keep run creation blocked until required selections are made",
-    "description": "This test verifies the user cannot start a new test run until required inputs like template and target devices are selected.",
-    "category": "Test Runs & Live Execution",
+    "title": "Filter test runs by status (Active, Review, Done)",
+    "description": "Login, navigate to /test-runs, click on the status filter tabs (Active, In Review, Completed), verify the list updates to show only runs with the selected status.",
+    "category": "Test Runs & Execution",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /test-runs"
-      },
-      {
-        "type": "action",
-        "description": "Start creating a new test run"
-      },
-      {
-        "type": "action",
-        "description": "Attempt to start the run without selecting required fields"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify required-field validation errors are visible"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /test-runs" },
+      { "type": "action", "description": "Click the 'Done' or 'Completed' status filter tab" },
+      { "type": "assertion", "description": "Verify only completed test runs are shown in the list" }
     ],
     "priority": "Medium"
   },
   {
     "id": "TC012",
-    "title": "Create a device profile",
-    "description": "Verifies an operator can create a device profile and the profile appears in the profile list.",
-    "category": "Device Management",
+    "title": "Browse test template library and create a new template",
+    "description": "Login, navigate to /templates, click New Template, fill template name ('Custom Security Scan'), browse the universal test library, select 3+ tests using checkboxes, click Save, verify template appears in the list.",
+    "category": "Test Templates",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation item to open device profiles"
-      },
-      {
-        "type": "action",
-        "description": "Start the create device profile flow"
-      },
-      {
-        "type": "action",
-        "description": "Fill Profile-UI-Automation-01 into the profile name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid description into the profile description field"
-      },
-      {
-        "type": "action",
-        "description": "Save the device profile"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the new device profile is listed"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /templates" },
+      { "type": "action", "description": "Click the 'New Template' or 'Create Template' button" },
+      { "type": "action", "description": "Fill 'Custom Security Scan' into the template name field" },
+      { "type": "action", "description": "Select at least 3 tests from the test library checkboxes" },
+      { "type": "action", "description": "Click Save to create the template" },
+      { "type": "assertion", "description": "Verify 'Custom Security Scan' template appears in the templates list" }
     ],
-    "priority": "Medium"
+    "priority": "High"
   },
   {
     "id": "TC013",
-    "title": "Filter dashboard trends by time range",
-    "description": "Verifies a signed-in operator can apply a time range filter and the dashboard trends and activity update accordingly.",
-    "category": "Dashboard & Trends",
+    "title": "Create a port whitelist with entries",
+    "description": "Login, navigate to /whitelists, click New Whitelist, fill name ('Lab Whitelist'), add entries (Port 443 TCP HTTPS TLS1.2+, Port 22 TCP SSH OpenSSH8+), save, verify it appears in the list.",
+    "category": "Whitelists",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Select a valid time range in the dashboard time range filter"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the trend charts and recent activity reflect the selected time range"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /whitelists" },
+      { "type": "action", "description": "Click 'New Whitelist' button" },
+      { "type": "action", "description": "Fill 'Lab Whitelist' into the whitelist name field" },
+      { "type": "action", "description": "Add an entry: Port 443, Protocol TCP, Service HTTPS" },
+      { "type": "action", "description": "Save the whitelist" },
+      { "type": "assertion", "description": "Verify 'Lab Whitelist' appears in the whitelists list" }
     ],
-    "priority": "Medium"
+    "priority": "High"
   },
   {
     "id": "TC014",
-    "title": "Validate IP range input for discovery scan",
-    "description": "This test verifies the user cannot start a discovery scan with an invalid IP range and an input validation error is shown.",
-    "category": "Network Scanning & Discovery",
+    "title": "Duplicate an existing whitelist",
+    "description": "Login, navigate to /whitelists, find an existing whitelist, click the Duplicate button, verify a copy of the whitelist appears in the list with 'Copy' appended to name.",
+    "category": "Whitelists",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /network-scan"
-      },
-      {
-        "type": "action",
-        "description": "Start a discovery scan for an IP range"
-      },
-      {
-        "type": "action",
-        "description": "Fill 999.999.999.999/99 into the IP range field"
-      },
-      {
-        "type": "action",
-        "description": "Start the scan"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify an IP range validation error is visible"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /whitelists" },
+      { "type": "action", "description": "Click the Duplicate button on an existing whitelist" },
+      { "type": "assertion", "description": "Verify a duplicated whitelist appears in the list" }
     ],
     "priority": "Medium"
   },
   {
     "id": "TC015",
-    "title": "Prevent saving a project without a name",
-    "description": "This test verifies the user cannot create a project without a required name and a validation error is shown.",
-    "category": "Project Management",
+    "title": "Admin creates a new user with engineer role",
+    "description": "Login as admin, navigate to /admin, click Create User, fill username ('test_engineer'), email ('engineer@test.com'), password ('TestPass123!'), select role 'engineer', click Create, verify user appears in users table.",
+    "category": "Admin & User Management",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /projects"
-      },
-      {
-        "type": "action",
-        "description": "Start creating a new project"
-      },
-      {
-        "type": "action",
-        "description": "Clear the Project name field"
-      },
-      {
-        "type": "action",
-        "description": "Save the project"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify a required-field validation error is visible"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /admin" },
+      { "type": "action", "description": "Click the 'Create User' button" },
+      { "type": "action", "description": "Fill 'test_engineer_ts' into the username field" },
+      { "type": "action", "description": "Fill 'engineer_ts@test.com' into the email field" },
+      { "type": "action", "description": "Fill 'TestPass123!' into the password field" },
+      { "type": "action", "description": "Select 'engineer' from the role dropdown" },
+      { "type": "action", "description": "Click 'Create User' to submit the form" },
+      { "type": "assertion", "description": "Verify 'test_engineer_ts' appears in the users table" }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC016",
+    "title": "Admin changes a user role via inline select",
+    "description": "Login as admin, navigate to /admin, find a user in the table, change their role from 'engineer' to 'reviewer' using the inline role dropdown, verify the role updates.",
+    "category": "Admin & User Management",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /admin" },
+      { "type": "action", "description": "Find a user with 'engineer' role in the users table" },
+      { "type": "action", "description": "Change their role to 'reviewer' using the inline role dropdown" },
+      { "type": "assertion", "description": "Verify the user's role is updated to 'reviewer' in the table" }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC017",
+    "title": "Admin views system status tab",
+    "description": "Login as admin, navigate to /admin, click the System tab, verify system health info is displayed including API status, Database status, and tools sidecar status.",
+    "category": "Admin & User Management",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /admin" },
+      { "type": "action", "description": "Click the 'System' tab" },
+      { "type": "assertion", "description": "Verify system health information is displayed (API, Database status)" }
     ],
     "priority": "Medium"
   },
   {
-    "id": "TC016",
-    "title": "Reject invalid credentials on login",
-    "description": "Verifies a user cannot sign in with an incorrect password and sees a credentials validation error.",
-    "category": "Authentication & Session Management",
+    "id": "TC018",
+    "title": "View audit log and filter by action type",
+    "description": "Login as admin, navigate to /audit-log, verify audit log entries are listed. Use the action filter dropdown to filter by 'auth.login' events, verify the table updates to show only login events.",
+    "category": "Audit Log",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Fill invalid-password into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify a credentials validation error is visible"
-      }
+      { "type": "action", "description": "Login as admin and navigate to /audit-log" },
+      { "type": "assertion", "description": "Verify audit log entries are displayed in a table" },
+      { "type": "action", "description": "Select a specific action type filter (e.g. login events)" },
+      { "type": "assertion", "description": "Verify the audit log table filters to show only the selected action type" }
     ],
-    "priority": "Low"
+    "priority": "High"
+  },
+  {
+    "id": "TC019",
+    "title": "Export audit log as CSV",
+    "description": "Login as admin, navigate to /audit-log, click the Export CSV button, verify the download starts (a file download is triggered).",
+    "category": "Audit Log",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /audit-log" },
+      { "type": "action", "description": "Click the 'Export CSV' button" },
+      { "type": "assertion", "description": "Verify a CSV file download is triggered or a success message appears" }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC020",
+    "title": "Generate an Excel report from a completed test run",
+    "description": "Login, navigate to /reports, select a completed test run from the dropdown, select 'Excel' format, click Generate, verify the report download starts or a success message appears.",
+    "category": "Reports",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /reports" },
+      { "type": "action", "description": "Select a completed test run from the test run dropdown" },
+      { "type": "action", "description": "Select 'Excel' as the report format" },
+      { "type": "action", "description": "Click the 'Generate Report' button" },
+      { "type": "assertion", "description": "Verify the report is generated and a download link or success message appears" }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC021",
+    "title": "Settings - Edit profile name and email",
+    "description": "Login, navigate to /settings, update the Full Name field to 'Admin User Updated', update email to 'admin_updated@electracom.co.uk', click Save, verify success toast 'Profile updated'.",
+    "category": "Settings & Profile",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /settings" },
+      { "type": "action", "description": "Clear and fill 'Admin User Updated' into the Full Name field" },
+      { "type": "action", "description": "Click the Save button for profile changes" },
+      { "type": "assertion", "description": "Verify a success message like 'Profile updated' appears" }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC022",
+    "title": "Settings - Change password with complexity validation",
+    "description": "Login, navigate to /settings, click Change Password section, enter current password, enter new password that meets complexity (8+ chars, upper+lower+digit), confirm new password, click Change Password, verify success.",
+    "category": "Settings & Profile",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /settings" },
+      { "type": "action", "description": "Find the Change Password section" },
+      { "type": "action", "description": "Fill current password 'SLLui7QVK3fTrzmdzc0ygXkZ25t9LStd' into current password field" },
+      { "type": "action", "description": "Fill 'NewSecure2026Pass!' into new password and confirm password fields" },
+      { "type": "action", "description": "Click 'Change Password' button" },
+      { "type": "assertion", "description": "Verify a success message appears confirming password was changed" }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC023",
+    "title": "Settings - Toggle dark/light theme",
+    "description": "Login, navigate to /settings, find the Appearance section, click the theme toggle to switch between light and dark mode, verify the page theme changes visually.",
+    "category": "Settings & Profile",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /settings" },
+      { "type": "action", "description": "Find the Appearance or Theme section" },
+      { "type": "action", "description": "Click the theme toggle switch" },
+      { "type": "assertion", "description": "Verify the page theme changes (dark mode or light mode toggles)" }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC024",
+    "title": "Settings - Update report branding company name",
+    "description": "Login, navigate to /settings, find the Report Branding section, update Company Name to 'TestCo International', click Save, verify success message.",
+    "category": "Settings & Profile",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /settings" },
+      { "type": "action", "description": "Find the Report Branding section" },
+      { "type": "action", "description": "Clear and fill 'TestCo International' into the Company Name field" },
+      { "type": "action", "description": "Click Save for branding settings" },
+      { "type": "assertion", "description": "Verify a success message appears confirming branding was updated" }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC025",
+    "title": "Create a device profile with fingerprint rules",
+    "description": "Login, navigate to /device-profiles, click New Profile, fill name ('IP Camera Standard'), manufacturer ('Axis'), select category, save, verify profile appears in list.",
+    "category": "Device Profiles",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /device-profiles" },
+      { "type": "action", "description": "Click 'New Profile' button" },
+      { "type": "action", "description": "Fill 'IP Camera Standard' into the Profile Name field" },
+      { "type": "action", "description": "Fill 'Axis' into the Manufacturer field" },
+      { "type": "action", "description": "Click Create Profile button to save" },
+      { "type": "assertion", "description": "Verify 'IP Camera Standard' appears in the device profiles list" }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC026",
+    "title": "View the landing page as unauthenticated user",
+    "description": "Navigate to the app root / without being logged in. Verify the landing page shows the product name 'EDQ', a 'Sign In' link/button, and marketing content.",
+    "category": "Public Pages",
+    "steps": [
+      { "type": "action", "description": "Navigate to / (root URL) without being logged in" },
+      { "type": "assertion", "description": "Verify the landing page is displayed with product branding" },
+      { "type": "assertion", "description": "Verify a 'Sign In' link or button is visible" }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC027",
+    "title": "Navigate through all main sidebar links",
+    "description": "Login as admin, systematically click each sidebar navigation link (Dashboard, Projects, Devices, Test Runs, Templates, Whitelists, Reports, Review, Settings) and verify each page loads without error.",
+    "category": "Navigation & Layout",
+    "steps": [
+      { "type": "action", "description": "Login as admin" },
+      { "type": "action", "description": "Click 'Projects' in the sidebar and verify the page loads" },
+      { "type": "action", "description": "Click 'Devices' in the sidebar and verify the page loads" },
+      { "type": "action", "description": "Click 'Test Runs' in the sidebar and verify the page loads" },
+      { "type": "action", "description": "Click 'Templates' in the sidebar and verify the page loads" },
+      { "type": "action", "description": "Click 'Reports' in the sidebar and verify the page loads" },
+      { "type": "assertion", "description": "Verify all pages loaded without errors and displayed their main content" }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC028",
+    "title": "Add an authorized network CIDR range",
+    "description": "Login as admin, navigate to /authorized-networks, click Add Network, fill CIDR '10.0.0.0/24' with label 'Office LAN', save, verify it appears in the list.",
+    "category": "Authorized Networks",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /authorized-networks" },
+      { "type": "action", "description": "Click 'Add Network' button" },
+      { "type": "action", "description": "Fill '10.0.0.0/24' into the CIDR field" },
+      { "type": "action", "description": "Fill 'Office LAN' into the label field" },
+      { "type": "action", "description": "Click Save to add the network" },
+      { "type": "assertion", "description": "Verify '10.0.0.0/24' network appears in the authorized networks list" }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC029",
+    "title": "Dashboard shows KPI cards with correct data types",
+    "description": "Login, land on dashboard, verify four KPI cards are visible: Total Devices (number), Active Test Runs (number), Completed This Week (number), Pass Rate (percentage). Verify Recent Test Sessions table has columns.",
+    "category": "Dashboard",
+    "steps": [
+      { "type": "action", "description": "Login as admin and land on the dashboard" },
+      { "type": "assertion", "description": "Verify 'Total Devices' KPI card is visible with a numeric value" },
+      { "type": "assertion", "description": "Verify 'Active Test Runs' KPI card is visible" },
+      { "type": "assertion", "description": "Verify 'Completed This Week' KPI card is visible" },
+      { "type": "assertion", "description": "Verify 'Recent Test Sessions' table with rows is visible" }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC030",
+    "title": "View review queue page as admin",
+    "description": "Login as admin, navigate to /review, verify the review queue page loads and shows a table or empty state message for test runs awaiting review.",
+    "category": "Review Queue",
+    "steps": [
+      { "type": "action", "description": "Login as admin and navigate to /review" },
+      { "type": "assertion", "description": "Verify the Review Queue page loads with either a table of pending reviews or an empty state message" }
+    ],
+    "priority": "Medium"
   }
 ]

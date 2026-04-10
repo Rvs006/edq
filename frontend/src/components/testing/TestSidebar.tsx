@@ -157,7 +157,7 @@ export default function TestSidebar({
             placeholder="Filter tests..."
             className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-50 dark:bg-slate-800 border border-zinc-200 dark:border-slate-600 rounded-md
                        text-zinc-700 dark:text-slate-200 placeholder-zinc-400 dark:placeholder-slate-500
-                       focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500"
+                       focus:outline-hidden focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500"
           />
         </div>
       </div>

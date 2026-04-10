@@ -49,7 +49,7 @@ Windows PowerShell:
 .\scripts\verify-app.ps1
 ```
 
-Then open `http://localhost`.
+Then open `http://localhost:3000`.
 
 ## If Update Fails
 

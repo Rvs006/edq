@@ -22,7 +22,7 @@ app.on('second-instance', () => {
   }
 });
 
-app.on('ready', async () => {
+app.whenReady().then(async () => {
   splashWindow = createSplashWindow();
 
   const dockerAvailable = await dockerManager.checkDocker();

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 import TrendChart from '@/components/devices/TrendChart'
+import NetworkPath from '@/components/devices/NetworkPath'
 import type { TrendData } from '@/components/devices/TrendChart'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 import { toLocalDateOnly } from '@/lib/testContracts'
@@ -501,6 +502,9 @@ export default function DeviceDetailPage() {
               </p>
             )}
           </div>
+
+          {/* Network Path (Traceroute) */}
+          <NetworkPath deviceId={device.id} deviceIp={device.ip_address || null} />
         </div>
 
         <div className="lg:col-span-2 card">

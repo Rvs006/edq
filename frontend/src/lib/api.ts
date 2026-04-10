@@ -160,6 +160,26 @@ export const devicesApi = {
   },
   exportDevices: () => api.get('/devices/export', { responseType: 'blob' }),
   trends: (id: string) => api.get(`/devices/${id}/trends`),
+  ping: (id: string) => api.get<{
+    device_id: string
+    ip_address: string
+    reachable: boolean
+    samples: { seq: number; time_ms: number }[]
+    summary: {
+      packets_sent: number
+      packets_received: number
+      packet_loss: number
+      min_ms: number | null
+      avg_ms: number | null
+      max_ms: number | null
+    }
+  }>(`/devices/${id}/ping`),
+  traceroute: (id: string) => api.get<{
+    device_id: string
+    ip_address: string
+    hops: { ttl: number; ip: string; hostname: string | null; rtt_ms: number | null }[]
+    total_hops: number
+  }>(`/devices/${id}/traceroute`, { timeout: 90000 }),
 }
 
 export const profilesApi = {

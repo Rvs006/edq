@@ -855,7 +855,7 @@ LATEST_KNOWN_VERSIONS = {
     "testssl": "3.2.3",
     "ssh_audit": "3.3.0",
     "hydra": "9.5",
-    "nikto": "2.5.0",
+    "nikto": "2.6.0",
 }
 
 _VERSION_PARSE = {
