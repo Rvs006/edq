@@ -25,7 +25,8 @@ from app.security.auth import get_current_active_user, require_role
 from app.utils.sanitize import sanitize_dict, strip_html
 from app.utils.audit import log_action
 from app.utils.datetime import as_utc
-from app.services.tools_client import tools_client
+from app.services.parsers.nmap_parser import nmap_parser
+from app.services.tools_client import describe_tools_error, get_tools_error_status, tools_client
 from app.middleware.rate_limit import check_rate_limit
 from app.routes.authorized_networks import get_active_networks
 
@@ -861,6 +862,9 @@ async def discover_device_ip(
 
     subnets_to_scan = _build_discovery_scan_ranges(authorized_cidrs, detection)
     discovered_ip = None
+    successful_scans = 0
+    last_scan_error: str | None = None
+    last_scan_exception: Exception | None = None
 
     for subnet in subnets_to_scan:
         try:
@@ -869,34 +873,38 @@ async def discover_device_ip(
                 args=["-sn", "-PR"],  # ARP ping scan
                 timeout=30,
             )
-            stdout = scan_result.get("stdout", "")
-            # Parse nmap output for MAC-to-IP mapping
-            # nmap -sn output format:
-            #   Nmap scan report for 192.168.1.50
-            #   Host is up (0.0010s latency).
-            #   MAC Address: AA:BB:CC:DD:EE:FF (Vendor)
-            current_ip = None
-            for line in stdout.splitlines():
-                ip_match = re.match(r"Nmap scan report for (\S+)", line)
-                if ip_match:
-                    current_ip = ip_match.group(1)
-                mac_match = re.match(r"MAC Address:\s*([0-9A-Fa-f:]+)", line.strip())
-                if mac_match and current_ip:
-                    found_mac = mac_match.group(1).upper()
-                    if found_mac == mac_upper:
-                        discovered_ip = current_ip
-                        break
+            successful_scans += 1
+            hosts = nmap_parser.parse_host_discovery(scan_result.get("stdout", ""))
+            for host in hosts:
+                found_mac = str(host.get("mac") or "").upper().replace("-", ":")
+                candidate_ip = str(host.get("ip") or "").strip()
+                if found_mac != mac_upper or not candidate_ip:
+                    continue
+                try:
+                    ipaddress.ip_address(candidate_ip)
+                except ValueError:
+                    logger.warning("Ignoring invalid discovered IP %s for MAC %s", candidate_ip, mac_upper)
+                    continue
+                discovered_ip = candidate_ip
+                break
             if discovered_ip:
                 break
         except Exception as exc:
+            last_scan_exception = exc
+            last_scan_error = describe_tools_error(exc, fallback=f"Discovery scan failed on {subnet}")
             logger.warning("ARP scan on %s failed: %s", subnet, exc)
             continue
 
     if not discovered_ip:
+        if successful_scans == 0:
+            raise HTTPException(
+                status_code=get_tools_error_status(last_scan_exception or RuntimeError("Tools sidecar is unavailable")),
+                detail=last_scan_error or "Tools sidecar is unavailable. Automated IP discovery could not run.",
+            )
         raise HTTPException(
             status_code=404,
             detail=f"Could not discover IP for MAC {device.mac_address}. "
-                   "Ensure the device is powered on and connected to the network.",
+                   f"Scanned {len(subnets_to_scan)} subnet(s). Ensure the device is powered on and connected to the network.",
         )
 
     # Check that no other device already has this IP

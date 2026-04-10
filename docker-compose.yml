@@ -89,6 +89,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_CLIENT_ERROR_ENDPOINT: ${VITE_CLIENT_ERROR_ENDPOINT:-/api/client-errors}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+        VITE_SENTRY_ENVIRONMENT: ${VITE_SENTRY_ENVIRONMENT:-production}
+        VITE_SENTRY_RELEASE: ${VITE_SENTRY_RELEASE:-}
+        VITE_SENTRY_ENABLED: ${VITE_SENTRY_ENABLED:-false}
+        VITE_SENTRY_TRACES_SAMPLE_RATE: ${VITE_SENTRY_TRACES_SAMPLE_RATE:-0.0}
+        VITE_SOURCEMAP: ${VITE_SOURCEMAP:-false}
     container_name: edq-frontend
     ports:
       - "${EDQ_BIND_HOST:-127.0.0.1}:${EDQ_PUBLIC_PORT:-3000}:8080"

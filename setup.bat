@@ -10,6 +10,7 @@ if not exist .env (
 )
 
 set "ADMIN_PASS="
+set "PUBLIC_PORT=3000"
 for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$chars = (48..57) + (65..90) + (97..122); " ^
   "$makeHex = { param([int]$len) -join ((1..$len) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) }) }; " ^
@@ -31,7 +32,7 @@ for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass
   "  } " ^
   "} " ^
   "$postgresPassword = ([regex]::Match($content, '(?m)^POSTGRES_PASSWORD=(.*)$').Groups[1].Value).Trim(); " ^
-  "$defaults = @(@{Key='DB_DRIVER';Value='postgresql+asyncpg'}, @{Key='DB_HOST';Value='127.0.0.1'}, @{Key='DB_PORT';Value='55432'}, @{Key='DB_NAME';Value='edq'}, @{Key='DB_USER';Value='edq'}, @{Key='DB_PASSWORD';Value=$postgresPassword}, @{Key='DB_CONNECT_TIMEOUT_SECONDS';Value='15'}, @{Key='EDQ_BACKEND_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_BACKEND_PORT';Value='8000'}, @{Key='EDQ_TOOLS_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_TOOLS_PORT';Value='8001'}, @{Key='EDQ_POSTGRES_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_POSTGRES_PORT';Value='55432'}, @{Key='LOG_JSON';Value='false'}); " ^
+  "$defaults = @(@{Key='DB_DRIVER';Value='postgresql+asyncpg'}, @{Key='DB_HOST';Value='127.0.0.1'}, @{Key='DB_PORT';Value='55432'}, @{Key='DB_NAME';Value='edq'}, @{Key='DB_USER';Value='edq'}, @{Key='DB_PASSWORD';Value=$postgresPassword}, @{Key='DB_CONNECT_TIMEOUT_SECONDS';Value='15'}, @{Key='EDQ_BACKEND_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_BACKEND_PORT';Value='8000'}, @{Key='EDQ_TOOLS_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_TOOLS_PORT';Value='8001'}, @{Key='EDQ_POSTGRES_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_POSTGRES_PORT';Value='55432'}, @{Key='VITE_API_URL';Value='/api'}, @{Key='VITE_CLIENT_ERROR_ENDPOINT';Value='/api/client-errors'}, @{Key='VITE_SENTRY_ENABLED';Value='false'}, @{Key='VITE_SENTRY_TRACES_SAMPLE_RATE';Value='0.0'}, @{Key='VITE_SOURCEMAP';Value='false'}, @{Key='LOG_JSON';Value='false'}); " ^
   "foreach ($item in $defaults) { " ^
   "  $pattern = '(?m)^' + [regex]::Escape($item.Key) + '=(.*)$'; " ^
   "  $match = [regex]::Match($content, $pattern); " ^
@@ -48,6 +49,7 @@ for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass
   "} " ^
   "Set-Content '.env' $content -Encoding ASCII; " ^
   "Write-Output $generatedAdmin"`) do set "ADMIN_PASS=%%A"
+for /f "tokens=1,* delims==" %%A in ('findstr /B "EDQ_PUBLIC_PORT=" .env') do set "PUBLIC_PORT=%%B"
 
 if not exist data (
   mkdir data
@@ -74,10 +76,11 @@ if "%READY%"=="0" (
 )
 
 echo.
-echo === EDQ is running at http://localhost:3000 ===
+echo === EDQ is running at http://localhost:%PUBLIC_PORT% ===
 echo   Login: username 'admin' / password from INITIAL_ADMIN_PASSWORD in the root .env file
 if not "%ADMIN_PASS%"=="" echo   Generated initial admin password: %ADMIN_PASS%
 echo   (Change your password after first login)
+echo   After password rotation, set EDQ_ADMIN_PASS or -AdminPass for smoke scripts
 echo.
 echo Useful commands:
 echo   docker compose logs -f        View live logs

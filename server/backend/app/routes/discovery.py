@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db
 from app.models.device import Device, DeviceCategory, DeviceStatus
+from app.models.project import Project
 from app.models.user import User
 from app.schemas.device import DiscoveryRequest
 from app.security.auth import get_current_active_user
@@ -24,7 +25,7 @@ from app.services.discovery_service import (
     guess_manufacturer,
     guess_model,
 )
-from app.services.tools_client import tools_client
+from app.services.tools_client import describe_tools_error, get_tools_error_status, tools_client
 from app.services.parsers.nmap_parser import nmap_parser
 from app.utils.audit import log_action
 
@@ -58,6 +59,7 @@ class DiscoveredDeviceResponse(BaseModel):
     category: str = "unknown"
     status: str = "discovered"
     is_new: bool = True
+    project_id: Optional[str] = None
 
 
 def _decode_output_file(raw: Dict[str, Any]) -> str:
@@ -99,6 +101,7 @@ async def _upsert_device(
     open_ports: Optional[List[Dict[str, Any]]],
     discovery_data: Optional[Dict[str, Any]],
     category: DeviceCategory,
+    project_id: Optional[str],
 ) -> tuple[Device, bool]:
     """Create or update a device record. Returns (device, is_new)."""
     # Active reverse DNS if nmap didn't provide hostname
@@ -126,6 +129,7 @@ async def _upsert_device(
             status=DeviceStatus.DISCOVERED,
             manufacturer=auto_manufacturer,
             model=auto_model,
+            project_id=project_id,
         )
         db.add(device)
     else:
@@ -145,12 +149,23 @@ async def _upsert_device(
             device.manufacturer = auto_manufacturer
         if auto_model and not device.model:
             device.model = auto_model
+        if project_id and not device.project_id:
+            device.project_id = project_id
         device.category = category
         device.status = DeviceStatus.IDENTIFIED
 
     await db.flush()
     await db.refresh(device)
     return device, is_new
+
+
+async def _validate_project_id(db: AsyncSession, project_id: Optional[str]) -> Optional[str]:
+    if not project_id:
+        return None
+    result = await db.execute(select(Project.id).where(Project.id == project_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project_id
 
 
 @router.post("/scan")
@@ -167,6 +182,7 @@ async def initiate_discovery(
     """
     check_rate_limit(request, max_requests=3, window_seconds=60, action="discovery_scan")
 
+    project_id = await _validate_project_id(db, data.project_id)
     target = data.ip_address or data.subnet
     if not target:
         raise HTTPException(status_code=400, detail="Provide either ip_address or subnet")
@@ -206,9 +222,12 @@ async def initiate_discovery(
                 _append_interface_arg(["-sV", "-O", "-p-", "--max-rate", "300", "-oX", "-"], data.interface),
                 timeout=scan_timeout,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Nmap service scan failed for %s", data.ip_address)
-            raise HTTPException(status_code=502, detail="Tools sidecar error")
+            raise HTTPException(
+                status_code=get_tools_error_status(exc),
+                detail=describe_tools_error(exc, fallback="Device discovery failed"),
+            )
 
         xml_out = raw.get("stdout", "")
         parsed = nmap_parser.parse_xml(xml_out) if xml_out else {}
@@ -235,6 +254,7 @@ async def initiate_discovery(
             open_ports=open_ports,
             discovery_data=parsed,
             category=category,
+            project_id=project_id,
         )
 
         discovered_devices.append({
@@ -256,6 +276,7 @@ async def initiate_discovery(
             "category": device.category.value if hasattr(device.category, "value") else str(device.category),
             "status": device.status.value if hasattr(device.status, "value") else str(device.status),
             "is_new": is_new,
+            "project_id": device.project_id,
         })
 
     elif data.subnet:
@@ -265,9 +286,12 @@ async def initiate_discovery(
                 _append_interface_arg(["-sn"], data.interface),
                 timeout=120,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Nmap ping sweep failed for %s", data.subnet)
-            raise HTTPException(status_code=502, detail="Tools sidecar error")
+            raise HTTPException(
+                status_code=get_tools_error_status(exc),
+                detail=describe_tools_error(exc, fallback="Subnet discovery failed"),
+            )
 
         hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
 
@@ -282,6 +306,7 @@ async def initiate_discovery(
                 open_ports=None,
                 discovery_data={"source": "ping_sweep", "raw_host": host},
                 category=DeviceCategory.UNKNOWN,
+                project_id=project_id,
             )
 
             discovered_devices.append({
@@ -303,6 +328,7 @@ async def initiate_discovery(
                 "category": device.category.value if hasattr(device.category, "value") else str(device.category),
                 "status": device.status.value if hasattr(device.status, "value") else str(device.status),
                 "is_new": is_new,
+                "project_id": device.project_id,
             })
 
     await log_action(db, user, "discovery.scan", "discovery", target,

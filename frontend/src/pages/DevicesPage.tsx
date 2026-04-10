@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { devicesApi, discoveryApi, projectsApi, getApiErrorMessage } from '@/lib/api'
+import { devicesApi, discoveryApi, healthApi, projectsApi, getApiErrorMessage } from '@/lib/api'
 import type { Device, DiscoveredDevice } from '@/lib/types'
 import { Monitor, Plus, Search, Loader2, X, Radar, LayoutGrid, Network, Upload, Download, FileText, CheckCircle2, AlertCircle, GitCompare, Trash2 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -314,47 +314,108 @@ export default function DevicesPage() {
 
       <AnimatePresence>
         {showAddModal && <AddDeviceModal projectId={projectIdFilter || undefined} onClose={() => setShowAddModal(false)} />}
-        {showDiscoverModal && <DiscoverModal onClose={() => setShowDiscoverModal(false)} />}
+        {showDiscoverModal && <DiscoverModal projectId={projectIdFilter || undefined} onClose={() => setShowDiscoverModal(false)} />}
         {showImportModal && <ImportCsvModal initialProjectId={projectIdFilter} onClose={() => setShowImportModal(false)} />}
       </AnimatePresence>
     </div>
   )
 }
 
-function DiscoverModal({ onClose }: { onClose: () => void }) {
-  const [target, setTarget] = useState('')
+function DiscoverModal({ onClose, projectId }: { onClose: () => void; projectId?: string }) {
+  const navigate = useNavigate()
   const [mode, setMode] = useState<'ip' | 'subnet'>('ip')
+  const [ipTarget, setIpTarget] = useState('')
+  const [subnetTarget, setSubnetTarget] = useState('')
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<DiscoveredDevice[] | null>(null)
+  const [inlineError, setInlineError] = useState<string | null>(null)
+  const [toolsHealthy, setToolsHealthy] = useState(true)
+  const [toolsMessage, setToolsMessage] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const target = mode === 'ip' ? ipTarget : subnetTarget
+  const hiddenByProject = projectId
+    ? (results || []).filter((device) => device.project_id && device.project_id !== projectId)
+    : []
+
+  useEffect(() => {
+    let active = true
+
+    void healthApi.systemStatus()
+      .then((resp) => {
+        if (!active) return
+        const status = resp.data.tools_sidecar?.status || 'unknown'
+        setToolsHealthy(status === 'ok')
+        setToolsMessage(
+          status === 'ok'
+            ? null
+            : resp.data.tools_sidecar?.message || 'Security tools are unavailable. Discovery may fail until the sidecar recovers.',
+        )
+      })
+      .catch(() => {
+        if (!active) return
+        setToolsHealthy(false)
+        setToolsMessage('Could not verify tools sidecar status. Discovery may fail if backend services are degraded.')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    setInlineError(null)
+    setResults(null)
+  }, [ipTarget, mode, subnetTarget])
 
   const handleDiscover = async (e: React.FormEvent) => {
     e.preventDefault()
+    const trimmedTarget = target.trim()
+
+    if (mode === 'ip' && !isValidIp(trimmedTarget)) {
+      setInlineError('Enter a valid IPv4 address, for example 192.168.1.10.')
+      return
+    }
+    if (mode === 'subnet' && !isValidCidr(trimmedTarget)) {
+      setInlineError('Enter a valid CIDR subnet, for example 192.168.1.0/24.')
+      return
+    }
+
     setLoading(true)
+    setInlineError(null)
     setResults(null)
     try {
-      const payload = mode === 'ip' ? { ip_address: target } : { subnet: target }
+      const payload = mode === 'ip'
+        ? { ip_address: trimmedTarget, project_id: projectId }
+        : { subnet: trimmedTarget, project_id: projectId }
       const resp = await discoveryApi.scan(payload)
       setResults(resp.data.devices || [])
-      queryClient.invalidateQueries({ queryKey: ['devices'] })
+      await queryClient.invalidateQueries({ queryKey: ['devices'] })
+      await queryClient.refetchQueries({ queryKey: ['devices'], type: 'active' })
       toast.success(`Found ${resp.data.devices_found} device(s)`)
     } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err, 'Discovery failed — is the tools sidecar running?'))
+      const fallback = toolsHealthy
+        ? 'Discovery failed. Check the address, subnet, and network path.'
+        : (toolsMessage || 'Discovery failed because the tools sidecar is unavailable.')
+      const message = getApiErrorMessage(err, fallback)
+      setInlineError(message)
+      toast.error(message)
+      return
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto">
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="absolute inset-0 bg-black/40" onClick={onClose}
       />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="relative w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
-      >
+      <div className="relative min-h-full flex items-start justify-center p-4 sm:items-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+          className="relative my-6 w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
+        >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Discover by IP or Subnet</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800">
@@ -365,6 +426,16 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
           <Callout variant="info">
             Single IP is best for one directly connected device. Use subnet scan only when the IP is unknown or you are surveying multiple devices.
           </Callout>
+
+          {projectId && (
+            <Callout variant="info">
+              New discoveries are attached to the active project when the device is unassigned. Existing devices from other projects may still be hidden from this filtered list.
+            </Callout>
+          )}
+
+          {!toolsHealthy && toolsMessage && (
+            <Callout variant="warning">{toolsMessage}</Callout>
+          )}
 
           <div className="flex gap-2">
             <button
@@ -392,11 +463,15 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
             <input
               type="text"
               value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              className="input"
-              placeholder={mode === 'ip' ? '192.168.1.100' : '192.168.1.0/24'}
+              onChange={(e) => {
+                if (mode === 'ip') setIpTarget(e.target.value)
+                else setSubnetTarget(e.target.value)
+              }}
+              className={`input ${inlineError ? 'border-red-500 focus:border-red-500' : ''}`}
+              placeholder={mode === 'ip' ? '192.168.1.10' : '192.168.1.0/24'}
               required
             />
+            {inlineError && <p className="mt-1 text-xs text-red-500">{inlineError}</p>}
           </div>
 
           <button type="submit" disabled={loading} className="btn-primary w-full">
@@ -413,18 +488,35 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
             )}
           </button>
 
+          {hiddenByProject.length > 0 && (
+            <Callout variant="warning">
+              {hiddenByProject.length} discovered device{hiddenByProject.length !== 1 ? 's are' : ' is'} outside the active project filter. Open the result below to view it directly.
+            </Callout>
+          )}
+
           {results && results.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-zinc-700 dark:text-slate-300">Discovered Devices</h3>
-              {results.map((dev, idx: number) => (
-                <div key={idx} className="flex items-center gap-3 p-2.5 bg-zinc-50 dark:bg-slate-800 rounded-lg border border-zinc-100 dark:border-slate-700/50">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-zinc-700 dark:text-slate-300">Discovered Devices</h3>
+                <span className="text-xs text-zinc-400">Click a result to open it</span>
+              </div>
+              {results.map((dev) => (
+                <button
+                  key={dev.id}
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    navigate(`/devices/${dev.id}`)
+                  }}
+                  className="w-full text-left flex items-center gap-3 p-3 bg-zinc-50 dark:bg-slate-800 rounded-lg border border-zinc-100 dark:border-slate-700/50 hover:border-brand-300 dark:hover:border-brand-700 transition-colors"
+                >
                   <div className={`w-2 h-2 rounded-full shrink-0 ${dev.is_new ? 'bg-emerald-500' : 'bg-blue-500'}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-zinc-800 dark:text-slate-200 truncate">
                       {getPreferredDeviceName(dev)}
                     </p>
                     <p className="text-xs text-zinc-500">
-                      {getDeviceMetaSummary(dev, { includeIp: true }) || dev.ip_address} · {dev.category}
+                      {`${getDeviceMetaSummary(dev, { includeIp: true }) || dev.ip_address} - ${dev.category}`}
                     </p>
                   </div>
                   <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
@@ -432,16 +524,21 @@ function DiscoverModal({ onClose }: { onClose: () => void }) {
                   }`}>
                     {dev.is_new ? 'New' : 'Updated'}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}
 
           {results && results.length === 0 && (
-            <Callout variant="warning">No devices found at this address. Check the IP and ensure the device is powered on.</Callout>
+            <Callout variant="warning">
+              {mode === 'ip'
+                ? 'No device responded at that IP address. Check the address, power, and network path.'
+                : 'No devices responded on that subnet. Verify the CIDR range and confirm the sidecar can reach that network.'}
+            </Callout>
           )}
         </form>
       </motion.div>
+      </div>
     </div>
   )
 }
@@ -454,7 +551,15 @@ function isValidMac(mac: string): boolean {
   return /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(mac)
 }
 
+function isValidCidr(cidr: string): boolean {
+  const [ip, prefix] = cidr.split('/')
+  if (!prefix) return false
+  const prefixNum = Number(prefix)
+  return isValidIp(ip) && Number.isInteger(prefixNum) && prefixNum >= 0 && prefixNum <= 32
+}
+
 function AddDeviceModal({ onClose, projectId }: { onClose: () => void; projectId?: string }) {
+  const navigate = useNavigate()
   const [isDhcp, setIsDhcp] = useState(false)
   const [form, setForm] = useState({
     ip_address: '', hostname: '', mac_address: '', manufacturer: '',
@@ -507,21 +612,45 @@ function AddDeviceModal({ onClose, projectId }: { onClose: () => void; projectId
       toast.success('Device added successfully')
       onClose()
     } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err, 'Failed to add device'))
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 409) {
+        const lookupValue = isDhcp ? form.mac_address.trim() : form.ip_address.trim()
+        try {
+          const existingResp = await devicesApi.list({ search: lookupValue, limit: 20 })
+          const existing = existingResp.data.find((device) => (
+            isDhcp
+              ? (device.mac_address || '').toLowerCase() === form.mac_address.trim().toLowerCase()
+              : device.ip_address === form.ip_address.trim()
+          ))
+          if (existing) {
+            toast.error(projectId
+              ? 'Device already exists. Opening the existing record because it may be hidden by the active project filter.'
+              : 'Device already exists. Opening the existing record.')
+            onClose()
+            navigate(`/devices/${existing.id}`)
+            return
+          }
+        } catch {
+          // Fall through to the generic error message below.
+        }
+      }
+      const message = getApiErrorMessage(err, 'Failed to add device')
+      toast.error(projectId && status === 409 ? `${message} It may be hidden by the active project filter.` : message)
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto">
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="absolute inset-0 bg-black/40" onClick={onClose}
       />
+      <div className="relative min-h-full flex items-start justify-center p-4 sm:items-center">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="relative w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
+        className="relative my-6 w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Add New Device</h2>
@@ -628,11 +757,13 @@ function AddDeviceModal({ onClose, projectId }: { onClose: () => void; projectId
           </div>
         </form>
       </motion.div>
+      </div>
     </div>
   )
 }
 
 const CSV_TEMPLATE = 'ip_address,hostname,mac_address,manufacturer,model,firmware_version,category,location\n192.168.1.100,cam-lobby-01,AA:BB:CC:DD:EE:FF,Axis,P3245-V,10.12.114,camera,Building A Floor 2\n'
+const REQUIRED_CSV_HEADERS = ['ip_address']
 
 function parseCsvRows(text: string): string[][] {
   const rows: string[][] = []
@@ -692,6 +823,11 @@ function parseCsvPreview(text: string): { headers: string[]; rows: string[][] } 
   return { headers, rows }
 }
 
+function getMissingCsvHeaders(headers: string[]): string[] {
+  const normalized = new Set(headers.map((header) => header.trim().toLowerCase()))
+  return REQUIRED_CSV_HEADERS.filter((header) => !normalized.has(header))
+}
+
 interface ImportResult {
   imported: number
   skipped: number
@@ -713,6 +849,7 @@ function ImportCsvModal({ onClose, initialProjectId }: { onClose: () => void; in
     queryFn: () => projectsApi.list().then(r => r.data),
   })
   const projects = projectsData?.items || projectsData || []
+  const missingHeaders = preview ? getMissingCsvHeaders(preview.headers) : []
 
   const handleFile = (f: File) => {
     if (!f.name.endsWith('.csv')) {
@@ -743,6 +880,10 @@ function ImportCsvModal({ onClose, initialProjectId }: { onClose: () => void; in
 
   const handleImport = async () => {
     if (!file) return
+    if (missingHeaders.length > 0) {
+      toast.error(`CSV must contain: ${missingHeaders.join(', ')}`)
+      return
+    }
     setLoading(true)
     try {
       const resp = await devicesApi.importDevices(file, projectId || undefined)
@@ -788,14 +929,15 @@ function ImportCsvModal({ onClose, initialProjectId }: { onClose: () => void; in
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto">
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="absolute inset-0 bg-black/40" onClick={onClose}
       />
+      <div className="relative min-h-full flex items-start justify-center p-4 sm:items-center">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="relative w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
+        className="relative my-6 w-full max-w-lg bg-white dark:bg-dark-card rounded-lg shadow-2xl overflow-y-auto max-h-[90vh]"
       >
         <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700/50">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-slate-100">Import Devices from CSV</h2>
@@ -900,6 +1042,12 @@ function ImportCsvModal({ onClose, initialProjectId }: { onClose: () => void; in
             </div>
           )}
 
+          {missingHeaders.length > 0 && (
+            <Callout variant="warning">
+              This file does not match the device import format. Required header{missingHeaders.length !== 1 ? 's' : ''}: {missingHeaders.join(', ')}.
+            </Callout>
+          )}
+
           {/* Project selector */}
           <div>
             <label className="label">Assign to Project (optional)</label>
@@ -957,7 +1105,7 @@ function ImportCsvModal({ onClose, initialProjectId }: { onClose: () => void; in
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={!file || loading}
+                disabled={!file || loading || missingHeaders.length > 0}
                 className="btn-primary"
               >
                 {loading ? (
@@ -976,6 +1124,7 @@ function ImportCsvModal({ onClose, initialProjectId }: { onClose: () => void; in
           </div>
         </div>
       </motion.div>
+      </div>
     </div>
   )
 }

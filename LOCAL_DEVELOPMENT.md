@@ -20,7 +20,7 @@ This mode is not a full replacement for Docker on Windows. The scan tooling rema
 - `nikto`
 - other Linux-oriented network utilities installed in the tools container
 
-If you need automated scan flows locally, keep the `tools` service running with Docker.
+If you need automated scan flows locally, keep the Docker-backed `backend` container running so the co-located tools sidecar stays available.
 
 ## Prerequisites
 
@@ -87,6 +87,8 @@ npm ci
 ```powershell
 docker compose up -d postgres backend
 ```
+
+Because the `backend` container also publishes host port `8000`, either stop it before starting local Uvicorn or temporarily set `EDQ_BACKEND_PORT` in the root `.env` to a different host port such as `18000` before running that compose command.
 
 ### Start the backend locally
 

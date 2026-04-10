@@ -68,9 +68,17 @@ ensure_env_value "EDQ_TOOLS_BIND_HOST" "127.0.0.1" >/dev/null
 ensure_env_value "EDQ_TOOLS_PORT" "8001" >/dev/null
 ensure_env_value "EDQ_POSTGRES_BIND_HOST" "127.0.0.1" >/dev/null
 ensure_env_value "EDQ_POSTGRES_PORT" "55432" >/dev/null
+ensure_env_value "VITE_API_URL" "/api" >/dev/null
+ensure_env_value "VITE_CLIENT_ERROR_ENDPOINT" "/api/client-errors" >/dev/null
+ensure_env_value "VITE_SENTRY_ENABLED" "false" >/dev/null
+ensure_env_value "VITE_SENTRY_TRACES_SAMPLE_RATE" "0.0" >/dev/null
+ensure_env_value "VITE_SOURCEMAP" "false" >/dev/null
 ensure_env_value "LOG_JSON" "false" >/dev/null
 
 mkdir -p data
+
+PUBLIC_PORT_VALUE=$(grep -E "^EDQ_PUBLIC_PORT=" .env | head -1 | cut -d= -f2- | tr -d '\r')
+PUBLIC_PORT_VALUE=${PUBLIC_PORT_VALUE:-3000}
 
 echo "Starting EDQ..."
 docker compose up --build -d
@@ -90,12 +98,13 @@ until docker compose exec -T backend curl -sf http://localhost:8000/api/health >
 done
 
 echo ""
-echo "=== EDQ is running at http://localhost:3000 ==="
+echo "=== EDQ is running at http://localhost:${PUBLIC_PORT_VALUE} ==="
 echo "  Login: username 'admin' / password from INITIAL_ADMIN_PASSWORD in the root .env file"
 if [ -n "$GENERATED_ADMIN_PASS" ]; then
   echo "  Generated initial admin password: $GENERATED_ADMIN_PASS"
 fi
 echo "  (Change your password after first login)"
+echo "  After password rotation, set EDQ_ADMIN_PASS before running smoke scripts."
 echo ""
 echo "Useful commands:"
 echo "  docker compose logs -f        # View live logs"

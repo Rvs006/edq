@@ -163,6 +163,7 @@ class DiscoveryRequest(BaseModel):
     ip_address: Optional[str] = Field(None, max_length=45)
     interface: Optional[str] = Field(None, max_length=64)
     agent_id: Optional[str] = Field(None, max_length=36)
+    project_id: Optional[str] = Field(None, max_length=36)
 
     @field_validator("subnet")
     @classmethod

@@ -36,6 +36,7 @@ Optional production HTTPS support is provided through `docker-compose.prod.yml`.
    - `DEBUG=false`
    - `CORS_ORIGINS` to your real domain(s)
    - `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE` if you want incident telemetry
+   - `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`, `VITE_SENTRY_RELEASE`, and optionally `VITE_SOURCEMAP=true` if you want browser-side Sentry reporting with hidden source maps
 4. Do not rely on placeholder values from `.env.example`
 
 ## Start Without HTTPS
@@ -55,20 +56,35 @@ curl http://localhost:3000/api/health
 ## Start With HTTPS
 
 1. Set `DOMAIN` in the root `.env`
-2. Set `EDQ_USE_BUILTIN_TLS=true` in the root `.env`
-3. Obtain certificates
-4. Start with the production override:
+2. Set `LETSENCRYPT_EMAIL` in the root `.env`
+3. Set `EDQ_USE_BUILTIN_TLS=true` in the root `.env`
+4. Start with the production override
+5. Issue the certificate
+6. Restart the frontend so nginx switches from HTTP bootstrap mode to HTTPS
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+```bash
+DOMAIN=edq.example.com LETSENCRYPT_EMAIL=ops@example.com \
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot \
+  certonly --webroot -w /var/www/certbot -d "$DOMAIN" \
+  --agree-tos -m "$LETSENCRYPT_EMAIL" --non-interactive --keep-until-expiring
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart frontend
 ```
 
 The production override:
 
 - binds ports `80` and `443`
 - removes the local-only `:3000` frontend publish
-- enables nginx TLS config
+- starts in HTTP bootstrap mode until certificates exist, then enables nginx TLS config
 - sets `COOKIE_SECURE=true` for the backend
+
+During the bootstrap phase, port `80` is used for ACME validation and health checks. Browser login should be treated as unavailable until certificates are issued and the frontend has been restarted onto HTTPS.
 
 ## Operations
 
@@ -101,6 +117,13 @@ git pull --ff-only origin main
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```
 
+Certificate renewal:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot renew
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T frontend nginx -s reload
+```
+
 ## First Admin Tasks After Deployment
 
 1. Log in as `admin`
@@ -126,6 +149,7 @@ Operational telemetry:
 - backend logs are JSON by default when `LOG_JSON=true`
 - backend responses include `X-Request-ID` for correlation
 - optional Sentry forwarding supports backend exceptions and frontend beaconed errors
+- frontend builds read `VITE_*` values from the repo-root `.env` during local development and from Docker build args when you override the frontend image build
 
 ## Admin Password Reset
 

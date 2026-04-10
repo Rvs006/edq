@@ -30,6 +30,7 @@ Optional but useful:
 - Use the root `.env` file only.
 - Do not create or rely on `server/backend/.env`.
 - `setup.sh` and `setup.bat` create the root `.env` for you if it does not exist.
+- The frontend also reads repo-root `VITE_*` variables through `frontend/vite.config.ts`, so `VITE_CLIENT_ERROR_ENDPOINT` and `VITE_SENTRY_ENABLED` can live alongside the other deployment variables in the root `.env`.
 
 ## First-Time Setup
 
@@ -182,9 +183,17 @@ Update-only guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
 
 ## Troubleshooting
 
-### Port 80 already in use
+### Port 3000 already in use
 
-Edit `docker-compose.yml` and map the frontend to another host port, for example `8080:8080`, then open `http://localhost:8080`.
+Change `EDQ_PUBLIC_PORT` in the root `.env`, then restart the stack.
+
+For example:
+
+```bash
+EDQ_PUBLIC_PORT=8080
+```
+
+Then open `http://localhost:8080`.
 
 ### Backend will not start
 

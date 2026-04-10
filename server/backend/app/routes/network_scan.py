@@ -21,7 +21,7 @@ from app.models.user import User
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit
 from app.services.discovery_service import build_device_display_name
-from app.services.tools_client import tools_client
+from app.services.tools_client import describe_tools_error, tools_client
 from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
 from app.services.parsers.nmap_parser import nmap_parser
@@ -241,10 +241,10 @@ async def discover_devices(
         scan.status = NetworkScanStatus.PENDING
         await db.flush()
         await db.refresh(scan)
-    except Exception:
+    except Exception as exc:
         logger.exception("Discovery failed for %s", data.cidr)
         scan.status = NetworkScanStatus.ERROR
-        scan.error_message = "Discovery scan failed"
+        scan.error_message = describe_tools_error(exc, fallback="Discovery scan failed")
         await db.flush()
         await db.refresh(scan)
 

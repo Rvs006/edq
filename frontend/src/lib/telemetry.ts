@@ -1,3 +1,9 @@
+import {
+  captureFrontendException,
+  getFrontendSentryMetadata,
+  isFrontendSentryEnabled,
+} from './sentry'
+
 type ClientErrorPayload = {
   message: string
   stack?: string
@@ -6,22 +12,77 @@ type ClientErrorPayload = {
   timestamp: string
   handled?: boolean
   source?: 'error-boundary' | 'window-error' | 'unhandledrejection'
+  capturedByFrontendSentry?: boolean
+  telemetry?: {
+    sentry_enabled: boolean
+    sentry_environment?: string
+    sentry_release?: string
+  }
 }
 
-const CLIENT_ERROR_ENDPOINT = '/api/client-errors'
+const DEFAULT_CLIENT_ERROR_ENDPOINT = '/api/client-errors'
+
+type FrontendTelemetryConfig = {
+  clientErrorEndpoint: string
+  sentryEnabled: boolean
+  sentryEnvironment: string
+  sentryRelease?: string
+}
+
+function parseBoolean(value: string | undefined, fallback = false) {
+  if (value === undefined) {
+    return fallback
+  }
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false
+  }
+  return fallback
+}
+
+function normalizeEndpoint(endpoint: string | undefined) {
+  const candidate = endpoint?.trim() || DEFAULT_CLIENT_ERROR_ENDPOINT
+  const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+  try {
+    return new URL(candidate, base).toString()
+  } catch {
+    return candidate
+  }
+}
+
+function getTelemetryConfig(): FrontendTelemetryConfig {
+  const sentryMetadata = getFrontendSentryMetadata()
+
+  return {
+    clientErrorEndpoint: normalizeEndpoint(import.meta.env.VITE_CLIENT_ERROR_ENDPOINT),
+    sentryEnabled: sentryMetadata.sentryEnabled,
+    sentryEnvironment: sentryMetadata.sentryEnvironment,
+    sentryRelease: sentryMetadata.sentryRelease,
+  }
+}
+
+const telemetryConfig = getTelemetryConfig()
 
 function sendPayload(payload: ClientErrorPayload) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
   const body = JSON.stringify(payload)
+  const endpoint = telemetryConfig.clientErrorEndpoint
 
   try {
-    if (navigator.sendBeacon?.(CLIENT_ERROR_ENDPOINT, body)) {
+    if (navigator.sendBeacon?.(endpoint, body)) {
       return
     }
   } catch {
     // Fall through to fetch-based reporting.
   }
 
-  void fetch(CLIENT_ERROR_ENDPOINT, {
+  void fetch(endpoint, {
     method: 'POST',
     body,
     headers: { 'Content-Type': 'application/json' },
@@ -34,9 +95,25 @@ function sendPayload(payload: ClientErrorPayload) {
 
 export function reportClientError(
   error: unknown,
-  context: Pick<ClientErrorPayload, 'componentStack' | 'handled' | 'source'> = {},
+  context: {
+    componentStack?: string | null
+    handled?: boolean
+    source?: ClientErrorPayload['source']
+  } = {},
 ) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
   const err = error instanceof Error ? error : new Error(String(error))
+  const capturedByFrontendSentry = Boolean(context.handled && isFrontendSentryEnabled())
+  const telemetry = telemetryConfig.sentryEnabled
+    ? {
+        sentry_enabled: true,
+        sentry_environment: telemetryConfig.sentryEnvironment,
+        sentry_release: telemetryConfig.sentryRelease,
+      }
+    : undefined
 
   sendPayload({
     message: err.message || 'Unknown frontend error',
@@ -46,7 +123,21 @@ export function reportClientError(
     timestamp: new Date().toISOString(),
     handled: context.handled,
     source: context.source,
+    capturedByFrontendSentry,
+    telemetry,
   })
+
+  if (capturedByFrontendSentry) {
+    captureFrontendException(err, {
+      tags: {
+        source: context.source ?? 'error-boundary',
+      },
+      extra: {
+        componentStack: context.componentStack ?? '',
+        url: window.location.href,
+      },
+    })
+  }
 }
 
 export function installGlobalErrorTelemetry() {

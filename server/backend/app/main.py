@@ -623,7 +623,8 @@ def create_app() -> FastAPI:
                 data.get("url", "unknown"),
                 data.get("message", "unknown"),
             )
-            if settings.SENTRY_DSN:
+            already_captured = bool(data.get("capturedByFrontendSentry"))
+            if settings.SENTRY_DSN and not already_captured:
                 try:
                     import sentry_sdk
 
@@ -639,6 +640,7 @@ def create_app() -> FastAPI:
                                 "component_stack": data.get("componentStack"),
                                 "timestamp": data.get("timestamp"),
                                 "user_agent": request.headers.get("user-agent", ""),
+                                "telemetry": data.get("telemetry"),
                             },
                         )
                         sentry_sdk.capture_message(

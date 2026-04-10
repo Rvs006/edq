@@ -6,9 +6,12 @@ import { MemoryRouter } from 'react-router-dom'
 
 import DevicesPage from '@/pages/DevicesPage'
 
-const mockRole = {
-  value: 'engineer' as 'engineer' | 'reviewer' | 'admin',
-}
+const { mockDiscoveryScan, mockRole } = vi.hoisted(() => ({
+  mockDiscoveryScan: vi.fn(),
+  mockRole: {
+    value: 'engineer' as 'engineer' | 'reviewer' | 'admin',
+  },
+}))
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -65,8 +68,15 @@ vi.mock('@/lib/api', () => ({
     delete: vi.fn(),
   },
   discoveryApi: {
-    scan: vi.fn(),
+    scan: mockDiscoveryScan,
     registerDevice: vi.fn(),
+  },
+  healthApi: {
+    systemStatus: vi.fn().mockResolvedValue({
+      data: {
+        tools_sidecar: { status: 'ok' },
+      },
+    }),
   },
   projectsApi: {
     list: vi.fn().mockResolvedValue({ data: [] }),
@@ -81,14 +91,14 @@ vi.mock('react-hot-toast', () => ({
   },
 }))
 
-function renderWithProviders() {
+function renderWithProviders(initialEntries: string[] = ['/devices']) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <DevicesPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -99,6 +109,7 @@ describe('DevicesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRole.value = 'engineer'
+    mockDiscoveryScan.mockReset()
   })
 
   it('renders the device list and core actions', async () => {
@@ -129,5 +140,41 @@ describe('DevicesPage', () => {
     await user.click(screen.getByLabelText('Select Axis P3245'))
 
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+  })
+
+  it('passes the active project filter through discovery requests', async () => {
+    mockDiscoveryScan.mockResolvedValue({
+      data: {
+        status: 'complete',
+        target: '192.168.1.10',
+        devices_found: 1,
+        devices: [
+          {
+            id: 'device-2',
+            ip_address: '192.168.1.10',
+            hostname: 'easyio-1',
+            manufacturer: 'EasyIO',
+            model: 'FS-32',
+            predicted_name: 'EasyIO FS-32',
+            category: 'controller',
+            is_new: true,
+            project_id: 'proj-1',
+          },
+        ],
+      },
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(['/devices?project_id=proj-1'])
+
+    await user.click(screen.getByRole('button', { name: 'Discover' }))
+    await user.type(screen.getByPlaceholderText('192.168.1.10'), '192.168.1.10')
+    await user.click(screen.getByRole('button', { name: 'Start Discovery' }))
+
+    expect(mockDiscoveryScan).toHaveBeenCalledWith({
+      ip_address: '192.168.1.10',
+      project_id: 'proj-1',
+    })
+    expect(await screen.findByText('Click a result to open it')).toBeInTheDocument()
   })
 })

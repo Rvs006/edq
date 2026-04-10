@@ -111,20 +111,22 @@ function _saveScanState(scanId: string | null, step: Step) {
 export default function NetworkScanPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const saved = _loadScanState()
-  const [step, setStep] = useState<Step>(saved.step)
+  const [savedState] = useState(() => _loadScanState())
+  const [step, setStep] = useState<Step>(savedState.step)
   const [cidr, setCidr] = useState('192.168.1.0/24')
   const [scenario, setScenario] = useState('test_lab')
   const [selectedTests, setSelectedTests] = useState<Set<string>>(new Set(SCENARIO_PRESELECTS.test_lab))
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Network']))
   const [discovering, setDiscovering] = useState(false)
-  const [scanId, setScanId] = useState<string | null>(saved.scanId)
+  const [scanId, setScanId] = useState<string | null>(savedState.scanId)
   const [devices, setDevices] = useState<DiscoveredDevice[]>([])
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set())
   const [starting, setStarting] = useState(false)
   const [results, setResults] = useState<ScanResult[]>([])
-  const [scanStatus, setScanStatus] = useState<string>(saved.scanId ? 'scanning' : 'pending')
+  const [scanStatus, setScanStatus] = useState<string>(savedState.scanId ? 'scanning' : 'pending')
+  const [monitorError, setMonitorError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const skipScenarioPresetRef = useRef(Boolean(savedState.scanId))
 
   // Persist scan state whenever it changes
   useEffect(() => {
@@ -149,8 +151,47 @@ export default function NetworkScanPage() {
 
   useEffect(() => {
     const preselected = SCENARIO_PRESELECTS[scenario] || []
+    if (skipScenarioPresetRef.current) {
+      skipScenarioPresetRef.current = false
+      return
+    }
     setSelectedTests(new Set(preselected))
   }, [scenario])
+
+  useEffect(() => {
+    if (!savedState.scanId) return
+    let active = true
+
+    void networkScanApi.get(savedState.scanId)
+      .then((res) => {
+        if (!active) return
+        const scan = res.data
+        const restoredStatus = normalizeStatus(scan.status)
+        const restoredDevices = Array.isArray(scan.devices_found) ? scan.devices_found : []
+        if (scan.connection_scenario) setScenario(scan.connection_scenario)
+        if (Array.isArray(scan.selected_test_ids) && scan.selected_test_ids.length > 0) {
+          setSelectedTests(new Set(scan.selected_test_ids))
+        }
+        setDevices(restoredDevices)
+        setSelectedDevices(new Set(restoredDevices.map((device: DiscoveredDevice) => device.ip)))
+        setScanStatus(restoredStatus || 'pending')
+        if (restoredStatus === 'error') {
+          setStep('configure')
+          setScanId(null)
+          toast.error(scan.error_message || 'Bulk discovery failed')
+        }
+      })
+      .catch(() => {
+        if (!active) return
+        setStep('configure')
+        setScanId(null)
+        setMonitorError('Could not restore the saved bulk discovery session.')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [savedState.scanId])
 
   const toggleTest = (id: string) => {
     setSelectedTests(prev => {
@@ -174,6 +215,7 @@ export default function NetworkScanPage() {
   const handleDiscover = async () => {
     if (!cidrValid) return
     setDiscovering(true)
+    setMonitorError(null)
     try {
       const res = await networkScanApi.discover({
         cidr,
@@ -181,6 +223,13 @@ export default function NetworkScanPage() {
         test_ids: Array.from(selectedTests),
       })
       const scan = res.data
+      const nextStatus = normalizeStatus(scan.status)
+      if (nextStatus === 'error') {
+        setScanId(scan.id)
+        setScanStatus(nextStatus)
+        toast.error(scan.error_message || 'Discovery failed')
+        return
+      }
       setScanId(scan.id)
       const found: DiscoveredDevice[] = scan.devices_found || []
       setDevices(found)
@@ -225,11 +274,14 @@ export default function NetworkScanPage() {
         const nextStatus = normalizeStatus(res.data.status)
         setResults(res.data.results || [])
         setScanStatus(nextStatus)
+        setMonitorError(null)
         if (nextStatus === 'complete' || nextStatus === 'error') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('results')
         }
-      } catch { /* ignore */ }
+      } catch {
+        setMonitorError('Could not refresh batch scan status. Retrying automatically.')
+      }
     }
     poll()
     pollRef.current = setInterval(poll, 3000)
@@ -242,7 +294,10 @@ export default function NetworkScanPage() {
       try {
         const res = await networkScanApi.results(scanId)
         setResults(res.data.results || [])
-      } catch { /* ignore */ }
+        setMonitorError(null)
+      } catch {
+        setMonitorError('Could not load the latest batch scan results.')
+      }
     }
     fetchFinal()
   }, [step, scanId])
@@ -255,6 +310,12 @@ export default function NetworkScanPage() {
       </div>
 
       <StepIndicator current={step} />
+
+      {monitorError && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          {monitorError}
+        </div>
+      )}
 
       {authNetsLoaded && authorizedNets.length === 0 && (
         <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-3">

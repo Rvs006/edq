@@ -2,6 +2,7 @@ import axios, { type AxiosResponse } from 'axios'
 import type {
   Device, TestRun, TestResult, TestTemplate, TestLibraryItem,
   TestPlan, Whitelist, AuditLogEntry, PaginatedResponse, UserProfile,
+  DiscoveryScanResponse,
 } from './types'
 import {
   normalizeTestResult,
@@ -229,7 +230,7 @@ export const whitelistsApi = {
 }
 
 export const discoveryApi = {
-  scan: (data: { subnet?: string; ip_address?: string; interface?: string }) => api.post('/discovery/scan', data),
+  scan: (data: { subnet?: string; ip_address?: string; interface?: string; project_id?: string }) => api.post<DiscoveryScanResponse>('/discovery/scan', data),
   registerDevice: (data: { ip_address: string; mac_address?: string; hostname?: string }) => api.post('/discovery/register-device', data),
 }
 
@@ -343,6 +344,50 @@ export const brandingApi = {
 }
 
 export function getApiErrorMessage(err: unknown, fallback = 'An error occurred'): string {
-  const axiosErr = err as { response?: { data?: { detail?: string } } }
-  return axiosErr?.response?.data?.detail || fallback
+  const axiosErr = err as {
+    message?: string
+    response?: {
+      data?: {
+        detail?: unknown
+        error?: unknown
+        message?: unknown
+      }
+    }
+  }
+
+  const formatDetail = (detail: unknown): string | null => {
+    if (!detail) return null
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((item) => {
+          if (typeof item === 'string') return item
+          if (!item || typeof item !== 'object') return null
+          const entry = item as { loc?: unknown[]; msg?: string; message?: string }
+          const path = Array.isArray(entry.loc)
+            ? entry.loc.filter((part) => typeof part === 'string' || typeof part === 'number').join('.')
+            : ''
+          const message = entry.msg || entry.message
+          if (!message) return null
+          return path ? `${path}: ${message}` : message
+        })
+        .filter((message): message is string => Boolean(message))
+      return messages.length > 0 ? messages.join('; ') : null
+    }
+    if (typeof detail === 'object') {
+      const record = detail as Record<string, unknown>
+      if (typeof record.detail === 'string') return record.detail
+      if (typeof record.message === 'string') return record.message
+      if (typeof record.error === 'string') return record.error
+    }
+    return null
+  }
+
+  return (
+    formatDetail(axiosErr?.response?.data?.detail)
+    || formatDetail(axiosErr?.response?.data?.error)
+    || formatDetail(axiosErr?.response?.data?.message)
+    || axiosErr?.message
+    || fallback
+  )
 }

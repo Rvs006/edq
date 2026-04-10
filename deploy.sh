@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # EDQ Server Deployment Script
-# One-command Docker deployment with optional built-in TLS override.
+# One-command Docker deployment with optional built-in TLS bootstrap.
 # =============================================================================
 
 set -euo pipefail
@@ -45,6 +45,53 @@ strip_quotes() {
     printf '%s' "$value"
 }
 
+looks_like_ipv4() {
+    printf '%s' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
+wait_for_http_health() {
+    local url="$1"
+    local attempts="${2:-60}"
+    local healthy="false"
+
+    for _ in $(seq 1 "$attempts"); do
+        if curl -skf "$url" >/dev/null 2>&1; then
+            healthy="true"
+            break
+        fi
+        echo -n "."
+        sleep 2
+    done
+    echo
+
+    if [ "$healthy" != "true" ]; then
+        return 1
+    fi
+    return 0
+}
+
+wait_for_https_health() {
+    local domain="$1"
+    local url="$2"
+    local attempts="${3:-60}"
+    local healthy="false"
+
+    for _ in $(seq 1 "$attempts"); do
+        if curl --resolve "${domain}:443:127.0.0.1" -skf "$url" >/dev/null 2>&1; then
+            healthy="true"
+            break
+        fi
+        echo -n "."
+        sleep 2
+    done
+    echo
+
+    if [ "$healthy" != "true" ]; then
+        return 1
+    fi
+    return 0
+}
+
 print_admin_credentials() {
     local password="$1"
     echo
@@ -86,7 +133,7 @@ if [ ! -f .env ]; then
     POSTGRES_PASSWORD=$(openssl rand -hex 24)
     ADMIN_PASSWORD=$(openssl rand -base64 18)
 
-    echo -n "Enter server IP or domain (e.g. 192.168.1.50 or edq.company.com): "
+    echo -n "Enter server host or URL target (for example edq.company.com or 192.168.1.50): "
     read -r SERVER_HOST
     SERVER_HOST=${SERVER_HOST:-localhost}
 
@@ -97,8 +144,10 @@ if [ ! -f .env ]; then
 
     BUILTIN_TLS="false"
     DOMAIN_VALUE=""
+    LETSENCRYPT_EMAIL_VALUE=""
+    COOKIE_SECURE="false"
+
     if [[ "$USE_HTTPS" =~ ^[Nn] ]]; then
-        COOKIE_SECURE="false"
         warn "COOKIE_SECURE=false - session cookies will be sent over plain HTTP."
         warn "This is acceptable for local/dev but not recommended for production."
     else
@@ -107,11 +156,37 @@ if [ ! -f .env ]; then
         read -r ENABLE_BUILTIN_TLS
         if [[ "$ENABLE_BUILTIN_TLS" =~ ^[Yy] ]]; then
             BUILTIN_TLS="true"
-            DOMAIN_VALUE="${SERVER_HOST}"
+
+            while true; do
+                echo -n "Enter the public DNS name for HTTPS (for example edq.company.com): "
+                read -r DOMAIN_VALUE
+                DOMAIN_VALUE=${DOMAIN_VALUE:-}
+                if [ -z "$DOMAIN_VALUE" ] || [ "$DOMAIN_VALUE" = "localhost" ] || looks_like_ipv4 "$DOMAIN_VALUE"; then
+                    warn "Built-in TLS requires a public DNS name, not localhost or a raw IP address."
+                    continue
+                fi
+                break
+            done
+
+            while true; do
+                echo -n "Enter the Let's Encrypt notification email address: "
+                read -r LETSENCRYPT_EMAIL_VALUE
+                LETSENCRYPT_EMAIL_VALUE=${LETSENCRYPT_EMAIL_VALUE:-}
+                if [ -z "$LETSENCRYPT_EMAIL_VALUE" ]; then
+                    warn "A non-empty email address is required for built-in TLS."
+                    continue
+                fi
+                break
+            done
         else
-            warn "COOKIE_SECURE=true requires HTTPS termination before traffic reaches EDQ."
-            warn "Use a reverse proxy/load balancer or re-run deploy with the built-in TLS stack."
+            warn "COOKIE_SECURE=true assumes HTTPS is terminating before traffic reaches EDQ."
+            warn "Use a reverse proxy/load balancer or keep COOKIE_SECURE=false until that is true."
         fi
+    fi
+
+    CORS_HOST="${SERVER_HOST}"
+    if [ "$BUILTIN_TLS" = "true" ]; then
+        CORS_HOST="${DOMAIN_VALUE}"
     fi
 
     cat > .env <<EOF
@@ -141,8 +216,9 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=30
 
 # CORS
-CORS_ORIGINS=["http://${SERVER_HOST}","https://${SERVER_HOST}"]
+CORS_ORIGINS=["http://${CORS_HOST}","https://${CORS_HOST}"]
 DOMAIN=${DOMAIN_VALUE}
+LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL_VALUE}
 EDQ_USE_BUILTIN_TLS=${BUILTIN_TLS}
 
 # File Storage
@@ -176,7 +252,17 @@ DEBUG=false
 # Registration
 ALLOW_REGISTRATION=false
 
-# Sentry (optional)
+# Frontend telemetry (optional)
+VITE_API_URL=/api
+VITE_CLIENT_ERROR_ENDPOINT=/api/client-errors
+VITE_SENTRY_DSN=
+VITE_SENTRY_ENVIRONMENT=production
+VITE_SENTRY_RELEASE=
+VITE_SENTRY_ENABLED=false
+VITE_SENTRY_TRACES_SAMPLE_RATE=0.0
+VITE_SOURCEMAP=false
+
+# Sentry (backend, optional)
 SENTRY_DSN=
 SENTRY_ENVIRONMENT=production
 SENTRY_RELEASE=
@@ -193,12 +279,26 @@ else
 fi
 
 ENV_DOMAIN=$(strip_quotes "$(read_env_value DOMAIN)")
+ENV_LETSENCRYPT_EMAIL=$(strip_quotes "$(read_env_value LETSENCRYPT_EMAIL)")
 ENV_USE_BUILTIN_TLS=$(strip_quotes "$(read_env_value EDQ_USE_BUILTIN_TLS)")
 
 COMPOSE_ARGS=(-f docker-compose.yml)
 COMPOSE_HINT="docker compose"
-TLS_COMPOSE_HINT="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
-if [ -z "${EDQ_PUBLIC_URL}" ]; then
+HEALTH_URL="${EDQ_PUBLIC_URL:-http://localhost:${EDQ_PUBLIC_PORT}/api/health}"
+
+if [ "${ENV_USE_BUILTIN_TLS}" = "true" ]; then
+    if [ -z "$ENV_DOMAIN" ]; then
+        fail "EDQ_USE_BUILTIN_TLS=true requires DOMAIN in .env."
+    fi
+    if [ -z "$ENV_LETSENCRYPT_EMAIL" ]; then
+        fail "EDQ_USE_BUILTIN_TLS=true requires LETSENCRYPT_EMAIL in .env."
+    fi
+
+    COMPOSE_ARGS+=(-f docker-compose.prod.yml)
+    COMPOSE_HINT="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+    HEALTH_URL="http://127.0.0.1/api/health"
+    EDQ_PUBLIC_URL="https://${ENV_DOMAIN}"
+elif [ -z "${EDQ_PUBLIC_URL}" ]; then
     EDQ_PUBLIC_URL="http://localhost:${EDQ_PUBLIC_PORT}"
 fi
 
@@ -207,20 +307,31 @@ echo
 docker compose "${COMPOSE_ARGS[@]}" up -d --build
 
 warn "Waiting for services to become healthy..."
-HEALTHY="false"
-for _ in $(seq 1 60); do
-    if curl -skf "${EDQ_PUBLIC_URL}/api/health" >/dev/null 2>&1; then
-        info "All services are healthy"
-        HEALTHY="true"
-        break
-    fi
-    echo -n "."
-    sleep 2
-done
-echo
-
-if [ "${HEALTHY}" != "true" ]; then
+if ! wait_for_http_health "$HEALTH_URL" 60; then
     fail "Services did not become healthy. Inspect logs with: ${COMPOSE_HINT} logs -f"
+fi
+info "All services are healthy"
+
+if [ "${ENV_USE_BUILTIN_TLS}" = "true" ]; then
+    warn "Requesting or renewing the Let's Encrypt certificate for ${ENV_DOMAIN}..."
+    docker compose "${COMPOSE_ARGS[@]}" run --rm certbot \
+        certonly \
+        --webroot \
+        -w /var/www/certbot \
+        -d "${ENV_DOMAIN}" \
+        --agree-tos \
+        -m "${ENV_LETSENCRYPT_EMAIL}" \
+        --non-interactive \
+        --keep-until-expiring
+
+    warn "Restarting the frontend to switch from HTTP bootstrap to HTTPS..."
+    docker compose "${COMPOSE_ARGS[@]}" restart frontend
+
+    warn "Waiting for HTTPS to become healthy..."
+    if ! wait_for_https_health "${ENV_DOMAIN}" "${EDQ_PUBLIC_URL}/api/health" 60; then
+        fail "HTTPS did not become healthy. Inspect logs with: ${COMPOSE_HINT} logs -f"
+    fi
+    info "HTTPS is healthy"
 fi
 
 echo "=================================================="
@@ -245,14 +356,7 @@ echo "  ${COMPOSE_HINT} down"
 echo "  ${COMPOSE_HINT} up -d"
 echo "  ${COMPOSE_HINT} up -d --build"
 if [ "${ENV_USE_BUILTIN_TLS}" = "true" ]; then
-    echo
-    echo "Built-in TLS next steps:"
-    if [ -n "${ENV_DOMAIN}" ]; then
-        echo "  1. Provision certificates for ${ENV_DOMAIN}"
-    else
-        echo "  1. Set DOMAIN in .env and provision certificates"
-    fi
-    echo "  2. Start the HTTPS override with:"
-    echo "     ${TLS_COMPOSE_HINT} up -d"
+    echo "  ${COMPOSE_HINT} run --rm certbot renew"
+    echo "  ${COMPOSE_HINT} exec -T frontend nginx -s reload"
 fi
 echo

@@ -10,6 +10,7 @@ const { mockNetworkScanApi, mockAuthorizedNetworksApi } = vi.hoisted(() => ({
   mockNetworkScanApi: {
     detectNetworks: vi.fn(),
     discover: vi.fn(),
+    get: vi.fn(),
     start: vi.fn(),
     results: vi.fn(),
   },
@@ -80,6 +81,14 @@ describe('NetworkScanPage', () => {
       data: [{ cidr: '192.168.1.0/24', label: 'Lab' }],
     })
     mockNetworkScanApi.detectNetworks.mockResolvedValue({ data: { interfaces: [] } })
+    mockNetworkScanApi.get.mockResolvedValue({
+      data: {
+        id: 'scan-restored',
+        status: 'pending',
+        devices_found: [],
+        selected_test_ids: [],
+      },
+    })
   })
 
   it('treats backend scanning status as active while the batch is running', async () => {

@@ -42,7 +42,7 @@ It replaces fragmented terminal work, spreadsheet transcription, and manual repo
 
 EDQ currently ships as a three-container Docker stack plus an optional Electron wrapper:
 
-- `frontend`: React app served by nginx on `http://localhost`
+- `frontend`: React app served by nginx and published at `http://localhost:3000` by default
 - `backend`: FastAPI API and the co-located tools sidecar on container ports `8000` and `8001`, proxied through the frontend
 - `postgres`: primary application database for both Docker and direct local backend runs
 - `electron`: packaged desktop wrapper for local workstation use
@@ -79,8 +79,7 @@ After startup:
 1. Open `http://localhost:3000`
 2. Log in with username `admin`
 3. Use the password stored in `INITIAL_ADMIN_PASSWORD` in the root `.env`
-4. Change the password after first login
-5. Run the smoke test:
+4. Run the smoke test:
 
 macOS or Linux:
 
@@ -93,6 +92,10 @@ Windows PowerShell:
 ```powershell
 .\scripts\verify-app.ps1
 ```
+
+5. Change the password after first login
+
+If you rotate the admin password before rerunning smoke scripts, pass the current password with `EDQ_ADMIN_PASS`, `-AdminPass`, or the matching PowerShell parameter. The root `.env` keeps the initial seed password only.
 
 ## Documentation Map
 
@@ -111,6 +114,7 @@ Windows PowerShell:
 - Local login accepts either username or email. The seeded admin username is `admin`.
 - `setup.sh` and `setup.bat` create the root `.env`, fill missing secrets, and generate an initial admin password if needed.
 - The default runtime database is PostgreSQL on `127.0.0.1:55432`; Docker overrides the backend container to use the internal `postgres` host on `5432`.
+- Optional frontend telemetry is controlled by `VITE_*` build-time variables such as `VITE_CLIENT_ERROR_ENDPOINT` and `VITE_SENTRY_ENABLED`; if unset, the frontend keeps using the local client-error beacon path with safe defaults.
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.
 - Frontend and backend development can run locally outside Docker; the tools sidecar remains Docker-backed on Windows. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).

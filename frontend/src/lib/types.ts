@@ -242,13 +242,27 @@ export interface CVELookupResponse {
 }
 
 export interface DiscoveredDevice {
+  id: string
   ip_address: string
+  mac_address?: string | null
   hostname: string | null
+  oui_vendor?: string | null
+  os_fingerprint?: string | null
+  open_ports?: PortEntry[] | null
   manufacturer: string | null
   model: string | null
   predicted_name: string | null
   category: string
+  status?: string
   is_new: boolean
+  project_id?: string | null
+}
+
+export interface DiscoveryScanResponse {
+  status: string
+  target: string
+  devices_found: number
+  devices: DiscoveredDevice[]
 }
 
 export interface ReportTemplate {

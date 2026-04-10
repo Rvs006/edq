@@ -15,8 +15,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BASE_URL="${1:-http://localhost:3000}"
-API="$BASE_URL/api"
 ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
 COOKIE=$(mktemp)
 CSRF_TOKEN=""
@@ -35,6 +33,21 @@ WHITELIST_NAME="E2E Test Whitelist ${RUN_SUFFIX}"
 PROFILE_NAME="E2E Test Profile ${RUN_SUFFIX}"
 PLAN_NAME="E2E Test Plan ${RUN_SUFFIX}"
 
+read_root_env() {
+  local key="$1"
+  if [ ! -f "$REPO_ROOT/.env" ]; then
+    return 0
+  fi
+  grep -E "^${key}=" "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\r' || true
+}
+
+DEFAULT_PUBLIC_PORT="${EDQ_PUBLIC_PORT:-$(read_root_env EDQ_PUBLIC_PORT)}"
+DEFAULT_PUBLIC_PORT="${DEFAULT_PUBLIC_PORT:-3000}"
+DEFAULT_PUBLIC_URL="${EDQ_PUBLIC_URL:-$(read_root_env EDQ_PUBLIC_URL)}"
+DEFAULT_PUBLIC_URL="${DEFAULT_PUBLIC_URL:-http://localhost:${DEFAULT_PUBLIC_PORT}}"
+BASE_URL="${1:-${EDQ_URL:-$DEFAULT_PUBLIC_URL}}"
+API="$BASE_URL/api"
+
 resolve_admin_password() {
   if [ -n "${EDQ_ADMIN_PASS:-}" ]; then
     printf '%s\n' "$EDQ_ADMIN_PASS"
@@ -42,7 +55,7 @@ resolve_admin_password() {
   fi
 
   if [ -f "$REPO_ROOT/.env" ]; then
-    grep -E '^INITIAL_ADMIN_PASSWORD=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\r'
+    grep -E '^INITIAL_ADMIN_PASSWORD=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\r' || true
     return 0
   fi
 
