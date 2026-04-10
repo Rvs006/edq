@@ -5,6 +5,7 @@ from typing import List
 import os
 
 from dotenv import load_dotenv
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -98,6 +99,17 @@ class Settings(BaseSettings):
 
     # Logging
     LOG_LEVEL: str = "INFO"
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def normalize_debug(cls, value):
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"release", "prod", "production", "false", "0", "off", "no"}:
+                return False
+            if normalized in {"debug", "dev", "development", "true", "1", "on", "yes"}:
+                return True
+        return value
 
     class Config:
         env_file = str(ROOT_ENV_FILE)

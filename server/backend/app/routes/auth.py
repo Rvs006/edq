@@ -26,6 +26,7 @@ from app.security.auth import (
     create_refresh_token,
     generate_csrf_token,
     hash_password,
+    revoke_user_access_tokens,
     set_auth_cookies,
     store_refresh_token,
     validate_and_rotate_refresh_token,
@@ -36,6 +37,7 @@ from app.security.auth import (
 )
 
 from app.utils.audit import log_security_event
+from app.utils.sanitize import sanitize_dict
 
 logger = logging.getLogger("edq.routes.auth")
 
@@ -53,15 +55,29 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
         raise HTTPException(status_code=403, detail="Public registration is disabled")
     check_rate_limit(request, max_requests=3, window_seconds=60, action="register")
 
-    result = await db.execute(select(User).where((User.email == data.email) | (User.username == data.username)))
-    if result.scalar_one_or_none():
+    clean = sanitize_dict(data.model_dump(), ["full_name", "username"])
+    username = (clean["username"] or "").strip()
+    if len(username) < 3:
+        raise HTTPException(status_code=422, detail="Username must be at least 3 characters")
+
+    email = data.email.strip()
+    normalized_username = username.casefold()
+    normalized_email = email.casefold()
+
+    result = await db.execute(
+        select(User).where(
+            (func.lower(User.email) == normalized_email)
+            | (func.lower(User.username) == normalized_username)
+        )
+    )
+    if result.scalars().first():
         raise HTTPException(status_code=400, detail="Email or username already registered")
 
     user = User(
-        email=data.email,
-        username=data.username,
+        email=email,
+        username=username,
         password_hash=hash_password(data.password),
-        full_name=data.full_name,
+        full_name=clean.get("full_name"),
         role=UserRole.ENGINEER,
     )
     db.add(user)
@@ -84,7 +100,11 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
             | (func.lower(User.email) == normalized_identity)
         )
     )
-    user = result.scalar_one_or_none()
+    matches = result.scalars().all()
+    if len(matches) > 1:
+        logger.warning("Ambiguous login identity for %s due to duplicate normalized credentials", identity)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    user = matches[0] if matches else None
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -165,6 +185,7 @@ async def logout(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    revoke_user_access_tokens(user)
     await revoke_user_refresh_tokens(db, user.id)
     await log_security_event(db, "auth.logout", user_id=user.id, request=request)
     clear_auth_cookies(response)
@@ -194,6 +215,7 @@ async def refresh(
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
+        await db.commit()
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     access_token = create_access_token({"sub": user.id, "role": user.role.value})
@@ -231,15 +253,22 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     updates = data.model_dump(exclude_unset=True)
+    updates = sanitize_dict(updates, ["full_name"])
     if "full_name" in updates:
         user.full_name = updates["full_name"]
     if "email" in updates:
         # Check email uniqueness
-        if updates["email"] != user.email:
-            existing = await db.execute(select(User).where(User.email == updates["email"]))
-            if existing.scalar_one_or_none():
+        normalized_email = updates["email"].strip()
+        if normalized_email.casefold() != user.email.casefold():
+            existing = await db.execute(
+                select(User).where(
+                    func.lower(User.email) == normalized_email.casefold(),
+                    User.id != user.id,
+                )
+            )
+            if existing.scalars().first():
                 raise HTTPException(status_code=400, detail="Email already in use")
-        user.email = updates["email"]
+        user.email = normalized_email
     await db.flush()
     await db.refresh(user)
     return user
@@ -257,6 +286,8 @@ async def change_password(
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.password_hash = hash_password(data.new_password)
+
+    revoke_user_access_tokens(user)
     await revoke_user_refresh_tokens(db, user.id)
     await log_security_event(db, "auth.password_change", user_id=user.id, request=request)
     return {"message": "Password changed successfully"}

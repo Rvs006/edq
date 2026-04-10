@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Shield, Plus, Trash2, ToggleLeft, ToggleRight, Network, AlertTriangle, Loader2 } from 'lucide-react'
 import { authorizedNetworksApi } from '@/lib/api'
 import { toLocalDateOnly } from '@/lib/testContracts'
@@ -24,35 +24,44 @@ export default function AuthorizedNetworksPage() {
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState(false)
 
-  const fetchNetworks = async () => {
+  const fetchNetworks = async (showLoading = false) => {
+    if (showLoading) setLoading(true)
+    setLoadError(false)
     try {
       const res = await authorizedNetworksApi.list()
-      setNetworks(res.data)
+      const data = res.data
+      setNetworks(Array.isArray(data) ? data : [])
     } catch {
+      setLoadError(true)
       toast.error('Failed to load authorized networks')
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { fetchNetworks() }, [])
+  useEffect(() => {
+    void fetchNetworks(true)
+  }, [])
 
   const handleAdd = async () => {
     if (!cidr.trim()) return
     setSaving(true)
     try {
-      await authorizedNetworksApi.create({
+      const res = await authorizedNetworksApi.create({
         cidr: cidr.trim(),
         label: label.trim() || undefined,
         description: description.trim() || undefined,
       })
+      const created = res.data as AuthorizedNetwork
+      setNetworks((prev: AuthorizedNetwork[]) => [created, ...prev.filter((item: AuthorizedNetwork) => item.id !== created.id)])
+      setLoadError(false)
       toast.success(`Network ${cidr.trim()} authorized`)
       setCidr('')
       setLabel('')
       setDescription('')
       setShowAdd(false)
-      fetchNetworks()
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } }
       toast.error(error.response?.data?.detail || 'Failed to add network')
@@ -63,9 +72,11 @@ export default function AuthorizedNetworksPage() {
 
   const handleToggle = async (network: AuthorizedNetwork) => {
     try {
-      await authorizedNetworksApi.update(network.id, { is_active: !network.is_active })
-      toast.success(`Network ${network.cidr} ${network.is_active ? 'disabled' : 'enabled'}`)
-      fetchNetworks()
+      const res = await authorizedNetworksApi.update(network.id, { is_active: !network.is_active })
+      const updated = res.data as AuthorizedNetwork
+      setNetworks((prev: AuthorizedNetwork[]) => prev.map((item: AuthorizedNetwork) => (item.id === updated.id ? updated : item)))
+      setLoadError(false)
+      toast.success(`Network ${updated.cidr} ${updated.is_active ? 'enabled' : 'disabled'}`)
     } catch {
       toast.error('Failed to update network')
     }
@@ -75,8 +86,9 @@ export default function AuthorizedNetworksPage() {
     setDeletingId(network.id)
     try {
       await authorizedNetworksApi.delete(network.id)
+      setNetworks((prev: AuthorizedNetwork[]) => prev.filter((item: AuthorizedNetwork) => item.id !== network.id))
+      setLoadError(false)
       toast.success(`Network ${network.cidr} removed`)
-      fetchNetworks()
     } catch {
       toast.error('Failed to delete network')
     } finally {
@@ -85,7 +97,7 @@ export default function AuthorizedNetworksPage() {
   }
 
   const cidrValid = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(cidr.trim())
-  const activeCount = networks.filter(n => n.is_active).length
+  const activeCount = networks.filter((network: AuthorizedNetwork) => network.is_active).length
 
   return (
     <div className="page-container">
@@ -96,7 +108,6 @@ export default function AuthorizedNetworksPage() {
         </p>
       </div>
 
-      {/* Warning banner when no active networks */}
       {!loading && activeCount === 0 && (
         <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
@@ -109,7 +120,20 @@ export default function AuthorizedNetworksPage() {
         </div>
       )}
 
-      {/* Add network form */}
+      {loadError && networks.length > 0 && (
+        <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Showing the last loaded network list</p>
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              The latest refresh failed, so this view may be slightly stale.
+            </p>
+          </div>
+          <button type="button" onClick={() => void fetchNetworks()} className="btn-secondary shrink-0">
+            Retry
+          </button>
+        </div>
+      )}
+
       {showAdd ? (
         <div className="card p-5 mb-4">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 mb-3 flex items-center gap-2">
@@ -121,7 +145,7 @@ export default function AuthorizedNetworksPage() {
               <input
                 type="text"
                 value={cidr}
-                onChange={e => setCidr(e.target.value)}
+                onChange={(e: { target: { value: string } }) => setCidr(e.target.value)}
                 placeholder="192.168.1.0/24"
                 className={`input ${cidr && !cidrValid ? 'border-red-300 focus:border-red-400' : ''}`}
               />
@@ -132,7 +156,7 @@ export default function AuthorizedNetworksPage() {
               <input
                 type="text"
                 value={label}
-                onChange={e => setLabel(e.target.value)}
+                onChange={(e: { target: { value: string } }) => setLabel(e.target.value)}
                 placeholder="e.g. Office Lab"
                 className="input"
               />
@@ -142,7 +166,7 @@ export default function AuthorizedNetworksPage() {
               <input
                 type="text"
                 value={description}
-                onChange={e => setDescription(e.target.value)}
+                onChange={(e: { target: { value: string } }) => setDescription(e.target.value)}
                 placeholder="Optional notes"
                 className="input"
               />
@@ -158,7 +182,16 @@ export default function AuthorizedNetworksPage() {
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
               {saving ? 'Adding...' : 'Authorize Network'}
             </button>
-            <button type="button" onClick={() => { setShowAdd(false); setCidr(''); setLabel(''); setDescription('') }} className="btn-secondary">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAdd(false)
+                setCidr('')
+                setLabel('')
+                setDescription('')
+              }}
+              className="btn-secondary"
+            >
               Cancel
             </button>
           </div>
@@ -171,10 +204,18 @@ export default function AuthorizedNetworksPage() {
         </div>
       )}
 
-      {/* Networks list */}
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+        </div>
+      ) : loadError && networks.length === 0 ? (
+        <div className="card p-12 text-center">
+          <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">Failed to load networks</h3>
+          <p className="text-sm text-zinc-500 mb-4">There was an error loading the authorized networks list.</p>
+          <button type="button" onClick={() => void fetchNetworks(true)} className="btn-primary">
+            Retry
+          </button>
         </div>
       ) : networks.length === 0 ? (
         <div className="card p-12 text-center">
@@ -186,7 +227,7 @@ export default function AuthorizedNetworksPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {networks.map(network => (
+          {networks.map((network: AuthorizedNetwork) => (
             <div
               key={network.id}
               className={`card p-4 flex items-center gap-4 transition-opacity ${
@@ -259,7 +300,6 @@ export default function AuthorizedNetworksPage() {
         </div>
       )}
 
-      {/* Info footer */}
       <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl">
         <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
           <strong>How it works:</strong> When an engineer starts a network scan, EDQ checks that the target subnet

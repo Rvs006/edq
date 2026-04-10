@@ -4,8 +4,7 @@ import { devicesApi, testRunsApi } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import Callout from '@/components/common/Callout'
 import {
-  Monitor, Play, CheckCircle2, XCircle, AlertTriangle, Clock,
-  ArrowRight, TrendingUp, Plus, FileText, Percent, Sparkles
+  Monitor, Play, CheckCircle2, ArrowRight, Plus, FileText, Percent, Sparkles, Loader2,
 } from 'lucide-react'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import VerdictBadge from '@/components/common/VerdictBadge'
@@ -15,21 +14,28 @@ import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels
 
 export default function DashboardPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
-  const { data: deviceStats, isError } = useQuery({
+
+  const deviceStatsQuery = useQuery({
     queryKey: ['device-stats'],
-    queryFn: () => devicesApi.stats().then(r => r.data),
+    queryFn: () => devicesApi.stats().then((r) => r.data),
   })
-  const { data: runStats } = useQuery({
+  const runStatsQuery = useQuery({
     queryKey: ['run-stats'],
-    queryFn: () => testRunsApi.stats().then(r => r.data),
+    queryFn: () => testRunsApi.stats().then((r) => r.data),
   })
-  const { data: recentRuns } = useQuery({
+  const recentRunsQuery = useQuery({
     queryKey: ['recent-runs'],
-    queryFn: () => testRunsApi.list({ limit: 8 }).then(r => r.data),
+    queryFn: () => testRunsApi.list({ limit: 8 }).then((r) => r.data),
   })
 
+  const deviceStats = deviceStatsQuery.data
+  const runStats = runStatsQuery.data
+  const recentRuns = (recentRunsQuery.data || []) as TestRun[]
+
   const passCount = runStats?.by_verdict?.pass || 0
-  const totalCompleted = (runStats?.by_verdict?.pass || 0) + (runStats?.by_verdict?.fail || 0) + (runStats?.by_verdict?.advisory || 0)
+  const totalCompleted = (runStats?.by_verdict?.pass || 0)
+    + (runStats?.by_verdict?.fail || 0)
+    + (runStats?.by_verdict?.advisory || 0)
   const passRate = totalCompleted > 0 ? Math.round((passCount / totalCompleted) * 100) : 0
   const activeRunCount = [
     'pending',
@@ -42,36 +48,48 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
     'awaiting_review',
   ].reduce((sum, key) => sum + Number(runStats?.by_status?.[key] || 0), 0)
 
+  const kpiLoading = deviceStatsQuery.isLoading || runStatsQuery.isLoading
+  const hasQueryErrors = deviceStatsQuery.isError || runStatsQuery.isError || recentRunsQuery.isError
+  const categories = deviceStats?.by_category ? Object.entries(deviceStats.by_category) : []
+
   const stats = [
     {
       label: 'Total Devices',
-      value: deviceStats?.total || 0,
+      value: deviceStatsQuery.isError ? '\u2014' : deviceStats?.total ?? 0,
       icon: Monitor,
       iconColor: 'text-blue-600 dark:text-blue-400',
       iconBg: 'bg-blue-50 dark:bg-blue-950/50',
     },
     {
       label: 'Active Test Runs',
-      value: activeRunCount,
+      value: runStatsQuery.isError ? '\u2014' : activeRunCount,
       icon: Play,
       iconColor: 'text-purple-600 dark:text-purple-400',
       iconBg: 'bg-purple-50 dark:bg-purple-950/50',
     },
     {
       label: 'Completed This Week',
-      value: runStats?.completed_this_week || runStats?.by_status?.completed || 0,
+      value: runStatsQuery.isError
+        ? '\u2014'
+        : runStats?.completed_this_week ?? runStats?.by_status?.completed ?? 0,
       icon: CheckCircle2,
       iconColor: 'text-green-600 dark:text-green-400',
       iconBg: 'bg-green-50 dark:bg-green-950/50',
     },
     {
       label: 'Pass Rate',
-      value: `${passRate}%`,
+      value: runStatsQuery.isError ? '\u2014' : totalCompleted > 0 ? `${passRate}%` : '\u2014',
       icon: Percent,
       iconColor: 'text-amber-600 dark:text-amber-400',
       iconBg: 'bg-amber-50 dark:bg-amber-950/50',
     },
   ]
+
+  const retryDashboard = () => {
+    void deviceStatsQuery.refetch()
+    void runStatsQuery.refetch()
+    void recentRunsQuery.refetch()
+  }
 
   return (
     <div className="page-container">
@@ -115,22 +133,45 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
         </p>
       </div>
 
-      {isError && (
+      {hasQueryErrors && (
         <div className="mb-6">
-          <Callout variant="error">Failed to load dashboard data. Please try again.</Callout>
+          <Callout variant="error" title="Dashboard partially unavailable">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>Some dashboard panels could not be refreshed.</span>
+              <button
+                type="button"
+                onClick={retryDashboard}
+                className="rounded-md border border-current px-2.5 py-1 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                Retry
+              </button>
+            </div>
+          </Callout>
         </div>
       )}
 
       <div data-tour="kpi-grid" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        {stats.map((stat) => (
+        {kpiLoading ? (
+          [1, 2, 3, 4].map((i) => (
+            <div key={i} className="card p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-zinc-100 dark:bg-slate-800 animate-pulse" />
+                <div className="space-y-2">
+                  <div className="w-12 h-6 bg-zinc-100 dark:bg-slate-800 rounded animate-pulse" />
+                  <div className="w-20 h-3 bg-zinc-100 dark:bg-slate-800 rounded animate-pulse" />
+                </div>
+              </div>
+            </div>
+          ))
+        ) : stats.map((stat) => (
           <div key={stat.label} className="card p-4">
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-lg ${stat.iconBg} flex items-center justify-center`}>
                 <stat.icon className={`w-5 h-5 ${stat.iconColor}`} />
               </div>
               <div>
-                  <p className="text-2xl font-bold text-zinc-900 dark:text-slate-100">{stat.value}</p>
-                  <p className="text-xs text-zinc-500 dark:text-slate-400">{stat.label}</p>
+                <p className="text-2xl font-bold text-zinc-900 dark:text-slate-100">{stat.value}</p>
+                <p className="text-xs text-zinc-500 dark:text-slate-400">{stat.label}</p>
               </div>
             </div>
           </div>
@@ -146,7 +187,23 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
             </Link>
           </div>
           <div className="overflow-x-auto">
-            {recentRuns && recentRuns.length > 0 ? (
+            {recentRunsQuery.isLoading ? (
+              <div className="p-8 text-center">
+                <Loader2 className="w-8 h-8 text-brand-500 animate-spin mx-auto mb-2" />
+                <p className="text-sm text-zinc-500">Loading recent test sessions...</p>
+              </div>
+            ) : recentRunsQuery.isError ? (
+              <div className="p-8 text-center">
+                <p className="text-sm text-zinc-500">Recent test sessions could not be loaded.</p>
+                <button
+                  type="button"
+                  onClick={() => void recentRunsQuery.refetch()}
+                  className="text-sm text-brand-500 hover:text-brand-600 mt-2 inline-block"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : recentRuns.length > 0 ? (
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-100 dark:border-slate-700/50">
@@ -229,9 +286,20 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
 
           <div className="card p-4">
             <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Device Categories</h3>
-            {deviceStats?.by_category && Object.keys(deviceStats.by_category).length > 0 ? (
+            {deviceStatsQuery.isLoading ? (
               <div className="space-y-2">
-                {Object.entries(deviceStats.by_category).map(([cat, count]) => (
+                {[1, 2, 3].map((item) => (
+                  <div key={item} className="flex items-center justify-between py-1.5">
+                    <div className="h-4 w-24 rounded bg-zinc-100 dark:bg-slate-800 animate-pulse" />
+                    <div className="h-4 w-8 rounded bg-zinc-100 dark:bg-slate-800 animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            ) : deviceStatsQuery.isError ? (
+              <p className="text-sm text-zinc-400">Device categories could not be loaded.</p>
+            ) : categories.length > 0 ? (
+              <div className="space-y-2">
+                {categories.map(([cat, count]) => (
                   <div key={cat} className="flex items-center justify-between py-1.5">
                     <span className="text-sm text-zinc-600 dark:text-slate-400 capitalize">{cat.replace(/_/g, ' ')}</span>
                     <span className="text-sm font-semibold text-zinc-900 dark:text-slate-100">{String(count)}</span>

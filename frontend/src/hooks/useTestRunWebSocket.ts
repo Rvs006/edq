@@ -7,13 +7,17 @@ import {
 
 type CableStatus = 'connected' | 'disconnected' | 'reconnecting'
 
+const STALE_AFTER_MS = 45_000
+
 export function useTestRunWebSocket(runId: string | undefined) {
   const [messages, setMessages] = useState<TestRunProgressMessage[]>([])
   const [lastProgress, setLastProgress] = useState<TestRunProgressMessage | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [isFresh, setIsFresh] = useState(false)
   const [cableStatus, setCableStatus] = useState<CableStatus>('connected')
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string>>({})
   const [reconnectCount, setReconnectCount] = useState(0)
+  const [lastMessageAt, setLastMessageAt] = useState<number | null>(null)
   const [cableProbe, setCableProbe] = useState<{
     reachable: boolean
     consecutiveFailures: number
@@ -24,10 +28,18 @@ export function useTestRunWebSocket(runId: string | undefined) {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cableReconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttempts = useRef(0)
+  const previousRunIdRef = useRef<string | undefined>(undefined)
+  const shouldReconnectRef = useRef(false)
   const maxReconnectAttempts = 10
 
+  const markSocketAlive = useCallback(() => {
+    const now = Date.now()
+    setLastMessageAt(now)
+    setIsFresh(true)
+  }, [])
+
   const connect = useCallback(() => {
-    if (!runId) return
+    if (!runId || !shouldReconnectRef.current) return
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
@@ -40,8 +52,8 @@ export function useTestRunWebSocket(runId: string | undefined) {
       ws.onopen = () => {
         setIsConnected(true)
         if (reconnectAttempts.current > 0) {
-          setReconnectCount(c => c + 1)
-          console.warn('[WS] Reconnected — triggering state sync')
+          setReconnectCount((count: number) => count + 1)
+          console.warn('[WS] Reconnected - triggering state sync')
         }
         reconnectAttempts.current = 0
       }
@@ -54,15 +66,18 @@ export function useTestRunWebSocket(runId: string | undefined) {
           msg = null
         }
         if (!msg) return
+        markSocketAlive()
 
-        setMessages((prev) => {
+        setMessages((prev: TestRunProgressMessage[]) => {
           const next = [...prev, msg]
           return next.length > 500 ? next.slice(-500) : next
         })
-        setLastProgress(msg)
+        if (msg.type !== 'stdout_line' && msg.type !== 'cable_probe') {
+          setLastProgress(msg)
+        }
 
         if (msg.type === 'stdout_line' && msg.data.test_id) {
-          setTerminalOutput((prev) => {
+          setTerminalOutput((prev: Record<string, string>) => {
             const existing = prev[msg.data.test_id!] || ''
             const updated = existing + (msg.data.stdout_line || '') + '\n'
             return {
@@ -117,9 +132,11 @@ export function useTestRunWebSocket(runId: string | undefined) {
       ws.onclose = () => {
         console.warn('[EDQ] WebSocket closed, marking WS as disconnected')
         setIsConnected(false)
+        setIsFresh(false)
+        setLastMessageAt(null)
         wsRef.current = null
 
-        if (reconnectAttempts.current < maxReconnectAttempts) {
+        if (shouldReconnectRef.current && reconnectAttempts.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000)
           if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
           reconnectTimer.current = setTimeout(() => {
@@ -130,28 +147,73 @@ export function useTestRunWebSocket(runId: string | undefined) {
       }
 
       ws.onerror = () => {
-        console.warn('[EDQ] WebSocket error — cable status may be unreliable')
+        console.warn('[EDQ] WebSocket error - cable status may be unreliable')
         ws.close()
       }
     } catch {
       // Connection failed.
     }
-  }, [runId])
+  }, [markSocketAlive, runId])
 
   useEffect(() => {
+    if (!isConnected || lastMessageAt == null) {
+      setIsFresh(false)
+      return
+    }
+
+    const staleTimer = setTimeout(() => {
+      setIsFresh(false)
+    }, STALE_AFTER_MS)
+
+    return () => clearTimeout(staleTimer)
+  }, [isConnected, lastMessageAt])
+
+  useEffect(() => {
+    shouldReconnectRef.current = Boolean(runId)
+    if (!runId) {
+      previousRunIdRef.current = undefined
+      setMessages([])
+      setLastProgress(null)
+      setIsConnected(false)
+      setIsFresh(false)
+      setCableStatus('connected')
+      setTerminalOutput({})
+      setReconnectCount(0)
+      setLastMessageAt(null)
+      setCableProbe(null)
+      reconnectAttempts.current = 0
+      return
+    }
+
+    if (previousRunIdRef.current !== runId) {
+      previousRunIdRef.current = runId
+      setMessages([])
+      setLastProgress(null)
+      setIsConnected(false)
+      setIsFresh(false)
+      setCableStatus('connected')
+      setTerminalOutput({})
+      setReconnectCount(0)
+      setLastMessageAt(null)
+      setCableProbe(null)
+      reconnectAttempts.current = 0
+    }
+
     connect()
     return () => {
+      shouldReconnectRef.current = false
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
       if (cableReconnectTimer.current) clearTimeout(cableReconnectTimer.current)
       if (wsRef.current) {
-        wsRef.current.close()
+        const socket = wsRef.current
         wsRef.current = null
+        socket.close()
       }
     }
-  }, [connect])
+  }, [connect, runId])
 
   const clearTerminalOutput = useCallback((testId: string) => {
-    setTerminalOutput((prev) => {
+    setTerminalOutput((prev: Record<string, string>) => {
       const next = { ...prev }
       delete next[testId]
       return next
@@ -162,10 +224,12 @@ export function useTestRunWebSocket(runId: string | undefined) {
     messages,
     lastProgress,
     isConnected,
+    isFresh,
     cableStatus,
     terminalOutput,
     clearTerminalOutput,
     reconnectCount,
+    lastMessageAt,
     cableProbe,
   }
 }

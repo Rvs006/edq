@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { reportsApi, testRunsApi, getApiErrorMessage } from '@/lib/api'
+import { reportsApi, resolveApiUrl, testRunsApi, getApiErrorMessage } from '@/lib/api'
 import type { TestRun, ReportTemplate } from '@/lib/types'
 import { toLocalDateOnly } from '@/lib/testContracts'
 import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
@@ -33,6 +33,22 @@ export default function ReportsPage() {
     queryFn: () => reportsApi.templates().then(r => r.data),
   })
 
+  const triggerBlobDownload = (blobData: Blob, filename: string, mimeType: string) => {
+    const blob = new Blob([blobData], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    // Small delay before cleanup to ensure download starts
+    setTimeout(() => {
+      URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    }, 100)
+  }
+
   const handleGenerate = async () => {
     if (!selectedRun) { toast.error('Select a test run'); return }
     setGenerating(true)
@@ -43,34 +59,42 @@ export default function ReportsPage() {
         include_synopsis: includeSynopsis,
         template_key: reportType === 'excel' ? templateKey : undefined,
       })
-      toast.success(`Report generated: ${data.filename}`)
-      if (data.download_url) {
-        const mimeMap: Record<ReportFormat, string> = {
-          excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          pdf: 'application/pdf',
+      if (!data.filename && !data.download_url) {
+        toast.error('Report generation returned no file. Check backend logs.')
+        return
+      }
+      const mimeMap: Record<ReportFormat, string> = {
+        excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        pdf: 'application/pdf',
+      }
+      const extensionMap: Record<ReportFormat, string> = {
+        excel: 'xlsx',
+        word: 'docx',
+        pdf: 'pdf',
+      }
+      const downloadName = data.filename || `report-${selectedRun}.${extensionMap[reportType]}`
+
+      toast.success(`Report generated: ${downloadName}`)
+
+      try {
+        if (!data.filename) throw new Error('No direct filename returned')
+        const blob = await reportsApi.download(data.filename)
+        triggerBlobDownload(blob.data, downloadName, mimeMap[reportType])
+      } catch {
+        // Blob download failed — try direct download as fallback (no navigation)
+        const url = data.download_url
+        if (!url) {
+          toast.error('Download failed and no fallback URL available')
+          return
         }
-        try {
-          const blob = await reportsApi.download(data.filename)
-          const url = URL.createObjectURL(new Blob([blob.data], { type: mimeMap[reportType] }))
-          const a = document.createElement('a')
-          a.href = url
-          a.download = data.filename
-          a.click()
-          URL.revokeObjectURL(url)
-        } catch {
-          // Only allow relative URLs or same-origin URLs to prevent open redirects
-          const url = data.download_url
-          const isRelative = url.startsWith('/') && !url.startsWith('//')
-          const isSameOrigin = (() => {
-            try { return new URL(url, window.location.origin).origin === window.location.origin } catch { return false }
-          })()
-          if (isRelative || isSameOrigin) {
-            window.open(url, '_blank')
-          } else {
-            toast.error('Download URL is not trusted')
-          }
-        }
+        const a = document.createElement('a')
+        a.href = resolveApiUrl(url)
+        a.download = downloadName
+        a.style.display = 'none'
+        document.body.appendChild(a)
+        a.click()
+        setTimeout(() => document.body.removeChild(a), 100)
       }
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Report generation failed'))

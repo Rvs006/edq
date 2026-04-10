@@ -12,12 +12,13 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import async_session
+from app.models.device import Device
 from app.models.scan_schedule import ScanSchedule, ScheduleFrequency
 from app.models.test_run import TestRun, TestRunStatus
 from app.models.test_result import TestResult, TestTier
 from app.models.test_template import TestTemplate
 from app.services.test_library import get_test_by_id
-from app.services.test_run_launcher import launch_test_run
+from app.services.test_run_launcher import is_run_executing, launch_test_run
 
 logger = logging.getLogger("edq.scheduler")
 
@@ -158,11 +159,18 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                     seen_ids.add(test_id)
                     deduped_ids.append(test_id)
 
+            # Preserve project membership from the scheduled device onto the run.
+            device_result = await db.execute(
+                select(Device).where(Device.id == schedule.device_id)
+            )
+            device = device_result.scalar_one_or_none()
+
             # Create a new test run with total_tests
             new_run = TestRun(
                 device_id=schedule.device_id,
                 template_id=schedule.template_id,
                 engineer_id=schedule.created_by,
+                project_id=device.project_id if device else None,
                 status=TestRunStatus.PENDING,
                 connection_scenario="direct",
                 total_tests=len(deduped_ids),
@@ -209,10 +217,13 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 schedule.id, schedule.device_id, new_run.id,
             )
 
+            if is_run_executing(new_run.id):
+                logger.warning("Scheduled run %s already executing, skipping", new_run.id)
+                return
             try:
-                launch_test_run(new_run.id)
-            except RuntimeError:
-                logger.warning("Scheduled run %s was already executing", new_run.id)
+                task = launch_test_run(new_run.id)
+                if task is None:
+                    logger.warning("Scheduled run %s could not be launched (likely duplicate)", new_run.id)
             except Exception:
                 logger.exception("Failed to launch scheduled run %s", new_run.id)
                 async with async_session() as retry_db:

@@ -63,7 +63,7 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <main className="flex-1">
+      <div className="flex-1">
         {/* Hero — simple, no fluff */}
         <section className="bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
@@ -148,7 +148,7 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
-      </main>
+      </div>
 
       <footer className="bg-white dark:bg-dark-card border-t border-zinc-200 dark:border-slate-700/50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 flex flex-col items-center gap-3 text-center">

@@ -47,6 +47,8 @@ class Device(Base):
     manufacturer = Column(String(128), nullable=True)
     model = Column(String(128), nullable=True)
     firmware_version = Column(String(64), nullable=True)
+    serial_number = Column(String(128), nullable=True)
+    location = Column(String(255), nullable=True)
     category = Column(SAEnum(DeviceCategory), default=DeviceCategory.UNKNOWN)
     status = Column(SAEnum(DeviceStatus), default=DeviceStatus.DISCOVERED)
     oui_vendor = Column(String(128), nullable=True)  # IEEE OUI lookup result
@@ -55,6 +57,7 @@ class Device(Base):
     discovery_data = Column(JSON, nullable=True)  # Full discovery fingerprint
     notes = Column(Text, nullable=True)
     profile_id = Column(String(36), ForeignKey("device_profiles.id"), nullable=True, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
     discovered_by = Column(String(36), ForeignKey("agents.id"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

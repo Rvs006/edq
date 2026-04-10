@@ -28,6 +28,8 @@ class User(Base):
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime, nullable=True)
     last_login = Column(DateTime, nullable=True)
+    # Any access token issued at or before this UTC timestamp is rejected.
+    access_tokens_revoked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

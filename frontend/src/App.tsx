@@ -1,12 +1,15 @@
+import type { ReactNode } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { ErrorBoundary, PageErrorBoundary } from './components/common/ErrorBoundary'
+import SkipToContent from './components/common/SkipToContent'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import DevicesPage from './pages/DevicesPage'
 import DeviceDetailPage from './pages/DeviceDetailPage'
+import DeviceComparePage from './pages/DeviceComparePage'
 import TestRunsPage from './pages/TestRunsPage'
 import TestRunDetailPage from './pages/TestRunDetailPage'
 import TemplatesPage from './pages/TemplatesPage'
@@ -22,15 +25,29 @@ import ScanSchedulesPage from './pages/ScanSchedulesPage'
 import AgentsPage from './pages/AgentsPage'
 import DeviceProfilesPage from './pages/DeviceProfilesPage'
 import AuthorizedNetworksPage from './pages/AuthorizedNetworksPage'
+import ProjectsPage from './pages/ProjectsPage'
 import NotFoundPage from './pages/NotFoundPage'
 import GuidedTour, { useTourState } from './components/tour/GuidedTour'
 
 function LoadingScreen() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface">
+    <main id="main-content" tabIndex={-1} className="min-h-screen flex items-center justify-center bg-surface">
       <div className="flex flex-col items-center gap-3">
         <div className="w-8 h-8 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-zinc-500">Loading EDQ...</p>
+      </div>
+    </main>
+  )
+}
+
+function AccessDeniedPage() {
+  return (
+    <div className="page-container py-12">
+      <div className="card max-w-2xl p-8">
+        <h1 className="text-xl font-semibold text-zinc-900 dark:text-slate-100">Access denied</h1>
+        <p className="mt-2 text-sm text-zinc-500 dark:text-slate-400">
+          Your account does not have permission to view this page.
+        </p>
       </div>
     </div>
   )
@@ -40,7 +57,22 @@ function LoginGate() {
   const { isAuthenticated, loading } = useAuth()
   if (loading) return <LoadingScreen />
   if (isAuthenticated) return <Navigate to="/" replace />
-  return <LoginPage />
+  return (
+    <main id="main-content" tabIndex={-1}>
+      <LoginPage />
+    </main>
+  )
+}
+
+function RequireRole({ allowed, children }: { allowed: string[]; children: ReactNode }) {
+  const { user } = useAuth()
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+  if (!allowed.includes(user.role)) {
+    return <AccessDeniedPage />
+  }
+  return <>{children}</>
 }
 
 function AppShell() {
@@ -51,8 +83,15 @@ function AppShell() {
   if (loading) return <LoadingScreen />
 
   if (!isAuthenticated) {
-    if (location.pathname === '/') return <LandingPage />
-    return <Navigate to="/" replace />
+    if (location.pathname === '/') {
+      return (
+        <main id="main-content" tabIndex={-1}>
+          <LandingPage />
+        </main>
+      )
+    }
+    const next = `${location.pathname}${location.search}${location.hash}`
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
   }
 
   return (
@@ -61,23 +100,25 @@ function AppShell() {
         <PageErrorBoundary>
           <Routes>
             <Route path="/" element={<DashboardPage tourState={tour} />} />
+            <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/devices" element={<DevicesPage />} />
+            <Route path="/devices/compare" element={<DeviceComparePage />} />
             <Route path="/devices/:id" element={<DeviceDetailPage />} />
             <Route path="/test-runs" element={<TestRunsPage />} />
             <Route path="/test-runs/:id" element={<TestRunDetailPage />} />
-            <Route path="/templates" element={<TemplatesPage />} />
-            <Route path="/whitelists" element={<WhitelistsPage />} />
+            <Route path="/templates" element={<RequireRole allowed={['reviewer', 'admin']}><TemplatesPage /></RequireRole>} />
+            <Route path="/whitelists" element={<RequireRole allowed={['reviewer', 'admin']}><WhitelistsPage /></RequireRole>} />
             <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/review" element={<ReviewQueuePage />} />
-            <Route path="/admin" element={<AdminPage />} />
-            <Route path="/audit-log" element={<AuditLogPage />} />
+            <Route path="/review" element={<RequireRole allowed={['admin']}><ReviewQueuePage /></RequireRole>} />
+            <Route path="/admin" element={<RequireRole allowed={['admin']}><AdminPage /></RequireRole>} />
+            <Route path="/audit-log" element={<RequireRole allowed={['admin']}><AuditLogPage /></RequireRole>} />
             <Route path="/settings" element={<SettingsPage tourState={tour} />} />
             <Route path="/network-scan" element={<NetworkScanPage />} />
-            <Route path="/test-plans" element={<TestPlansPage />} />
-            <Route path="/scan-schedules" element={<ScanSchedulesPage />} />
+            <Route path="/test-plans" element={<RequireRole allowed={['reviewer', 'admin']}><TestPlansPage /></RequireRole>} />
+            <Route path="/scan-schedules" element={<RequireRole allowed={['reviewer', 'admin']}><ScanSchedulesPage /></RequireRole>} />
             <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/device-profiles" element={<DeviceProfilesPage />} />
-            <Route path="/authorized-networks" element={<AuthorizedNetworksPage />} />
+            <Route path="/device-profiles" element={<RequireRole allowed={['reviewer', 'admin']}><DeviceProfilesPage /></RequireRole>} />
+            <Route path="/authorized-networks" element={<RequireRole allowed={['admin']}><AuthorizedNetworksPage /></RequireRole>} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </PageErrorBoundary>
@@ -126,6 +167,7 @@ function AppShell() {
 export default function App() {
   return (
     <ErrorBoundary>
+      <SkipToContent />
       <Routes>
         <Route path="/login" element={<LoginGate />} />
         <Route path="/*" element={<AppShell />} />

@@ -36,6 +36,7 @@ export interface Device {
   discovered_by: string | null
   last_tested: string | null
   last_verdict: string | null
+  project_id: string | null
   created_at: string
   updated_at: string
 }
@@ -256,6 +257,21 @@ export interface ReportTemplate {
   label?: string
   category?: string
   device_category?: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string | null
+  status: 'active' | 'archived' | 'completed'
+  created_by: string
+  client_name: string | null
+  location: string | null
+  device_count: number
+  test_run_count: number
+  created_at: string
+  updated_at: string
+  is_archived: boolean
 }
 
 export interface TourState {

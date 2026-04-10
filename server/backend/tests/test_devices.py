@@ -26,6 +26,30 @@ async def test_create_device(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_create_device_with_project_and_extended_fields(client: AsyncClient):
+    """Creating a device should persist project, location, and serial number."""
+    headers = await register_and_login(client, "devproject", role="admin")
+    project_resp = await client.post("/api/projects/", json={
+        "name": "Project Alpha",
+    }, headers=headers)
+    assert project_resp.status_code == 201
+    project_id = project_resp.json()["id"]
+
+    resp = await client.post("/api/devices/", json={
+        "ip_address": "192.168.1.11",
+        "hostname": "project-camera",
+        "serial_number": "SN-12345",
+        "location": "Level 2 comms room",
+        "project_id": project_id,
+    }, headers=headers)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["project_id"] == project_id
+    assert data["serial_number"] == "SN-12345"
+    assert data["location"] == "Level 2 comms room"
+
+
+@pytest.mark.asyncio
 async def test_create_device_invalid_ip(client: AsyncClient):
     """Creating a device with an invalid IP should fail validation."""
     headers = await register_and_login(client, "devinvalid", role="admin")
@@ -102,6 +126,25 @@ async def test_update_device(client: AsyncClient):
     assert resp.status_code == 200
     assert resp.json()["hostname"] == "after-update"
     assert resp.json()["manufacturer"] == "Siemens"
+
+
+@pytest.mark.asyncio
+async def test_update_device_extended_fields(client: AsyncClient):
+    """Updating serial number and location should persist to the device record."""
+    headers = await register_and_login(client, "devupdateext", role="admin")
+    create_resp = await client.post("/api/devices/", json={
+        "ip_address": "172.16.0.33",
+        "hostname": "field-device",
+    }, headers=headers)
+    device_id = create_resp.json()["id"]
+
+    resp = await client.patch(f"/api/devices/{device_id}", json={
+        "serial_number": "SERIAL-9000",
+        "location": "Plant room",
+    }, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["serial_number"] == "SERIAL-9000"
+    assert resp.json()["location"] == "Plant room"
 
 
 @pytest.mark.asyncio

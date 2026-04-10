@@ -11,7 +11,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
 from app.logging_config import configure_logging
@@ -23,6 +22,7 @@ from app.security.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.routes import (
     auth,
     users,
+    projects,
     devices,
     device_profiles,
     test_templates,
@@ -55,112 +55,250 @@ FRONTEND_DIR = str(_PROJECT_ROOT / "frontend" / "dist")
 
 CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CSRF_EXEMPT_PATHS = {
-    "/api/auth/login", "/api/auth/register", "/api/auth/refresh",
-    "/api/auth/oidc/callback",
-    "/api/health", "/api/health/",
     "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh",
     "/api/v1/auth/oidc/callback",
     "/api/v1/health", "/api/v1/health/",
-    "/api/client-errors",
+    "/api/v1/client-errors",
 }
 
 
-class CSRFMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+# ---------------------------------------------------------------------------
+# Pure ASGI middleware (avoids BaseHTTPMiddleware per-request task overhead)
+# ---------------------------------------------------------------------------
+
+_CSRF_EXEMPT_STRIPPED = {p.rstrip("/") for p in CSRF_EXEMPT_PATHS}
+
+
+class CSRFMiddleware:
+    """CSRF protection as pure ASGI middleware."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
         if request.method in CSRF_SAFE_METHODS:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         path = request.url.path.rstrip("/")
-        if path in {p.rstrip("/") for p in CSRF_EXEMPT_PATHS}:
-            return await call_next(request)
+        if path in _CSRF_EXEMPT_STRIPPED:
+            await self.app(scope, receive, send)
+            return
 
-        if not (request.url.path.startswith("/api/")):
-            return await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
 
         session_cookie = request.cookies.get(SESSION_COOKIE)
         if not session_cookie:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         csrf_cookie = request.cookies.get(CSRF_COOKIE)
         csrf_header = request.headers.get("X-CSRF-Token")
 
         if not csrf_cookie or not csrf_header:
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "CSRF token missing"},
-            )
+            response = JSONResponse(status_code=403, content={"detail": "CSRF token missing"})
+            await response(scope, receive, send)
+            return
 
         if csrf_cookie != csrf_header:
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "CSRF token mismatch"},
-            )
+            response = JSONResponse(status_code=403, content={"detail": "CSRF token mismatch"})
+            await response(scope, receive, send)
+            return
 
-        return await call_next(request)
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response: Response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        if settings.COOKIE_SECURE:
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "img-src 'self' data: blob:; "
-            "connect-src 'self' ws: wss:; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "object-src 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self'; "
-            "frame-ancestors 'none'; "
-            "upgrade-insecure-requests"
-        )
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=(), payment=(), "
-            "usb=(), bluetooth=(), serial=()"
-        )
-        if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["Vary"] = "Cookie, Authorization"
-        return response
+        await self.app(scope, receive, send)
 
 
-class RequestIDMiddleware(BaseHTTPMiddleware):
+def _upsert_header(headers: list[tuple[bytes, bytes]], name: bytes, value: bytes) -> list[tuple[bytes, bytes]]:
+    """Replace an existing header value or append it when absent."""
+    lowered = name.lower()
+    filtered = [(k, v) for k, v in headers if k.lower() != lowered]
+    filtered.append((name, value))
+    return filtered
+
+
+class RequestIDMiddleware:
     """Attach a unique request ID to every request/response cycle."""
 
-    async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-        request.state.request_id = request_id
-        response: Response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers", []))
+        request_id = headers.get(b"x-request-id", b"").decode() or str(uuid.uuid4())
+        scope.setdefault("state", {})
+        if isinstance(scope["state"], dict):
+            scope["state"]["request_id"] = request_id
+        scope["_request_id"] = request_id
+
+        async def send_with_request_id(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers = _upsert_header(headers, b"x-request-id", request_id.encode())
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_request_id)
 
 
-class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
-    """Redirect HTTP to HTTPS in production when COOKIE_SECURE=true.
+class SecurityHeadersMiddleware:
+    """Attach baseline security headers without BaseHTTPMiddleware overhead."""
 
-    Trusts X-Forwarded-Proto from reverse proxy (nginx) to detect the
-    original protocol. Does not redirect health checks or internal calls.
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope["path"]
+
+        async def send_with_security_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers = _upsert_header(headers, b"x-content-type-options", b"nosniff")
+                headers = _upsert_header(headers, b"x-frame-options", b"DENY")
+                headers = _upsert_header(headers, b"x-xss-protection", b"1; mode=block")
+                headers = _upsert_header(headers, b"referrer-policy", b"strict-origin-when-cross-origin")
+                headers = _upsert_header(
+                    headers,
+                    b"content-security-policy",
+                    (
+                        b"default-src 'self'; "
+                        b"script-src 'self'; "
+                        b"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                        b"img-src 'self' data: blob:; "
+                        b"connect-src 'self' ws: wss:; "
+                        b"font-src 'self' https://fonts.gstatic.com; "
+                        b"object-src 'none'; "
+                        b"base-uri 'self'; "
+                        b"form-action 'self'; "
+                        b"frame-ancestors 'none'; "
+                        b"upgrade-insecure-requests"
+                    ),
+                )
+                headers = _upsert_header(
+                    headers,
+                    b"permissions-policy",
+                    b"camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), serial=()",
+                )
+                if settings.COOKIE_SECURE:
+                    headers = _upsert_header(
+                        headers,
+                        b"strict-transport-security",
+                        b"max-age=31536000; includeSubDomains",
+                    )
+                if path.startswith("/api/"):
+                    headers = _upsert_header(headers, b"vary", b"Cookie, Authorization")
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_security_headers)
+
+
+# Only the public health probe benefits from short caching.
+_CACHEABLE_API_PATHS: set[str] = set()
+
+
+class APICacheControlMiddleware:
+    """Set smart Cache-Control headers for API responses.
+
+    Read-only endpoints get short caching; everything else gets no-store.
+    Replaces the removed SecurityHeadersMiddleware's blanket no-store.
     """
 
-    EXEMPT_PATHS = {"/api/health", "/api/v1/health", "/health"}
+    def __init__(self, app):
+        self.app = app
 
-    async def dispatch(self, request: Request, call_next):
-        proto = request.headers.get("X-Forwarded-Proto", request.url.scheme)
-        if proto == "http" and request.url.path not in self.EXEMPT_PATHS:
-            url = request.url.replace(scheme="https")
-            return JSONResponse(
-                status_code=301,
-                headers={"Location": str(url)},
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope["path"]
+        if not path.startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "GET")
+        is_cacheable = method == "GET" and path in _CACHEABLE_API_PATHS
+
+        async def send_with_cache(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                if is_cacheable:
+                    headers = _upsert_header(
+                        headers,
+                        b"cache-control",
+                        b"public, max-age=30, stale-while-revalidate=60",
+                    )
+                else:
+                    headers = _upsert_header(headers, b"cache-control", b"no-store")
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_cache)
+
+
+class HTTPSRedirectMiddleware:
+    """Redirect HTTP to HTTPS in production when COOKIE_SECURE=true."""
+
+    EXEMPT_PATHS = {
+        "/api/health",
+        "/api/health/",
+        "/api/v1/health",
+        "/api/v1/health/",
+        "/health",
+    }
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive=receive)
+        headers = dict(scope.get("headers", []))
+        proto = headers.get(b"x-forwarded-proto", b"").decode() or request.url.scheme
+        path = scope["path"]
+
+        if proto == "http" and path not in self.EXEMPT_PATHS:
+            response = JSONResponse(
+                status_code=307,
+                headers={"Location": str(request.url.replace(scheme="https"))},
                 content={"detail": "Redirecting to HTTPS"},
             )
-        return await call_next(request)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+class LegacyAPIRewriteMiddleware:
+    """Transparently rewrite /api/* to /api/v1/* for backward compatibility."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope["path"]
+            if path.startswith("/api/") and not path.startswith("/api/v1/"):
+                scope["path"] = "/api/v1" + path[4:]
+        await self.app(scope, receive, send)
 
 
 @asynccontextmanager
@@ -304,7 +442,9 @@ def create_app() -> FastAPI:
 
     app.add_middleware(CSRFMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(APICacheControlMiddleware)
     app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(LegacyAPIRewriteMiddleware)
 
     # Redirect HTTP → HTTPS in production
     if settings.COOKIE_SECURE:
@@ -314,6 +454,7 @@ def create_app() -> FastAPI:
     _api_routes = [
         (auth.router, "/auth", "Authentication"),
         (users.router, "/users", "Users"),
+        (projects.router, "/projects", "Projects"),
         (devices.router, "/devices", "Devices"),
         (device_profiles.router, "/device-profiles", "Device Profiles"),
         (test_templates.router, "/test-templates", "Test Templates"),
@@ -338,12 +479,12 @@ def create_app() -> FastAPI:
         (oidc.router, "/auth/oidc", "OIDC / SSO"),
     ]
 
-    # Mount under both /api/ (legacy) and /api/v1/ (versioned) for backward compatibility
+    # Mount under /api/v1/ as canonical prefix.
+    # LegacyAPIRewriteMiddleware transparently rewrites /api/* → /api/v1/*
     for rtr, suffix, tag in _api_routes:
-        app.include_router(rtr, prefix=f"/api{suffix}", tags=[tag])
-        app.include_router(rtr, prefix=f"/api/v1{suffix}", tags=[f"v1 - {tag}"])
+        app.include_router(rtr, prefix=f"/api/v1{suffix}", tags=[tag])
 
-    @app.post("/api/client-errors", include_in_schema=False)
+    @app.post("/api/v1/client-errors", include_in_schema=False)
     async def receive_client_error(request: Request):
         """Receive frontend error reports via navigator.sendBeacon."""
         try:
@@ -367,12 +508,12 @@ def create_app() -> FastAPI:
         @app.get("/{full_path:path}")
         async def serve_spa(request: Request, full_path: str):
             if full_path.startswith("api/") or full_path in ("docs", "redoc", "openapi.json"):
-                return {"detail": "Not Found"}
+                return JSONResponse(status_code=404, content={"detail": "Not Found"})
             from pathlib import Path
             file_path = os.path.join(FRONTEND_DIR, full_path)
             resolved = Path(file_path).resolve()
             if not resolved.is_relative_to(Path(FRONTEND_DIR).resolve()):
-                return {"detail": "Not Found"}
+                return JSONResponse(status_code=404, content={"detail": "Not Found"})
             if full_path and os.path.isfile(file_path):
                 return FileResponse(file_path)
             return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))

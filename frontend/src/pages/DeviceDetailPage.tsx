@@ -6,8 +6,11 @@ import type { Device, TestRun, CVELookupResponse } from '@/lib/types'
 import {
   ArrowLeft, Monitor, Play, Loader2, Shield, Search,
   ExternalLink, AlertTriangle, Radar, RefreshCw, Pencil, Trash2, X, Check,
+  BarChart3,
 } from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
+import TrendChart from '@/components/devices/TrendChart'
+import type { TrendData } from '@/components/devices/TrendChart'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 import { toLocalDateOnly } from '@/lib/testContracts'
 import toast from 'react-hot-toast'
@@ -28,7 +31,7 @@ function SeverityBadge({ severity }: { severity: string }) {
   )
 }
 
-const CATEGORIES = ['camera', 'controller', 'access_control', 'intercom', 'sensor', 'switch', 'gateway', 'other', 'unknown']
+const CATEGORIES = ['camera', 'controller', 'intercom', 'access_panel', 'lighting', 'hvac', 'iot_sensor', 'meter', 'unknown']
 
 const getDeviceField = (device: Device, key: string): string => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -57,16 +60,29 @@ export default function DeviceDetailPage() {
     queryFn: () => testRunsApi.list({ device_id: id }).then(r => r.data),
     enabled: !!id,
   })
+  const { data: trendData, isLoading: isTrendLoading, isError: isTrendError } = useQuery<TrendData>({
+    queryKey: ['device-trends', id],
+    queryFn: () => devicesApi.trends(id!).then(r => r.data),
+    enabled: !!id,
+  })
 
   const cveMutation = useMutation({
     mutationFn: () => cveApi.lookup({ device_id: id!, max_results: 5 }),
     onSuccess: (res) => setCveData(res.data as CVELookupResponse),
+    onError: (err: unknown) => {
+      toast.error(getApiErrorMessage(err, 'Failed to query NVD. The device may not have open ports scanned yet.'))
+    },
   })
 
   const autoDetectMutation = useMutation({
     mutationFn: () => discoveryApi.scan({ ip_address: device!.ip_address! }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['device', id] })
+      toast.success('Device scan complete')
+    },
+    onError: (err: unknown) => {
+      const message = getApiErrorMessage(err, 'Auto-detect failed. The device may be unreachable — check your network connection.')
+      toast.error(message)
     },
   })
 
@@ -85,6 +101,7 @@ export default function DeviceDetailPage() {
     setCveData(null)
     cveMutation.reset()
     autoDetectMutation.reset()
+    discoverIpMutation.reset()
     setIsEditing(false)
     setShowDeleteConfirm(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,9 +196,12 @@ export default function DeviceDetailPage() {
 
   return (
     <div className="page-container">
-      <Link to="/devices" className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 mb-4">
-        <ArrowLeft className="w-4 h-4" /> Back to Devices
-      </Link>
+      {/* Breadcrumbs */}
+      <nav className="flex items-center gap-1.5 text-sm text-zinc-500 mb-4" aria-label="Breadcrumb">
+        <Link to="/devices" className="hover:text-zinc-700 dark:hover:text-zinc-300">Devices</Link>
+        <span className="text-zinc-300 dark:text-zinc-600">/</span>
+        <span className="text-zinc-900 dark:text-zinc-100 font-medium">{getPreferredDeviceName(device)}</span>
+      </nav>
 
       <div className="card p-5 mb-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -226,7 +246,7 @@ export default function DeviceDetailPage() {
               Auto-Detect
             </button>
             {!isEditing && (
-              <button type="button" onClick={startEditing} className="btn-secondary text-sm">
+              <button type="button" onClick={startEditing} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                 <Pencil className="w-4 h-4" /> Edit
               </button>
             )}
@@ -341,6 +361,46 @@ export default function DeviceDetailPage() {
                   </div>
                 ))}
               </dl>
+            )}
+          </div>
+
+          {/* Open Ports */}
+          <div className="card p-5">
+            <h2 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-blue-500" />
+              Open Ports {device.open_ports && device.open_ports.length > 0 ? `(${device.open_ports.length})` : ''}
+            </h2>
+            {device.open_ports && device.open_ports.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                      <th className="text-left py-2 text-xs font-medium text-zinc-500">Port</th>
+                      <th className="text-left py-2 text-xs font-medium text-zinc-500">Protocol</th>
+                      <th className="text-left py-2 text-xs font-medium text-zinc-500">Service</th>
+                      <th className="text-left py-2 text-xs font-medium text-zinc-500">State</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
+                    {device.open_ports.map((port: { port?: number; protocol?: string; service?: string; state?: string; version?: string }, idx: number) => (
+                      <tr key={idx}>
+                        <td className="py-1.5 font-mono text-xs text-zinc-900 dark:text-zinc-100">{port.port ?? '—'}</td>
+                        <td className="py-1.5 text-xs text-zinc-600 dark:text-zinc-400 uppercase">{port.protocol ?? 'tcp'}</td>
+                        <td className="py-1.5 text-xs text-zinc-600 dark:text-zinc-400">{port.service ?? '—'}{port.version ? ` (${port.version})` : ''}</td>
+                        <td className="py-1.5">
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-50 text-green-600 dark:bg-green-950/30 dark:text-green-400">
+                            {port.state ?? 'open'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-400 dark:text-zinc-500 text-center py-4">
+                No port data available. Run Auto-Detect or a network scan to discover open ports.
+              </p>
             )}
           </div>
 
@@ -482,6 +542,62 @@ export default function DeviceDetailPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Test History Trend */}
+      <div className="card p-5 mt-5">
+        <div className="flex items-center gap-2 mb-4">
+          <BarChart3 className="w-4 h-4 text-brand-500" />
+          <h2 className="font-semibold text-zinc-900 dark:text-zinc-100">Test History Trend</h2>
+        </div>
+        {isTrendLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-5 h-5 animate-spin text-brand-500" />
+            <span className="ml-2 text-sm text-zinc-500">Loading trend data...</span>
+          </div>
+        ) : isTrendError ? (
+          <div className="text-center py-6">
+            <AlertTriangle className="w-8 h-8 text-red-300 dark:text-red-500 mx-auto mb-2" />
+            <p className="text-sm text-red-600 dark:text-red-400">
+              Failed to load trend data. Try refreshing this device.
+            </p>
+          </div>
+        ) : trendData && trendData.runs.length > 0 ? (
+          <div>
+            {/* Summary stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+              <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Total Runs</p>
+                <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{trendData.runs.length}</p>
+              </div>
+              <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Best Pass Rate</p>
+                <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                  {Math.max(...trendData.runs.map(r => r.pass_rate))}%
+                </p>
+              </div>
+              <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Worst Pass Rate</p>
+                <p className="text-lg font-bold text-red-600 dark:text-red-400">
+                  {Math.min(...trendData.runs.map(r => r.pass_rate))}%
+                </p>
+              </div>
+              <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Current Trend</p>
+                <p className="text-lg font-bold capitalize text-zinc-900 dark:text-zinc-100">{trendData.trend}</p>
+              </div>
+            </div>
+            {/* Chart */}
+            <TrendChart data={trendData} />
+          </div>
+        ) : (
+          <div className="text-center py-6">
+            <BarChart3 className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              No trend data yet. Complete test runs to see pass rate trends.
+            </p>
+          </div>
+        )}
       </div>
 
       {showDeleteConfirm && (

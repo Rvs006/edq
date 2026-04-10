@@ -184,7 +184,7 @@ async def discover_devices(
     try:
         raw = await tools_client.nmap(
             data.cidr,
-            ["-sn"],
+            ["-sn", "-PR"],
             timeout=120,
         )
         hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
@@ -223,6 +223,11 @@ async def discover_devices(
                                     for p in ports if p.get("state") == "open"
                                 ]
                                 h["os"] = einfo.get("os")
+                                # Merge MAC address from enrichment if not already set by discovery
+                                if not h.get("mac") and einfo.get("mac_address"):
+                                    h["mac"] = einfo["mac_address"]
+                                if not h.get("vendor") and einfo.get("oui_vendor"):
+                                    h["vendor"] = einfo["oui_vendor"]
                                 # Try to extract model/firmware from service banners
                                 for p in ports:
                                     version = (p.get("version") or "").strip()
@@ -259,7 +264,7 @@ async def start_batch_scan(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    check_rate_limit(request, max_requests=3, window_seconds=60, action="network_start")
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="network_scan_start")
 
     # Validate device IPs against authorized networks — admins auto-authorize
     authorized = await get_active_networks(db)
@@ -331,23 +336,45 @@ async def start_batch_scan(
             seen.add(tid)
             test_ids.append(tid)
 
+    # Build IP -> discovery data map for enriching new Device records
+    _discovered_map = {}
+    if scan.devices_found:
+        for dh in scan.devices_found:
+            if dh.get("ip"):
+                _discovered_map[dh["ip"]] = dh
+
     run_ids = []
     for ip in data.device_ips:
         dev_result = await db.execute(select(Device).where(Device.ip_address == ip))
         device = dev_result.scalar_one_or_none()
         if not device:
+            disc = _discovered_map.get(ip, {})
             device = Device(
                 ip_address=ip,
+                mac_address=disc.get("mac"),
+                manufacturer=disc.get("vendor"),
+                hostname=disc.get("hostname"),
                 status=DeviceStatus.DISCOVERED,
                 category=DeviceCategory.UNKNOWN,
             )
             db.add(device)
+            await db.flush()
+        elif not device.mac_address:
+            # Update existing device with MAC if discovered
+            disc = _discovered_map.get(ip, {})
+            if disc.get("mac"):
+                device.mac_address = disc["mac"]
+            if disc.get("vendor") and not device.manufacturer:
+                device.manufacturer = disc["vendor"]
+            if disc.get("hostname") and not device.hostname:
+                device.hostname = disc["hostname"]
             await db.flush()
 
         test_run = TestRun(
             device_id=device.id,
             template_id=template_id,
             engineer_id=user.id,
+            project_id=device.project_id,
             connection_scenario=data.connection_scenario or scan.connection_scenario,
             total_tests=len(test_ids),
             status=TestRunStatus.PENDING,

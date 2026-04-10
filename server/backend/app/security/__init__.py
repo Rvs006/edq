@@ -13,6 +13,7 @@ from app.security.auth import (
     generate_api_key,
     store_refresh_token,
     validate_and_rotate_refresh_token,
+    revoke_user_access_tokens,
     revoke_user_refresh_tokens,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "get_current_user", "get_current_active_user", "require_role",
     "hash_password", "verify_password", "hash_api_key", "generate_api_key",
     "store_refresh_token", "validate_and_rotate_refresh_token",
+    "revoke_user_access_tokens",
     "revoke_user_refresh_tokens",
 ]

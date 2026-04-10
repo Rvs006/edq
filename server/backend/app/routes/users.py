@@ -3,16 +3,24 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List
+from typing import List, Optional
 
 from app.models.database import get_db
 from app.models.refresh_token import RefreshToken
 from app.models.user import User, UserRole
 from app.schemas.user import UserResponse, UserUpdate
-from app.security.auth import get_current_active_user, require_role, revoke_user_refresh_tokens
+from app.security.auth import (
+    get_current_active_user,
+    require_role,
+    revoke_user_access_tokens,
+    revoke_user_refresh_tokens,
+    hash_password,
+)
 from app.utils.audit import log_security_event
+from app.utils.sanitize import sanitize_dict
 
 logger = logging.getLogger("edq.routes.users")
 
@@ -30,6 +38,53 @@ async def list_users(
         select(User).order_by(User.created_at.desc()).offset(skip).limit(limit)
     )
     return result.scalars().all()
+
+
+class AdminCreateUser(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: Optional[str] = Field(None, max_length=128)
+    role: Optional[str] = "engineer"
+
+
+@router.post("/", response_model=UserResponse, status_code=201)
+async def admin_create_user(
+    data: AdminCreateUser,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin-only endpoint to create a user (bypasses ALLOW_REGISTRATION)."""
+    result = await db.execute(
+        select(User).where((User.email == data.email) | (User.username == data.username))
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email or username already registered")
+
+    try:
+        role = UserRole(data.role) if data.role else UserRole.ENGINEER
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid role: {data.role}")
+
+    clean = sanitize_dict(data.model_dump(), ["full_name", "username"])
+    user = User(
+        email=data.email,
+        username=clean["username"],
+        password_hash=hash_password(data.password),
+        full_name=clean.get("full_name"),
+        role=role,
+    )
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+
+    await log_security_event(
+        db, "auth.admin_create_user", user_id=current_user.id,
+        details={"new_user_id": user.id, "username": user.username, "role": role.value},
+        request=request,
+    )
+    return user
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -62,15 +117,26 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     updates = data.model_dump(exclude_unset=True)
+    updates = sanitize_dict(updates, ["full_name", "email"])
     old_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     if "full_name" in updates:
         user.full_name = updates["full_name"]
     if "email" in updates:
         user.email = updates["email"]
     if "role" in updates:
-        user.role = updates["role"]
+        try:
+            user.role = UserRole(updates["role"])
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid role: {updates['role']}. Must be one of: admin, reviewer, engineer",
+            )
     if "is_active" in updates:
         user.is_active = updates["is_active"]
+        # Revoke sessions when deactivating a user
+        if not updates["is_active"]:
+            revoke_user_access_tokens(user)
+            await revoke_user_refresh_tokens(db, user_id)
     await db.flush()
     await db.refresh(user)
 
@@ -99,10 +165,7 @@ async def revoke_user_sessions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["admin"])),
 ):
-    """Force-logout a user by revoking all their refresh tokens.
-
-    Existing access tokens remain valid until they expire (up to 60 minutes).
-    """
+    """Force-logout a user by revoking refresh tokens and active access tokens."""
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -116,6 +179,7 @@ async def revoke_user_sessions(
     )
     active_count = count_result.scalar()
 
+    revoke_user_access_tokens(user)
     await revoke_user_refresh_tokens(db, user_id)
 
     await log_security_event(

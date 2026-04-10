@@ -5,12 +5,18 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
 
+from app.models.device import AddressingMode, DeviceCategory, DeviceStatus
+
 _IP_RE = re.compile(
     r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
 )
 _MAC_RE = re.compile(
     r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$"
 )
+
+_ADDRESSING_MODES = {mode.value for mode in AddressingMode}
+_DEVICE_CATEGORIES = {category.value for category in DeviceCategory}
+_DEVICE_STATUSES = {status.value for status in DeviceStatus}
 
 
 class DeviceCreate(BaseModel):
@@ -35,16 +41,29 @@ class DeviceCreate(BaseModel):
     @field_validator("addressing_mode")
     @classmethod
     def validate_addressing_mode(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and v not in ("static", "dhcp", "unknown"):
+        if v is not None:
+            v = v.strip().lower()
+        if v is not None and v not in _ADDRESSING_MODES:
             raise ValueError("addressing_mode must be 'static', 'dhcp', or 'unknown'")
         return v
     hostname: Optional[str] = Field(None, max_length=255)
     manufacturer: Optional[str] = Field(None, max_length=128)
     model: Optional[str] = Field(None, max_length=128)
     firmware_version: Optional[str] = Field(None, max_length=64)
+    serial_number: Optional[str] = Field(None, max_length=128)
     category: str = Field("unknown", max_length=64)
+    location: Optional[str] = Field(None, max_length=255)
     notes: Optional[str] = Field(None, max_length=2000)
     profile_id: Optional[str] = Field(None, max_length=36)
+    project_id: Optional[str] = Field(None, max_length=36)
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        normalized = v.strip().lower()
+        if normalized not in _DEVICE_CATEGORIES:
+            raise ValueError(f"category must be one of: {', '.join(sorted(_DEVICE_CATEGORIES))}")
+        return normalized
 
 
 class DeviceUpdate(BaseModel):
@@ -64,13 +83,45 @@ class DeviceUpdate(BaseModel):
         if v is not None and not _MAC_RE.match(v):
             raise ValueError("Invalid MAC address format (expected AA:BB:CC:DD:EE:FF)")
         return v
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if normalized not in _DEVICE_CATEGORIES:
+            raise ValueError(f"category must be one of: {', '.join(sorted(_DEVICE_CATEGORIES))}")
+        return normalized
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if normalized not in _DEVICE_STATUSES:
+            raise ValueError(f"status must be one of: {', '.join(sorted(_DEVICE_STATUSES))}")
+        return normalized
+
+    @field_validator("addressing_mode")
+    @classmethod
+    def validate_addressing_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if normalized not in _ADDRESSING_MODES:
+            raise ValueError("addressing_mode must be 'static', 'dhcp', or 'unknown'")
+        return normalized
     hostname: Optional[str] = Field(None, max_length=255)
     manufacturer: Optional[str] = Field(None, max_length=128)
     model: Optional[str] = Field(None, max_length=128)
     firmware_version: Optional[str] = Field(None, max_length=64)
+    serial_number: Optional[str] = Field(None, max_length=128)
     category: Optional[str] = Field(None, max_length=64)
     status: Optional[str] = Field(None, max_length=32)
     addressing_mode: Optional[str] = Field(None, max_length=16)
+    location: Optional[str] = Field(None, max_length=255)
     notes: Optional[str] = Field(None, max_length=2000)
     profile_id: Optional[str] = Field(None, max_length=36)
     open_ports: Optional[List[Any]] = None
@@ -95,6 +146,11 @@ class DeviceResponse(BaseModel):
     notes: Optional[str] = None
     profile_id: Optional[str] = None
     discovered_by: Optional[str] = None
+    location: Optional[str] = None
+    serial_number: Optional[str] = None
+    last_tested: Optional[datetime] = None
+    last_verdict: Optional[str] = None
+    project_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

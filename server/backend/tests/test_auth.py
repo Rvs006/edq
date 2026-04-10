@@ -2,7 +2,9 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from app.models.user import User
 from tests.conftest import register_and_login
 
 
@@ -238,3 +240,49 @@ async def test_refresh_token_reuse_revokes_family(client: AsyncClient):
     # The new token should also be revoked now
     resp3 = await client.post("/api/auth/refresh", json={"refresh_token": new_token})
     assert resp3.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_for_inactive_user_stays_revoked(client: AsyncClient, db_session):
+    """Inactive accounts should not be able to replay a rotated refresh token."""
+    await client.post("/api/auth/register", json={
+        "email": "inactive-refresh@example.com",
+        "username": "inactiverefreshuser",
+        "password": "TestPass1",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "inactiverefreshuser",
+        "password": "TestPass1",
+    })
+    assert login_resp.status_code == 200
+    refresh_token = client.cookies.get("edq_refresh")
+    assert refresh_token
+
+    user_result = await db_session.execute(
+        select(User).where(User.username == "inactiverefreshuser")
+    )
+    user = user_result.scalar_one()
+    user.is_active = False
+    await db_session.commit()
+
+    first_refresh = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert first_refresh.status_code == 401
+
+    second_refresh = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert second_refresh.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_profile_email_uniqueness_is_case_insensitive(client: AsyncClient):
+    """Updating email should reject case-only duplicates."""
+    first_headers = await register_and_login(client, suffix="emailcasea")
+    await client.post("/api/auth/logout", headers=first_headers)
+    second_headers = await register_and_login(client, suffix="emailcaseb")
+
+    resp = await client.patch(
+        "/api/auth/me",
+        json={"email": "EMAILCASEA@example.com"},
+        headers=second_headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Email already in use"
