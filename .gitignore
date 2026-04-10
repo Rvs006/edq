@@ -156,6 +156,8 @@ electron/out/
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+pytest-cache-files-*
 .venv/
 .venv-backend*/
 .venv-wsl/
