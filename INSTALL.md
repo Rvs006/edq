@@ -1,6 +1,6 @@
 # EDQ Local Engineer Install and Test Guide
 
-This is the primary guide for engineers testing EDQ locally on `http://localhost`.
+This is the primary guide for engineers testing EDQ locally on `http://localhost:3000`.
 
 ## Audience and Scope
 
@@ -74,7 +74,7 @@ docker compose up --build -d
 
 ## First Login
 
-1. Open `http://localhost`
+1. Open `http://localhost:3000`
 2. Log in with:
    - username: `admin`
    - password: the value of `INITIAL_ADMIN_PASSWORD` in the root `.env`
@@ -104,7 +104,7 @@ Windows PowerShell:
 
 Manual checks:
 
-1. Open `http://localhost`
+1. Open `http://localhost:3000`
 2. Log in as `admin`
 3. Confirm the dashboard loads
 4. Add a device
@@ -169,7 +169,6 @@ View logs:
 docker compose logs -f
 docker compose logs -f backend
 docker compose logs -f frontend
-docker compose logs -f tools
 ```
 
 Update an existing install:
@@ -183,7 +182,7 @@ Update-only guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
 
 ### Port 80 already in use
 
-Edit `docker-compose.yml` and map the frontend to another host port, for example `8080:80`, then open `http://localhost:8080`.
+Edit `docker-compose.yml` and map the frontend to another host port, for example `8080:8080`, then open `http://localhost:8080`.
 
 ### Backend will not start
 
@@ -205,14 +204,16 @@ Confirm:
 
 - you are using the password from the root `.env`
 - `COOKIE_SECURE=false` in the local `.env`
-- you opened `http://localhost`, not an outdated bookmarked URL
+- you opened `http://localhost:3000`, not an outdated bookmarked URL
 
 ### Tools sidecar unhealthy
+
+The tools sidecar now runs inside the backend container.
 
 Check:
 
 ```bash
-docker compose logs tools
+docker compose logs backend
 ```
 
 ### Blank or broken frontend

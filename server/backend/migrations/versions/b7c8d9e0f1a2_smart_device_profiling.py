@@ -8,6 +8,7 @@ Create Date: 2026-03-30 10:00:00.000000
 
 """
 from typing import Sequence, Union
+from datetime import datetime, timezone
 import uuid
 
 from alembic import op
@@ -34,27 +35,43 @@ ALL_TEST_IDS = [
 def upgrade() -> None:
     # 1. Add auto_generated column to device_profiles
     with op.batch_alter_table('device_profiles', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('auto_generated', sa.Boolean(), nullable=True, server_default=sa.text('0')))
+        batch_op.add_column(sa.Column('auto_generated', sa.Boolean(), nullable=True, server_default=sa.false()))
 
     # 2. Mark existing templates as non-default
-    op.execute("UPDATE test_templates SET is_default = 0")
+    connection = op.get_bind()
+    connection.execute(sa.text("UPDATE test_templates SET is_default = :value"), {"value": False})
 
     # 3. Create the Universal template with all 43 tests
-    import json
-    op.execute(
-        sa.text(
-            "INSERT OR IGNORE INTO test_templates (id, name, description, version, test_ids, is_default, is_active, created_at, updated_at) "
-            "VALUES (:id, :name, :desc, :ver, :test_ids, :is_default, :is_active, datetime('now'), datetime('now'))"
-        ).bindparams(
-            id=UNIVERSAL_TEMPLATE_ID,
-            name="Universal (Smart Profiling)",
-            desc="All 43 tests — the device fingerprinter automatically skips tests that don't apply to the detected device type.",
-            ver="2.0",
-            test_ids=json.dumps(ALL_TEST_IDS),
-            is_default=1,
-            is_active=1,
-        )
+    test_templates = sa.table(
+        "test_templates",
+        sa.column("id", sa.String(36)),
+        sa.column("name", sa.String(128)),
+        sa.column("description", sa.Text()),
+        sa.column("version", sa.String(16)),
+        sa.column("test_ids", sa.JSON()),
+        sa.column("is_default", sa.Boolean()),
+        sa.column("is_active", sa.Boolean()),
+        sa.column("created_at", sa.DateTime()),
+        sa.column("updated_at", sa.DateTime()),
     )
+    exists = connection.execute(
+        sa.select(test_templates.c.id).where(test_templates.c.id == UNIVERSAL_TEMPLATE_ID)
+    ).scalar_one_or_none()
+    if exists is None:
+        now = datetime.now(timezone.utc)
+        connection.execute(
+            test_templates.insert().values(
+                id=UNIVERSAL_TEMPLATE_ID,
+                name="Universal (Smart Profiling)",
+                description="All 43 tests — the device fingerprinter automatically skips tests that don't apply to the detected device type.",
+                version="2.0",
+                test_ids=ALL_TEST_IDS,
+                is_default=True,
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
 
 
 def downgrade() -> None:

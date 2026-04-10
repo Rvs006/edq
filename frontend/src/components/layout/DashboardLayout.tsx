@@ -23,7 +23,7 @@ const pageDescriptions: Record<string, string> = {
   '/test-plans': 'Saved test configurations that can be reused across devices',
   '/scan-schedules': 'Schedule recurring network scans to run automatically',
   '/whitelists': 'Approved port/protocol lists — open ports are checked against these',
-  '/reports': 'Generate Excel, Word, or PDF qualification reports from completed test sessions',
+  '/reports': 'Generate Excel, Word, PDF, or CSV qualification reports from completed test sessions',
   '/agents': 'Optional distributed runner registrations. Normal local-laptop use does not need this page.',
   '/review': 'QA review queue — approve, override, or request retests on flagged results',
   '/admin': 'Manage user accounts, roles, and permissions',
@@ -51,10 +51,7 @@ function getNavSections(role?: string): NavSection[] {
         { name: 'Reports', href: '/reports', icon: ClipboardList },
       ],
     },
-  ]
-
-  if (isReviewer) {
-    sections.push({
+    {
       label: 'Setup',
       collapsed: true,
       items: [
@@ -63,6 +60,17 @@ function getNavSections(role?: string): NavSection[] {
         { name: 'Test Plans', href: '/test-plans', icon: ListChecks },
         { name: 'Scan Schedules', href: '/scan-schedules', icon: CalendarClock },
         { name: 'Whitelists', href: '/whitelists', icon: Shield },
+        { name: 'Authorized Networks', href: '/authorized-networks', icon: ShieldCheck },
+      ],
+    },
+  ]
+
+  if (isReviewer) {
+    sections.push({
+      label: 'Review',
+      items: [
+        { name: 'Review Queue', href: '/review', icon: Eye },
+        { name: 'Audit Log', href: '/audit-log', icon: ListChecks },
       ],
     })
   }
@@ -72,21 +80,17 @@ function getNavSections(role?: string): NavSection[] {
       label: 'Admin',
       collapsed: true,
       items: [
-        { name: 'Review Queue', href: '/review', icon: Eye },
         { name: 'Users', href: '/admin', icon: Users },
-        { name: 'Authorized Networks', href: '/authorized-networks', icon: ShieldCheck },
-        { name: 'Audit Log', href: '/audit-log', icon: ListChecks },
-        { name: 'Settings', href: '/settings', icon: Settings },
-      ],
-    })
-  } else {
-    sections.push({
-      label: 'Account',
-      items: [
-        { name: 'Settings', href: '/settings', icon: Settings },
       ],
     })
   }
+
+  sections.push({
+    label: 'Account',
+    items: [
+      { name: 'Settings', href: '/settings', icon: Settings },
+    ],
+  })
 
   return sections
 }

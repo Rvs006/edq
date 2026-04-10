@@ -7,6 +7,8 @@ import enum
 import uuid
 
 from app.models.database import Base
+from app.models.enum_utils import enum_values
+from app.utils.datetime import utcnow_naive
 
 
 class ScheduleFrequency(str, enum.Enum):
@@ -22,16 +24,18 @@ class ScanSchedule(Base):
     device_id = Column(String(36), ForeignKey("devices.id"), nullable=False, index=True)
     template_id = Column(String(36), ForeignKey("test_templates.id"), nullable=False)
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
-    frequency = Column(SAEnum(ScheduleFrequency), nullable=False)
+    frequency = Column(
+        SAEnum(ScheduleFrequency, values_callable=enum_values),
+        nullable=False,
+    )
     is_active = Column(Boolean, default=True, nullable=False)
     last_run_at = Column(DateTime, nullable=True)
     next_run_at = Column(DateTime, nullable=False)
     run_count = Column(Integer, default=0, nullable=False)
     max_runs = Column(Integer, nullable=True)  # None = unlimited
     diff_summary = Column(JSON, nullable=True)  # Last diff between consecutive scans
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 
     # Relationships
     device = relationship("Device", backref="scan_schedules")

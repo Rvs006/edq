@@ -6,6 +6,7 @@ import { Toaster } from 'react-hot-toast'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { installGlobalErrorTelemetry } from './lib/telemetry'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -17,6 +18,8 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+installGlobalErrorTelemetry()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

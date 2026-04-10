@@ -15,6 +15,7 @@ from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
 from app.services.scan_scheduler import compute_next_run, compute_diff
 from app.utils.audit import log_action
+from app.utils.datetime import utcnow_naive
 
 router = APIRouter()
 
@@ -100,7 +101,7 @@ async def create_schedule(
     if not template.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Test template not found")
 
-    now = datetime.now(timezone.utc)
+    now = utcnow_naive()
     next_run = compute_next_run(data.frequency, now)
 
     schedule = ScanSchedule(
@@ -158,7 +159,7 @@ async def update_schedule(
     if "frequency" in updates:
         schedule.frequency = updates["frequency"]
         schedule.next_run_at = compute_next_run(
-            schedule.frequency, datetime.now(timezone.utc)
+            schedule.frequency, utcnow_naive()
         )
     if "is_active" in updates:
         schedule.is_active = updates["is_active"]

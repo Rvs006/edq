@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BASE_URL="${EDQ_URL:-http://localhost:80}"
+BASE_URL="${EDQ_URL:-${EDQ_PUBLIC_URL:-http://localhost:${EDQ_PUBLIC_PORT:-3000}}}"
 API_URL="$BASE_URL/api"
 ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
 COOKIE_FILE=$(mktemp)

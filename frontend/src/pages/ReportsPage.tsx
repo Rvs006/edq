@@ -14,7 +14,7 @@ const TEMPLATE_OPTIONS = [
   { key: 'easyio_controller', label: 'EasyIO Controller', category: 'controller' },
 ]
 
-type ReportFormat = 'excel' | 'word' | 'pdf'
+type ReportFormat = 'excel' | 'word' | 'pdf' | 'csv'
 
 export default function ReportsPage() {
   const [selectedRun, setSelectedRun] = useState('')
@@ -67,11 +67,13 @@ export default function ReportsPage() {
         excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         pdf: 'application/pdf',
+        csv: 'text/csv',
       }
       const extensionMap: Record<ReportFormat, string> = {
         excel: 'xlsx',
         word: 'docx',
         pdf: 'pdf',
+        csv: 'csv',
       }
       const downloadName = data.filename || `report-${selectedRun}.${extensionMap[reportType]}`
 
@@ -109,13 +111,14 @@ export default function ReportsPage() {
     { key: 'excel', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet },
     { key: 'word', label: 'Word', ext: '.docx', icon: FileText },
     { key: 'pdf', label: 'PDF', ext: '.pdf', icon: FileDown },
+    { key: 'csv', label: 'CSV', ext: '.csv', icon: FileSpreadsheet },
   ]
 
   return (
     <div className="page-container">
       <div className="mb-5">
         <h1 className="section-title">Reports</h1>
-        <p className="section-subtitle">Generate Excel, Word, and PDF qualification reports from test results</p>
+        <p className="section-subtitle">Generate Excel, Word, PDF, and CSV qualification reports from test results</p>
       </div>
 
       {isError && (
@@ -143,7 +146,7 @@ export default function ReportsPage() {
 
             <div>
               <label className="label">Report Format</label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                 {formatOptions.map(({ key, label, ext, icon: Icon }) => (
                   <button
                     key={key}
@@ -180,7 +183,7 @@ export default function ReportsPage() {
                   ))}
                 </select>
                 <p className="text-xs text-zinc-500 mt-1">
-                  Select the Electracom template matching the device type.
+                  Excel exports use the canonical workbook template and preserve its three-sheet structure.
                 </p>
               </div>
             )}
@@ -215,6 +218,7 @@ export default function ReportsPage() {
                 { name: 'Generic C00', desc: 'Universal IP device template (43 tests)' },
                 { name: 'Pelco Camera', desc: 'Camera qualification Rev 2 (31 tests)' },
                 { name: 'EasyIO Controller', desc: 'Controller report template aligned to the current EDQ workflow' },
+                { name: 'CSV Export', desc: 'Flat report data aligned to the same shared report model' },
               ].map(fw => (
                 <div key={fw.name} className="flex items-center gap-2 py-1">
                   <div className="w-2 h-2 rounded-full bg-brand-500" />
@@ -231,11 +235,11 @@ export default function ReportsPage() {
             <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Report Contents</h3>
             <ul className="space-y-2 text-sm text-zinc-600 dark:text-slate-400">
               {[
+                'Shared report model across Excel, Word, PDF, and CSV',
                 'Executive summary with overall verdict',
                 'Device information and network details',
-                'Individual test results with findings',
-                'Protocol whitelist comparison',
-                'Detailed findings for FAIL/ADVISORY tests',
+                'Test-plan rows aligned to the canonical workbook',
+                'Detailed findings for FAIL and ADVISORY results',
                 'Tool versions and connection scenario',
                 'AI-generated narrative synopsis',
               ].map(item => (

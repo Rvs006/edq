@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from app.models.database import async_session
 from app.models.test_run import TestRun, TestRunStatus, normalize_test_run_status
 from app.services.connectivity_probe import probe_device_connectivity
+from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.wobbly_cable")
 
@@ -197,7 +198,7 @@ class WobblyCableHandler:
                 if run and normalize_test_run_status(run.status) == TestRunStatus.PAUSED_CABLE.value:
                     run.status = TestRunStatus.RUNNING
                     if not run.started_at:
-                        run.started_at = datetime.now(timezone.utc)
+                        run.started_at = utcnow_naive()
                     await session.commit()
         except Exception as exc:
             logger.error("Failed to update run status to running: %s", exc)

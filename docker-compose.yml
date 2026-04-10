@@ -8,8 +8,12 @@ services:
       context: .
       dockerfile: server/backend/Dockerfile
     container_name: edq-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${EDQ_BACKEND_BIND_HOST:-127.0.0.1}:${EDQ_BACKEND_PORT:-8000}:8000"
+      - "${EDQ_TOOLS_BIND_HOST:-127.0.0.1}:${EDQ_TOOLS_PORT:-8001}:8001"
     volumes:
       - edq-data:/app/data
       - edq-uploads:/app/uploads
@@ -17,7 +21,9 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/edq.db}
+      - DATABASE_URL=${DOCKER_DATABASE_URL:-}
+      - DB_HOST=postgres
+      - DB_PORT=5432
       - TOOLS_SIDECAR_URL=http://localhost:8001
       - TOOLS_API_KEY=${TOOLS_API_KEY}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
@@ -48,13 +54,44 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: edq-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-edq}
+      POSTGRES_USER: ${DB_USER:-edq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "${EDQ_POSTGRES_BIND_HOST:-127.0.0.1}:${EDQ_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - edq-pgdata:/var/lib/postgresql/data
+    networks:
+      - edq-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-edq} -d ${DB_NAME:-edq}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: edq-frontend
     ports:
-      - "127.0.0.1:3000:8080"
+      - "${EDQ_BIND_HOST:-127.0.0.1}:${EDQ_PUBLIC_PORT:-3000}:8080"
     depends_on:
       backend:
         condition: service_healthy
@@ -77,37 +114,6 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-
-  # PostgreSQL — optional, recommended for production and concurrent workloads (20+ devices)
-  # Uncomment to enable. Also set DATABASE_URL in .env to:
-  #   postgresql+asyncpg://edq:${POSTGRES_PASSWORD}@postgres:5432/edq
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: edq-postgres
-  #   environment:
-  #     POSTGRES_DB: edq
-  #     POSTGRES_USER: edq
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edq-postgres-secret}
-  #   volumes:
-  #     - edq-pgdata:/var/lib/postgresql/data
-  #   networks:
-  #     - edq-internal
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U edq"]
-  #     interval: 15s
-  #     timeout: 5s
-  #     retries: 5
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         cpus: "1.0"
-  #         memory: 512M
-  #   logging:
-  #     driver: json-file
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "5"
 
   # Redis — optional, enables distributed rate limiting and session persistence
   # Uncomment to enable for multi-instance deployments
@@ -133,8 +139,8 @@ volumes:
     driver: local
   edq-reports:
     driver: local
-  # edq-pgdata:
-  #   driver: local
+  edq-pgdata:
+    driver: local
   # edq-redis:
   #   driver: local
 

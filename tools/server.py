@@ -144,7 +144,7 @@ ALLOWED_FLAGS = {
         "-T0", "-T1", "-T2", "-T3", "-T4", "-T5", "--top-ports", "--open",
         "-oX", "-oN", "-oG", "-v", "-vv", "--version-intensity",
         "--script", "-F", "-n", "-R", "-6", "--max-rate", "-",
-        "--min-rate", "--max-retries", "--defeat-rst-ratelimit", "--send-ip", "-PR",
+        "--min-rate", "--max-retries", "--defeat-rst-ratelimit", "--send-ip", "-PR", "-e",
     },
     "hydra": {
         "-l", "-L", "-p", "-P", "-s", "-t", "-f", "-V", "-v", "-e",
@@ -191,6 +191,19 @@ def _validate_target(target: str) -> str:
     if not _is_valid_target(target):
         raise ValueError(f"Invalid target format: {target}")
     return target
+
+
+def _validate_targets(target: str) -> str:
+    """Validate one or more whitespace-separated scan targets for nmap."""
+    target = target.strip()
+    if not target:
+        raise ValueError("Invalid target: empty or too long")
+    tokens = target.split()
+    if len(tokens) > 256:
+        raise ValueError("Too many scan targets in a single request")
+    for token in tokens:
+        _validate_target(token)
+    return " ".join(tokens)
 
 
 def _validate_args(args: list) -> list:
@@ -348,7 +361,7 @@ def _parse_scan_request(tool_name=None):
         return None, None, None, ("Missing 'target' field", 400)
 
     try:
-        target = _validate_target(target)
+        target = _validate_targets(target) if tool_name == "nmap" else _validate_target(target)
     except ValueError as e:
         return None, None, None, (str(e), 400)
 
@@ -660,7 +673,7 @@ def scan_nmap() -> Union[Response, Tuple[Response, int]]:
     if not _check_rate_limit(target):
         return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
 
-    cmd = ["nmap"] + args + [target]
+    cmd = ["nmap"] + args + target.split()
     result = _run_tool(cmd, timeout, target=target)
     return jsonify(result)
 
@@ -985,7 +998,7 @@ def stream_nmap() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "Rate limit exceeded: max 5 scans per target per minute"}), 429
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
-    cmd = ["nmap"] + args + [target]
+    cmd = ["nmap"] + args + target.split()
     return Response(
         _guarded_stream(_run_tool_stream(cmd, timeout, target=target)),
         mimetype="text/event-stream",

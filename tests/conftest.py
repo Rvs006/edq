@@ -97,7 +97,6 @@ async def test_device(admin_client: httpx.AsyncClient) -> AsyncGenerator[dict, N
             "hostname": f"fixture-dev-{uuid.uuid4().hex[:6]}",
             "manufacturer": "FixtureCo",
             "model": "FX-100",
-            "device_type": "controller",
             "category": "controller",
         },
     )

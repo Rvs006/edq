@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 
 from app.models.database import get_db
@@ -25,6 +26,29 @@ from app.utils.sanitize import sanitize_dict
 logger = logging.getLogger("edq.routes.users")
 
 router = APIRouter()
+
+
+async def _find_casefold_user_conflict(
+    db: AsyncSession,
+    *,
+    username: str | None = None,
+    email: str | None = None,
+    exclude_user_id: str | None = None,
+) -> User | None:
+    clauses = []
+    if username:
+        clauses.append(func.lower(User.username) == username.casefold())
+    if email:
+        clauses.append(func.lower(User.email) == email.casefold())
+    if not clauses:
+        return None
+    query = select(User).where(*clauses[:1])
+    if len(clauses) > 1:
+        query = select(User).where(clauses[0] | clauses[1])
+    if exclude_user_id:
+        query = query.where(User.id != exclude_user_id)
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
 
 
 @router.get("/", response_model=List[UserResponse])
@@ -56,10 +80,12 @@ async def admin_create_user(
     current_user: User = Depends(require_role(["admin"])),
 ):
     """Admin-only endpoint to create a user (bypasses ALLOW_REGISTRATION)."""
-    result = await db.execute(
-        select(User).where((User.email == data.email) | (User.username == data.username))
-    )
-    if result.scalar_one_or_none():
+    normalized_email = data.email.strip()
+    if await _find_casefold_user_conflict(
+        db,
+        username=data.username.strip(),
+        email=normalized_email,
+    ):
         raise HTTPException(status_code=400, detail="Email or username already registered")
 
     try:
@@ -69,15 +95,19 @@ async def admin_create_user(
 
     clean = sanitize_dict(data.model_dump(), ["full_name", "username"])
     user = User(
-        email=data.email,
-        username=clean["username"],
+        email=normalized_email,
+        username=(clean["username"] or "").strip(),
         password_hash=hash_password(data.password),
         full_name=clean.get("full_name"),
         role=role,
     )
     db.add(user)
-    await db.flush()
-    await db.refresh(user)
+    try:
+        await db.flush()
+        await db.refresh(user)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Email or username already registered")
 
     await log_security_event(
         db, "auth.admin_create_user", user_id=current_user.id,
@@ -122,7 +152,15 @@ async def update_user(
     if "full_name" in updates:
         user.full_name = updates["full_name"]
     if "email" in updates:
-        user.email = updates["email"]
+        normalized_email = updates["email"].strip()
+        conflict = await _find_casefold_user_conflict(
+            db,
+            email=normalized_email,
+            exclude_user_id=user_id,
+        )
+        if conflict:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = normalized_email
     if "role" in updates:
         try:
             user.role = UserRole(updates["role"])
@@ -137,8 +175,12 @@ async def update_user(
         if not updates["is_active"]:
             revoke_user_access_tokens(user)
             await revoke_user_refresh_tokens(db, user_id)
-    await db.flush()
-    await db.refresh(user)
+    try:
+        await db.flush()
+        await db.refresh(user)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Email already registered")
 
     # Audit role changes and account deactivations
     new_role = user.role.value if hasattr(user.role, "value") else str(user.role)

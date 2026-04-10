@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.database import Base
+from app.utils.datetime import utcnow_naive
 
 
 class Attachment(Base):
@@ -22,7 +23,7 @@ class Attachment(Base):
     file_size = Column(Integer, nullable=False)
     category = Column(String(32), default="evidence")  # evidence, nessus_import, screenshot, report
     uploaded_by = Column(String(36), ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
 
     # Relationships
     test_run = relationship("TestRun", back_populates="attachments")

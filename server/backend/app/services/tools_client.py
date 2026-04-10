@@ -26,19 +26,21 @@ class ToolsClient:
             self._headers["X-Tools-Key"] = settings.TOOLS_API_KEY
         # Detect Docker environment — nmap needs -sT -Pn through NAT
         import os
-        self.in_docker: bool = os.path.exists("/.dockerenv") or "TOOLS_SIDECAR_URL" in os.environ
+        self.in_docker: bool = os.path.exists("/.dockerenv")
 
     def docker_nmap_flags(self, args: List[str]) -> List[str]:
-        """Adjust nmap flags for Docker NAT: replace -sS with -sT, add -Pn."""
+        """Adjust nmap flags for container NAT without breaking discovery scans."""
         if not self.in_docker:
-            return args
+            return list(args)
+        if "-sn" in args or "-PR" in args:
+            return list(args)
         adjusted = []
         for a in args:
             if a == "-sS":
                 adjusted.append("-sT")
             else:
                 adjusted.append(a)
-        if "-Pn" not in adjusted:
+        if any(flag in adjusted for flag in ("-sT", "-sS", "-sV", "-O", "-A", "-p", "-p-", "--top-ports")) and "-Pn" not in adjusted:
             adjusted.insert(0, "-Pn")
         return adjusted
 
@@ -266,8 +268,15 @@ class ToolsClient:
 
     async def versions(self) -> Dict[str, Any]:
         """Get installed tool versions from the sidecar."""
-        async with httpx.AsyncClient(timeout=3) as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{self.base_url}/versions", headers=self._headers)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def detect_networks(self) -> Dict[str, Any]:
+        """Get detected host/container networks from the sidecar."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(f"{self.base_url}/detect-networks", headers=self._headers)
             resp.raise_for_status()
             return resp.json()
 

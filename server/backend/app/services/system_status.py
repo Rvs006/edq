@@ -13,6 +13,8 @@ from app.models.database import async_session
 from app.services.tools_client import tools_client
 
 TOOL_KEYS = ("nmap", "testssl", "ssh_audit", "hydra", "nikto", "snmpwalk")
+_TOOLS_VERSION_CACHE_TTL = 300.0
+_tools_version_cache: dict[str, Any] = {"versions": None, "status": None, "message": None, "ts": 0.0}
 
 
 async def _get_database_status() -> str:
@@ -45,26 +47,39 @@ async def get_system_status(include_tool_versions: bool = True) -> dict[str, Any
         if include_tool_versions:
             versions = {key: "not_configured" for key in TOOL_KEYS}
     else:
+        cached_versions = _tools_version_cache.get("versions")
         try:
             result = await asyncio.wait_for(
                 tools_client.versions(),
-                timeout=2.0,
+                timeout=8.0,
             )
             raw_versions = result.get("versions", {}) if isinstance(result, dict) else {}
             versions = {
                 key: str(raw_versions.get(key, "unavailable"))
                 for key in TOOL_KEYS
             }
+            _tools_version_cache["versions"] = dict(versions)
+            _tools_version_cache["status"] = "ok"
+            _tools_version_cache["message"] = None
+            _tools_version_cache["ts"] = datetime.now(timezone.utc).timestamp()
         except asyncio.TimeoutError:
             tools_status = "unavailable"
-            tools_message = "Tools sidecar did not respond within 2s. Manual tests are still available."
+            tools_message = "Tools sidecar did not respond within 8s. Automated tests may be delayed."
             if include_tool_versions:
-                versions = {key: "unavailable" for key in TOOL_KEYS}
+                if cached_versions is not None:
+                    versions = dict(cached_versions)
+                    tools_message = "Using cached tool versions; live version probe timed out."
+                else:
+                    versions = {key: "unavailable" for key in TOOL_KEYS}
         except Exception:
             tools_status = "unavailable"
-            tools_message = "Tools sidecar is unreachable. Manual tests are still available."
+            tools_message = "Tools sidecar is unreachable. Automated tests will not run."
             if include_tool_versions:
-                versions = {key: "unavailable" for key in TOOL_KEYS}
+                if cached_versions is not None:
+                    versions = dict(cached_versions)
+                    tools_message = "Using cached tool versions; live sidecar probe failed."
+                else:
+                    versions = {key: "unavailable" for key in TOOL_KEYS}
 
     # The app is fully functional without tools — only mark degraded when the
     # database is down.  Tools being unreachable is a warning, not an error.

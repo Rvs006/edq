@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Shield, Plus, Trash2, ToggleLeft, ToggleRight, Network, AlertTriangle, Loader2 } from 'lucide-react'
 import { authorizedNetworksApi } from '@/lib/api'
 import { toLocalDateOnly } from '@/lib/testContracts'
+import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 
 interface AuthorizedNetwork {
@@ -16,6 +17,7 @@ interface AuthorizedNetwork {
 }
 
 export default function AuthorizedNetworksPage() {
+  const { user } = useAuth()
   const [networks, setNetworks] = useState<AuthorizedNetwork[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -25,6 +27,7 @@ export default function AuthorizedNetworksPage() {
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState(false)
+  const canManageNetworks = user?.role === 'admin'
 
   const fetchNetworks = async (showLoading = false) => {
     if (showLoading) setLoading(true)
@@ -114,7 +117,9 @@ export default function AuthorizedNetworksPage() {
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-200">No active authorized networks</p>
             <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              Network scanning is blocked until at least one network is authorized. Add your test subnets below.
+              {canManageNetworks
+                ? 'Network scanning is blocked until at least one network is authorized. Add your test subnets below.'
+                : 'Network scanning is blocked until at least one network is authorized. Contact an administrator to add your test subnet.'}
             </p>
           </div>
         </div>
@@ -134,7 +139,7 @@ export default function AuthorizedNetworksPage() {
         </div>
       )}
 
-      {showAdd ? (
+      {canManageNetworks && showAdd ? (
         <div className="card p-5 mb-4">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100 mb-3 flex items-center gap-2">
             <Plus className="w-4 h-4" /> Add Authorized Network
@@ -196,13 +201,13 @@ export default function AuthorizedNetworksPage() {
             </button>
           </div>
         </div>
-      ) : (
+      ) : canManageNetworks ? (
         <div className="mb-4">
           <button type="button" onClick={() => setShowAdd(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> Add Network
           </button>
         </div>
-      )}
+      ) : null}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -222,7 +227,9 @@ export default function AuthorizedNetworksPage() {
           <Network className="w-12 h-12 text-zinc-300 dark:text-slate-600 mx-auto mb-3" />
           <p className="text-zinc-500 dark:text-slate-400 text-sm">No authorized networks yet</p>
           <p className="text-zinc-400 dark:text-slate-500 text-xs mt-1">
-            Add your first network range to enable scanning
+            {canManageNetworks
+              ? 'Add your first network range to enable scanning'
+              : 'An administrator must add a network range before scanning can start'}
           </p>
         </div>
       ) : (
@@ -270,31 +277,33 @@ export default function AuthorizedNetworksPage() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => handleToggle(network)}
-                  className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
-                  title={network.is_active ? 'Disable network' : 'Enable network'}
-                >
-                  {network.is_active
-                    ? <ToggleRight className="w-5 h-5 text-emerald-500" />
-                    : <ToggleLeft className="w-5 h-5 text-zinc-400" />
-                  }
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(network)}
-                  disabled={deletingId === network.id}
-                  className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-zinc-400 hover:text-red-500 transition-colors"
-                  title="Delete network"
-                >
-                  {deletingId === network.id
-                    ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <Trash2 className="w-4 h-4" />
-                  }
-                </button>
-              </div>
+              {canManageNetworks && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleToggle(network)}
+                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
+                    title={network.is_active ? 'Disable network' : 'Enable network'}
+                  >
+                    {network.is_active
+                      ? <ToggleRight className="w-5 h-5 text-emerald-500" />
+                      : <ToggleLeft className="w-5 h-5 text-zinc-400" />
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(network)}
+                    disabled={deletingId === network.id}
+                    className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-zinc-400 hover:text-red-500 transition-colors"
+                    title="Delete network"
+                  >
+                    {deletingId === network.id
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Trash2 className="w-4 h-4" />
+                    }
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

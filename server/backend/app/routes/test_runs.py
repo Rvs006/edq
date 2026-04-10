@@ -32,6 +32,7 @@ from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, 
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
 from app.utils.audit import log_action
+from app.utils.datetime import utcnow_naive
 from app.models.user import UserRole
 
 logger = logging.getLogger("edq.routes.test_runs")
@@ -517,7 +518,7 @@ async def cancel_test_run(
 
     # 3. Mark run as cancelled
     run.status = TestRunStatus.CANCELLED
-    run.completed_at = datetime.now(timezone.utc)
+    run.completed_at = utcnow_naive()
     await db.flush()
 
     return {"status": "cancelled", "message": "Test run cancelled", "run_id": run_id}
@@ -617,7 +618,7 @@ async def complete_test_run(
     _apply_summary_to_run(run, summary)
     run.progress_pct = 100.0 if run.total_tests else 0.0
     run.status = TestRunStatus.COMPLETED
-    run.completed_at = datetime.now(timezone.utc)
+    run.completed_at = utcnow_naive()
     run.overall_verdict = _overall_verdict_from_summary(summary)
 
     await db.flush()
@@ -642,7 +643,7 @@ async def request_review_for_test_run(
     _apply_summary_to_run(run, summary)
     run.progress_pct = 100.0 if run.total_tests else 0.0
     run.status = TestRunStatus.AWAITING_REVIEW
-    run.completed_at = datetime.now(timezone.utc)
+    run.completed_at = utcnow_naive()
     run.overall_verdict = _overall_verdict_from_summary(summary)
     await db.flush()
     await db.refresh(run)

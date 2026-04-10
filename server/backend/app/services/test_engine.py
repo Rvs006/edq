@@ -38,6 +38,7 @@ from app.services.test_library import get_test_by_id
 from app.services.device_fingerprinter import fingerprinter, FingerprintResult
 from app.services.discovery_service import guess_manufacturer, guess_model
 from app.routes.websocket_routes import manager
+from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.test_engine")
 
@@ -134,7 +135,7 @@ class TestEngine:
                 if run:
                     run.status = TestRunStatus.RUNNING
                     if not run.started_at:
-                        run.started_at = datetime.now(timezone.utc)
+                        run.started_at = utcnow_naive()
                     await db.commit()
 
             await manager.broadcast(f"test-run:{test_run_id}", {
@@ -245,7 +246,7 @@ class TestEngine:
                         if result_row:
                             result_row.verdict = TestVerdict.NA
                             result_row.comment = reason
-                            result_row.completed_at = datetime.now(timezone.utc)
+                            result_row.completed_at = utcnow_naive()
                             await db.commit()
 
                     completed += 1
@@ -341,8 +342,8 @@ class TestEngine:
                         result_row.parsed_data = parsed
                         result_row.raw_output = raw_out[:50000] if raw_out else None
                         result_row.duration_seconds = duration
-                        result_row.started_at = datetime.now(timezone.utc)
-                        result_row.completed_at = datetime.now(timezone.utc)
+                        result_row.started_at = utcnow_naive()
+                        result_row.completed_at = utcnow_naive()
 
                         # Auto-populate Device fields from test results as they complete
                         if parsed:
@@ -1088,7 +1089,7 @@ class TestEngine:
                 run.completed_at = None
             else:
                 run.status = TestRunStatus.COMPLETED
-                run.completed_at = datetime.now(timezone.utc)
+                run.completed_at = utcnow_naive()
                 if essential_failed:
                     run.overall_verdict = "fail"
                 elif failed > 0:
@@ -1173,7 +1174,7 @@ class TestEngine:
     async def _set_run_error(self, db: AsyncSession, run: TestRun | None, message: str) -> None:
         if run:
             run.status = TestRunStatus.FAILED
-            run.completed_at = datetime.now(timezone.utc)
+            run.completed_at = utcnow_naive()
             await db.commit()
 
         await manager.broadcast(f"test-run:{run.id if run else 'unknown'}", {
@@ -1213,7 +1214,7 @@ async def recover_orphaned_runs() -> None:
         orphans = result.scalars().all()
         for run in orphans:
             run.status = TestRunStatus.FAILED
-            run.completed_at = datetime.now(timezone.utc)
+            run.completed_at = utcnow_naive()
             run.synopsis = (
                 (run.synopsis or "")
                 + "\n[Auto-reset: server restarted during execution]"

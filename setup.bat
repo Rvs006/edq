@@ -15,7 +15,7 @@ for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass
   "$makeHex = { param([int]$len) -join ((1..$len) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) }) }; " ^
   "$makePassword = { -join ((1..20) | ForEach-Object { [char]($chars | Get-Random) }) }; " ^
   "$content = Get-Content '.env' -Raw; " ^
-  "$updates = @(@{Key='JWT_SECRET';Value=(& $makeHex 128)}, @{Key='JWT_REFRESH_SECRET';Value=(& $makeHex 128)}, @{Key='SECRET_KEY';Value=(& $makeHex 64)}, @{Key='TOOLS_API_KEY';Value=(& $makeHex 64)}, @{Key='INITIAL_ADMIN_PASSWORD';Value=(& $makePassword)}); " ^
+  "$updates = @(@{Key='JWT_SECRET';Value=(& $makeHex 128)}, @{Key='JWT_REFRESH_SECRET';Value=(& $makeHex 128)}, @{Key='SECRET_KEY';Value=(& $makeHex 64)}, @{Key='TOOLS_API_KEY';Value=(& $makeHex 64)}, @{Key='POSTGRES_PASSWORD';Value=(& $makeHex 48)}, @{Key='INITIAL_ADMIN_PASSWORD';Value=(& $makePassword)}); " ^
   "$generatedAdmin = ''; " ^
   "foreach ($item in $updates) { " ^
   "  $pattern = '(?m)^' + [regex]::Escape($item.Key) + '=(.*)$'; " ^
@@ -29,6 +29,22 @@ for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass
   "    $content = [regex]::Replace($content, $pattern, ($item.Key + '=' + $item.Value)); " ^
   "    if ($item.Key -eq 'INITIAL_ADMIN_PASSWORD') { $generatedAdmin = $item.Value } " ^
   "  } " ^
+  "} " ^
+  "$postgresPassword = ([regex]::Match($content, '(?m)^POSTGRES_PASSWORD=(.*)$').Groups[1].Value).Trim(); " ^
+  "$defaults = @(@{Key='DB_DRIVER';Value='postgresql+asyncpg'}, @{Key='DB_HOST';Value='127.0.0.1'}, @{Key='DB_PORT';Value='55432'}, @{Key='DB_NAME';Value='edq'}, @{Key='DB_USER';Value='edq'}, @{Key='DB_PASSWORD';Value=$postgresPassword}, @{Key='DB_CONNECT_TIMEOUT_SECONDS';Value='15'}, @{Key='EDQ_BACKEND_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_BACKEND_PORT';Value='8000'}, @{Key='EDQ_TOOLS_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_TOOLS_PORT';Value='8001'}, @{Key='EDQ_POSTGRES_BIND_HOST';Value='127.0.0.1'}, @{Key='EDQ_POSTGRES_PORT';Value='55432'}, @{Key='LOG_JSON';Value='false'}); " ^
+  "foreach ($item in $defaults) { " ^
+  "  $pattern = '(?m)^' + [regex]::Escape($item.Key) + '=(.*)$'; " ^
+  "  $match = [regex]::Match($content, $pattern); " ^
+  "  if (-not $match.Success) { $content += [Environment]::NewLine + ($item.Key + '=' + $item.Value); continue } " ^
+  "  if ([string]::IsNullOrWhiteSpace($match.Groups[1].Value) -or $match.Groups[1].Value.StartsWith('CHANGE_ME') -or $match.Groups[1].Value.StartsWith('change-me')) { " ^
+  "    $content = [regex]::Replace($content, $pattern, ($item.Key + '=' + $item.Value)); " ^
+  "  } " ^
+  "} " ^
+  "$dbUrlPattern = '(?m)^DATABASE_URL=(.*)$'; " ^
+  "$dbUrlMatch = [regex]::Match($content, $dbUrlPattern); " ^
+  "if (-not $dbUrlMatch.Success) { $content += [Environment]::NewLine + 'DATABASE_URL=' } " ^
+  "elseif ([string]::IsNullOrWhiteSpace($dbUrlMatch.Groups[1].Value) -or $dbUrlMatch.Groups[1].Value.StartsWith('CHANGE_ME') -or $dbUrlMatch.Groups[1].Value.StartsWith('change-me') -or $dbUrlMatch.Groups[1].Value -match 'sqlite') { " ^
+  "  $content = [regex]::Replace($content, $dbUrlPattern, 'DATABASE_URL='); " ^
   "} " ^
   "Set-Content '.env' $content -Encoding ASCII; " ^
   "Write-Output $generatedAdmin"`) do set "ADMIN_PASS=%%A"
@@ -58,7 +74,7 @@ if "%READY%"=="0" (
 )
 
 echo.
-echo === EDQ is running at http://localhost ===
+echo === EDQ is running at http://localhost:3000 ===
 echo   Login: username 'admin' / password from INITIAL_ADMIN_PASSWORD in the root .env file
 if not "%ADMIN_PASS%"=="" echo   Generated initial admin password: %ADMIN_PASS%
 echo   (Change your password after first login)

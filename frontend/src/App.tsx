@@ -106,19 +106,19 @@ function AppShell() {
             <Route path="/devices/:id" element={<DeviceDetailPage />} />
             <Route path="/test-runs" element={<TestRunsPage />} />
             <Route path="/test-runs/:id" element={<TestRunDetailPage />} />
-            <Route path="/templates" element={<RequireRole allowed={['reviewer', 'admin']}><TemplatesPage /></RequireRole>} />
-            <Route path="/whitelists" element={<RequireRole allowed={['reviewer', 'admin']}><WhitelistsPage /></RequireRole>} />
+            <Route path="/templates" element={<TemplatesPage />} />
+            <Route path="/whitelists" element={<WhitelistsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/review" element={<RequireRole allowed={['admin']}><ReviewQueuePage /></RequireRole>} />
+            <Route path="/review" element={<RequireRole allowed={['reviewer', 'admin']}><ReviewQueuePage /></RequireRole>} />
             <Route path="/admin" element={<RequireRole allowed={['admin']}><AdminPage /></RequireRole>} />
-            <Route path="/audit-log" element={<RequireRole allowed={['admin']}><AuditLogPage /></RequireRole>} />
+            <Route path="/audit-log" element={<RequireRole allowed={['reviewer', 'admin']}><AuditLogPage /></RequireRole>} />
             <Route path="/settings" element={<SettingsPage tourState={tour} />} />
             <Route path="/network-scan" element={<NetworkScanPage />} />
-            <Route path="/test-plans" element={<RequireRole allowed={['reviewer', 'admin']}><TestPlansPage /></RequireRole>} />
-            <Route path="/scan-schedules" element={<RequireRole allowed={['reviewer', 'admin']}><ScanSchedulesPage /></RequireRole>} />
+            <Route path="/test-plans" element={<TestPlansPage />} />
+            <Route path="/scan-schedules" element={<ScanSchedulesPage />} />
             <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/device-profiles" element={<RequireRole allowed={['reviewer', 'admin']}><DeviceProfilesPage /></RequireRole>} />
-            <Route path="/authorized-networks" element={<RequireRole allowed={['admin']}><AuthorizedNetworksPage /></RequireRole>} />
+            <Route path="/device-profiles" element={<DeviceProfilesPage />} />
+            <Route path="/authorized-networks" element={<AuthorizedNetworksPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </PageErrorBoundary>

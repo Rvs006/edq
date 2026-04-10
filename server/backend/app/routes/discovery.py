@@ -71,6 +71,11 @@ def _decode_output_file(raw: Dict[str, Any]) -> str:
         return output_file if isinstance(output_file, str) else ""
 
 
+def _append_interface_arg(args: list[str], interface: Optional[str]) -> list[str]:
+    if not interface:
+        return list(args)
+    return [*args, "-e", interface]
+
 
 def _resolve_hostname(ip: str) -> Optional[str]:
     """Attempt reverse DNS lookup for an IP address."""
@@ -198,7 +203,7 @@ async def initiate_discovery(
         try:
             raw = await tools_client.nmap(
                 data.ip_address,
-                ["-sV", "-O", "-p-", "--max-rate", "300", "-oX", "-"],
+                _append_interface_arg(["-sV", "-O", "-p-", "--max-rate", "300", "-oX", "-"], data.interface),
                 timeout=scan_timeout,
             )
         except Exception:
@@ -257,7 +262,7 @@ async def initiate_discovery(
         try:
             raw = await tools_client.nmap(
                 data.subnet,
-                ["-sn"],
+                _append_interface_arg(["-sn"], data.interface),
                 timeout=120,
             )
         except Exception:

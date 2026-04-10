@@ -57,6 +57,7 @@ class NmapParser:
                 "status": "unknown",
                 "ports": [],
                 "os": None,
+                "hostname": None,
             }
 
             status = host_elem.find("status")
@@ -73,6 +74,14 @@ class NmapParser:
                     # Also store at top level for single-host scans
                     result["mac_address"] = addr.get("addr")
                     result["oui_vendor"] = addr.get("vendor", "")
+
+            hostnames_elem = host_elem.find("hostnames")
+            if hostnames_elem is not None:
+                for hostname_elem in hostnames_elem.findall("hostname"):
+                    hostname = hostname_elem.get("name")
+                    if hostname:
+                        host_data["hostname"] = hostname
+                        break
 
             ports_elem = host_elem.find("ports")
             if ports_elem is not None:

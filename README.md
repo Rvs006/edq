@@ -40,16 +40,17 @@ It replaces fragmented terminal work, spreadsheet transcription, and manual repo
 
 ## Architecture At A Glance
 
-EDQ currently ships as a three-service Docker stack plus an optional Electron wrapper:
+EDQ currently ships as a three-container Docker stack plus an optional Electron wrapper:
 
 - `frontend`: React app served by nginx on `http://localhost`
-- `backend`: FastAPI API and WebSocket server on container port `8000`, proxied through the frontend
-- `tools`: tooling sidecar used by automated checks for network, TLS, web, and credential probes
+- `backend`: FastAPI API and the co-located tools sidecar on container ports `8000` and `8001`, proxied through the frontend
+- `postgres`: primary application database for both Docker and direct local backend runs
 - `electron`: packaged desktop wrapper for local workstation use
 
 Persistent state is stored in Docker volumes for:
 
-- database state: `edq-data`
+- database state: `edq-pgdata`
+- legacy SQLite backups or transitional local data: `edq-data`
 - uploaded files: `edq-uploads`
 - generated reports: `edq-reports`
 
@@ -75,7 +76,7 @@ cd edq
 
 After startup:
 
-1. Open `http://localhost`
+1. Open `http://localhost:3000`
 2. Log in with username `admin`
 3. Use the password stored in `INITIAL_ADMIN_PASSWORD` in the root `.env`
 4. Change the password after first login
@@ -109,6 +110,7 @@ Windows PowerShell:
 
 - Local login accepts either username or email. The seeded admin username is `admin`.
 - `setup.sh` and `setup.bat` create the root `.env`, fill missing secrets, and generate an initial admin password if needed.
+- The default runtime database is PostgreSQL on `127.0.0.1:55432`; Docker overrides the backend container to use the internal `postgres` host on `5432`.
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.
 - Frontend and backend development can run locally outside Docker; the tools sidecar remains Docker-backed on Windows. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).

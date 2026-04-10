@@ -1,18 +1,15 @@
-"""Initialize the database and create default admin user.
+"""Initialize seed data and create default runtime users.
 
-NOTE: For schema changes after the initial release, use Alembic migrations:
-    cd server/backend
-    alembic revision --autogenerate -m "describe_change"
-    alembic upgrade head
-
-This script remains as a fallback for fresh installs where Base.metadata.create_all()
-is used to bootstrap the schema before seeding default data.
+Schema creation and upgrades are owned by Alembic. This script ensures the
+runtime database is migrated to the current head before it seeds idempotent
+application data.
 """
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from app.models.database import sync_engine, Base, SessionLocal
+from app.config import settings
+from app.models.database import SessionLocal, ensure_database_schema_sync, sync_engine
 from app.models.user import User
 from app.models.device import Device
 from app.models.device_profile import DeviceProfile
@@ -26,9 +23,9 @@ from app.models.report_config import ReportConfig
 from app.models.sync_queue import SyncQueue
 from app.models.protocol_whitelist import ProtocolWhitelist
 from app.models.project import Project
-from app.security.auth import hash_password
+from app.security.auth import hash_password, verify_password
 from app.services.test_library import UNIVERSAL_TESTS
-from sqlalchemy import text
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 import uuid
 import json
@@ -87,26 +84,69 @@ DISCOURAGED_PORTS = [
     {"port": 8080, "reason": "HTTP-alt — unencrypted web traffic"},
 ]
 
+LOCAL_TEST_USERS = [
+    {
+        "username": "pytest_engineer",
+        "email": "pytest_engineer@localhost",
+        "password": "Engineer@2026!",
+        "full_name": "Pytest Engineer",
+        "role": "engineer",
+    },
+    {
+        "username": "pytest_reviewer",
+        "email": "pytest_reviewer@localhost",
+        "password": "Reviewer@2026!",
+        "full_name": "Pytest Reviewer",
+        "role": "reviewer",
+    },
+]
+
+
+def _parse_bool_env(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def should_seed_local_test_users() -> bool:
+    override = _parse_bool_env(os.getenv("EDQ_SEED_TEST_USERS"))
+    if override is not None:
+        return override
+
+    localhost_origins = [
+        origin for origin in settings.CORS_ORIGINS
+        if "localhost" in origin or "127.0.0.1" in origin
+    ]
+    localhost_only = bool(settings.CORS_ORIGINS) and len(localhost_origins) == len(settings.CORS_ORIGINS)
+    return settings.DEBUG or (localhost_only and not settings.COOKIE_SECURE)
+
 
 def init_db() -> bool:
-    """Create all tables and seed default data.
+    """Ensure the schema is current, then seed default data.
 
     Returns True if the admin user was newly created in this run (first boot),
     False if the admin already existed.
     """
-    print("Creating database tables...")
-    Base.metadata.create_all(bind=sync_engine)
-    print("Tables created successfully.")
+    print("Ensuring database schema is current...")
+    ensure_database_schema_sync()
+    print("Database schema ready.")
 
     admin_created = False
     db = SessionLocal()
     try:
-        _run_migrations(db)
         admin, admin_created = _seed_admin_user(db)
         whitelist = _seed_protocol_whitelist(db, admin)
         _seed_device_profiles(db, admin, whitelist)
         _seed_test_templates(db, admin, whitelist)
         _seed_report_config(db, admin)
+        if should_seed_local_test_users():
+            _seed_local_test_users(db)
+        _dedup_template_test_ids(db)
 
         db.commit()
         print("\nDatabase initialization complete!")
@@ -117,41 +157,70 @@ def init_db() -> bool:
         raise
     finally:
         db.close()
+        sync_engine.dispose()
 
     return admin_created
 
 
-def _run_migrations(db: Session) -> None:
-    """Add columns that may be missing from existing databases."""
-    # Use TIMESTAMP for PostgreSQL compatibility (SQLite treats both the same)
-    migrations = [
-        "ALTER TABLE report_configs ADD COLUMN client_name TEXT",
-        "ALTER TABLE report_configs ADD COLUMN logo_path TEXT",
-        "ALTER TABLE report_configs ADD COLUMN compliance_standards TEXT",
-        "ALTER TABLE report_configs ADD COLUMN branding_colours TEXT",
-        "ALTER TABLE test_runs ADD COLUMN connection_scenario TEXT DEFAULT 'direct'",
-        "ALTER TABLE test_runs ADD COLUMN project_id TEXT",
-        "ALTER TABLE test_results ADD COLUMN engineer_notes TEXT",
-        "ALTER TABLE test_results ADD COLUMN override_reason TEXT",
-        "ALTER TABLE test_results ADD COLUMN override_verdict TEXT",
-        "ALTER TABLE test_results ADD COLUMN overridden_by_user_id TEXT",
-        "ALTER TABLE test_results ADD COLUMN overridden_by_username TEXT",
-        "ALTER TABLE test_results ADD COLUMN overridden_at TIMESTAMP",
-        "ALTER TABLE users ADD COLUMN access_tokens_revoked_at TIMESTAMP",
-        "ALTER TABLE devices ADD COLUMN addressing_mode TEXT DEFAULT 'dhcp'",
-        "ALTER TABLE devices ADD COLUMN project_id TEXT",
-        "ALTER TABLE devices ADD COLUMN location TEXT",
-        "ALTER TABLE devices ADD COLUMN serial_number TEXT",
-    ]
-    for sql in migrations:
-        try:
-            db.execute(text(sql))
-        except Exception:
-            pass
-    db.commit()
+def _seed_local_test_users(db: Session) -> None:
+    """Seed deterministic local test accounts for the live integration suite.
 
-    # Fix any templates with duplicate test_ids (e.g. U20 appearing twice)
-    _dedup_template_test_ids(db)
+    These users are only maintained for local/dev-style environments. Their
+    credentials are reset on startup so interrupted smoke tests do not leave
+    the live stack in a drifted state.
+    """
+    for spec in LOCAL_TEST_USERS:
+        normalized_username = spec["username"].casefold()
+        user = db.query(User).filter(
+            func.lower(User.username) == normalized_username
+        ).first()
+
+        if user is None:
+            user = User(
+                id=str(uuid.uuid4()),
+                username=spec["username"],
+                email=spec["email"],
+                password_hash=hash_password(spec["password"]),
+                full_name=spec["full_name"],
+                role=spec["role"],
+                is_active=True,
+            )
+            db.add(user)
+            db.flush()
+            print(f"Created local test user '{spec['username']}'")
+            continue
+
+        updated = []
+        if user.username != spec["username"]:
+            user.username = spec["username"]
+            updated.append("username")
+        if user.email != spec["email"]:
+            user.email = spec["email"]
+            updated.append("email")
+        if not verify_password(spec["password"], user.password_hash):
+            user.password_hash = hash_password(spec["password"])
+            updated.append("password")
+        if str(user.role) != spec["role"]:
+            user.role = spec["role"]
+            updated.append("role")
+        if user.full_name != spec["full_name"]:
+            user.full_name = spec["full_name"]
+            updated.append("full_name")
+        if not user.is_active:
+            user.is_active = True
+            updated.append("is_active")
+        if user.failed_login_attempts:
+            user.failed_login_attempts = 0
+            updated.append("failed_login_attempts")
+        if user.locked_until is not None:
+            user.locked_until = None
+            updated.append("locked_until")
+
+        if updated:
+            db.flush()
+            print(
+                f"Reset local test user '{spec['username']}' fields: {', '.join(updated)}"
+            )
 
 
 def _dedup_template_test_ids(db: Session) -> None:
@@ -186,12 +255,20 @@ def _seed_admin_user(db: Session) -> tuple:
         if not admin.is_active:
             admin.is_active = True
             updated.append("is_active")
+        if should_seed_local_test_users():
+            if not verify_password(settings.INITIAL_ADMIN_PASSWORD, admin.password_hash):
+                admin.password_hash = hash_password(settings.INITIAL_ADMIN_PASSWORD)
+                updated.append("password")
+            if admin.failed_login_attempts:
+                admin.failed_login_attempts = 0
+                updated.append("failed_login_attempts")
+            if admin.locked_until is not None:
+                admin.locked_until = None
+                updated.append("locked_until")
         if updated:
             db.flush()
             print(f"Updated default admin user fields: {', '.join(updated)}")
         return admin, False
-
-    from app.config import settings
     initial_password = settings.INITIAL_ADMIN_PASSWORD
     admin = User(
         id=str(uuid.uuid4()),

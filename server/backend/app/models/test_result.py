@@ -7,6 +7,8 @@ import enum
 import uuid
 
 from app.models.database import Base
+from app.models.enum_utils import enum_values
+from app.utils.datetime import utcnow_naive
 
 
 class TestVerdict(str, enum.Enum):
@@ -34,9 +36,12 @@ class TestResult(Base):
     test_run_id = Column(String(36), ForeignKey("test_runs.id"), nullable=False, index=True)
     test_id = Column(String(8), nullable=False, index=True)  # e.g. "U01", "U02"
     test_name = Column(String(128), nullable=False)
-    tier = Column(SAEnum(TestTier), nullable=False)
+    tier = Column(SAEnum(TestTier, values_callable=enum_values), nullable=False)
     tool = Column(String(64), nullable=True)  # nmap, sslyze, ssh-audit, etc.
-    verdict = Column(SAEnum(TestVerdict), default=TestVerdict.PENDING)
+    verdict = Column(
+        SAEnum(TestVerdict, values_callable=enum_values),
+        default=TestVerdict.PENDING,
+    )
     is_essential = Column(String(3), default="no")  # "yes" or "no"
     comment = Column(Text, nullable=True)  # Auto-generated or manual comment
     comment_override = Column(Text, nullable=True)  # Engineer override
@@ -56,8 +61,8 @@ class TestResult(Base):
     duration_seconds = Column(Float, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 
     # Relationships
     test_run = relationship("TestRun", back_populates="results")

@@ -59,6 +59,7 @@ WORKDIR /app
 
 # Copy backend code (build context is repo root)
 COPY server/backend/ .
+COPY templates/ /app/templates/
 
 # Copy tools sidecar
 COPY tools/server.py /app/tools/server.py

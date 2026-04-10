@@ -1,11 +1,12 @@
 """Application configuration from environment variables."""
 
+import os
 from pathlib import Path
 from typing import List
-import os
+from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -32,8 +33,17 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production-use-openssl-rand-hex-32"
 
-    # Database — defaults to SQLite for standalone mode
-    DATABASE_URL: str = "sqlite+aiosqlite:///./edq.db"
+    # Database — PostgreSQL is the primary runtime for both Docker and local runs.
+    # DATABASE_URL can still be set explicitly when needed (for tests, SQLite fallback,
+    # managed cloud Postgres URLs, etc).
+    DATABASE_URL: str = ""
+    DB_DRIVER: str = "postgresql+asyncpg"
+    DB_HOST: str = "127.0.0.1"
+    DB_PORT: int = 55432
+    DB_NAME: str = "edq"
+    DB_USER: str = "edq"
+    DB_PASSWORD: str = "edq-postgres-secret"
+    DB_CONNECT_TIMEOUT_SECONDS: int = 15
 
     # JWT
     JWT_SECRET: str = "change-me-jwt-secret-use-openssl-rand-hex-64"
@@ -92,13 +102,19 @@ class Settings(BaseSettings):
     # Sentry (optional — error tracking & performance monitoring)
     SENTRY_DSN: str = ""
     SENTRY_ENVIRONMENT: str = "production"
+    SENTRY_RELEASE: str = ""
     SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+    SENTRY_PROFILES_SAMPLE_RATE: float = 0.0
+    SENTRY_LOG_LEVEL: str = "INFO"
+    SENTRY_EVENT_LEVEL: str = "ERROR"
+    SENTRY_SEND_DEFAULT_PII: bool = False
 
     # Audit log retention
     AUDIT_LOG_RETENTION_DAYS: int = 365  # Auto-delete audit logs older than this
 
     # Logging
     LOG_LEVEL: str = "INFO"
+    LOG_JSON: bool | None = None
 
     @field_validator("DEBUG", mode="before")
     @classmethod
@@ -111,9 +127,24 @@ class Settings(BaseSettings):
                 return True
         return value
 
+    @model_validator(mode="after")
+    def finalize_runtime_defaults(self):
+        if not self.DATABASE_URL:
+            self.DATABASE_URL = (
+                f"{self.DB_DRIVER}://"
+                f"{quote_plus(self.DB_USER)}:{quote_plus(self.DB_PASSWORD)}"
+                f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+            )
+
+        if self.LOG_JSON is None:
+            self.LOG_JSON = not self.DEBUG
+
+        return self
+
     class Config:
         env_file = str(ROOT_ENV_FILE)
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 settings = Settings()
@@ -177,21 +208,55 @@ if not settings.COOKIE_SECURE and not settings.DEBUG and not _localhost_only:
         stacklevel=2,
     )
 
-# --- Sentry integration (optional) ---
-if settings.SENTRY_DSN:
+if settings.DATABASE_URL.startswith("sqlite") and not settings.DEBUG:
+    _warnings.warn(
+        "[EDQ DATABASE] SQLite is enabled outside debug mode. PostgreSQL is the supported "
+        "runtime for concurrent or production workloads.",
+        stacklevel=2,
+    )
+
+_sentry_configured = False
+
+
+def configure_sentry() -> None:
+    """Initialize Sentry once when a DSN is configured."""
+    global _sentry_configured
+
+    if _sentry_configured or not settings.SENTRY_DSN:
+        return
+
     try:
+        import logging
         import sentry_sdk
         from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
         from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+        breadcrumb_level = getattr(logging, settings.SENTRY_LOG_LEVEL.upper(), logging.INFO)
+        event_level = getattr(logging, settings.SENTRY_EVENT_LEVEL.upper(), logging.ERROR)
+        sentry_logging = LoggingIntegration(
+            level=breadcrumb_level,
+            event_level=event_level,
+        )
 
         sentry_sdk.init(
             dsn=settings.SENTRY_DSN,
             environment=settings.SENTRY_ENVIRONMENT,
+            release=settings.SENTRY_RELEASE or None,
             traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
-            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
-            send_default_pii=False,
+            profiles_sample_rate=settings.SENTRY_PROFILES_SAMPLE_RATE,
+            integrations=[
+                FastApiIntegration(),
+                SqlalchemyIntegration(),
+                sentry_logging,
+            ],
+            send_default_pii=settings.SENTRY_SEND_DEFAULT_PII,
         )
-        print(f"[EDQ] Sentry initialized (env={settings.SENTRY_ENVIRONMENT})", file=_sys.stderr)
+        _sentry_configured = True
+        print(
+            f"[EDQ] Sentry initialized (env={settings.SENTRY_ENVIRONMENT})",
+            file=_sys.stderr,
+        )
     except ImportError:
         _warnings.warn(
             "[EDQ] SENTRY_DSN is set but sentry-sdk is not installed. "

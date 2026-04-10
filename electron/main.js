@@ -4,6 +4,8 @@ const DockerManager = require('./docker-manager');
 const { setupTray } = require('./tray');
 const { setupUpdater } = require('./updater');
 
+const EDQ_PUBLIC_URL = process.env.EDQ_PUBLIC_URL || `http://localhost:${process.env.EDQ_PUBLIC_PORT || '3000'}`;
+
 let mainWindow = null;
 let splashWindow = null;
 const dockerManager = new DockerManager();
@@ -89,7 +91,7 @@ app.on('ready', async () => {
     if (code !== -3) {
       setTimeout(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.loadURL('http://localhost:80');
+          mainWindow.loadURL(EDQ_PUBLIC_URL);
         }
       }, 2000);
     }
@@ -214,7 +216,7 @@ function createMainWindow() {
     },
   });
 
-  win.loadURL('http://localhost:80');
+  win.loadURL(EDQ_PUBLIC_URL);
   return win;
 }
 

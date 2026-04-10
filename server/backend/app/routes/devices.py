@@ -24,12 +24,100 @@ from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse
 from app.security.auth import get_current_active_user, require_role
 from app.utils.sanitize import sanitize_dict, strip_html
 from app.utils.audit import log_action
+from app.utils.datetime import as_utc
 from app.services.tools_client import tools_client
 from app.middleware.rate_limit import check_rate_limit
+from app.routes.authorized_networks import get_active_networks
 
 logger = logging.getLogger("edq.routes.devices")
 
 router = APIRouter()
+
+_DEFAULT_DHCP_SCAN_SUBNETS = (
+    "192.168.1.0/24",
+    "192.168.0.0/24",
+    "10.0.0.0/24",
+    "172.16.0.0/24",
+)
+
+
+def _append_scan_cidr(candidates: list[str], candidate: str) -> None:
+    try:
+        network = ipaddress.ip_network(candidate, strict=False)
+    except ValueError:
+        return
+    normalized = str(network)
+    if normalized not in candidates:
+        candidates.append(normalized)
+
+
+def _append_anchor_subnet(candidates: list[str], host: str, prefix: int = 24) -> None:
+    try:
+        subnet = ipaddress.ip_network(f"{host}/{prefix}", strict=False)
+    except ValueError:
+        return
+    _append_scan_cidr(candidates, str(subnet))
+
+
+def _build_discovery_scan_ranges(authorized_cidrs: list[str], detection: dict | None) -> list[str]:
+    candidates: list[str] = []
+    detection = detection or {}
+    host_ip = detection.get("host_ip")
+    interfaces = detection.get("interfaces") or []
+
+    sample_hosts: list[str] = []
+    for interface in interfaces:
+        for host in interface.get("sample_hosts") or []:
+            if isinstance(host, str):
+                sample_hosts.append(host)
+
+    if isinstance(host_ip, str):
+        sample_hosts.append(host_ip)
+
+    for interface in interfaces:
+        cidr = interface.get("cidr")
+        if not isinstance(cidr, str):
+            continue
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            continue
+        if network.prefixlen >= 24 or network.network_address.is_link_local:
+            _append_scan_cidr(candidates, str(network))
+        for host in interface.get("sample_hosts") or []:
+            if isinstance(host, str):
+                _append_anchor_subnet(candidates, host)
+
+    for cidr in authorized_cidrs:
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            continue
+        if network.prefixlen >= 24 or network.network_address.is_link_local:
+            _append_scan_cidr(candidates, str(network))
+            continue
+        anchored = False
+        for host in sample_hosts:
+            try:
+                host_ip_addr = ipaddress.ip_address(host)
+            except ValueError:
+                continue
+            if host_ip_addr in network:
+                _append_anchor_subnet(candidates, host)
+                anchored = True
+        if not anchored and isinstance(host_ip, str):
+            try:
+                host_addr = ipaddress.ip_address(host_ip)
+            except ValueError:
+                host_addr = None
+            if host_addr and host_addr in network:
+                _append_anchor_subnet(candidates, host_ip)
+
+    if not candidates:
+        for subnet in _DEFAULT_DHCP_SCAN_SUBNETS:
+            _append_scan_cidr(candidates, subnet)
+
+    return candidates
 
 
 @router.get("/", response_model=List[DeviceResponse])
@@ -346,7 +434,7 @@ async def import_devices_csv(
 
     The CSV must contain a header row.  Recognised columns:
     ip_address (required), name, hostname, manufacturer, model,
-    category, location, mac_address, notes.
+    firmware_version, category, location, mac_address, notes.
 
     Devices whose ip_address already exists in the database are skipped.
     A maximum of 500 data rows is accepted per upload.
@@ -448,6 +536,7 @@ async def import_devices_csv(
         )
         manufacturer = strip_html((row.get("manufacturer") or "").strip() or None)
         model_val = strip_html((row.get("model") or "").strip() or None)
+        firmware_version = strip_html((row.get("firmware_version") or "").strip() or None)
         location = strip_html((row.get("location") or "").strip() or None)
         notes = strip_html((row.get("notes") or "").strip() or None)
 
@@ -457,6 +546,7 @@ async def import_devices_csv(
             hostname=hostname,
             manufacturer=manufacturer,
             model=model_val,
+            firmware_version=firmware_version,
             category=category_raw,
             location=location,
             notes=notes,
@@ -658,7 +748,7 @@ async def device_trends(
         run_summaries.append(TrendRunSummary(
             run_id=run.id,
             date=(
-                run.created_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+                as_utc(run.created_at).isoformat().replace("+00:00", "Z")
                 if run.created_at else ""
             ),
             verdict=verdict_str,
@@ -761,8 +851,15 @@ async def discover_device_ip(
 
     mac_upper = device.mac_address.upper().replace("-", ":")
 
-    # Use nmap ARP scan on common subnets to find the device
-    subnets_to_scan = ["192.168.1.0/24", "192.168.0.0/24", "10.0.0.0/24", "172.16.0.0/24"]
+    authorized_networks = await get_active_networks(db)
+    authorized_cidrs = [network.cidr for network in authorized_networks if network.cidr]
+    detection = None
+    try:
+        detection = await tools_client.detect_networks()
+    except Exception as exc:
+        logger.warning("Network detection failed during DHCP IP discovery: %s", exc)
+
+    subnets_to_scan = _build_discovery_scan_ranges(authorized_cidrs, detection)
     discovered_ip = None
 
     for subnet in subnets_to_scan:

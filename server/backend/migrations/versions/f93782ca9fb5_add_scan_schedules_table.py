@@ -25,7 +25,7 @@ def upgrade() -> None:
     sa.Column('device_id', sa.String(length=36), nullable=False),
     sa.Column('template_id', sa.String(length=36), nullable=False),
     sa.Column('created_by', sa.String(length=36), nullable=False),
-    sa.Column('frequency', sa.Enum('DAILY', 'WEEKLY', 'MONTHLY', name='schedulefrequency'), nullable=False),
+    sa.Column('frequency', sa.Enum('daily', 'weekly', 'monthly', name='schedulefrequency'), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('last_run_at', sa.DateTime(), nullable=True),
     sa.Column('next_run_at', sa.DateTime(), nullable=False),

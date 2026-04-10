@@ -213,7 +213,7 @@ export const testResultsApi = {
 }
 
 export const reportsApi = {
-  generate: (data: { test_run_id: string; report_type?: string; format?: string; template_id?: string; template_key?: string; include_synopsis?: boolean }) => api.post('/reports/generate', data),
+  generate: (data: { test_run_id: string; report_type?: 'excel' | 'word' | 'pdf' | 'csv'; format?: string; template_id?: string; template_key?: string; include_synopsis?: boolean }) => api.post('/reports/generate', data),
   download: (filename: string) => api.get(`/reports/download/${filename}`, { responseType: 'blob' }),
   configs: () => api.get('/reports/configs'),
   templates: () => api.get('/reports/templates'),

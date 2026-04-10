@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.database import Base
+from app.utils.datetime import utcnow_naive
 
 
 class DeviceProfile(Base):
@@ -24,8 +25,8 @@ class DeviceProfile(Base):
     auto_generated = Column(Boolean, default=False)  # True if created by auto-learn
     is_active = Column(Boolean, default=True)
     created_by = Column(String(36), ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 
     # Relationships
     devices = relationship("Device", back_populates="profile")

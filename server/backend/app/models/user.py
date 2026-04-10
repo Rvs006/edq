@@ -7,6 +7,8 @@ import enum
 import uuid
 
 from app.models.database import Base
+from app.models.enum_utils import enum_values
+from app.utils.datetime import utcnow_naive
 
 
 class UserRole(str, enum.Enum):
@@ -23,15 +25,19 @@ class User(Base):
     username = Column(String(64), unique=True, nullable=False, index=True)
     password_hash = Column(String(256), nullable=False)
     full_name = Column(String(128), nullable=True)
-    role = Column(SAEnum(UserRole), nullable=False, default=UserRole.ENGINEER)
+    role = Column(
+        SAEnum(UserRole, values_callable=enum_values),
+        nullable=False,
+        default=UserRole.ENGINEER,
+    )
     is_active = Column(Boolean, default=True, nullable=False)
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime, nullable=True)
     last_login = Column(DateTime, nullable=True)
     # Any access token issued at or before this UTC timestamp is rejected.
     access_tokens_revoked_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 
     # TOTP Two-Factor Authentication
     totp_secret = Column(String(32), nullable=True)

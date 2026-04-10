@@ -12,10 +12,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.config import settings
-from app.logging_config import configure_logging
+from app.config import configure_sentry, settings
+from app.logging_config import (
+    bind_request_log_context,
+    configure_logging,
+    reset_request_log_context,
+)
 
 configure_logging()
+configure_sentry()
 logger = logging.getLogger("edq.main")
 from app.models.database import init_db
 from app.security.auth import CSRF_COOKIE, SESSION_COOKIE
@@ -123,6 +128,43 @@ def _upsert_header(headers: list[tuple[bytes, bytes]], name: bytes, value: bytes
     return filtered
 
 
+def _merge_csv_header(
+    headers: list[tuple[bytes, bytes]],
+    name: bytes,
+    values: list[bytes],
+) -> list[tuple[bytes, bytes]]:
+    """Merge comma-separated header tokens without clobbering existing values."""
+    lowered = name.lower()
+    merged: list[str] = []
+    seen: set[str] = set()
+    kept_headers: list[tuple[bytes, bytes]] = []
+
+    for key, value in headers:
+        if key.lower() != lowered:
+            kept_headers.append((key, value))
+            continue
+        for token in value.decode("latin-1").split(","):
+            normalized = token.strip()
+            if not normalized:
+                continue
+            lowered_token = normalized.lower()
+            if lowered_token not in seen:
+                merged.append(normalized)
+                seen.add(lowered_token)
+
+    for raw in values:
+        normalized = raw.decode("latin-1").strip()
+        if not normalized:
+            continue
+        lowered_token = normalized.lower()
+        if lowered_token not in seen:
+            merged.append(normalized)
+            seen.add(lowered_token)
+
+    kept_headers.append((name, ", ".join(merged).encode("latin-1")))
+    return kept_headers
+
+
 class RequestIDMiddleware:
     """Attach a unique request ID to every request/response cycle."""
 
@@ -136,6 +178,11 @@ class RequestIDMiddleware:
 
         headers = dict(scope.get("headers", []))
         request_id = headers.get(b"x-request-id", b"").decode() or str(uuid.uuid4())
+        log_context_tokens = bind_request_log_context(
+            request_id,
+            method=scope.get("method"),
+            path=scope.get("path"),
+        )
         scope.setdefault("state", {})
         if isinstance(scope["state"], dict):
             scope["state"]["request_id"] = request_id
@@ -148,7 +195,10 @@ class RequestIDMiddleware:
                 message["headers"] = headers
             await send(message)
 
-        await self.app(scope, receive, send_with_request_id)
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        finally:
+            reset_request_log_context(log_context_tokens)
 
 
 class SecurityHeadersMiddleware:
@@ -200,7 +250,11 @@ class SecurityHeadersMiddleware:
                         b"max-age=31536000; includeSubDomains",
                     )
                 if path.startswith("/api/"):
-                    headers = _upsert_header(headers, b"vary", b"Cookie, Authorization")
+                    headers = _merge_csv_header(
+                        headers,
+                        b"vary",
+                        [b"Origin", b"Cookie", b"Authorization"],
+                    )
                 message["headers"] = headers
             await send(message)
 
@@ -311,8 +365,11 @@ async def lifespan(app: FastAPI):
     # the async connection) can verify it.  This fixes a SQLite WAL isolation
     # issue where the async connection cannot see uncommitted/uncheckpointed
     # writes made by the separate sync connection.
-    if admin_created:
-        await _ensure_admin_password_synced()
+    from init_db import should_seed_local_test_users
+    force_local_admin_password = should_seed_local_test_users()
+    if admin_created or force_local_admin_password:
+        await _ensure_admin_password_synced(force_reset=force_local_admin_password)
+    await _ensure_local_test_users_synced()
     try:
         from app.services.test_engine import recover_orphaned_runs
         await recover_orphaned_runs()
@@ -335,15 +392,11 @@ def _seed_on_startup() -> bool:
 
     Returns True if the admin user was newly created (first boot).
     """
-    try:
-        from init_db import init_db as seed_db
-        return seed_db()
-    except Exception as e:
-        print(f"[EDQ] Warning: seed data error (may be already seeded): {e}")
-        return False
+    from init_db import init_db as seed_db
+    return seed_db()
 
 
-async def _ensure_admin_password_synced() -> None:
+async def _ensure_admin_password_synced(force_reset: bool = False) -> None:
     """Re-write the admin password hash through the async engine.
 
     On first boot the admin user is created by init_db.py using a *sync*
@@ -394,6 +447,72 @@ async def _ensure_admin_password_synced() -> None:
             print("[EDQ] Admin password verified OK through async engine")
 
 
+async def _ensure_local_test_users_synced() -> None:
+    """Make deterministic local test users visible to the async API engine."""
+    from init_db import LOCAL_TEST_USERS, should_seed_local_test_users
+
+    if not should_seed_local_test_users():
+        return
+
+    from app.models.database import async_session
+    from app.models.user import User
+    from app.security.auth import hash_password, verify_password
+    from sqlalchemy import func, select
+
+    async with async_session() as db:
+        changed = False
+        for spec in LOCAL_TEST_USERS:
+            result = await db.execute(
+                select(User).where(func.lower(User.username) == spec["username"].casefold())
+            )
+            user = result.scalar_one_or_none()
+
+            if user is None:
+                import uuid
+
+                user = User(
+                    id=str(uuid.uuid4()),
+                    username=spec["username"],
+                    email=spec["email"],
+                    password_hash=hash_password(spec["password"]),
+                    full_name=spec["full_name"],
+                    role=spec["role"],
+                    is_active=True,
+                )
+                db.add(user)
+                changed = True
+                continue
+
+            if user.username != spec["username"]:
+                user.username = spec["username"]
+                changed = True
+            if user.email != spec["email"]:
+                user.email = spec["email"]
+                changed = True
+            if not verify_password(spec["password"], user.password_hash):
+                user.password_hash = hash_password(spec["password"])
+                changed = True
+            if str(user.role) != spec["role"]:
+                user.role = spec["role"]
+                changed = True
+            if user.full_name != spec["full_name"]:
+                user.full_name = spec["full_name"]
+                changed = True
+            if not user.is_active:
+                user.is_active = True
+                changed = True
+            if user.failed_login_attempts:
+                user.failed_login_attempts = 0
+                changed = True
+            if user.locked_until is not None:
+                user.locked_until = None
+                changed = True
+
+        if changed:
+            await db.commit()
+            print("[EDQ] Local test users synced through async engine")
+
+
 def create_app() -> FastAPI:
     # Disable Swagger/ReDoc docs in production (enable with DEBUG=true)
     docs_url = "/docs" if settings.DEBUG else None
@@ -434,6 +553,14 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
+        if settings.SENTRY_DSN:
+            try:
+                import sentry_sdk
+
+                sentry_sdk.set_tag("request_id", getattr(request.state, "request_id", ""))
+                sentry_sdk.capture_exception(exc)
+            except Exception:
+                logger.debug("Failed to capture exception in Sentry", exc_info=True)
         logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
         return JSONResponse(
             status_code=500,
@@ -496,6 +623,30 @@ def create_app() -> FastAPI:
                 data.get("url", "unknown"),
                 data.get("message", "unknown"),
             )
+            if settings.SENTRY_DSN:
+                try:
+                    import sentry_sdk
+
+                    with sentry_sdk.push_scope() as scope:
+                        scope.set_tag("source", "frontend")
+                        scope.set_tag("request_id", getattr(request.state, "request_id", ""))
+                        scope.set_context(
+                            "frontend_error",
+                            {
+                                "url": data.get("url", "unknown"),
+                                "message": data.get("message", "unknown"),
+                                "stack": data.get("stack"),
+                                "component_stack": data.get("componentStack"),
+                                "timestamp": data.get("timestamp"),
+                                "user_agent": request.headers.get("user-agent", ""),
+                            },
+                        )
+                        sentry_sdk.capture_message(
+                            f"Frontend error: {data.get('message', 'unknown error')}",
+                            level="error",
+                        )
+                except Exception:
+                    logger.debug("Failed to forward frontend error to Sentry", exc_info=True)
         except Exception as e:
             logger.debug("Failed to log client error: %s", e)
         return Response(status_code=204)

@@ -23,10 +23,10 @@ def upgrade() -> None:
         sa.Column('created_by', sa.String(36), sa.ForeignKey('users.id'), nullable=False),
         sa.Column('client_name', sa.String(255), nullable=True),
         sa.Column('location', sa.String(255), nullable=True),
-        sa.Column('device_count', sa.Integer, server_default='0'),
+        sa.Column('device_count', sa.Integer, server_default=sa.text('0')),
         sa.Column('created_at', sa.DateTime, server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.Column('updated_at', sa.DateTime, server_default=sa.text('CURRENT_TIMESTAMP')),
-        sa.Column('is_archived', sa.Boolean, server_default=sa.text('0')),
+        sa.Column('is_archived', sa.Boolean, server_default=sa.false()),
     )
 
     with op.batch_alter_table('devices') as batch_op:

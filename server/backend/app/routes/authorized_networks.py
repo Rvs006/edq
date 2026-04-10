@@ -15,6 +15,7 @@ from app.models.database import get_db
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
 from app.utils.audit import log_action
+from app.utils.datetime import utcnow_naive
 from app.utils.sanitize import sanitize_dict
 
 logger = logging.getLogger("edq.routes.authorized_networks")
@@ -195,7 +196,7 @@ async def update_authorized_network(
     updates = sanitize_dict(data.model_dump(exclude_unset=True), ["label", "description"])
     for key, value in updates.items():
         setattr(network, key, value)
-    network.updated_at = datetime.now(timezone.utc)
+    network.updated_at = utcnow_naive()
 
     await db.flush()
     await db.refresh(network)

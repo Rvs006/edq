@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.database import Base
+from app.utils.datetime import utcnow_naive
 
 
 class TestTemplate(Base):
@@ -23,8 +24,8 @@ class TestTemplate(Base):
     is_default = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_by = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 
     # Relationships
     whitelist = relationship("ProtocolWhitelist")

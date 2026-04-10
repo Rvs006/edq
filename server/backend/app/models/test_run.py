@@ -7,6 +7,8 @@ import enum
 import uuid
 
 from app.models.database import Base
+from app.models.enum_utils import enum_values
+from app.utils.datetime import utcnow_naive
 
 
 class TestRunStatus(str, enum.Enum):
@@ -78,8 +80,14 @@ class TestRun(Base):
     project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
     agent_id = Column(String(36), ForeignKey("agents.id"), nullable=True)
     connection_scenario = Column(String(32), nullable=False, default="direct")  # direct, test_lab, site_network
-    status = Column(SAEnum(TestRunStatus), default=TestRunStatus.PENDING)
-    overall_verdict = Column(SAEnum(TestRunVerdict), nullable=True)
+    status = Column(
+        SAEnum(TestRunStatus, values_callable=enum_values),
+        default=TestRunStatus.PENDING,
+    )
+    overall_verdict = Column(
+        SAEnum(TestRunVerdict, values_callable=enum_values),
+        nullable=True,
+    )
     progress_pct = Column(Float, default=0.0)
     total_tests = Column(Integer, default=0)
     completed_tests = Column(Integer, default=0)
@@ -92,8 +100,8 @@ class TestRun(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     run_metadata = Column("metadata", JSON, nullable=True)  # Scan configuration, agent info, etc.
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 
     # Relationships
     device = relationship("Device", back_populates="test_runs")

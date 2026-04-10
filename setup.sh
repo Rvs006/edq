@@ -46,9 +46,29 @@ ensure_env_value "JWT_SECRET" "$(generate_hex 64)" >/dev/null
 ensure_env_value "JWT_REFRESH_SECRET" "$(generate_hex 64)" >/dev/null
 ensure_env_value "SECRET_KEY" "$(generate_hex 32)" >/dev/null
 ensure_env_value "TOOLS_API_KEY" "$(generate_hex 32)" >/dev/null
+ensure_env_value "POSTGRES_PASSWORD" "$(generate_hex 24)" >/dev/null
 if ensure_env_value "INITIAL_ADMIN_PASSWORD" "$(generate_password)"; then
   GENERATED_ADMIN_PASS=$(grep -E "^INITIAL_ADMIN_PASSWORD=" .env | head -1 | cut -d= -f2- | tr -d '\r')
 fi
+POSTGRES_PASSWORD_VALUE=$(grep -E "^POSTGRES_PASSWORD=" .env | head -1 | cut -d= -f2- | tr -d '\r')
+ensure_env_value "DATABASE_URL" "" >/dev/null
+if grep -q -E '^DATABASE_URL=.*sqlite' .env; then
+  sed -i 's|^DATABASE_URL=.*|DATABASE_URL=|' .env
+fi
+ensure_env_value "DB_DRIVER" "postgresql+asyncpg" >/dev/null
+ensure_env_value "DB_HOST" "127.0.0.1" >/dev/null
+ensure_env_value "DB_PORT" "55432" >/dev/null
+ensure_env_value "DB_NAME" "edq" >/dev/null
+ensure_env_value "DB_USER" "edq" >/dev/null
+ensure_env_value "DB_PASSWORD" "$POSTGRES_PASSWORD_VALUE" >/dev/null
+ensure_env_value "DB_CONNECT_TIMEOUT_SECONDS" "15" >/dev/null
+ensure_env_value "EDQ_BACKEND_BIND_HOST" "127.0.0.1" >/dev/null
+ensure_env_value "EDQ_BACKEND_PORT" "8000" >/dev/null
+ensure_env_value "EDQ_TOOLS_BIND_HOST" "127.0.0.1" >/dev/null
+ensure_env_value "EDQ_TOOLS_PORT" "8001" >/dev/null
+ensure_env_value "EDQ_POSTGRES_BIND_HOST" "127.0.0.1" >/dev/null
+ensure_env_value "EDQ_POSTGRES_PORT" "55432" >/dev/null
+ensure_env_value "LOG_JSON" "false" >/dev/null
 
 mkdir -p data
 
@@ -70,7 +90,7 @@ until docker compose exec -T backend curl -sf http://localhost:8000/api/health >
 done
 
 echo ""
-echo "=== EDQ is running at http://localhost ==="
+echo "=== EDQ is running at http://localhost:3000 ==="
 echo "  Login: username 'admin' / password from INITIAL_ADMIN_PASSWORD in the root .env file"
 if [ -n "$GENERATED_ADMIN_PASS" ]; then
   echo "  Generated initial admin password: $GENERATED_ADMIN_PASS"

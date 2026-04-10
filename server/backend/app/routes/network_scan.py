@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.models.database import get_db
 from app.models.network_scan import NetworkScan, NetworkScanStatus
 from app.models.device import Device, DeviceStatus, DeviceCategory
-from app.models.test_run import TestRun, TestRunStatus
+from app.models.test_run import TestRun, TestRunStatus, normalize_test_run_status
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.test_template import TestTemplate
 from app.models.user import User
@@ -29,6 +29,7 @@ from app.utils.audit import log_action
 from app.models.authorized_network import AuthorizedNetwork
 from app.models.user import UserRole
 from app.routes.authorized_networks import get_active_networks, is_target_authorized, is_ip_authorized
+from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.routes.network_scan")
 
@@ -97,21 +98,14 @@ async def detect_networks(
     Returns discovered interfaces, host IP, and scan recommendations.
     Used by the frontend to pre-fill scan targets.
     """
-    import httpx
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                f"{tools_client.base_url}/detect-networks",
-                headers=tools_client._headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        return await tools_client.detect_networks()
     except Exception as exc:
         logger.warning("Network detection failed: %s", exc)
         return {
             "interfaces": [],
             "host_ip": None,
-            "in_docker": True,
+            "in_docker": tools_client.in_docker,
             "scan_recommendation": None,
             "debug": {"error": str(exc)},
         }
@@ -180,6 +174,9 @@ async def discover_devices(
     await db.flush()
     await db.refresh(scan)
     scan_id = scan.id
+    # Release SQLite write locks before the potentially long-running discovery scan.
+    await db.commit()
+    await db.refresh(scan)
 
     try:
         raw = await tools_client.nmap(
@@ -405,6 +402,10 @@ async def start_batch_scan(
     scan.selected_test_ids = test_ids
     await db.flush()
     await db.refresh(scan)
+    # Persist the batch before launching background tasks so SQLite does not
+    # hold an open writer transaction across asynchronous test execution.
+    await db.commit()
+    await db.refresh(scan)
 
     scan_id = scan.id
     for rid in run_ids:
@@ -420,7 +421,7 @@ async def start_batch_scan(
 
 
 async def _monitor_batch(scan_id: str, run_ids: list[str]) -> None:
-    """Wait for all batch runs to complete, then mark scan complete."""
+    """Wait for all batch runs to settle, then update the aggregate scan status."""
     from app.models.database import async_session
 
     tasks = [_running_scan_tasks.get(rid) for rid in run_ids if rid in _running_scan_tasks]
@@ -434,8 +435,24 @@ async def _monitor_batch(scan_id: str, run_ids: list[str]) -> None:
         result = await db.execute(select(NetworkScan).where(NetworkScan.id == scan_id))
         scan = result.scalar_one_or_none()
         if scan and scan.status == NetworkScanStatus.SCANNING:
-            scan.status = NetworkScanStatus.COMPLETE
-            scan.completed_at = datetime.now(timezone.utc)
+            run_status_result = await db.execute(
+                select(TestRun.id, TestRun.status).where(TestRun.id.in_(run_ids))
+            )
+            run_statuses = {
+                row.id: normalize_test_run_status(row.status)
+                for row in run_status_result.all()
+            }
+            terminal_statuses = {
+                TestRunStatus.COMPLETED.value,
+                TestRunStatus.FAILED.value,
+                TestRunStatus.CANCELLED.value,
+            }
+            if run_statuses and all(status in terminal_statuses for status in run_statuses.values()):
+                scan.status = NetworkScanStatus.COMPLETE
+                scan.completed_at = utcnow_naive()
+            else:
+                scan.status = NetworkScanStatus.PENDING
+                scan.completed_at = None
             await db.commit()
 
 

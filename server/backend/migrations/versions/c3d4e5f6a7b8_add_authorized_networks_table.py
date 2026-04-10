@@ -27,7 +27,7 @@ def upgrade() -> None:
         sa.Column("cidr", sa.String(43), nullable=False, unique=True, index=True),
         sa.Column("label", sa.String(128), nullable=True),
         sa.Column("description", sa.Text, nullable=True),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.true()),
         sa.Column("created_by", sa.String(36), nullable=False),
         sa.Column("created_at", sa.DateTime, nullable=False),
         sa.Column("updated_at", sa.DateTime, nullable=False),

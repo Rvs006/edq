@@ -12,12 +12,14 @@ import CategoryBadge from '@/components/common/CategoryBadge'
 import Callout from '@/components/common/Callout'
 import TopologyMap from '@/components/devices/TopologyMap'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
+import { useAuth } from '@/contexts/AuthContext'
 
 const CATEGORIES = ['camera', 'controller', 'intercom', 'access_panel', 'lighting', 'hvac', 'iot_sensor', 'meter', 'unknown']
 
 export default function DevicesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const urlSearch = searchParams.get('search') || ''
   const urlCategory = searchParams.get('category') || ''
@@ -49,6 +51,7 @@ export default function DevicesPage() {
   const [showDiscoverModal, setShowDiscoverModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [viewMode, setViewMode] = useState<'table' | 'topology'>('table')
+  const canDeleteDevices = user?.role === 'admin'
 
   const { data: devices, isLoading, isError } = useQuery({
     queryKey: ['devices', search, categoryFilter, projectIdFilter],
@@ -95,6 +98,7 @@ export default function DevicesPage() {
   })
 
   const handleBulkDelete = async () => {
+    if (!canDeleteDevices) return
     if (!confirm(`Delete ${selectedIds.size} device(s)? This cannot be undone.`)) return
     const idsToDelete = Array.from(selectedIds)
     for (const id of idsToDelete) {
@@ -292,14 +296,16 @@ export default function DevicesPage() {
               <GitCompare className="w-4 h-4" /> Compare ({selectedIds.size})
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => { void handleBulkDelete() }}
-            disabled={deleteMutation.isPending}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-50"
-          >
-            <Trash2 className="w-4 h-4" /> Delete
-          </button>
+          {canDeleteDevices && (
+            <button
+              type="button"
+              onClick={() => { void handleBulkDelete() }}
+              disabled={deleteMutation.isPending}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          )}
           <button type="button" onClick={() => setSelectedIds(new Set())} className="text-white/70 hover:text-white text-sm">
             Clear
           </button>

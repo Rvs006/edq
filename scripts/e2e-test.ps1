@@ -1,5 +1,5 @@
 param(
-    [string]$BaseUrl = "http://localhost",
+    [string]$BaseUrl = "http://localhost:3000",
     [string]$AdminUser = "admin",
     [string]$AdminPass = ""
 )

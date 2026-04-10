@@ -39,8 +39,8 @@ Windows notes:
 
 - The root `.env` file remains the source of truth.
 - Do not create `server/backend/.env`.
-- For local backend development, override `TOOLS_SIDECAR_URL` in your shell to `http://localhost:8001`.
-- If you want a separate local development database, override `DATABASE_URL` before starting the backend.
+- For local backend development, keep `TOOLS_SIDECAR_URL=http://127.0.0.1:8001`.
+- The default local database path is PostgreSQL on `127.0.0.1:55432`. Override `DATABASE_URL` only if you intentionally want a different database.
 
 ## Install Dependencies
 
@@ -82,10 +82,10 @@ npm ci
 
 ## Run Locally
 
-### Optional: keep the scan tooling available
+### Optional: keep PostgreSQL and the tools sidecar available via Docker
 
 ```powershell
-docker compose up -d tools
+docker compose up -d postgres backend
 ```
 
 ### Start the backend locally
@@ -93,15 +93,15 @@ docker compose up -d tools
 From `server\backend`:
 
 ```powershell
-$env:TOOLS_SIDECAR_URL = "http://localhost:8001"
-$env:DATABASE_URL = "sqlite+aiosqlite:///./data/edq-local.db"
+$env:TOOLS_SIDECAR_URL = "http://127.0.0.1:8001"
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Notes:
 
-- `TOOLS_SIDECAR_URL=http://localhost:8001` is required for a local backend process. The Docker-oriented root `.env` usually points to `http://tools:8001`, which only works from inside containers.
-- The example `DATABASE_URL` keeps local-dev data separate from the Docker-backed app database.
+- `TOOLS_SIDECAR_URL=http://127.0.0.1:8001` is required for a local backend process when you want to reuse the Docker-hosted tools sidecar.
+- The default `.env` now points local backend runs at PostgreSQL on `127.0.0.1:55432`, which is also exposed by `docker compose up -d postgres`.
+- If you need an isolated scratch database, override `DATABASE_URL` explicitly before starting the backend.
 
 ### Start the frontend locally
 
@@ -149,6 +149,6 @@ Docker-backed integration checks:
 
 - Electron is not the local-dev launcher. The Electron app starts Docker services through `docker compose`.
 - The supported full-stack path is still Docker Compose.
-- If you skip the `tools` container, automated scan flows and tool-version checks will fail or degrade.
+- If you skip `docker compose up -d postgres backend`, the local backend will lose the Docker-hosted Postgres and tools sidecar dependencies used by discovery and scan flows.
 - If `python`, `py`, or `pip` are not on `PATH`, invoke the installed interpreter directly or update your shell environment first.
 - If VS Code prompts for a Python interpreter, select `server/backend/.venv/Scripts/python.exe`.

@@ -15,6 +15,7 @@ import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels
 import { toLocalDateOnly } from '@/lib/testContracts'
 import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
 
 function SeverityBadge({ severity }: { severity: string }) {
   const colors: Record<string, string> = {
@@ -43,12 +44,14 @@ export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [cveData, setCveData] = useState<CVELookupResponse | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const canDeleteDevice = user?.role === 'admin'
 
   const { data: device, isLoading } = useQuery({
     queryKey: ['device', id],
@@ -147,6 +150,7 @@ export default function DeviceDetailPage() {
   }
 
   const handleDelete = async () => {
+    if (!canDeleteDevice) return
     setIsDeleting(true)
     try {
       await devicesApi.delete(id!)
@@ -250,14 +254,17 @@ export default function DeviceDetailPage() {
                 <Pencil className="w-4 h-4" /> Edit
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-              title="Delete device"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {canDeleteDevice && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                title="Delete device"
+                aria-label="Delete device"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
             {isDhcpWithoutIp ? (
               <span className="btn-primary text-sm opacity-50 cursor-not-allowed" title="Discover the device IP before starting tests">
                 <Play className="w-4 h-4" /> Start New Test Run
@@ -600,7 +607,7 @@ export default function DeviceDetailPage() {
         )}
       </div>
 
-      {showDeleteConfirm && (
+      {canDeleteDevice && showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowDeleteConfirm(false)} />
           <div

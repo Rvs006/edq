@@ -19,6 +19,7 @@ from app.security.auth import (
     set_auth_cookies,
     store_refresh_token,
 )
+from app.utils.datetime import utcnow_naive
 from app.utils.audit import log_security_event
 
 logger = logging.getLogger("edq.routes.oidc")
@@ -224,7 +225,7 @@ async def oidc_callback(
             user.oidc_email = email
         if name and not user.full_name:
             user.full_name = name
-        user.last_login = datetime.now(timezone.utc)
+        user.last_login = utcnow_naive()
     else:
         username = email.split("@")[0][:64]
         existing_username = await db.execute(select(User).where(User.username == username))
@@ -242,7 +243,7 @@ async def oidc_callback(
             oidc_provider=provider,
             oidc_subject=sub,
             oidc_email=email,
-            last_login=datetime.now(timezone.utc),
+            last_login=utcnow_naive(),
         )
         db.add(user)
         await db.flush()
@@ -253,7 +254,7 @@ async def oidc_callback(
     refresh_token = create_refresh_token({"sub": user.id})
     csrf_token = generate_csrf_token()
 
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = utcnow_naive() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     await store_refresh_token(db, user.id, refresh_token, expires_at)
 
     set_auth_cookies(response, access_token, csrf_token, refresh_token)

@@ -1,89 +1,140 @@
 #!/bin/bash
 # =============================================================================
 # EDQ Server Deployment Script
-# Electracom Device Qualifier — One-command production deployment
-#
-# Usage:
-#   chmod +x deploy.sh
-#   ./deploy.sh
-#
-# Prerequisites:
-#   - Ubuntu 22.04+ (or any Linux with Docker)
-#   - Docker and Docker Compose installed
-#   - Root or sudo access
+# One-command Docker deployment with optional built-in TLS override.
 # =============================================================================
 
-set -e
+set -euo pipefail
+
+EDQ_BIND_HOST="${EDQ_BIND_HOST:-127.0.0.1}"
+EDQ_PUBLIC_PORT="${EDQ_PUBLIC_PORT:-3000}"
+EDQ_PUBLIC_URL="${EDQ_PUBLIC_URL:-}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  EDQ — Electracom Device Qualifier       ║${NC}"
-echo -e "${GREEN}║  Production Deployment                   ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
-echo ""
+info() {
+    echo -e "${GREEN}$1${NC}"
+}
 
-# Check Docker
-if ! command -v docker &> /dev/null; then
-    echo -e "${RED}Docker is not installed.${NC}"
-    echo "Install it with: curl -fsSL https://get.docker.com | sh"
+warn() {
+    echo -e "${YELLOW}$1${NC}"
+}
+
+fail() {
+    echo -e "${RED}$1${NC}"
     exit 1
+}
+
+read_env_value() {
+    local key="$1"
+    if [ ! -f .env ]; then
+        return 0
+    fi
+    grep -E "^${key}=" .env | tail -n 1 | cut -d'=' -f2-
+}
+
+strip_quotes() {
+    local value="$1"
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    printf '%s' "$value"
+}
+
+print_admin_credentials() {
+    local password="$1"
+    echo
+    echo "  =================================================="
+    echo "  ADMIN CREDENTIALS - SAVE THESE"
+    echo
+    echo "  Username: admin"
+    echo "  Password: ${password}"
+    echo
+    echo "  This password is shown only once."
+    echo "  =================================================="
+    echo
+}
+
+echo
+echo "=================================================="
+echo "EDQ Production Deployment"
+echo "=================================================="
+echo
+
+if ! command -v docker >/dev/null 2>&1; then
+    fail "Docker is not installed. Install it first."
 fi
 
-if ! command -v docker compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo -e "${RED}Docker Compose is not installed.${NC}"
-    exit 1
+if ! docker compose version >/dev/null 2>&1; then
+    fail "Docker Compose is not installed."
 fi
 
-echo -e "${GREEN}✓ Docker and Docker Compose found${NC}"
+info "Docker and Docker Compose found"
 
-# Generate .env if it doesn't exist
 if [ ! -f .env ]; then
-    echo ""
-    echo -e "${YELLOW}No .env file found. Creating production configuration...${NC}"
-    echo ""
+    warn "No .env file found. Creating production configuration..."
+    echo
 
-    # Generate secrets
     JWT_SECRET=$(openssl rand -hex 64)
     JWT_REFRESH_SECRET=$(openssl rand -hex 64)
     SECRET_KEY=$(openssl rand -hex 32)
     TOOLS_API_KEY=$(openssl rand -hex 32)
+    POSTGRES_PASSWORD=$(openssl rand -hex 24)
     ADMIN_PASSWORD=$(openssl rand -base64 18)
 
-    # Ask for server IP/domain
-    echo -n "Enter server IP or domain (e.g., 192.168.1.50 or edq.company.com): "
+    echo -n "Enter server IP or domain (e.g. 192.168.1.50 or edq.company.com): "
     read -r SERVER_HOST
     SERVER_HOST=${SERVER_HOST:-localhost}
 
-    # Ask whether HTTPS/TLS will be used (secure cookies require HTTPS)
-    echo ""
-    echo -n "Will this server use HTTPS/TLS? (Y/n): "
+    echo
+    echo -n "Will this deployment use HTTPS/TLS? (Y/n): "
     read -r USE_HTTPS
     USE_HTTPS=${USE_HTTPS:-Y}
+
+    BUILTIN_TLS="false"
+    DOMAIN_VALUE=""
     if [[ "$USE_HTTPS" =~ ^[Nn] ]]; then
         COOKIE_SECURE="false"
-        echo -e "${YELLOW}⚠  COOKIE_SECURE=false — session cookies will be sent over plain HTTP.${NC}"
-        echo -e "${YELLOW}   This is acceptable for local/dev but NOT recommended for production.${NC}"
+        warn "COOKIE_SECURE=false - session cookies will be sent over plain HTTP."
+        warn "This is acceptable for local/dev but not recommended for production."
     else
         COOKIE_SECURE="true"
+        echo -n "Use EDQ's built-in HTTPS/certbot stack on this server? (y/N): "
+        read -r ENABLE_BUILTIN_TLS
+        if [[ "$ENABLE_BUILTIN_TLS" =~ ^[Yy] ]]; then
+            BUILTIN_TLS="true"
+            DOMAIN_VALUE="${SERVER_HOST}"
+        else
+            warn "COOKIE_SECURE=true requires HTTPS termination before traffic reaches EDQ."
+            warn "Use a reverse proxy/load balancer or re-run deploy with the built-in TLS stack."
+        fi
     fi
 
-    cat > .env << EOF
+    cat > .env <<EOF
 # EDQ Production Configuration
 # Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-# Security — unique cryptographic secrets
+# Security
 JWT_SECRET=${JWT_SECRET}
 JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
 SECRET_KEY=${SECRET_KEY}
 COOKIE_SECURE=${COOKIE_SECURE}
 INITIAL_ADMIN_PASSWORD=${ADMIN_PASSWORD}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
 # Database
-DATABASE_URL=sqlite+aiosqlite:///./data/edq.db
+DATABASE_URL=
+DB_DRIVER=postgresql+asyncpg
+DB_HOST=127.0.0.1
+DB_PORT=55432
+DB_NAME=edq
+DB_USER=edq
+DB_PASSWORD=${POSTGRES_PASSWORD}
+DB_CONNECT_TIMEOUT_SECONDS=15
 
 # JWT
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
@@ -91,13 +142,25 @@ JWT_REFRESH_TOKEN_EXPIRE_DAYS=30
 
 # CORS
 CORS_ORIGINS=["http://${SERVER_HOST}","https://${SERVER_HOST}"]
+DOMAIN=${DOMAIN_VALUE}
+EDQ_USE_BUILTIN_TLS=${BUILTIN_TLS}
 
 # File Storage
 UPLOAD_DIR=./uploads
 REPORT_DIR=./reports
 
+# Frontend publish settings
+EDQ_BIND_HOST=${EDQ_BIND_HOST}
+EDQ_PUBLIC_PORT=${EDQ_PUBLIC_PORT}
+EDQ_BACKEND_BIND_HOST=127.0.0.1
+EDQ_BACKEND_PORT=8000
+EDQ_TOOLS_BIND_HOST=127.0.0.1
+EDQ_TOOLS_PORT=8001
+EDQ_POSTGRES_BIND_HOST=127.0.0.1
+EDQ_POSTGRES_PORT=55432
+
 # Tools Sidecar
-TOOLS_SIDECAR_URL=http://tools:8001
+TOOLS_SIDECAR_URL=http://localhost:8001
 TOOLS_API_KEY=${TOOLS_API_KEY}
 
 # AI Synopsis (optional)
@@ -107,70 +170,81 @@ AI_MODEL=gpt-4o
 
 # Logging
 LOG_LEVEL=INFO
+LOG_JSON=true
 DEBUG=false
 
-# Registration (set true to allow engineers to self-register)
+# Registration
 ALLOW_REGISTRATION=false
+
+# Sentry (optional)
+SENTRY_DSN=
+SENTRY_ENVIRONMENT=production
+SENTRY_RELEASE=
+SENTRY_TRACES_SAMPLE_RATE=0.1
+SENTRY_PROFILES_SAMPLE_RATE=0.0
+SENTRY_LOG_LEVEL=INFO
+SENTRY_EVENT_LEVEL=ERROR
 EOF
 
-    echo ""
-    echo -e "${GREEN}✓ .env file created${NC}"
-    echo ""
-    echo -e "  ╔══════════════════════════════════════════════════╗"
-    echo -e "  ║  ${YELLOW}ADMIN CREDENTIALS — SAVE THESE!${NC}                  ║"
-    echo -e "  ║                                                  ║"
-    echo -e "  ║  Username: ${GREEN}admin${NC}                                 ║"
-    echo -e "  ║  Password: ${GREEN}${ADMIN_PASSWORD}${NC}  ║"
-    echo -e "  ║                                                  ║"
-    echo -e "  ║  ${RED}This password is shown only once!${NC}                ║"
-    echo -e "  ╚══════════════════════════════════════════════════╝"
-    echo ""
+    info ".env file created"
+    print_admin_credentials "${ADMIN_PASSWORD}"
 else
-    echo -e "${GREEN}✓ .env file exists${NC}"
+    info ".env file exists"
 fi
 
-# Build and start
-echo ""
-echo -e "${YELLOW}Building and starting containers (first run takes 3-5 minutes)...${NC}"
-echo ""
+ENV_DOMAIN=$(strip_quotes "$(read_env_value DOMAIN)")
+ENV_USE_BUILTIN_TLS=$(strip_quotes "$(read_env_value EDQ_USE_BUILTIN_TLS)")
 
-docker compose up -d --build 2>&1
+COMPOSE_ARGS=(-f docker-compose.yml)
+COMPOSE_HINT="docker compose"
+if [ "${ENV_USE_BUILTIN_TLS}" = "true" ]; then
+    COMPOSE_ARGS+=(-f docker-compose.prod.yml)
+    COMPOSE_HINT="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+    if [ -z "${EDQ_PUBLIC_URL}" ]; then
+        if [ -n "${ENV_DOMAIN}" ]; then
+            EDQ_PUBLIC_URL="https://${ENV_DOMAIN}"
+        else
+            EDQ_PUBLIC_URL="https://localhost"
+        fi
+    fi
+elif [ -z "${EDQ_PUBLIC_URL}" ]; then
+    EDQ_PUBLIC_URL="http://localhost:${EDQ_PUBLIC_PORT}"
+fi
 
-# Wait for health
-echo ""
-echo -e "${YELLOW}Waiting for services to become healthy...${NC}"
+warn "Building and starting containers..."
+echo
+docker compose "${COMPOSE_ARGS[@]}" up -d --build
 
-for i in $(seq 1 60); do
-    if curl -sf http://localhost:80/api/health > /dev/null 2>&1; then
-        echo ""
-        echo -e "${GREEN}✓ All services are healthy!${NC}"
+warn "Waiting for services to become healthy..."
+for _ in $(seq 1 60); do
+    if curl -skf "${EDQ_PUBLIC_URL}/api/health" >/dev/null 2>&1; then
+        info "All services are healthy"
         break
     fi
     echo -n "."
     sleep 2
 done
+echo
 
-# Final status
-echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  EDQ is running!                                 ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "  App URL:       ${GREEN}http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost')${NC}"
-echo -e "  Health check:  curl http://localhost/api/health"
-echo ""
-echo -e "  Container status:"
-docker ps --format "    {{.Names}}\t{{.Status}}" | grep edq
-echo ""
-echo -e "  ${YELLOW}Next steps:${NC}"
-echo -e "  1. Open the URL above in a browser"
-echo -e "  2. Log in with the admin credentials"
-echo -e "  3. Create engineer accounts via Admin panel"
-echo -e "  4. Engineers access the same URL from their browsers"
-echo ""
-echo -e "  ${YELLOW}Useful commands:${NC}"
-echo -e "  docker compose logs -f          # View live logs"
-echo -e "  docker compose down             # Stop EDQ"
-echo -e "  docker compose up -d            # Start EDQ"
-echo -e "  docker compose up -d --build    # Rebuild and start"
-echo ""
+echo "=================================================="
+echo "EDQ is running"
+echo "=================================================="
+echo
+echo "App URL:      ${EDQ_PUBLIC_URL}"
+echo "Health URL:   ${EDQ_PUBLIC_URL}/api/health"
+echo
+echo "Container status:"
+docker ps --format "  {{.Names}}\t{{.Status}}" | grep edq || true
+echo
+echo "Next steps:"
+echo "  1. Open the URL above in a browser"
+echo "  2. Log in with the admin credentials"
+echo "  3. Create engineer and reviewer accounts"
+echo "  4. Configure authorized networks before subnet scans"
+echo
+echo "Useful commands:"
+echo "  ${COMPOSE_HINT} logs -f"
+echo "  ${COMPOSE_HINT} down"
+echo "  ${COMPOSE_HINT} up -d"
+echo "  ${COMPOSE_HINT} up -d --build"
+echo

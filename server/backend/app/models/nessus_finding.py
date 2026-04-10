@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.database import Base
+from app.utils.datetime import utcnow_naive
 
 
 class NessusFinding(Base):
@@ -23,4 +24,4 @@ class NessusFinding(Base):
     plugin_output = Column(Text, nullable=True)
     cvss_score = Column(Float, nullable=True)
     cve_ids = Column(JSON, nullable=True)
-    imported_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    imported_at = Column(DateTime, nullable=False, default=utcnow_naive)

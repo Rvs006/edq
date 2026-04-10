@@ -16,13 +16,14 @@ from app.config import settings
 from app.models.database import get_db
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
+from app.utils.datetime import ensure_utc_naive, utcnow
 
 SESSION_COOKIE = "edq_session"
 CSRF_COOKIE = "edq_csrf"
 REFRESH_COOKIE = "edq_refresh"
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return utcnow()
 
 
 def revoke_user_access_tokens(user: User, revoked_at: datetime | None = None) -> None:
@@ -117,7 +118,7 @@ async def store_refresh_token(db: AsyncSession, user_id: str, token: str, expire
     db.add(RefreshToken(
         token_hash=hash_token(token),
         user_id=user_id,
-        expires_at=expires_at,
+        expires_at=ensure_utc_naive(expires_at),
     ))
     await db.flush()
 

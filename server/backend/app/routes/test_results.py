@@ -19,6 +19,7 @@ from app.schemas.test import (
 )
 from app.security.auth import get_current_active_user, require_role
 from app.utils.audit import log_action
+from app.utils.datetime import utcnow_naive
 from app.utils.sanitize import sanitize_dict
 
 router = APIRouter()
@@ -124,7 +125,7 @@ async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
         run.status = TestRunStatus.COMPLETED
 
     if run.completed_at is None:
-        run.completed_at = datetime.now(timezone.utc)
+        run.completed_at = utcnow_naive()
     run.overall_verdict = _overall_verdict(passed, failed, advisory, essential_failed)
 
 
@@ -194,9 +195,9 @@ async def update_result(
     if "verdict" in updates:
         test_result.verdict = _parse_verdict(updates["verdict"])
         if test_result.started_at is None:
-            test_result.started_at = datetime.now(timezone.utc)
+            test_result.started_at = utcnow_naive()
         test_result.completed_at = (
-            None if test_result.verdict == TestVerdict.PENDING else datetime.now(timezone.utc)
+            None if test_result.verdict == TestVerdict.PENDING else utcnow_naive()
         )
     if "comment" in updates:
         test_result.comment = updates["comment"]
@@ -233,7 +234,7 @@ async def override_result(
     test_result, test_run = await _get_authorized_result(result_id, user, db)
 
     override_verdict = _parse_verdict(data.verdict)
-    now = datetime.now(timezone.utc)
+    now = utcnow_naive()
     sanitized = sanitize_dict(
         {"comment": data.comment, "override_reason": data.override_reason},
         ["comment", "override_reason"],

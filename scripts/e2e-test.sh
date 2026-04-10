@@ -6,7 +6,7 @@
 # Uses curl + python3 only.
 #
 # Usage: ./scripts/e2e-test.sh [BASE_URL]
-# Default: http://localhost
+# Default: http://localhost:3000
 #
 # For a quick smoke test, use ./scripts/verify-app.sh instead.
 # ============================================================================
@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BASE_URL="${1:-http://localhost}"
+BASE_URL="${1:-http://localhost:3000}"
 API="$BASE_URL/api"
 ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
 COOKIE=$(mktemp)

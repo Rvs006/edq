@@ -19,6 +19,7 @@ from app.models.test_result import TestResult, TestTier
 from app.models.test_template import TestTemplate
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import is_run_executing, launch_test_run
+from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.scheduler")
 
@@ -195,7 +196,7 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                     db.add(tr)
 
             # Update schedule metadata
-            now = datetime.now(timezone.utc)
+            now = utcnow_naive()
             schedule.last_run_at = now
             schedule.run_count += 1
             schedule.next_run_at = compute_next_run(schedule.frequency, now)
@@ -240,7 +241,7 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
 async def _check_due_schedules() -> None:
     """Check for schedules that are due and execute them."""
     async with async_session() as db:
-        now = datetime.now(timezone.utc)
+        now = utcnow_naive()
         stmt = select(ScanSchedule).where(
             and_(
                 ScanSchedule.is_active.is_(True),

@@ -41,42 +41,42 @@ if [ "$ready" -ne 1 ]; then
 fi
 
 cd /app
-BOOTSTRAP_MODE="$(python - <<'PY'
-import os
-from sqlalchemy import create_engine, inspect, text
+echo "[EDQ] Waiting for database connectivity"
+python - <<'PY'
+import time
 
-url = os.environ.get("DATABASE_URL", "sqlite:///./data/edq.db")
-sync_url = url.replace("+aiosqlite", "").replace("+asyncpg", "")
-engine = create_engine(sync_url)
+from sqlalchemy import create_engine, text
 
-with engine.connect() as conn:
-    insp = inspect(conn)
-    tables = set(insp.get_table_names())
-    app_tables = tables - {"alembic_version"}
-    version_rows = []
-    if "alembic_version" in tables:
-        try:
-            version_rows = list(conn.execute(text("SELECT version_num FROM alembic_version")))
-        except Exception:
-            version_rows = []
+from app.config import settings
 
-if version_rows:
-    print("upgrade")
-elif app_tables:
-    print("legacy")
+
+def to_sync_url(url: str) -> str:
+    return url.replace("+aiosqlite", "").replace("+asyncpg", "")
+
+
+last_error = None
+for attempt in range(1, 31):
+    try:
+        engine = create_engine(to_sync_url(settings.DATABASE_URL), pool_pre_ping=True)
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        engine.dispose()
+        print(f"[EDQ] Database reachable on attempt {attempt}")
+        break
+    except Exception as exc:  # pragma: no cover - startup retry path
+        last_error = exc
+        print(f"[EDQ] Database not ready yet (attempt {attempt}/30): {exc}")
+        time.sleep(2)
 else:
-    print("upgrade")
+    raise SystemExit(f"[EDQ] Database failed to become ready: {last_error}")
 PY
-)"
 
-if [ "$BOOTSTRAP_MODE" = "legacy" ]; then
-    echo "[EDQ] Legacy database detected without Alembic revision state"
-    python init_db.py
-    alembic stamp head
-else
-    echo "[EDQ] Applying database migrations"
-    alembic upgrade head
-fi
+echo "[EDQ] Ensuring database schema is current"
+python - <<'PY'
+from app.models.database import ensure_database_schema_sync
+
+ensure_database_schema_sync()
+PY
 
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop uvloop --http httptools &
 BACKEND_PID=$!

@@ -7,6 +7,8 @@ import enum
 import uuid
 
 from app.models.database import Base
+from app.models.enum_utils import enum_values
+from app.utils.datetime import utcnow_naive
 
 
 class DeviceCategory(str, enum.Enum):
@@ -42,15 +44,24 @@ class Device(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     ip_address = Column(String(45), nullable=True, index=True)
     mac_address = Column(String(17), nullable=True)
-    addressing_mode = Column(SAEnum(AddressingMode), default=AddressingMode.STATIC)
+    addressing_mode = Column(
+        SAEnum(AddressingMode, values_callable=enum_values),
+        default=AddressingMode.STATIC,
+    )
     hostname = Column(String(255), nullable=True)
     manufacturer = Column(String(128), nullable=True)
     model = Column(String(128), nullable=True)
     firmware_version = Column(String(64), nullable=True)
     serial_number = Column(String(128), nullable=True)
     location = Column(String(255), nullable=True)
-    category = Column(SAEnum(DeviceCategory), default=DeviceCategory.UNKNOWN)
-    status = Column(SAEnum(DeviceStatus), default=DeviceStatus.DISCOVERED)
+    category = Column(
+        SAEnum(DeviceCategory, values_callable=enum_values),
+        default=DeviceCategory.UNKNOWN,
+    )
+    status = Column(
+        SAEnum(DeviceStatus, values_callable=enum_values),
+        default=DeviceStatus.DISCOVERED,
+    )
     oui_vendor = Column(String(128), nullable=True)  # IEEE OUI lookup result
     os_fingerprint = Column(String(256), nullable=True)
     open_ports = Column(JSON, nullable=True)  # [{port, protocol, service, version}]
@@ -59,8 +70,8 @@ class Device(Base):
     profile_id = Column(String(36), ForeignKey("device_profiles.id"), nullable=True, index=True)
     project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
     discovered_by = Column(String(36), ForeignKey("agents.id"), nullable=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 
     # Relationships
     profile = relationship("DeviceProfile", back_populates="devices")
