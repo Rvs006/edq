@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.database import Base
+from app.utils.datetime import utcnow_naive
 
 
 class AuthorizedNetwork(Base):
@@ -16,6 +17,5 @@ class AuthorizedNetwork(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_by = Column(String(36), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)

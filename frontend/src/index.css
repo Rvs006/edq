@@ -159,6 +159,24 @@
   }
 }
 
+@layer components {
+  /* BUG 5.17: Responsive table overflow — wrap tables for mobile horizontal scroll */
+  .table-responsive {
+    @apply overflow-x-auto -mx-px;
+  }
+
+  /* BUG 5.3: Dark mode form input consistency */
+  .dark select,
+  .dark textarea {
+    @apply bg-slate-800/80 border-slate-600 text-slate-100 placeholder-slate-500;
+  }
+  .dark select:focus,
+  .dark textarea:focus,
+  .dark input:focus {
+    @apply ring-2 ring-brand-500/30 border-brand-500;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

@@ -1,9 +1,13 @@
 """Tests for authentication routes."""
 
+import pyotp
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
-from tests.conftest import register_and_login
+from app.config import settings
+from app.models.user import User
+from .conftest import register_and_login
 
 
 @pytest.mark.asyncio
@@ -238,3 +242,153 @@ async def test_refresh_token_reuse_revokes_family(client: AsyncClient):
     # The new token should also be revoked now
     resp3 = await client.post("/api/auth/refresh", json={"refresh_token": new_token})
     assert resp3.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_for_inactive_user_stays_revoked(client: AsyncClient, db_session):
+    """Inactive accounts should not be able to replay a rotated refresh token."""
+    await client.post("/api/auth/register", json={
+        "email": "inactive-refresh@example.com",
+        "username": "inactiverefreshuser",
+        "password": "TestPass1",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "inactiverefreshuser",
+        "password": "TestPass1",
+    })
+    assert login_resp.status_code == 200
+    refresh_token = client.cookies.get("edq_refresh")
+    assert refresh_token
+
+    user_result = await db_session.execute(
+        select(User).where(User.username == "inactiverefreshuser")
+    )
+    user = user_result.scalar_one()
+    user.is_active = False
+    await db_session.commit()
+
+    first_refresh = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert first_refresh.status_code == 401
+
+    second_refresh = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert second_refresh.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_profile_email_uniqueness_is_case_insensitive(client: AsyncClient):
+    """Updating email should reject case-only duplicates."""
+    first_headers = await register_and_login(client, suffix="emailcasea")
+    await client.post("/api/auth/logout", headers=first_headers)
+    second_headers = await register_and_login(client, suffix="emailcaseb")
+
+    resp = await client.patch(
+        "/api/auth/me",
+        json={"email": "EMAILCASEA@example.com"},
+        headers=second_headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Email already in use"
+
+
+@pytest.mark.asyncio
+async def test_login_2fa_failures_trigger_account_lockout(client: AsyncClient, db_session):
+    """Repeated invalid TOTP codes should apply the same account lockout as password failures."""
+    username = "totplockuser"
+    await client.post("/api/auth/register", json={
+        "email": "totplock@example.com",
+        "username": username,
+        "password": "TestPass1",
+    })
+
+    user_result = await db_session.execute(select(User).where(User.username == username))
+    user = user_result.scalar_one()
+    user.totp_secret = pyotp.random_base32()
+    totp_secret = user.totp_secret
+    await db_session.commit()
+
+    resp = await client.post("/api/auth/login", json={
+        "username": username,
+        "password": "TestPass1",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["requires_2fa"] is True
+
+    for _ in range(settings.ACCOUNT_LOCKOUT_ATTEMPTS):
+        resp = await client.post("/api/auth/login", json={
+            "username": username,
+            "password": "TestPass1",
+            "totp_code": "000000",
+        })
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid two-factor authentication code"
+
+    valid_code = pyotp.TOTP(totp_secret).now()
+    locked_resp = await client.post("/api/auth/login", json={
+        "username": username,
+        "password": "TestPass1",
+        "totp_code": valid_code,
+    })
+    assert locked_resp.status_code == 401
+    assert locked_resp.json()["detail"] == "Invalid credentials"
+
+
+@pytest.mark.asyncio
+async def test_admin_create_user_rejects_case_insensitive_collisions(client: AsyncClient):
+    """Admin-created usernames and emails should be unique case-insensitively."""
+    headers = await register_and_login(client, suffix="admincasecreate", role="admin")
+
+    first = await client.post("/api/users/", json={
+        "username": "CaseCollision",
+        "email": "CaseCollision@example.com",
+        "password": "TestPass1",
+        "role": "engineer",
+    }, headers=headers)
+    assert first.status_code == 201
+
+    username_collision = await client.post("/api/users/", json={
+        "username": "casecollision",
+        "email": "other@example.com",
+        "password": "TestPass1",
+        "role": "engineer",
+    }, headers=headers)
+    assert username_collision.status_code == 400
+    assert username_collision.json()["detail"] == "Email or username already registered"
+
+    email_collision = await client.post("/api/users/", json={
+        "username": "otheruser",
+        "email": "CASECOLLISION@example.com",
+        "password": "TestPass1",
+        "role": "engineer",
+    }, headers=headers)
+    assert email_collision.status_code == 400
+    assert email_collision.json()["detail"] == "Email or username already registered"
+
+
+@pytest.mark.asyncio
+async def test_admin_update_user_rejects_case_insensitive_email_collision(client: AsyncClient):
+    """Admin updates should reject case-only email collisions instead of surfacing a 500."""
+    headers = await register_and_login(client, suffix="admincaseupdate", role="admin")
+
+    first = await client.post("/api/users/", json={
+        "username": "FirstManagedUser",
+        "email": "managed-one@example.com",
+        "password": "TestPass1",
+        "role": "engineer",
+    }, headers=headers)
+    second = await client.post("/api/users/", json={
+        "username": "SecondManagedUser",
+        "email": "managed-two@example.com",
+        "password": "TestPass1",
+        "role": "engineer",
+    }, headers=headers)
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    resp = await client.patch(
+        f"/api/users/{second.json()['id']}",
+        json={"email": "MANAGED-ONE@example.com"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Email already registered"

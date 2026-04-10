@@ -2,6 +2,7 @@ import axios, { type AxiosResponse } from 'axios'
 import type {
   Device, TestRun, TestResult, TestTemplate, TestLibraryItem,
   TestPlan, Whitelist, AuditLogEntry, PaginatedResponse, UserProfile,
+  DiscoveryScanResponse,
 } from './types'
 import {
   normalizeTestResult,
@@ -9,6 +10,10 @@ import {
 } from './testContracts'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
+
+export function resolveApiUrl(path: string): string {
+  return new URL(path, new URL(API_BASE, window.location.origin)).toString()
+}
 
 function getCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)edq_csrf=([^;]*)/)
@@ -19,6 +24,7 @@ const api = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
+  timeout: 60000, // 60 seconds default — prevents infinite hangs
 })
 
 // Endpoints that don't require CSRF (no session exists yet)
@@ -82,8 +88,10 @@ api.interceptors.response.use(
         await refreshSession()
         return api.request(originalRequest)
       } catch (refreshError) {
+        // Session expired — flag for login page to show message
         const path = window.location.pathname
         if (path !== '/login' && path !== '/' && !requestUrl.includes('/auth/me')) {
+          try { sessionStorage.setItem('edq_session_expired', '1') } catch { /* noop */ }
           window.location.href = '/login'
         }
         return Promise.reject(refreshError)
@@ -93,6 +101,7 @@ api.interceptors.response.use(
     if (status === 401) {
       const path = window.location.pathname
       if (path !== '/login' && path !== '/' && !requestUrl.includes('/auth/me')) {
+        try { sessionStorage.setItem('edq_session_expired', '1') } catch { /* noop */ }
         window.location.href = '/login'
       }
     }
@@ -121,13 +130,36 @@ export const authApi = {
 }
 
 export const devicesApi = {
-  list: (params?: { category?: string; status?: string; search?: string; skip?: number; limit?: number }) => api.get<Device[]>('/devices/', { params }),
+  list: (params?: { category?: string; status?: string; search?: string; project_id?: string; skip?: number; limit?: number }) => api.get<Device[]>('/devices/', { params }),
   get: (id: string) => api.get<Device>(`/devices/${id}`),
-  create: (data: { ip_address?: string; mac_address?: string; hostname?: string; manufacturer?: string; model?: string; category?: string; notes?: string; addressing_mode?: string }) => api.post<Device>('/devices/', data),
+  create: (data: {
+    ip_address?: string
+    mac_address?: string
+    hostname?: string
+    manufacturer?: string
+    model?: string
+    firmware_version?: string
+    serial_number?: string
+    category?: string
+    location?: string
+    notes?: string
+    project_id?: string
+    addressing_mode?: string
+  }) => api.post<Device>('/devices/', data),
   update: (id: string, data: Partial<Device>) => api.patch<Device>(`/devices/${id}`, data),
   delete: (id: string) => api.delete(`/devices/${id}`),
   discoverIp: (id: string) => api.post<Device>(`/devices/${id}/discover-ip`),
   stats: () => api.get<{ total: number; by_status: Record<string, number>; by_category: Record<string, number> }>('/devices/stats'),
+  importDevices: (file: File, projectId?: string) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/devices/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      params: projectId ? { project_id: projectId } : undefined,
+    })
+  },
+  exportDevices: () => api.get('/devices/export', { responseType: 'blob' }),
+  trends: (id: string) => api.get(`/devices/${id}/trends`),
 }
 
 export const profilesApi = {
@@ -182,7 +214,7 @@ export const testResultsApi = {
 }
 
 export const reportsApi = {
-  generate: (data: { test_run_id: string; report_type?: string; format?: string; template_id?: string; template_key?: string; include_synopsis?: boolean }) => api.post('/reports/generate', data),
+  generate: (data: { test_run_id: string; report_type?: 'excel' | 'word' | 'pdf' | 'csv'; format?: string; template_id?: string; template_key?: string; include_synopsis?: boolean }) => api.post('/reports/generate', data),
   download: (filename: string) => api.get(`/reports/download/${filename}`, { responseType: 'blob' }),
   configs: () => api.get('/reports/configs'),
   templates: () => api.get('/reports/templates'),
@@ -198,7 +230,7 @@ export const whitelistsApi = {
 }
 
 export const discoveryApi = {
-  scan: (data: { subnet?: string; ip_address?: string; interface?: string }) => api.post('/discovery/scan', data),
+  scan: (data: { subnet?: string; ip_address?: string; interface?: string; project_id?: string }) => api.post<DiscoveryScanResponse>('/discovery/scan', data),
   registerDevice: (data: { ip_address: string; mac_address?: string; hostname?: string }) => api.post('/discovery/register-device', data),
 }
 
@@ -212,7 +244,8 @@ export const adminApi = {
   dashboard: () => api.get('/admin/dashboard'),
   systemInfo: () => api.get('/admin/system-info'),
   users: (params?: { skip?: number; limit?: number }) => api.get<UserProfile[]>('/users/', { params }),
-  updateUser: (id: string, data: { role?: string; is_active?: boolean; full_name?: string; email?: string }) => api.patch(`/users/${id}`, data),
+  createUser: (data: { username: string; email: string; password: string; full_name?: string; role?: string }) => api.post<UserProfile>('/users/', data),
+  updateUser: (id: string, data: { role?: string; is_active?: boolean; full_name?: string; email?: string }) => api.patch<UserProfile>(`/users/${id}`, data),
 }
 
 export const synopsisApi = {
@@ -246,7 +279,7 @@ export const healthApi = {
     checked_at: string
     backend: { status: string }
     database: { status: string }
-    tools_sidecar: { status: string }
+    tools_sidecar: { status: string; message?: string }
     tools: Record<string, string>
   }>('/health/system-status'),
 }
@@ -284,6 +317,19 @@ export const authorizedNetworksApi = {
   delete: (id: string) => api.delete(`/authorized-networks/${id}`),
 }
 
+export const projectsApi = {
+  list: (params?: { status?: string; skip?: number; limit?: number }) =>
+    api.get('/projects/', { params }),
+  get: (id: string) => api.get(`/projects/${id}`),
+  create: (data: { name: string; description?: string; client_name?: string; location?: string }) =>
+    api.post('/projects/', data),
+  update: (id: string, data: Record<string, unknown>) =>
+    api.patch(`/projects/${id}`, data),
+  delete: (id: string) => api.delete(`/projects/${id}`),
+  addDevices: (id: string, deviceIds: string[]) =>
+    api.post(`/projects/${id}/devices`, deviceIds),
+}
+
 export const brandingApi = {
   get: () => api.get('/settings/branding'),
   update: (data: { company_name?: string; primary_color?: string; footer_text?: string }) =>
@@ -298,6 +344,50 @@ export const brandingApi = {
 }
 
 export function getApiErrorMessage(err: unknown, fallback = 'An error occurred'): string {
-  const axiosErr = err as { response?: { data?: { detail?: string } } }
-  return axiosErr?.response?.data?.detail || fallback
+  const axiosErr = err as {
+    message?: string
+    response?: {
+      data?: {
+        detail?: unknown
+        error?: unknown
+        message?: unknown
+      }
+    }
+  }
+
+  const formatDetail = (detail: unknown): string | null => {
+    if (!detail) return null
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((item) => {
+          if (typeof item === 'string') return item
+          if (!item || typeof item !== 'object') return null
+          const entry = item as { loc?: unknown[]; msg?: string; message?: string }
+          const path = Array.isArray(entry.loc)
+            ? entry.loc.filter((part) => typeof part === 'string' || typeof part === 'number').join('.')
+            : ''
+          const message = entry.msg || entry.message
+          if (!message) return null
+          return path ? `${path}: ${message}` : message
+        })
+        .filter((message): message is string => Boolean(message))
+      return messages.length > 0 ? messages.join('; ') : null
+    }
+    if (typeof detail === 'object') {
+      const record = detail as Record<string, unknown>
+      if (typeof record.detail === 'string') return record.detail
+      if (typeof record.message === 'string') return record.message
+      if (typeof record.error === 'string') return record.error
+    }
+    return null
+  }
+
+  return (
+    formatDetail(axiosErr?.response?.data?.detail)
+    || formatDetail(axiosErr?.response?.data?.error)
+    || formatDetail(axiosErr?.response?.data?.message)
+    || axiosErr?.message
+    || fallback
+  )
 }

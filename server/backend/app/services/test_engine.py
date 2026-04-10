@@ -32,12 +32,13 @@ from app.services.parsers.testssl_parser import testssl_parser
 from app.services.parsers.ssh_audit_parser import ssh_audit_parser
 from app.services.parsers.hydra_parser import hydra_parser
 from app.services.evaluation import evaluate_result
-from app.services.connectivity_probe import extract_probe_ports
+from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
 from app.services.wobbly_cable import WobblyCableHandler
 from app.services.test_library import get_test_by_id
 from app.services.device_fingerprinter import fingerprinter, FingerprintResult
 from app.services.discovery_service import guess_manufacturer, guess_model
 from app.routes.websocket_routes import manager
+from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.test_engine")
 
@@ -117,26 +118,55 @@ class TestEngine:
             manager,
             probe_ports=probe_ports,
         )
-        initial_reachable = await cable_handler.check_connectivity()
+        # Strict pre-flight: require at least one TCP service port to accept a
+        # connection. ICMP alone isn't sufficient — a gateway/router on the
+        # user's network may respond to ping at the target IP without actually
+        # being the device under test. Tests need real services to exercise.
+        initial_reachable, probe_method = await probe_device_connectivity(
+            device.ip_address, probe_ports=probe_ports
+        )
+        has_tcp_service = bool(probe_method) and probe_method.startswith("tcp:")
         cable_task = asyncio.create_task(cable_handler.monitor())
-        run_started_broadcasted = initial_reachable
+        run_started_broadcasted = False
 
-        if initial_reachable:
+        if has_tcp_service:
             async with async_session() as db:
                 run = await db.get(TestRun, test_run_id)
                 if run:
                     run.status = TestRunStatus.RUNNING
                     if not run.started_at:
-                        run.started_at = datetime.now(timezone.utc)
+                        run.started_at = utcnow_naive()
                     await db.commit()
 
             await manager.broadcast(f"test-run:{test_run_id}", {
                 "type": "run_started",
                 "data": {"run_id": test_run_id, "status": "running"},
             })
+            run_started_broadcasted = True
         else:
+            if initial_reachable:
+                logger.warning(
+                    "Device %s responded to %s but has no open probeable service ports for run %s; pausing until it becomes testable",
+                    device.ip_address,
+                    probe_method or "ping",
+                    test_run_id,
+                )
+                pause_message = (
+                    f"Device {device.ip_address} is reachable but no supported service "
+                    "ports are open yet. Testing is paused until a service port becomes reachable."
+                )
+            else:
+                logger.warning(
+                    "Device %s is unreachable for run %s; pausing until connectivity returns",
+                    device.ip_address,
+                    test_run_id,
+                )
+                pause_message = (
+                    f"Target device {device.ip_address} is unreachable from this "
+                    "network. Testing is paused until connectivity is restored."
+                )
             await cable_handler.pause_for_disconnect(
-                message="Device not reachable - waiting for connection before tests start",
+                message=pause_message,
                 kill_tools=False,
             )
 
@@ -216,7 +246,7 @@ class TestEngine:
                         if result_row:
                             result_row.verdict = TestVerdict.NA
                             result_row.comment = reason
-                            result_row.completed_at = datetime.now(timezone.utc)
+                            result_row.completed_at = utcnow_naive()
                             await db.commit()
 
                     completed += 1
@@ -312,8 +342,8 @@ class TestEngine:
                         result_row.parsed_data = parsed
                         result_row.raw_output = raw_out[:50000] if raw_out else None
                         result_row.duration_seconds = duration
-                        result_row.started_at = datetime.now(timezone.utc)
-                        result_row.completed_at = datetime.now(timezone.utc)
+                        result_row.started_at = utcnow_naive()
+                        result_row.completed_at = utcnow_naive()
 
                         # Auto-populate Device fields from test results as they complete
                         if parsed:
@@ -1059,7 +1089,7 @@ class TestEngine:
                 run.completed_at = None
             else:
                 run.status = TestRunStatus.COMPLETED
-                run.completed_at = datetime.now(timezone.utc)
+                run.completed_at = utcnow_naive()
                 if essential_failed:
                     run.overall_verdict = "fail"
                 elif failed > 0:
@@ -1144,7 +1174,7 @@ class TestEngine:
     async def _set_run_error(self, db: AsyncSession, run: TestRun | None, message: str) -> None:
         if run:
             run.status = TestRunStatus.FAILED
-            run.completed_at = datetime.now(timezone.utc)
+            run.completed_at = utcnow_naive()
             await db.commit()
 
         await manager.broadcast(f"test-run:{run.id if run else 'unknown'}", {
@@ -1184,7 +1214,7 @@ async def recover_orphaned_runs() -> None:
         orphans = result.scalars().all()
         for run in orphans:
             run.status = TestRunStatus.FAILED
-            run.completed_at = datetime.now(timezone.utc)
+            run.completed_at = utcnow_naive()
             run.synopsis = (
                 (run.synopsis or "")
                 + "\n[Auto-reset: server restarted during execution]"

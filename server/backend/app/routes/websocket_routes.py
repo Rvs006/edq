@@ -12,8 +12,8 @@ from app.config import settings
 from app.models.database import async_session
 from app.models.network_scan import NetworkScan
 from app.models.test_run import TestRun
-from app.models.user import UserRole
-from app.security.auth import SESSION_COOKIE
+from app.models.user import User, UserRole
+from app.security.auth import SESSION_COOKIE, is_access_token_revoked_for_user
 
 logger = logging.getLogger("edq.routes.websocket")
 
@@ -58,7 +58,7 @@ def _validate_ws_origin(websocket: WebSocket) -> bool:
     return origin in allowed
 
 
-def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
+async def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
     """Validate JWT from httpOnly cookie only. Return payload or None."""
     if not _validate_ws_origin(websocket):
         return None
@@ -69,6 +69,16 @@ def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         if payload.get("type") != "access":
             return None
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        async with async_session() as db:
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if not user or not user.is_active:
+                return None
+            if is_access_token_revoked_for_user(user, payload):
+                return None
         return payload
     except InvalidTokenError:
         return None
@@ -95,7 +105,7 @@ async def _authorize_test_run(payload: dict, run_id: str) -> bool:
 @router.websocket("/test-run/{run_id}")
 async def test_run_ws(websocket: WebSocket, run_id: str):
     """WebSocket endpoint for real-time test run progress."""
-    payload = _authenticate_ws(websocket)
+    payload = await _authenticate_ws(websocket)
     if not payload:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
         return
@@ -138,7 +148,7 @@ async def _authorize_discovery_task(payload: dict, task_id: str) -> bool:
 @router.websocket("/discovery/{task_id}")
 async def discovery_ws(websocket: WebSocket, task_id: str):
     """WebSocket endpoint for real-time discovery progress."""
-    payload = _authenticate_ws(websocket)
+    payload = await _authenticate_ws(websocket)
     if not payload:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
         return
@@ -163,7 +173,7 @@ async def agents_ws(websocket: WebSocket):
     Broadcasts heartbeat events to all connected clients when agents
     report status changes via the heartbeat REST endpoint.
     """
-    payload = _authenticate_ws(websocket)
+    payload = await _authenticate_ws(websocket)
     if not payload:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
         return

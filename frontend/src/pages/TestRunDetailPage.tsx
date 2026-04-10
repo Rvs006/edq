@@ -1,11 +1,11 @@
 import { useParams, Link } from 'react-router-dom'
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { testRunsApi, testResultsApi, reportsApi, getApiErrorMessage } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
-  ArrowLeft, Loader2, Monitor, Wifi, WifiOff,
+  ArrowLeft, Loader2, Monitor,
   FileText, Cpu, Menu, X, Fingerprint, Zap, Save
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -29,6 +29,10 @@ export default function TestRunDetailPage() {
   const queryClient = useQueryClient()
 
   const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Ref tracks live WebSocket freshness so that the refetchInterval
+  // callbacks (which are re-invoked by React Query on every tick) can read
+  // it without creating a circular dependency between `ws` and the queries.
+  const wsHealthyRef = useRef(false)
   const [selectedTestId, setSelectedTestId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [scenarioDialogOpen, setScenarioDialogOpen] = useState(false)
@@ -39,9 +43,12 @@ export default function TestRunDetailPage() {
     queryKey: ['test-run', id],
     queryFn: () => testRunsApi.get(id!).then((r) => r.data),
     enabled: !!id,
-    refetchInterval: (query) => {
+    refetchInterval: (query: { state: { data?: unknown } }) => {
+      // WebSocket provides real-time updates — skip polling entirely when live.
       const d = query.state.data as Record<string, unknown> | undefined
-      return isActiveTestRunStatus(d?.status) ? 3000 : false
+      if (!isActiveTestRunStatus(d?.status)) return false
+      // Slow fallback poll when WS is unavailable (was 3s — caused polling storm).
+      return wsHealthyRef.current ? 30000 : 10000
     },
   })
 
@@ -49,8 +56,11 @@ export default function TestRunDetailPage() {
     queryKey: ['test-results', id],
     queryFn: () => testResultsApi.list({ test_run_id: id }).then((r) => r.data),
     enabled: !!id,
-    refetchInterval: (query) => {
-      return run?.status === 'running' ? 5000 : false
+    refetchInterval: () => {
+      // WebSocket invalidates this query on test_complete/run_complete messages.
+      if (!isActiveTestRunStatus(run?.status)) return false
+      // Slow fallback poll when WS is unavailable (was 5s — caused polling storm).
+      return wsHealthyRef.current ? 30000 : 10000
     },
   })
 
@@ -58,25 +68,57 @@ export default function TestRunDetailPage() {
     run && isActiveTestRunStatus(run.status) ? id : undefined
   )
 
+  // Keep the ref in sync with the live WS connection state so that
+  // the refetchInterval callbacks above can read the latest value.
+  useEffect(() => {
+    wsHealthyRef.current = ws.isConnected && ws.isFresh
+  }, [ws.isConnected, ws.isFresh])
+
+  useEffect(() => {
+    return () => {
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     if (!ws.lastProgress) return
     const msg = ws.lastProgress
 
-    if (msg.type === 'test_complete' || msg.type === 'run_complete') {
+    const shouldRefreshRun =
+      msg.type === 'run_started'
+      || msg.type === 'run_complete'
+      || msg.type === 'run_failed'
+      || msg.type === 'run_error'
+      || msg.type === 'cable_disconnected'
+      || msg.type === 'cable_reconnected'
+      || msg.type === 'cable_timeout'
+    const shouldRefreshResults = msg.type === 'test_complete'
+
+    if (shouldRefreshRun || shouldRefreshResults) {
       if (invalidateTimerRef.current) clearTimeout(invalidateTimerRef.current)
       invalidateTimerRef.current = setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['test-results', id] })
-        queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+        if (shouldRefreshResults) {
+          queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+        }
+        if (shouldRefreshRun || shouldRefreshResults) {
+          queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+        }
       }, 500)
     }
+  }, [ws.lastProgress, id, queryClient])
 
+  useEffect(() => {
+    if (!ws.lastProgress) return
+    const msg = ws.lastProgress
     if (msg.type === 'test_start' && msg.data.test_id) {
       const running = (results as TestResult[]).find((r) => r.test_id === msg.data.test_id)
       if (running) {
         setSelectedTestId(running.id)
       }
     }
-  }, [ws.lastProgress, id, queryClient, results])
+  }, [ws.lastProgress, results])
 
   // Sync state after WebSocket reconnection (catch missed messages)
   useEffect(() => {
@@ -170,6 +212,10 @@ export default function TestRunDetailPage() {
   }
 
   const handleConfirmStart = async (scenario: string) => {
+    // Guard against double-click: if a start (or any action) is already in
+    // flight, ignore subsequent invocations. Prevents the backend 500
+    // "Test run is already executing" error.
+    if (isActioning) return
     setIsActioning(true)
     try {
       if (scenario !== 'direct_cable') {
@@ -449,7 +495,7 @@ export default function TestRunDetailPage() {
                 {run.device_name || run.device_ip || `Device ${run.device_id?.slice(0, 8)}`}
               </h1>
               <StatusBadge status={run.status} />
-              {ws.isConnected && (
+              {ws.isConnected && ws.isFresh && (
                 <span className="flex items-center gap-1 text-[10px] text-green-600">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                   Live

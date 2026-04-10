@@ -11,18 +11,23 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.config import settings
-from app.logging_config import configure_logging
+from app.config import configure_sentry, settings
+from app.logging_config import (
+    bind_request_log_context,
+    configure_logging,
+    reset_request_log_context,
+)
 
 configure_logging()
+configure_sentry()
 logger = logging.getLogger("edq.main")
 from app.models.database import init_db
 from app.security.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.routes import (
     auth,
     users,
+    projects,
     devices,
     device_profiles,
     test_templates,
@@ -55,112 +60,299 @@ FRONTEND_DIR = str(_PROJECT_ROOT / "frontend" / "dist")
 
 CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CSRF_EXEMPT_PATHS = {
-    "/api/auth/login", "/api/auth/register", "/api/auth/refresh",
-    "/api/auth/oidc/callback",
-    "/api/health", "/api/health/",
     "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh",
     "/api/v1/auth/oidc/callback",
     "/api/v1/health", "/api/v1/health/",
-    "/api/client-errors",
+    "/api/v1/client-errors",
 }
 
 
-class CSRFMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+# ---------------------------------------------------------------------------
+# Pure ASGI middleware (avoids BaseHTTPMiddleware per-request task overhead)
+# ---------------------------------------------------------------------------
+
+_CSRF_EXEMPT_STRIPPED = {p.rstrip("/") for p in CSRF_EXEMPT_PATHS}
+
+
+class CSRFMiddleware:
+    """CSRF protection as pure ASGI middleware."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
         if request.method in CSRF_SAFE_METHODS:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         path = request.url.path.rstrip("/")
-        if path in {p.rstrip("/") for p in CSRF_EXEMPT_PATHS}:
-            return await call_next(request)
+        if path in _CSRF_EXEMPT_STRIPPED:
+            await self.app(scope, receive, send)
+            return
 
-        if not (request.url.path.startswith("/api/")):
-            return await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
 
         session_cookie = request.cookies.get(SESSION_COOKIE)
         if not session_cookie:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         csrf_cookie = request.cookies.get(CSRF_COOKIE)
         csrf_header = request.headers.get("X-CSRF-Token")
 
         if not csrf_cookie or not csrf_header:
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "CSRF token missing"},
-            )
+            response = JSONResponse(status_code=403, content={"detail": "CSRF token missing"})
+            await response(scope, receive, send)
+            return
 
         if csrf_cookie != csrf_header:
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "CSRF token mismatch"},
-            )
+            response = JSONResponse(status_code=403, content={"detail": "CSRF token mismatch"})
+            await response(scope, receive, send)
+            return
 
-        return await call_next(request)
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response: Response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        if settings.COOKIE_SECURE:
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "img-src 'self' data: blob:; "
-            "connect-src 'self' ws: wss:; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "object-src 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self'; "
-            "frame-ancestors 'none'; "
-            "upgrade-insecure-requests"
-        )
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=(), payment=(), "
-            "usb=(), bluetooth=(), serial=()"
-        )
-        if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["Vary"] = "Cookie, Authorization"
-        return response
+        await self.app(scope, receive, send)
 
 
-class RequestIDMiddleware(BaseHTTPMiddleware):
+def _upsert_header(headers: list[tuple[bytes, bytes]], name: bytes, value: bytes) -> list[tuple[bytes, bytes]]:
+    """Replace an existing header value or append it when absent."""
+    lowered = name.lower()
+    filtered = [(k, v) for k, v in headers if k.lower() != lowered]
+    filtered.append((name, value))
+    return filtered
+
+
+def _merge_csv_header(
+    headers: list[tuple[bytes, bytes]],
+    name: bytes,
+    values: list[bytes],
+) -> list[tuple[bytes, bytes]]:
+    """Merge comma-separated header tokens without clobbering existing values."""
+    lowered = name.lower()
+    merged: list[str] = []
+    seen: set[str] = set()
+    kept_headers: list[tuple[bytes, bytes]] = []
+
+    for key, value in headers:
+        if key.lower() != lowered:
+            kept_headers.append((key, value))
+            continue
+        for token in value.decode("latin-1").split(","):
+            normalized = token.strip()
+            if not normalized:
+                continue
+            lowered_token = normalized.lower()
+            if lowered_token not in seen:
+                merged.append(normalized)
+                seen.add(lowered_token)
+
+    for raw in values:
+        normalized = raw.decode("latin-1").strip()
+        if not normalized:
+            continue
+        lowered_token = normalized.lower()
+        if lowered_token not in seen:
+            merged.append(normalized)
+            seen.add(lowered_token)
+
+    kept_headers.append((name, ", ".join(merged).encode("latin-1")))
+    return kept_headers
+
+
+class RequestIDMiddleware:
     """Attach a unique request ID to every request/response cycle."""
 
-    async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-        request.state.request_id = request_id
-        response: Response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers", []))
+        request_id = headers.get(b"x-request-id", b"").decode() or str(uuid.uuid4())
+        log_context_tokens = bind_request_log_context(
+            request_id,
+            method=scope.get("method"),
+            path=scope.get("path"),
+        )
+        scope.setdefault("state", {})
+        if isinstance(scope["state"], dict):
+            scope["state"]["request_id"] = request_id
+        scope["_request_id"] = request_id
+
+        async def send_with_request_id(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers = _upsert_header(headers, b"x-request-id", request_id.encode())
+                message["headers"] = headers
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        finally:
+            reset_request_log_context(log_context_tokens)
 
 
-class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
-    """Redirect HTTP to HTTPS in production when COOKIE_SECURE=true.
+class SecurityHeadersMiddleware:
+    """Attach baseline security headers without BaseHTTPMiddleware overhead."""
 
-    Trusts X-Forwarded-Proto from reverse proxy (nginx) to detect the
-    original protocol. Does not redirect health checks or internal calls.
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope["path"]
+
+        async def send_with_security_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers = _upsert_header(headers, b"x-content-type-options", b"nosniff")
+                headers = _upsert_header(headers, b"x-frame-options", b"DENY")
+                headers = _upsert_header(headers, b"x-xss-protection", b"1; mode=block")
+                headers = _upsert_header(headers, b"referrer-policy", b"strict-origin-when-cross-origin")
+                headers = _upsert_header(
+                    headers,
+                    b"content-security-policy",
+                    (
+                        b"default-src 'self'; "
+                        b"script-src 'self'; "
+                        b"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                        b"img-src 'self' data: blob:; "
+                        b"connect-src 'self' ws: wss:; "
+                        b"font-src 'self' https://fonts.gstatic.com; "
+                        b"object-src 'none'; "
+                        b"base-uri 'self'; "
+                        b"form-action 'self'; "
+                        b"frame-ancestors 'none'; "
+                        b"upgrade-insecure-requests"
+                    ),
+                )
+                headers = _upsert_header(
+                    headers,
+                    b"permissions-policy",
+                    b"camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), serial=()",
+                )
+                if settings.COOKIE_SECURE:
+                    headers = _upsert_header(
+                        headers,
+                        b"strict-transport-security",
+                        b"max-age=31536000; includeSubDomains",
+                    )
+                if path.startswith("/api/"):
+                    headers = _merge_csv_header(
+                        headers,
+                        b"vary",
+                        [b"Origin", b"Cookie", b"Authorization"],
+                    )
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_security_headers)
+
+
+# Only the public health probe benefits from short caching.
+_CACHEABLE_API_PATHS: set[str] = set()
+
+
+class APICacheControlMiddleware:
+    """Set smart Cache-Control headers for API responses.
+
+    Read-only endpoints get short caching; everything else gets no-store.
+    Replaces the removed SecurityHeadersMiddleware's blanket no-store.
     """
 
-    EXEMPT_PATHS = {"/api/health", "/api/v1/health", "/health"}
+    def __init__(self, app):
+        self.app = app
 
-    async def dispatch(self, request: Request, call_next):
-        proto = request.headers.get("X-Forwarded-Proto", request.url.scheme)
-        if proto == "http" and request.url.path not in self.EXEMPT_PATHS:
-            url = request.url.replace(scheme="https")
-            return JSONResponse(
-                status_code=301,
-                headers={"Location": str(url)},
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope["path"]
+        if not path.startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "GET")
+        is_cacheable = method == "GET" and path in _CACHEABLE_API_PATHS
+
+        async def send_with_cache(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                if is_cacheable:
+                    headers = _upsert_header(
+                        headers,
+                        b"cache-control",
+                        b"public, max-age=30, stale-while-revalidate=60",
+                    )
+                else:
+                    headers = _upsert_header(headers, b"cache-control", b"no-store")
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_cache)
+
+
+class HTTPSRedirectMiddleware:
+    """Redirect HTTP to HTTPS in production when COOKIE_SECURE=true."""
+
+    EXEMPT_PATHS = {
+        "/api/health",
+        "/api/health/",
+        "/api/v1/health",
+        "/api/v1/health/",
+        "/health",
+    }
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive=receive)
+        headers = dict(scope.get("headers", []))
+        proto = headers.get(b"x-forwarded-proto", b"").decode() or request.url.scheme
+        path = scope["path"]
+
+        if proto == "http" and path not in self.EXEMPT_PATHS:
+            response = JSONResponse(
+                status_code=307,
+                headers={"Location": str(request.url.replace(scheme="https"))},
                 content={"detail": "Redirecting to HTTPS"},
             )
-        return await call_next(request)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+class LegacyAPIRewriteMiddleware:
+    """Transparently rewrite /api/* to /api/v1/* for backward compatibility."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope["path"]
+            if path.startswith("/api/") and not path.startswith("/api/v1/"):
+                scope["path"] = "/api/v1" + path[4:]
+        await self.app(scope, receive, send)
 
 
 @asynccontextmanager
@@ -173,8 +365,11 @@ async def lifespan(app: FastAPI):
     # the async connection) can verify it.  This fixes a SQLite WAL isolation
     # issue where the async connection cannot see uncommitted/uncheckpointed
     # writes made by the separate sync connection.
-    if admin_created:
-        await _ensure_admin_password_synced()
+    from init_db import should_seed_local_test_users
+    force_local_admin_password = should_seed_local_test_users()
+    if admin_created or force_local_admin_password:
+        await _ensure_admin_password_synced(force_reset=force_local_admin_password)
+    await _ensure_local_test_users_synced()
     try:
         from app.services.test_engine import recover_orphaned_runs
         await recover_orphaned_runs()
@@ -197,15 +392,11 @@ def _seed_on_startup() -> bool:
 
     Returns True if the admin user was newly created (first boot).
     """
-    try:
-        from init_db import init_db as seed_db
-        return seed_db()
-    except Exception as e:
-        print(f"[EDQ] Warning: seed data error (may be already seeded): {e}")
-        return False
+    from init_db import init_db as seed_db
+    return seed_db()
 
 
-async def _ensure_admin_password_synced() -> None:
+async def _ensure_admin_password_synced(force_reset: bool = False) -> None:
     """Re-write the admin password hash through the async engine.
 
     On first boot the admin user is created by init_db.py using a *sync*
@@ -256,6 +447,72 @@ async def _ensure_admin_password_synced() -> None:
             print("[EDQ] Admin password verified OK through async engine")
 
 
+async def _ensure_local_test_users_synced() -> None:
+    """Make deterministic local test users visible to the async API engine."""
+    from init_db import LOCAL_TEST_USERS, should_seed_local_test_users
+
+    if not should_seed_local_test_users():
+        return
+
+    from app.models.database import async_session
+    from app.models.user import User
+    from app.security.auth import hash_password, verify_password
+    from sqlalchemy import func, select
+
+    async with async_session() as db:
+        changed = False
+        for spec in LOCAL_TEST_USERS:
+            result = await db.execute(
+                select(User).where(func.lower(User.username) == spec["username"].casefold())
+            )
+            user = result.scalar_one_or_none()
+
+            if user is None:
+                import uuid
+
+                user = User(
+                    id=str(uuid.uuid4()),
+                    username=spec["username"],
+                    email=spec["email"],
+                    password_hash=hash_password(spec["password"]),
+                    full_name=spec["full_name"],
+                    role=spec["role"],
+                    is_active=True,
+                )
+                db.add(user)
+                changed = True
+                continue
+
+            if user.username != spec["username"]:
+                user.username = spec["username"]
+                changed = True
+            if user.email != spec["email"]:
+                user.email = spec["email"]
+                changed = True
+            if not verify_password(spec["password"], user.password_hash):
+                user.password_hash = hash_password(spec["password"])
+                changed = True
+            if str(user.role) != spec["role"]:
+                user.role = spec["role"]
+                changed = True
+            if user.full_name != spec["full_name"]:
+                user.full_name = spec["full_name"]
+                changed = True
+            if not user.is_active:
+                user.is_active = True
+                changed = True
+            if user.failed_login_attempts:
+                user.failed_login_attempts = 0
+                changed = True
+            if user.locked_until is not None:
+                user.locked_until = None
+                changed = True
+
+        if changed:
+            await db.commit()
+            print("[EDQ] Local test users synced through async engine")
+
+
 def create_app() -> FastAPI:
     # Disable Swagger/ReDoc docs in production (enable with DEBUG=true)
     docs_url = "/docs" if settings.DEBUG else None
@@ -296,6 +553,14 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
+        if settings.SENTRY_DSN:
+            try:
+                import sentry_sdk
+
+                sentry_sdk.set_tag("request_id", getattr(request.state, "request_id", ""))
+                sentry_sdk.capture_exception(exc)
+            except Exception:
+                logger.debug("Failed to capture exception in Sentry", exc_info=True)
         logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
         return JSONResponse(
             status_code=500,
@@ -304,7 +569,9 @@ def create_app() -> FastAPI:
 
     app.add_middleware(CSRFMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(APICacheControlMiddleware)
     app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(LegacyAPIRewriteMiddleware)
 
     # Redirect HTTP → HTTPS in production
     if settings.COOKIE_SECURE:
@@ -314,6 +581,7 @@ def create_app() -> FastAPI:
     _api_routes = [
         (auth.router, "/auth", "Authentication"),
         (users.router, "/users", "Users"),
+        (projects.router, "/projects", "Projects"),
         (devices.router, "/devices", "Devices"),
         (device_profiles.router, "/device-profiles", "Device Profiles"),
         (test_templates.router, "/test-templates", "Test Templates"),
@@ -338,12 +606,12 @@ def create_app() -> FastAPI:
         (oidc.router, "/auth/oidc", "OIDC / SSO"),
     ]
 
-    # Mount under both /api/ (legacy) and /api/v1/ (versioned) for backward compatibility
+    # Mount under /api/v1/ as canonical prefix.
+    # LegacyAPIRewriteMiddleware transparently rewrites /api/* → /api/v1/*
     for rtr, suffix, tag in _api_routes:
-        app.include_router(rtr, prefix=f"/api{suffix}", tags=[tag])
-        app.include_router(rtr, prefix=f"/api/v1{suffix}", tags=[f"v1 - {tag}"])
+        app.include_router(rtr, prefix=f"/api/v1{suffix}", tags=[tag])
 
-    @app.post("/api/client-errors", include_in_schema=False)
+    @app.post("/api/v1/client-errors", include_in_schema=False)
     async def receive_client_error(request: Request):
         """Receive frontend error reports via navigator.sendBeacon."""
         try:
@@ -355,6 +623,32 @@ def create_app() -> FastAPI:
                 data.get("url", "unknown"),
                 data.get("message", "unknown"),
             )
+            already_captured = bool(data.get("capturedByFrontendSentry"))
+            if settings.SENTRY_DSN and not already_captured:
+                try:
+                    import sentry_sdk
+
+                    with sentry_sdk.push_scope() as scope:
+                        scope.set_tag("source", "frontend")
+                        scope.set_tag("request_id", getattr(request.state, "request_id", ""))
+                        scope.set_context(
+                            "frontend_error",
+                            {
+                                "url": data.get("url", "unknown"),
+                                "message": data.get("message", "unknown"),
+                                "stack": data.get("stack"),
+                                "component_stack": data.get("componentStack"),
+                                "timestamp": data.get("timestamp"),
+                                "user_agent": request.headers.get("user-agent", ""),
+                                "telemetry": data.get("telemetry"),
+                            },
+                        )
+                        sentry_sdk.capture_message(
+                            f"Frontend error: {data.get('message', 'unknown error')}",
+                            level="error",
+                        )
+                except Exception:
+                    logger.debug("Failed to forward frontend error to Sentry", exc_info=True)
         except Exception as e:
             logger.debug("Failed to log client error: %s", e)
         return Response(status_code=204)
@@ -367,12 +661,12 @@ def create_app() -> FastAPI:
         @app.get("/{full_path:path}")
         async def serve_spa(request: Request, full_path: str):
             if full_path.startswith("api/") or full_path in ("docs", "redoc", "openapi.json"):
-                return {"detail": "Not Found"}
+                return JSONResponse(status_code=404, content={"detail": "Not Found"})
             from pathlib import Path
             file_path = os.path.join(FRONTEND_DIR, full_path)
             resolved = Path(file_path).resolve()
             if not resolved.is_relative_to(Path(FRONTEND_DIR).resolve()):
-                return {"detail": "Not Found"}
+                return JSONResponse(status_code=404, content={"detail": "Not Found"})
             if full_path and os.path.isfile(file_path):
                 return FileResponse(file_path)
             return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))

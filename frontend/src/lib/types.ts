@@ -36,6 +36,7 @@ export interface Device {
   discovered_by: string | null
   last_tested: string | null
   last_verdict: string | null
+  project_id: string | null
   created_at: string
   updated_at: string
 }
@@ -241,13 +242,27 @@ export interface CVELookupResponse {
 }
 
 export interface DiscoveredDevice {
+  id: string
   ip_address: string
+  mac_address?: string | null
   hostname: string | null
+  oui_vendor?: string | null
+  os_fingerprint?: string | null
+  open_ports?: PortEntry[] | null
   manufacturer: string | null
   model: string | null
   predicted_name: string | null
   category: string
+  status?: string
   is_new: boolean
+  project_id?: string | null
+}
+
+export interface DiscoveryScanResponse {
+  status: string
+  target: string
+  devices_found: number
+  devices: DiscoveredDevice[]
 }
 
 export interface ReportTemplate {
@@ -256,6 +271,21 @@ export interface ReportTemplate {
   label?: string
   category?: string
   device_category?: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string | null
+  status: 'active' | 'archived' | 'completed'
+  created_by: string
+  client_name: string | null
+  location: string | null
+  device_count: number
+  test_run_count: number
+  created_at: string
+  updated_at: string
+  is_archived: boolean
 }
 
 export interface TourState {

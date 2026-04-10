@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from tests.conftest import register_and_login
+from .conftest import register_and_login
 from app.middleware.rate_limit import rate_limiter
 from app.models.device import Device
 from app.models.test_template import TestTemplate

@@ -8,6 +8,7 @@ from sqlalchemy import delete, and_, or_
 
 from app.models.database import async_session
 from app.models.refresh_token import RefreshToken
+from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.token_cleanup")
 
@@ -25,7 +26,7 @@ async def _cleanup_expired_tokens(session_factory=None) -> int:
     """
     factory = session_factory or async_session
     async with factory() as db:
-        now = datetime.now(timezone.utc)
+        now = utcnow_naive()
         result = await db.execute(
             delete(RefreshToken).where(
                 or_(
@@ -49,7 +50,7 @@ async def _cleanup_old_audit_logs(session_factory=None) -> int:
 
     factory = session_factory or async_session
     async with factory() as db:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        cutoff = utcnow_naive() - timedelta(days=retention_days)
         result = await db.execute(
             delete(AuditLog).where(AuditLog.created_at < cutoff)
         )

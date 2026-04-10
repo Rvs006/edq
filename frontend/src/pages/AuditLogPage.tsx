@@ -8,15 +8,39 @@ import toast from 'react-hot-toast'
 
 const ACTION_COLORS: Record<string, string> = {
   create: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
-  device_created: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
-  device_updated: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
-  test_run_started: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800',
-  test_run_completed: 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800',
-  test_result_updated: 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800',
-  report_generated: 'bg-cyan-50 text-cyan-700 border border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-400 dark:border-cyan-800',
-  user_login: 'bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700',
-  user_created: 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800',
+  update: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
+  delete: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800',
+  'project.create': 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
+  'project.update': 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800',
+  'project.delete': 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800',
+  'auth.login': 'bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700',
+  'auth.logout': 'bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700',
+  'auth.login_failed': 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800',
+  'auth.register': 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800',
+  'auth.password_change': 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800',
+  'report.generate': 'bg-cyan-50 text-cyan-700 border border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-400 dark:border-cyan-800',
+  'role.change': 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800',
+  'auth.role_change': 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-800',
+  'auth.account_status_change': 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800',
+  'auth.admin_create_user': 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-800',
+  'auth.sessions_revoked': 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800',
+  'discovery.scan': 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800',
+  'network_scan.discover': 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800',
 }
+
+const QUICK_FILTERS = [
+  '',
+  'create',
+  'update',
+  'delete',
+  'project.create',
+  'project.update',
+  'project.delete',
+  'auth.login',
+  'auth.role_change',
+  'report.generate',
+  'discovery.scan',
+]
 
 export default function AuditLogPage() {
   const [actionFilter, setActionFilter] = useState('')
@@ -25,7 +49,7 @@ export default function AuditLogPage() {
   const [page, setPage] = useState(0)
   const pageSize = 50
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['audit-logs', actionFilter, dateFrom, dateTo, page],
     queryFn: () => auditApi.list({
       action: actionFilter || undefined,
@@ -73,7 +97,7 @@ export default function AuditLogPage() {
 
       <div className="flex flex-wrap gap-2 mb-4">
         <div className="flex gap-2 overflow-x-auto pb-1 flex-1">
-          {['', 'device_created', 'test_run_started', 'test_run_completed', 'report_generated', 'user_login'].map(a => (
+          {QUICK_FILTERS.map(a => (
             <button
               type="button"
               key={a}
@@ -111,6 +135,12 @@ export default function AuditLogPage() {
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+        </div>
+      ) : isError ? (
+        <div className="card p-12 text-center">
+          <ListChecks className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">Failed to load audit logs</h3>
+          <p className="text-sm text-zinc-500">Try adjusting your filters or refreshing the page.</p>
         </div>
       ) : logs.length > 0 ? (
         <>

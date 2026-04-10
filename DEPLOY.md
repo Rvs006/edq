@@ -6,11 +6,11 @@ For local testing on a single laptop, use [INSTALL.md](INSTALL.md).
 
 ## Deployment Model
 
-EDQ runs as three services:
+EDQ runs as three containers:
 
 - `frontend`: nginx and the built frontend
-- `backend`: FastAPI application
-- `tools`: scan tooling sidecar
+- `backend`: FastAPI application plus the co-located tools sidecar
+- `postgres`: primary application database
 
 Optional production HTTPS support is provided through `docker-compose.prod.yml`.
 
@@ -30,10 +30,13 @@ Optional production HTTPS support is provided through `docker-compose.prod.yml`.
    - `SECRET_KEY`
    - `TOOLS_API_KEY`
    - `INITIAL_ADMIN_PASSWORD`
+   - `POSTGRES_PASSWORD`
 3. Set production-safe values for:
    - `COOKIE_SECURE=true`
    - `DEBUG=false`
    - `CORS_ORIGINS` to your real domain(s)
+   - `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE` if you want incident telemetry
+   - `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`, `VITE_SENTRY_RELEASE`, and optionally `VITE_SOURCEMAP=true` if you want browser-side Sentry reporting with hidden source maps
 4. Do not rely on placeholder values from `.env.example`
 
 ## Start Without HTTPS
@@ -47,24 +50,41 @@ docker compose up --build -d
 Health endpoint:
 
 ```bash
-curl http://localhost/api/health
+curl http://localhost:3000/api/health
 ```
 
 ## Start With HTTPS
 
 1. Set `DOMAIN` in the root `.env`
-2. Obtain certificates
-3. Start with the production override:
+2. Set `LETSENCRYPT_EMAIL` in the root `.env`
+3. Set `EDQ_USE_BUILTIN_TLS=true` in the root `.env`
+4. Start with the production override
+5. Issue the certificate
+6. Restart the frontend so nginx switches from HTTP bootstrap mode to HTTPS
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
+```bash
+DOMAIN=edq.example.com LETSENCRYPT_EMAIL=ops@example.com \
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot \
+  certonly --webroot -w /var/www/certbot -d "$DOMAIN" \
+  --agree-tos -m "$LETSENCRYPT_EMAIL" --non-interactive --keep-until-expiring
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart frontend
+```
+
 The production override:
 
 - binds ports `80` and `443`
-- enables nginx TLS config
+- removes the local-only `:3000` frontend publish
+- starts in HTTP bootstrap mode until certificates exist, then enables nginx TLS config
 - sets `COOKIE_SECURE=true` for the backend
+
+During the bootstrap phase, port `80` is used for ACME validation and health checks. Browser login should be treated as unavailable until certificates are issued and the frontend has been restarted onto HTTPS.
 
 ## Operations
 
@@ -86,7 +106,7 @@ View logs:
 docker compose logs -f
 docker compose logs -f backend
 docker compose logs -f frontend
-docker compose logs -f tools
+docker compose logs -f postgres
 ```
 
 Update:
@@ -95,6 +115,13 @@ Update:
 git switch main
 git pull --ff-only origin main
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+```
+
+Certificate renewal:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot renew
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T frontend nginx -s reload
 ```
 
 ## First Admin Tasks After Deployment
@@ -117,6 +144,13 @@ Authenticated status endpoints:
 - `/api/health/tools/versions`
 - `/api/health/system-status`
 
+Operational telemetry:
+
+- backend logs are JSON by default when `LOG_JSON=true`
+- backend responses include `X-Request-ID` for correlation
+- optional Sentry forwarding supports backend exceptions and frontend beaconed errors
+- frontend builds read `VITE_*` values from the repo-root `.env` during local development and from Docker build args when you override the frontend image build
+
 ## Admin Password Reset
 
 If you lose the admin password, update the database from the backend container:
@@ -129,7 +163,7 @@ from sqlalchemy import text
 from app.security.auth import hash_password
 async def reset():
     new_hash = hash_password('NEW_PASSWORD_HERE')
-    engine = create_async_engine('sqlite+aiosqlite:///./data/edq.db')
+    engine = create_async_engine('postgresql+asyncpg://edq:YOUR_POSTGRES_PASSWORD@postgres:5432/edq')
     async with engine.begin() as conn:
         await conn.execute(text('UPDATE users SET password_hash = :h WHERE username = :u'), {'h': new_hash, 'u': 'admin'})
     print('Password reset OK')
@@ -143,6 +177,8 @@ asyncio.run(reset())
 - `COOKIE_SECURE=true`
 - `CORS_ORIGINS` set to real domains only
 - all required secrets rotated away from placeholders
+- PostgreSQL backups tested with `scripts/backup.sh`
+- Sentry configured if you need incident alerting and stack traces
 - access restricted to trusted networks or VPN
 - authorized scan networks configured in the app
 - backups tested

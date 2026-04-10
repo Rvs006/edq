@@ -1,70 +1,41 @@
-#!/usr/bin/env bash
-# EDQ Database Backup Script
-# Creates timestamped backups of the SQLite database using .backup command
-# (safe for WAL mode — produces a consistent snapshot)
-#
-# Usage:
-#   ./scripts/backup.sh                    # Backup to ./backups/
-#   ./scripts/backup.sh /path/to/backups   # Backup to custom directory
-#   BACKUP_RETAIN_DAYS=30 ./scripts/backup.sh  # Keep backups for 30 days (default: 7)
-#
-# Crontab example (daily at 2am):
-#   0 2 * * * cd /path/to/edq && ./scripts/backup.sh >> /var/log/edq-backup.log 2>&1
-
-set -euo pipefail
+#!/bin/bash
+# EDQ database backup script
+# Usage: ./scripts/backup.sh [backup_dir]
+set -e
 
 BACKUP_DIR="${1:-./backups}"
-RETAIN_DAYS="${BACKUP_RETAIN_DAYS:-7}"
-DB_PATH="./data/edq.db"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="${BACKUP_DIR}/edq_backup_${TIMESTAMP}.db"
+mkdir -p "$BACKUP_DIR"
 
-# Ensure backup directory exists
-mkdir -p "${BACKUP_DIR}"
+echo "[EDQ Backup] Starting backup at $TIMESTAMP"
 
-# Check database exists
-if [ ! -f "${DB_PATH}" ]; then
-    echo "[$(date -Iseconds)] ERROR: Database not found at ${DB_PATH}"
-    exit 1
-fi
+DB_URL=$(docker compose exec -T backend python -c "from app.config import settings; print(settings.DATABASE_URL)" | tr -d '\r')
 
-# Use SQLite .backup command for WAL-safe backup
-echo "[$(date -Iseconds)] Starting backup to ${BACKUP_FILE}..."
-if command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "${DB_PATH}" ".backup '${BACKUP_FILE}'"
+if [[ "$DB_URL" == postgresql* ]]; then
+  docker compose exec -T postgres sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$BACKUP_DIR/edq_${TIMESTAMP}.sql"
+  echo "[EDQ Backup] PostgreSQL dump saved: $BACKUP_DIR/edq_${TIMESTAMP}.sql"
 else
-    # Fallback: use docker container's sqlite3 if available
-    if docker ps --filter name=edq-backend --format '{{.Names}}' | grep -q edq-backend; then
-        docker exec edq-backend python3 -c "
-import sqlite3, shutil
-src = sqlite3.connect('/app/data/edq.db')
-dst = sqlite3.connect('/tmp/backup.db')
-src.backup(dst)
-src.close()
-dst.close()
-" && docker cp edq-backend:/tmp/backup.db "${BACKUP_FILE}"
-    else
-        echo "[$(date -Iseconds)] ERROR: No sqlite3 binary found and edq-backend container is not running."
-        echo "Cannot safely back up a WAL-mode SQLite database with a file copy."
-        echo "Install sqlite3 or ensure the edq-backend container is running."
-        exit 1
-    fi
+  # Backup SQLite database using SQLite's online backup API for a consistent snapshot
+  TEMP_BACKUP="/tmp/edq_${TIMESTAMP}.db"
+  docker compose exec -T backend python -c "
+import sqlite3
+source = sqlite3.connect('/app/data/edq.db')
+target = sqlite3.connect('${TEMP_BACKUP}')
+with target:
+    source.backup(target)
+source.close()
+target.close()
+print('SQLite backup complete')
+"
+  docker cp "edq-backend:${TEMP_BACKUP}" "$BACKUP_DIR/edq_${TIMESTAMP}.db"
+  docker compose exec -T backend rm -f "${TEMP_BACKUP}" >/dev/null 2>&1 || true
+  echo "[EDQ Backup] SQLite backup saved: $BACKUP_DIR/edq_${TIMESTAMP}.db"
 fi
 
-# Compress backup
-if command -v gzip >/dev/null 2>&1; then
-    gzip "${BACKUP_FILE}"
-    BACKUP_FILE="${BACKUP_FILE}.gz"
-fi
+# Backup uploads
+docker cp edq-backend:/app/uploads "$BACKUP_DIR/uploads_${TIMESTAMP}" 2>/dev/null || echo "No uploads to backup"
 
-# Calculate size
-BACKUP_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
-echo "[$(date -Iseconds)] Backup complete: ${BACKUP_FILE} (${BACKUP_SIZE})"
-
-# Prune old backups
-PRUNED=$(find "${BACKUP_DIR}" -name "edq_backup_*.db*" -mtime +"${RETAIN_DAYS}" -delete -print | wc -l)
-if [ "${PRUNED}" -gt 0 ]; then
-    echo "[$(date -Iseconds)] Pruned ${PRUNED} backup(s) older than ${RETAIN_DAYS} days"
-fi
-
-echo "[$(date -Iseconds)] Backup retention: ${RETAIN_DAYS} days"
+# Keep only last 7 backups
+ls -t "$BACKUP_DIR"/edq_*.* 2>/dev/null | tail -n +8 | xargs rm -f 2>/dev/null
+echo "[EDQ Backup] Cleanup done. Keeping last 7 backups."
+echo "[EDQ Backup] Complete!"

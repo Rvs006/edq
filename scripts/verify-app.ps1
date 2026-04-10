@@ -1,5 +1,5 @@
 param(
-    [string]$BaseUrl = "http://localhost",
+    [string]$BaseUrl = "",
     [string]$AdminUser = "admin",
     [string]$AdminPass = ""
 )
@@ -11,9 +11,59 @@ $script:Fail = 0
 $script:Skip = 0
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$apiUrl = "$($BaseUrl.TrimEnd('/'))/api"
-$frontendUrl = $BaseUrl.TrimEnd('/') + "/"
 $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+
+function Get-RootEnvValue {
+    param([string]$Name)
+
+    $envFile = Join-Path $repoRoot ".env"
+    if (-not (Test-Path $envFile)) {
+        return $null
+    }
+
+    $line = Get-Content $envFile | Where-Object { $_ -match "^$([regex]::Escape($Name))=" } | Select-Object -First 1
+    if (-not $line) {
+        return $null
+    }
+
+    $value = ($line -split "=", 2)[1].Trim()
+    $value = $value.Trim("'")
+    $value = $value.Trim('"')
+    return $value
+}
+
+function Resolve-BaseUrl {
+    if ($BaseUrl) {
+        return $BaseUrl.TrimEnd('/')
+    }
+
+    if ($env:EDQ_URL) {
+        return $env:EDQ_URL.TrimEnd('/')
+    }
+
+    if ($env:EDQ_PUBLIC_URL) {
+        return $env:EDQ_PUBLIC_URL.TrimEnd('/')
+    }
+
+    $publicUrl = Get-RootEnvValue "EDQ_PUBLIC_URL"
+    if ($publicUrl) {
+        return $publicUrl.TrimEnd('/')
+    }
+
+    $publicPort = $env:EDQ_PUBLIC_PORT
+    if (-not $publicPort) {
+        $publicPort = Get-RootEnvValue "EDQ_PUBLIC_PORT"
+    }
+    if (-not $publicPort) {
+        $publicPort = "3000"
+    }
+
+    return "http://localhost:$publicPort"
+}
+
+$resolvedBaseUrl = Resolve-BaseUrl
+$apiUrl = "$($resolvedBaseUrl.TrimEnd('/'))/api"
+$frontendUrl = $resolvedBaseUrl.TrimEnd('/') + "/"
 
 function Resolve-AdminPassword {
     if ($AdminPass) {
@@ -84,7 +134,7 @@ Write-Host "====================================="
 Write-Host "  EDQ Integration Verification"
 Write-Host "====================================="
 Write-Host ""
-Write-Host ("Target: {0}" -f $BaseUrl)
+Write-Host ("Target: {0}" -f $resolvedBaseUrl)
 Write-Host ""
 
 Write-Host "--- Backend Health ---"

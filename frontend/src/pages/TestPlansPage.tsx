@@ -7,6 +7,7 @@ import { toLocalDateOnly } from '@/lib/testContracts'
 import { testPlansApi, templatesApi } from '@/lib/api'
 import { UNIVERSAL_TESTS } from '@/lib/universal-tests'
 import type { UniversalTest } from '@/lib/universal-tests'
+import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 
 const TIER_OPTIONS = [
@@ -38,10 +39,13 @@ interface TestPlan {
 }
 
 export default function TestPlansPage() {
+  const { user } = useAuth()
   const [plans, setPlans] = useState<TestPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<TestPlan | null>(null)
   const [creating, setCreating] = useState(false)
+  const canEditPlans = user?.role === 'admin' || user?.role === 'engineer'
+  const canDeletePlans = user?.role === 'admin'
 
   const fetchPlans = async () => {
     setLoading(true)
@@ -58,6 +62,7 @@ export default function TestPlansPage() {
   useEffect(() => { fetchPlans() }, [])
 
   const handleDelete = async (id: string) => {
+    if (!canDeletePlans) return
     if (!confirm('Delete this test plan?')) return
     try {
       await testPlansApi.delete(id)
@@ -95,9 +100,11 @@ export default function TestPlansPage() {
           <h1 className="section-title">Test Plans</h1>
           <p className="section-subtitle">Create custom test configurations with per-test toggles</p>
         </div>
-        <button type="button" onClick={() => setCreating(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> Create Plan
-        </button>
+        {canEditPlans && (
+          <button type="button" onClick={() => setCreating(true)} className="btn-primary">
+            <Plus className="w-4 h-4" /> Create Plan
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -111,9 +118,11 @@ export default function TestPlansPage() {
           </div>
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">No test plans yet</p>
           <p className="text-xs text-zinc-500 mb-4">Create a custom plan to select which tests run and override their tiers.</p>
-          <button type="button" onClick={() => setCreating(true)} className="btn-primary mx-auto">
-            <Plus className="w-4 h-4" /> Create Plan
-          </button>
+          {canEditPlans && (
+            <button type="button" onClick={() => setCreating(true)} className="btn-primary mx-auto">
+              <Plus className="w-4 h-4" /> Create Plan
+            </button>
+          )}
         </div>
       ) : (
         <div className="card">
@@ -147,15 +156,19 @@ export default function TestPlansPage() {
                     <td className="px-3 py-3 text-xs text-zinc-400 dark:text-zinc-500">{toLocalDateOnly(p.created_at)}</td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1 justify-end">
-                        <button type="button" onClick={() => setEditing(p)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Edit">
-                          <Pencil className="w-3.5 h-3.5 text-zinc-500" />
-                        </button>
+                        {canEditPlans && (
+                          <button type="button" onClick={() => setEditing(p)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Edit">
+                            <Pencil className="w-3.5 h-3.5 text-zinc-500" />
+                          </button>
+                        )}
                         <button type="button" onClick={() => handleClone(p.id)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Clone">
                           <Copy className="w-3.5 h-3.5 text-zinc-500" />
                         </button>
-                        <button type="button" onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">
-                          <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                        </button>
+                        {canDeletePlans && (
+                          <button type="button" onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-950/30" title="Delete">
+                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -1,5 +1,6 @@
 """JWT authentication via httpOnly cookies, CSRF protection, and role-based authorization."""
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from fastapi import Depends, HTTPException, Request, Response, status
@@ -15,10 +16,53 @@ from app.config import settings
 from app.models.database import get_db
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
+from app.utils.datetime import ensure_utc_naive, utcnow
 
 SESSION_COOKIE = "edq_session"
 CSRF_COOKIE = "edq_csrf"
 REFRESH_COOKIE = "edq_refresh"
+
+def _utcnow() -> datetime:
+    return utcnow()
+
+
+def revoke_user_access_tokens(user: User, revoked_at: datetime | None = None) -> None:
+    """Invalidate all access tokens issued for the user up to the given time."""
+    when = revoked_at or _utcnow()
+    if when.tzinfo is not None:
+        when = when.astimezone(timezone.utc).replace(tzinfo=None)
+    user.access_tokens_revoked_at = when
+
+
+def _payload_iat_to_utc(payload: dict) -> datetime | None:
+    issued_at_us = payload.get("iat_us")
+    if isinstance(issued_at_us, (int, float)):
+        return datetime.fromtimestamp(float(issued_at_us) / 1_000_000, tz=timezone.utc)
+    issued_at = payload.get("iat")
+    if issued_at is None:
+        return None
+    if isinstance(issued_at, datetime):
+        if issued_at.tzinfo is None:
+            return issued_at.replace(tzinfo=timezone.utc)
+        return issued_at.astimezone(timezone.utc)
+    if isinstance(issued_at, (int, float)):
+        return datetime.fromtimestamp(float(issued_at), tz=timezone.utc)
+    return None
+
+
+def is_access_token_revoked_for_user(user: User, payload: dict) -> bool:
+    """Check whether an access token payload predates user-level revocation."""
+    if not user.access_tokens_revoked_at:
+        return False
+    issued_at = _payload_iat_to_utc(payload)
+    if issued_at is None:
+        return True
+    revoked_at = user.access_tokens_revoked_at
+    if revoked_at.tzinfo is None:
+        revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+    else:
+        revoked_at = revoked_at.astimezone(timezone.utc)
+    return issued_at <= revoked_at
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
@@ -45,8 +89,15 @@ def generate_csrf_token() -> str:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire, "type": "access"})
+    issued_at = _utcnow()
+    expire = issued_at + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({
+        "exp": expire,
+        "iat": issued_at,
+        "iat_us": int(issued_at.timestamp() * 1_000_000),
+        "type": "access",
+        "jti": uuid.uuid4().hex,
+    })
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -67,7 +118,7 @@ async def store_refresh_token(db: AsyncSession, user_id: str, token: str, expire
     db.add(RefreshToken(
         token_hash=hash_token(token),
         user_id=user_id,
-        expires_at=expires_at,
+        expires_at=ensure_utc_naive(expires_at),
     ))
     await db.flush()
 
@@ -99,7 +150,7 @@ async def validate_and_rotate_refresh_token(db: AsyncSession, token: str) -> str
 
     if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
         db_token.revoked = True
-        await db.flush()
+        await db.commit()
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
     # Revoke the used token (single-use)
@@ -192,6 +243,8 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if payload.get("type") == "access" and is_access_token_revoked_for_user(user, payload):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
     return user
 
 

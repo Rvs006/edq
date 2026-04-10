@@ -5,6 +5,7 @@ const http = require('http');
 const util = require('util');
 
 const execAsync = util.promisify(exec);
+const EDQ_PUBLIC_URL = process.env.EDQ_PUBLIC_URL || `http://localhost:${process.env.EDQ_PUBLIC_PORT || '3000'}`;
 
 class DockerManager {
   constructor() {
@@ -110,7 +111,7 @@ class DockerManager {
 
     while (Date.now() - start < maxWait) {
       try {
-        const result = await this._httpGet('http://localhost:80/api/health', 5000);
+        const result = await this._httpGet(`${EDQ_PUBLIC_URL}/api/health`, 5000);
         const json = JSON.parse(result);
 
         if (json.status === 'ok') {

@@ -1,69 +1,65 @@
-"""Report Generation Engine — Excel, Word, and PDF report generation.
+"""Report generation engine."""
 
-Template-based Excel generation: opens actual .xlsx template files using
-openpyxl.load_workbook(), fills in data cells, and saves. This preserves
-all formatting, merged cells, borders, colours, conditional formatting,
-and logos from the original Electracom templates.
+from __future__ import annotations
 
-Word generation uses python-docx with styled cover page, executive summary,
-color-coded results table, detailed findings for FAIL/ADVISORY, and
-protocol whitelist comparison.
-
-PDF generation converts the Word doc using LibreOffice headless.
-
-Fallback scratch generation available when template files are missing.
-"""
-
+import csv
 import json
 import logging
 import os
 import re
 import subprocess
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.config import settings
-
-_ILLEGAL_XML_CHARS = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]')
-
-
-def _sanitize_for_excel(value):
-    """Strip control characters that are illegal in Excel/XML."""
-    if not isinstance(value, str):
-        return value
-    return _ILLEGAL_XML_CHARS.sub('', value)
+from app.utils.datetime import as_utc, utcnow_naive
 
 logger = logging.getLogger(__name__)
 
-_TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "templates"
+_ILLEGAL_XML_CHARS = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]")
 _MAPPINGS_DIR = Path(__file__).resolve().parent / "cell_mappings"
 
 TEMPLATE_FILES = {
     "pelco_camera": "1TS - Pelco SMLE1-15V5-3H Camera Device Qualification Rev 2.xlsx",
     "easyio_controller": "EasyIO FW08 - Device Testing Plan - v1.1.xlsx",
-    "generic": "[MANUFACTURER] - [MODEL] - IP Device Qualification Template C00 - ADDED SCRIPT NO YES 1.xlsx",
+    "generic": "[MANUFACTURER] - [MODEL] - IP Device Qualification Template (Rev00) C00.xlsx",
 }
 
 TEMPLATE_INFO = {
-    "pelco_camera": {
-        "name": "Pelco Camera (Rev 2)",
-        "device_category": "camera",
-        "description": "Pelco SMLE1-15V5-3H camera qualification template with 31 tests",
-    },
-    "easyio_controller": {
-        "name": "EasyIO Controller",
-        "device_category": "controller",
-        "description": "EasyIO controller report template aligned to the current EDQ workflow",
-    },
-    "generic": {
-        "name": "Generic IP Device (C00)",
-        "device_category": "generic",
-        "description": "Universal IP device qualification template with 43 tests",
-    },
+    "pelco_camera": {"name": "Pelco Camera (Rev 2)", "device_category": "camera", "description": "Pelco camera workbook."},
+    "easyio_controller": {"name": "EasyIO Controller", "device_category": "controller", "description": "EasyIO controller workbook."},
+    "generic": {"name": "Generic IP Device (Rev00 C00)", "device_category": "generic", "description": "Canonical generic 3-sheet workbook."},
 }
 
-_DEFAULT_VERDICT_MAP = {
+
+def _resolve_templates_dir() -> Path:
+    here = Path(__file__).resolve()
+    candidates: list[Path] = []
+
+    env_value = os.getenv("EDQ_TEMPLATES_DIR")
+    if env_value:
+        candidates.append(Path(env_value))
+
+    for depth in (2, 4):
+        try:
+            candidates.append(here.parents[depth] / "templates")
+        except IndexError:
+            continue
+
+    candidates.append(Path.cwd() / "templates")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[0]
+
+
+_TEMPLATES_DIR = _resolve_templates_dir()
+
+_VERDICT_MAP = {
     "pass": "PASS",
     "qualified_pass": "QUALIFIED PASS",
     "fail": "FAIL",
@@ -75,950 +71,378 @@ _DEFAULT_VERDICT_MAP = {
     "running": "RUNNING",
     "incomplete": "INCOMPLETE",
 }
-
-_OVERALL_VERDICT_MAP = {
-    "pass": "PASS",
-    "qualified_pass": "QUALIFIED PASS",
-    "fail": "FAIL",
-    "incomplete": "INCOMPLETE",
-}
-
-
-def _format_date_range(test_run) -> str:
-    fmt = "%d/%m/%Y"
-    start = test_run.started_at or test_run.created_at
-    end = test_run.completed_at or datetime.now(timezone.utc)
-    start_str = start.strftime(fmt) if start else ""
-    end_str = end.strftime(fmt) if end else ""
-    return f"{start_str} - {end_str}"
+_SUMMARY_FIELDS = [
+    ("test_attempt", "Test Attempt"),
+    ("date_range", "Date Test Started - Date Test Finished"),
+    ("system", "System"),
+    ("system_owner", "System Owner"),
+    ("manufacturer", "Manufacturer"),
+    ("model", "Model"),
+    ("firmware", "Firmware Version"),
+    ("serial", "Serial Number"),
+    ("tester_name", "Name Of Tester"),
+    ("overall_result", "TEST RESULT"),
+]
 
 
-def _resolve_verdict(result, verdict_map: dict) -> str:
-    raw = result.verdict.value if hasattr(result.verdict, "value") else str(result.verdict)
-    effective_map = verdict_map if verdict_map else _DEFAULT_VERDICT_MAP
-    return effective_map.get(raw, raw.upper())
+@dataclass
+class ReportRow:
+    test_number: str
+    brief_description: str
+    test_description: str
+    essential_test: str
+    test_result: str
+    test_comments: str
+    template_backed: bool = False
 
 
-def _resolve_overall_verdict(test_run) -> str:
-    raw = test_run.overall_verdict.value if hasattr(test_run.overall_verdict, "value") else str(test_run.overall_verdict or "INCOMPLETE")
-    return _OVERALL_VERDICT_MAP.get(raw, raw.upper())
+@dataclass
+class ReportSection:
+    title: str
+    body: str
 
 
-def _resolve_script_flag(result) -> str:
-    tier = result.tier.value if hasattr(result.tier, "value") else str(result.tier)
-    return "Yes" if tier == "automatic" else "No"
+@dataclass
+class ReportDocument:
+    template_key: str
+    template_path: Path
+    mapping: dict[str, Any]
+    metadata: dict[str, str]
+    rows: list[ReportRow] = field(default_factory=list)
+    additional_sections: list[ReportSection] = field(default_factory=list)
 
 
-def _resolve_comment(result) -> str:
-    """Build the comment string for a test result.
-
-    Combines comment_override/comment, engineer notes, and override info.
-    Engineer notes are included in the combined comment so they appear in
-    the Test Comments column of the report.  The separate Engineer Notes
-    column in the scratch report receives the raw engineer_notes field.
-    """
-    parts = []
-    # Base comment (auto-generated or manual)
-    base = result.comment_override or result.comment or ""
-    if base:
-        parts.append(base)
-    # Engineer notes
-    eng_notes = getattr(result, "engineer_notes", None)
-    if eng_notes:
-        parts.append(f"[Engineer Notes: {eng_notes}]")
-    # Override info
-    override_reason = getattr(result, "override_reason", None)
-    if override_reason:
-        overridden_by = getattr(result, "overridden_by_username", None) or "Reviewer"
-        override_verdict = getattr(result, "override_verdict", None) or ""
-        suffix = f"[OVERRIDE by {overridden_by}: {override_reason}"
-        if override_verdict:
-            suffix += f" \u2192 {override_verdict.upper()}"
-        suffix += "]"
-        parts.append(suffix)
-    return " ".join(parts).strip() if parts else ""
+def _sanitize(value: Any) -> Any:
+    return _ILLEGAL_XML_CHARS.sub("", value) if isinstance(value, str) else value
 
 
-def _safe_attr(obj, attr: str, default: str = "") -> str:
-    val = getattr(obj, attr, None)
-    if val is None:
-        return default
-    return str(val)
+def _safe_attr(obj: Any, attr: str, default: str = "") -> str:
+    value = getattr(obj, attr, None) if obj is not None else None
+    if hasattr(value, "value"):
+        value = value.value
+    return default if value is None else str(value)
 
 
-def _get_verdict_raw(result) -> str:
-    return result.verdict.value if hasattr(result.verdict, "value") else str(result.verdict)
+def _load_mapping(template_key: str) -> dict[str, Any]:
+    path = _MAPPINGS_DIR / f"{template_key}.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
-def _get_tier_raw(result) -> str:
-    return result.tier.value if hasattr(result.tier, "value") else str(result.tier)
+def _format_date_range(test_run: Any) -> str:
+    start = getattr(test_run, "started_at", None) or getattr(test_run, "created_at", None)
+    end = getattr(test_run, "completed_at", None) or utcnow_naive()
+    return f"{start.strftime('%d/%m/%Y') if start else ''} - {end.strftime('%d/%m/%Y') if end else ''}".strip(" -")
 
 
-def _get_overall_verdict_raw(test_run) -> str:
-    return test_run.overall_verdict.value if hasattr(test_run.overall_verdict, "value") else str(test_run.overall_verdict or "incomplete")
+def _overall_result(test_run: Any) -> str:
+    raw = getattr(test_run, "overall_verdict", None)
+    raw = raw.value if hasattr(raw, "value") else str(raw or "incomplete")
+    return _VERDICT_MAP.get(raw, raw.upper())
 
 
-def _filter_enabled_results(test_results, enabled_test_ids: Optional[list] = None):
-    if not enabled_test_ids:
-        return list(test_results)
-    enabled_set = set(enabled_test_ids)
-    return [r for r in test_results if r.test_id in enabled_set]
+def _comment(result: Any) -> str:
+    parts = [getattr(result, "comment_override", None) or getattr(result, "comment", None) or ""]
+    notes = getattr(result, "engineer_notes", None)
+    if notes:
+        parts.append(f"[Engineer Notes: {notes}]")
+    reason = getattr(result, "override_reason", None)
+    if reason:
+        parts.append(f"[Override: {reason}]")
+    return " ".join(part for part in parts if part).strip()
 
 
-def _get_tool_versions(test_run) -> dict:
-    meta = getattr(test_run, "run_metadata", None) or {}
-    if isinstance(meta, str):
+def _summary_text(test_run: Any, metadata: dict[str, str], include_synopsis: bool) -> str:
+    synopsis = (getattr(test_run, "synopsis", None) or "").replace("[AI-DRAFTED] ", "").strip()
+    if include_synopsis and synopsis:
+        return synopsis
+    return (
+        f"Qualification testing for {metadata.get('manufacturer') or 'Unknown manufacturer'} "
+        f"{metadata.get('model') or 'Unknown model'} completed with an overall result of "
+        f"{metadata.get('overall_result') or 'INCOMPLETE'}."
+    )
+
+
+def build_report_document(
+    test_run: Any,
+    test_results: list[Any],
+    report_config: Any = None,
+    template_key: str = "generic",
+    enabled_test_ids: Optional[list[str]] = None,
+    whitelist_entries: Optional[list[Any]] = None,
+    include_synopsis: bool = False,
+) -> ReportDocument:
+    del whitelist_entries
+    if template_key not in TEMPLATE_FILES:
+        raise ValueError(f"Unknown template_key '{template_key}'")
+    filtered_results = [r for r in test_results if not enabled_test_ids or getattr(r, "test_id", None) in set(enabled_test_ids)]
+    mapping = _load_mapping(template_key)
+    template_path = _TEMPLATES_DIR / TEMPLATE_FILES[template_key]
+
+    device = getattr(test_run, "device", None)
+    engineer = getattr(test_run, "engineer", None)
+    metadata = {
+        "test_attempt": "1",
+        "date_range": _format_date_range(test_run),
+        "system": _safe_attr(device, "category").replace("_", " ").title(),
+        "system_owner": _safe_attr(report_config, "client_name"),
+        "manufacturer": _safe_attr(device, "manufacturer"),
+        "model": _safe_attr(device, "model"),
+        "firmware": _safe_attr(device, "firmware_version"),
+        "serial": _safe_attr(device, "serial_number"),
+        "tester_name": _safe_attr(engineer, "full_name"),
+        "overall_result": _overall_result(test_run),
+        "summary_text": "",
+    }
+    metadata["summary_text"] = _summary_text(test_run, metadata, include_synopsis)
+
+    rows: list[ReportRow] = []
+    if template_key == "generic" and template_path.exists() and mapping:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(str(template_path), read_only=True, data_only=False)
         try:
-            meta = json.loads(meta)
-        except (json.JSONDecodeError, TypeError):
-            meta = {}
-    return meta.get("tool_versions", {})
+            ws = wb[mapping["testplan_sheet"]]
+            cols = mapping["testplan_columns"]
+            start = mapping["testplan_start_row"]
+            count = mapping["testplan_row_count"]
+            result_by_id = {str(getattr(r, "test_id", "")): r for r in filtered_results}
+            sources = mapping.get("row_sources", {})
+            for row_index in range(start, start + count):
+                number = str(ws[f"{cols['test_number']}{row_index}"].value or "").strip()
+                source_ids = sources.get(number, [])
+                source = next((result_by_id[test_id] for test_id in source_ids if test_id in result_by_id), None)
+                rows.append(
+                    ReportRow(
+                        test_number=number,
+                        brief_description=str(ws[f"{cols['brief_description']}{row_index}"].value or ""),
+                        test_description=str(ws[f"{cols['test_description']}{row_index}"].value or ""),
+                        essential_test=str(ws[f"{cols.get('essential_test', cols.get('essential_pass'))}{row_index}"].value or ""),
+                        test_result=_VERDICT_MAP.get((_safe_attr(source, "verdict") or "").lower(), _safe_attr(source, "verdict").upper()) if source else "",
+                        test_comments=_comment(source) if source else "",
+                        template_backed=True,
+                    )
+                )
+        finally:
+            wb.close()
+    else:
+        for idx, result in enumerate(filtered_results, start=1):
+            rows.append(
+                ReportRow(
+                    test_number=str(idx),
+                    brief_description=_safe_attr(result, "test_name"),
+                    test_description="",
+                    essential_test=_safe_attr(result, "is_essential").upper(),
+                    test_result=_VERDICT_MAP.get((_safe_attr(result, "verdict") or "").lower(), _safe_attr(result, "verdict").upper()),
+                    test_comments=_comment(result),
+                )
+            )
+
+    additional_sections = [
+        ReportSection("Executive Summary", metadata["summary_text"]),
+        ReportSection("Supporting Evidence and Findings", f"Connection Scenario: {_safe_attr(test_run, 'connection_scenario', 'direct')}"),
+    ]
+    return ReportDocument(template_key=template_key, template_path=template_path, mapping=mapping, metadata=metadata, rows=rows, additional_sections=additional_sections)
 
 
-def get_available_templates() -> list:
-    available = []
+def get_available_templates() -> list[dict[str, Any]]:
+    items = []
     for key, info in TEMPLATE_INFO.items():
-        template_file = _TEMPLATES_DIR / TEMPLATE_FILES[key]
-        mapping_file = _MAPPINGS_DIR / f"{key}.json"
-        available.append({
+        items.append({
             "key": key,
             "name": info["name"],
             "device_category": info["device_category"],
             "description": info["description"],
-            "template_exists": template_file.exists(),
-            "mapping_exists": mapping_file.exists(),
+            "template_exists": (_TEMPLATES_DIR / TEMPLATE_FILES[key]).exists(),
+            "mapping_exists": (_MAPPINGS_DIR / f"{key}.json").exists(),
         })
-    return available
+    return items
 
 
-# ---------------------------------------------------------------------------
-# Excel Report Generation
-# ---------------------------------------------------------------------------
+def _output_path(test_run: Any, template_key: str, extension: str) -> Path:
+    output_dir = Path(settings.REPORT_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return output_dir / f"EDQ_Report_{str(test_run.id)[:8]}_{template_key}_{stamp}{extension}"
+
 
 async def generate_excel_report(
-    test_run,
-    test_results,
-    report_config=None,
+    test_run: Any,
+    test_results: list[Any],
+    report_config: Any = None,
     template_key: str = "generic",
-    enabled_test_ids: Optional[list] = None,
+    enabled_test_ids: Optional[list[str]] = None,
+    whitelist_entries: Optional[list[Any]] = None,
+    include_synopsis: bool = False,
 ) -> str:
-    if template_key not in TEMPLATE_FILES:
-        raise ValueError(
-            f"Unknown template_key '{template_key}'. "
-            f"Valid keys: {', '.join(TEMPLATE_FILES.keys())}"
-        )
+    report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
+    from openpyxl import Workbook, load_workbook
 
-    template_file = _TEMPLATES_DIR / TEMPLATE_FILES[template_key]
-    mapping_file = _MAPPINGS_DIR / f"{template_key}.json"
-
-    if not template_file.exists() or not mapping_file.exists():
-        logger.warning(
-            "Template or mapping missing for '%s' (template=%s, mapping=%s). "
-            "Falling back to scratch generation.",
-            template_key,
-            template_file.exists(),
-            mapping_file.exists(),
-        )
-        return await generate_excel_report_scratch(test_run, test_results, report_config)
-
-    from openpyxl import load_workbook
-    from openpyxl.styles import Font, PatternFill
-
-    filtered_results = _filter_enabled_results(test_results, enabled_test_ids)
-
-    mapping = json.loads(mapping_file.read_text())
-    wb = load_workbook(str(template_file))
-
-    device = getattr(test_run, "device", None)
-    engineer = getattr(test_run, "engineer", None)
-
-    overall_verdict_str = _resolve_overall_verdict(test_run)
-
-    synopsis_ws = wb[mapping["synopsis_sheet"]]
-    meta = mapping["metadata_cells"]
-
-    metadata_values = {
-        "test_attempt": "1",
-        "date_range": _format_date_range(test_run),
-        "system": _safe_attr(device, "category", ""),
-        "manufacturer": _safe_attr(device, "manufacturer"),
-        "model": _safe_attr(device, "model"),
-        "firmware": _safe_attr(device, "firmware_version"),
-        "serial": "",
-        "tester_name": _safe_attr(engineer, "full_name"),
-        "overall_result": overall_verdict_str,
-        "synopsis_text": test_run.synopsis or "",
-    }
-
-    if template_key == "easyio_controller":
-        start_dt = test_run.started_at or test_run.created_at
-        end_dt = test_run.completed_at or datetime.now(timezone.utc)
-        if start_dt and hasattr(start_dt, "tzinfo") and start_dt.tzinfo is not None:
-            start_dt = start_dt.replace(tzinfo=None)
-        if end_dt and hasattr(end_dt, "tzinfo") and end_dt.tzinfo is not None:
-            end_dt = end_dt.replace(tzinfo=None)
-        metadata_values["start_date"] = start_dt
-        metadata_values["end_date"] = end_dt
-
-    for field_key, cell_addr in meta.items():
-        if cell_addr and field_key in metadata_values:
-            value = metadata_values[field_key]
-            try:
-                synopsis_ws[cell_addr] = _sanitize_for_excel(value)
-            except Exception as e:
-                logger.warning("Could not write to cell %s in synopsis sheet: %s", cell_addr, str(e))
-
-    overall_cell = meta.get("overall_result")
-    if overall_cell:
-        verdict_fills = {
-            "PASS": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-            "QUALIFIED PASS": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-            "FAIL": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-        }
-        verdict_fonts = {
-            "PASS": Font(name="Calibri", size=11, bold=True, color="006100"),
-            "QUALIFIED PASS": Font(name="Calibri", size=11, bold=True, color="9C6500"),
-            "FAIL": Font(name="Calibri", size=11, bold=True, color="9C0006"),
-        }
-        try:
-            cell = synopsis_ws[overall_cell]
-            cell.fill = verdict_fills.get(overall_verdict_str, PatternFill())
-            cell.font = verdict_fonts.get(overall_verdict_str, Font(name="Calibri", size=11, bold=True))
-        except Exception:
-            logger.warning("Could not style overall verdict cell %s", overall_cell)
-
-    tool_versions = _get_tool_versions(test_run)
-    if tool_versions:
-        tools_text = ", ".join(f"{k}: {v}" for k, v in tool_versions.items())
-        tools_cell = meta.get("tool_versions")
-        if tools_cell:
-            try:
-                synopsis_ws[tools_cell] = _sanitize_for_excel(tools_text)
-            except Exception as e:
-                logger.warning("Could not write to tools cell %s: %s", tools_cell, e)
-
-    testplan_ws = wb[mapping["testplan_sheet"]]
-    cols = mapping["testplan_columns"]
-    verdict_map = mapping.get("verdict_map", {})
-    start_row = mapping["testplan_start_row"]
-    template_row_count = mapping.get("testplan_row_count", 43)
-
-    for i, result in enumerate(filtered_results):
-        row = start_row + i
-
-        if i >= template_row_count:
-            testplan_ws.insert_rows(row)
-
-        if cols.get("test_result"):
-            testplan_ws[f"{cols['test_result']}{row}"] = _sanitize_for_excel(_resolve_verdict(result, verdict_map))
-        if cols.get("test_comments"):
-            testplan_ws[f"{cols['test_comments']}{row}"] = _sanitize_for_excel(_resolve_comment(result))
-        if cols.get("script_flag"):
-            testplan_ws[f"{cols['script_flag']}{row}"] = _sanitize_for_excel(_resolve_script_flag(result))
-
-    total_template_rows = max(template_row_count, len(filtered_results))
-    if len(filtered_results) < template_row_count:
-        rows_to_clear = template_row_count - len(filtered_results)
-        clear_start = start_row + len(filtered_results)
-        for row_idx in range(clear_start, clear_start + rows_to_clear):
-            for col_key in ["test_number", "brief_description", "test_description",
-                            "essential_pass", "test_result", "test_comments", "script_flag"]:
-                col_letter = cols.get(col_key)
-                if col_letter:
-                    try:
-                        testplan_ws[f"{col_letter}{row_idx}"] = None
-                    except Exception as e:
-                        logger.debug("Could not clear cell %s%s: %s", col_letter, row_idx, e)
-
-    output_dir = Path(settings.REPORT_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"EDQ_Report_{test_run.id[:8]}_{template_key}_{timestamp}.xlsx"
-    output_path = output_dir / filename
-    wb.save(str(output_path))
-    logger.info("Template-based Excel report saved: %s", output_path)
-    return str(output_path)
-
-
-async def generate_excel_report_scratch(test_run, test_results, report_config=None) -> str:
-    """Scratch Excel report matching the Electracom qualification template structure.
-
-    Sheet 1 -- TEST SUMMARY: device metadata, tester info, overall result.
-    Sheet 2 -- TESTPLAN: per-test rows with template-matching columns.
-    """
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-    wb = Workbook()
-
-    device = getattr(test_run, "device", None)
-    engineer = getattr(test_run, "engineer", None)
-    overall_verdict_str = _resolve_overall_verdict(test_run)
-
-    # --- Sheet 1: TEST SUMMARY (mirrors template Synopsis sheet) ---
-    ws_summary = wb.active
-    ws_summary.title = "TEST SUMMARY"
-    ws_summary.column_dimensions["A"].width = 5
-    ws_summary.column_dimensions["B"].width = 25
-    ws_summary.column_dimensions["C"].width = 5
-    ws_summary.column_dimensions["D"].width = 5
-    ws_summary.column_dimensions["E"].width = 5
-    ws_summary.column_dimensions["F"].width = 5
-    ws_summary.column_dimensions["G"].width = 40
-
-    label_font = Font(name="Calibri", size=11, bold=True)
-    value_font = Font(name="Calibri", size=11)
-    title_font = Font(name="Calibri", size=18, bold=True, color="1F4E79")
-
-    ws_summary.merge_cells("B2:G2")
-    ws_summary["B2"] = "IP Device Qualification Report"
-    ws_summary["B2"].font = title_font
-
-    ws_summary.merge_cells("B4:F4")
-    ws_summary["B4"] = "Electracom Projects Ltd"
-    ws_summary["B4"].font = Font(name="Calibri", size=14, bold=True, color="595959")
-
-    # Metadata rows matching template layout (labels in B, values in G)
-    meta_rows = [
-        (7, "Test Attempt:", "1"),
-        (8, "Date Range:", _format_date_range(test_run)),
-        (9, "System:", _safe_attr(device, "category", "")),
-        (11, "Manufacturer:", _safe_attr(device, "manufacturer", "")),
-        (12, "Model:", _safe_attr(device, "model", "")),
-        (13, "Firmware:", _safe_attr(device, "firmware_version", "")),
-        (14, "Serial:", ""),
-        (15, "Tester Name:", _safe_attr(engineer, "full_name", "")),
-        (16, "Overall Result:", overall_verdict_str),
-    ]
-
-    for row_num, label, value in meta_rows:
-        ws_summary[f"B{row_num}"] = label
-        ws_summary[f"B{row_num}"].font = label_font
-        ws_summary[f"G{row_num}"] = _sanitize_for_excel(value)
-        ws_summary[f"G{row_num}"].font = value_font
-
-    # Color-code overall result cell
-    verdict_fills_summary = {
-        "PASS": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-        "QUALIFIED PASS": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-        "FAIL": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-    }
-    verdict_fonts_summary = {
-        "PASS": Font(name="Calibri", size=11, bold=True, color="006100"),
-        "QUALIFIED PASS": Font(name="Calibri", size=11, bold=True, color="9C6500"),
-        "FAIL": Font(name="Calibri", size=11, bold=True, color="9C0006"),
-    }
-    fill = verdict_fills_summary.get(overall_verdict_str)
-    if fill:
-        ws_summary["G16"].fill = fill
-        ws_summary["G16"].font = verdict_fonts_summary.get(
-            overall_verdict_str, Font(name="Calibri", size=11, bold=True)
-        )
-
-    # Synopsis text
-    synopsis_text = test_run.synopsis or ""
-    if synopsis_text:
-        ws_summary.merge_cells("B19:G22")
-        ws_summary["B19"] = _sanitize_for_excel(synopsis_text)
-        ws_summary["B19"].font = value_font
-        ws_summary["B19"].alignment = Alignment(wrap_text=True, vertical="top")
-
-    # Test statistics
-    ws_summary["B24"] = "Test Statistics"
-    ws_summary["B24"].font = label_font
-    stats_rows = [
-        (25, "Tests Passed:", test_run.passed_tests),
-        (26, "Tests Failed:", test_run.failed_tests),
-        (27, "Advisories:", test_run.advisory_tests),
-        (28, "N/A:", test_run.na_tests),
-        (29, "Total Tests:", test_run.total_tests),
-    ]
-    for row_num, label, value in stats_rows:
-        ws_summary[f"B{row_num}"] = label
-        ws_summary[f"B{row_num}"].font = label_font
-        ws_summary[f"G{row_num}"] = value
-        ws_summary[f"G{row_num}"].font = value_font
-
-    tool_versions = _get_tool_versions(test_run)
-    tv_start = 31
-    if tool_versions:
-        ws_summary[f"B{tv_start}"] = "Tool Versions"
-        ws_summary[f"B{tv_start}"].font = label_font
-        row_offset = tv_start + 1
-        for tool_name, tool_ver in tool_versions.items():
-            ws_summary[f"B{row_offset}"] = _sanitize_for_excel(tool_name)
-            ws_summary[f"G{row_offset}"] = _sanitize_for_excel(tool_ver)
-            row_offset += 1
-        gen_row = row_offset + 1
+    if report.template_path.exists() and report.mapping:
+        wb = load_workbook(str(report.template_path))
+        summary_ws = wb[report.mapping["synopsis_sheet"]]
+        for key, cell in report.mapping.get("metadata_cells", {}).items():
+            summary_ws[cell] = _sanitize(report.metadata.get(key, ""))
+        testplan_ws = wb[report.mapping["testplan_sheet"]]
+        cols = report.mapping["testplan_columns"]
+        start = report.mapping["testplan_start_row"]
+        for offset, row in enumerate(report.rows):
+            testplan_ws[f"{cols['test_result']}{start + offset}"] = _sanitize(row.test_result) or None
+            testplan_ws[f"{cols['test_comments']}{start + offset}"] = _sanitize(row.test_comments) or None
+        additional_ws = wb[report.mapping["additional_sheet"]]
+        cells = report.mapping.get("additional_cells", {})
+        if report.additional_sections:
+            additional_ws[cells["section_1_title"]] = report.additional_sections[0].title
+            additional_ws[cells["section_1_body"]] = report.additional_sections[0].body
+        if len(report.additional_sections) > 1:
+            additional_ws[cells["section_2_title"]] = report.additional_sections[1].title
+            additional_ws[cells["section_2_body"]] = report.additional_sections[1].body
     else:
-        gen_row = tv_start
-
-    ws_summary[f"B{gen_row}"] = "Generated"
-    ws_summary[f"B{gen_row}"].font = label_font
-    ws_summary[f"G{gen_row}"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-    # --- Sheet 2: TESTPLAN (matches template columns) ---
-    ws_results = wb.create_sheet("TESTPLAN")
-
-    # Column widths matching template
-    ws_results.column_dimensions["A"].width = 3
-    ws_results.column_dimensions["B"].width = 12   # Test Number
-    ws_results.column_dimensions["C"].width = 30   # Brief Description
-    ws_results.column_dimensions["D"].width = 50   # Test Description
-    ws_results.column_dimensions["E"].width = 12   # Script (Yes/No)
-    ws_results.column_dimensions["F"].width = 14   # Essential Pass
-    ws_results.column_dimensions["G"].width = 14   # Test Result
-    ws_results.column_dimensions["H"].width = 50   # Test Comments
-    ws_results.column_dimensions["I"].width = 35   # Engineer Notes
-
-    # Header row matching generic template column order
-    headers = [
-        ("B", "Test Number"),
-        ("C", "Brief Description"),
-        ("D", "Test Description"),
-        ("E", "Script (Yes/No)"),
-        ("F", "Essential Pass"),
-        ("G", "Test Result"),
-        ("H", "Test Comments"),
-        ("I", "Engineer Notes"),
-    ]
-
-    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-    header_font_white = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    thin_border = Border(
-        left=Side(style="thin"),
-        right=Side(style="thin"),
-        top=Side(style="thin"),
-        bottom=Side(style="thin"),
-    )
-
-    header_row = 10  # Match template start area
-    for col_letter, header_text in headers:
-        cell = ws_results[f"{col_letter}{header_row}"]
-        cell.value = header_text
-        cell.font = header_font_white
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = thin_border
-
-    verdict_fills = {
-        "pass": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-        "fail": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-        "advisory": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-        "na": PatternFill(start_color="EAEDED", end_color="EAEDED", fill_type="solid"),
-    }
-
-    start_row = header_row + 1
-    for i, result in enumerate(test_results):
-        row = start_row + i
-        verdict_val = _get_verdict_raw(result)
-        verdict_display = _DEFAULT_VERDICT_MAP.get(verdict_val, verdict_val.upper())
-
-        ws_results[f"B{row}"] = _sanitize_for_excel(result.test_id)
-        ws_results[f"B{row}"].border = thin_border
-
-        ws_results[f"C{row}"] = _sanitize_for_excel(result.test_name)
-        ws_results[f"C{row}"].border = thin_border
-
-        # Test description: use compliance map as supplementary description
-        test_desc = ""
-        if result.compliance_map:
-            test_desc = ", ".join(result.compliance_map)
-        ws_results[f"D{row}"] = _sanitize_for_excel(test_desc)
-        ws_results[f"D{row}"].border = thin_border
-        ws_results[f"D{row}"].alignment = Alignment(wrap_text=True)
-
-        ws_results[f"E{row}"] = _sanitize_for_excel(_resolve_script_flag(result))
-        ws_results[f"E{row}"].border = thin_border
-        ws_results[f"E{row}"].alignment = Alignment(horizontal="center")
-
-        ws_results[f"F{row}"] = _sanitize_for_excel((result.is_essential or "no").upper())
-        ws_results[f"F{row}"].border = thin_border
-        ws_results[f"F{row}"].alignment = Alignment(horizontal="center")
-
-        verdict_cell = ws_results[f"G{row}"]
-        verdict_cell.value = _sanitize_for_excel(verdict_display)
-        verdict_cell.border = thin_border
-        verdict_cell.alignment = Alignment(horizontal="center")
-        verdict_cell.fill = verdict_fills.get(verdict_val, PatternFill())
-
-        ws_results[f"H{row}"] = _sanitize_for_excel(_resolve_comment(result))
-        ws_results[f"H{row}"].border = thin_border
-        ws_results[f"H{row}"].alignment = Alignment(wrap_text=True)
-
-        eng_notes = getattr(result, "engineer_notes", None) or ""
-        ws_results[f"I{row}"] = _sanitize_for_excel(eng_notes)
-        ws_results[f"I{row}"].border = thin_border
-        ws_results[f"I{row}"].alignment = Alignment(wrap_text=True)
-
-    output_dir = Path(settings.REPORT_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"EDQ_Report_{test_run.id[:8]}_scratch_{timestamp}.xlsx"
-    file_path = os.path.join(settings.REPORT_DIR, filename)
-    wb.save(file_path)
-    logger.info("Scratch Excel report saved: %s", file_path)
-    return file_path
-
-
-# ---------------------------------------------------------------------------
-# Word Report Generation
-# ---------------------------------------------------------------------------
-
-_VERDICT_COLORS = {
-    "pass": (39, 174, 96),
-    "qualified_pass": (243, 156, 18),
-    "fail": (231, 76, 60),
-    "advisory": (243, 156, 18),
-    "info": (52, 152, 219),
-    "na": (149, 165, 166),
-    "pending": (149, 165, 166),
-}
-
-_VERDICT_BG_COLORS = {
-    "pass": "D5F5E3",
-    "fail": "FADBD8",
-    "advisory": "FEF9E7",
-    "info": "D6EAF8",
-    "na": "EAEDED",
-}
-
-
-def _set_cell_shading(cell, color_hex: str):
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-    shading = OxmlElement("w:shd")
-    shading.set(qn("w:fill"), color_hex)
-    shading.set(qn("w:val"), "clear")
-    cell._tc.get_or_add_tcPr().append(shading)
-
-
-def _add_styled_paragraph(doc, text: str, bold=False, size=11, color=None, alignment=None, space_after=None):
-    from docx.shared import Pt, RGBColor
-    p = doc.add_paragraph()
-    run = p.add_run(text)
-    run.font.name = "Calibri"
-    run.font.size = Pt(size)
-    run.bold = bold
-    if color:
-        run.font.color.rgb = RGBColor(*color)
-    if alignment:
-        p.alignment = alignment
-    if space_after is not None:
-        from docx.shared import Pt as PtSpace
-        p.paragraph_format.space_after = PtSpace(space_after)
-    return p
+        wb = Workbook()
+        wb.active.title = "TEST SUMMARY"
+        wb.create_sheet("TESTPLAN")
+        wb.create_sheet("ADDITIONAL INFORMATION")
+    path = _output_path(test_run, template_key, ".xlsx")
+    wb.save(str(path))
+    return str(path)
 
 
 async def generate_word_report(
-    test_run,
-    test_results,
-    report_config=None,
-    include_synopsis=False,
-    enabled_test_ids: Optional[list] = None,
-    whitelist_entries: Optional[list] = None,
+    test_run: Any,
+    test_results: list[Any],
+    report_config: Any = None,
+    include_synopsis: bool = False,
+    enabled_test_ids: Optional[list[str]] = None,
+    whitelist_entries: Optional[list[Any]] = None,
+    template_key: str = "generic",
 ) -> str:
     from docx import Document
-    from docx.shared import Pt, RGBColor
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.enum.table import WD_TABLE_ALIGNMENT
 
-    filtered_results = _filter_enabled_results(test_results, enabled_test_ids)
-
-    device = getattr(test_run, "device", None)
-    engineer = getattr(test_run, "engineer", None)
-    overall_raw = _get_overall_verdict_raw(test_run)
-    overall_display = _resolve_overall_verdict(test_run)
-
+    report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
     doc = Document()
-
-    style = doc.styles["Normal"]
-    style.font.name = "Calibri"
-    style.font.size = Pt(11)
-
-    # --- Cover Page ---
-    for _ in range(4):
-        doc.add_paragraph()
-
-    title_p = doc.add_paragraph()
-    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title_run = title_p.add_run("IP DEVICE QUALIFICATION REPORT")
-    title_run.font.name = "Calibri"
-    title_run.font.size = Pt(28)
-    title_run.bold = True
-    title_run.font.color.rgb = RGBColor(31, 78, 121)
-
-    doc.add_paragraph()
-
-    subtitle_p = doc.add_paragraph()
-    subtitle_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    sub_run = subtitle_p.add_run("Electracom Projects Ltd")
-    sub_run.font.name = "Calibri"
-    sub_run.font.size = Pt(16)
-    sub_run.font.color.rgb = RGBColor(89, 89, 89)
-
-    doc.add_paragraph()
-
-    info_items = [
-        ("Manufacturer", _safe_attr(device, "manufacturer", "N/A")),
-        ("Model", _safe_attr(device, "model", "N/A")),
-        ("Firmware", _safe_attr(device, "firmware_version", "N/A")),
-        ("Serial", ""),
-        ("IP Address", _safe_attr(device, "ip_address", "N/A")),
-        ("System", _safe_attr(device, "category", "N/A")),
-        ("Test Date", _format_date_range(test_run)),
-        ("Tester", _safe_attr(engineer, "full_name", "N/A")),
-        ("Connection", getattr(test_run, "connection_scenario", "direct")),
-    ]
-
-    info_table = doc.add_table(rows=len(info_items), cols=2)
-    info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    for i, (label, value) in enumerate(info_items):
-        info_table.rows[i].cells[0].text = label
-        info_table.rows[i].cells[1].text = _sanitize_for_excel(str(value))
-        for paragraph in info_table.rows[i].cells[0].paragraphs:
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            for run in paragraph.runs:
-                run.font.bold = True
-                run.font.size = Pt(12)
-                run.font.name = "Calibri"
-        for paragraph in info_table.rows[i].cells[1].paragraphs:
-            for run in paragraph.runs:
-                run.font.size = Pt(12)
-                run.font.name = "Calibri"
-
-    doc.add_paragraph()
-    doc.add_paragraph()
-
-    verdict_p = doc.add_paragraph()
-    verdict_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    verdict_label = verdict_p.add_run("OVERALL VERDICT: ")
-    verdict_label.font.name = "Calibri"
-    verdict_label.font.size = Pt(20)
-    verdict_label.bold = True
-    verdict_value = verdict_p.add_run(overall_display)
-    verdict_value.font.name = "Calibri"
-    verdict_value.font.size = Pt(20)
-    verdict_value.bold = True
-    color_tuple = _VERDICT_COLORS.get(overall_raw, (0, 0, 0))
-    verdict_value.font.color.rgb = RGBColor(*color_tuple)
-
-    if overall_raw == "qualified_pass":
-        note_p = doc.add_paragraph()
-        note_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        note_run = note_p.add_run(
-            "All essential tests passed but advisory findings were noted."
-        )
-        note_run.font.name = "Calibri"
-        note_run.font.size = Pt(11)
-        note_run.italic = True
-        note_run.font.color.rgb = RGBColor(150, 150, 150)
-
+    doc.add_heading("IP Device Qualification Report", level=0)
+    doc.add_heading("TEST SUMMARY", level=1)
+    table = doc.add_table(rows=0, cols=2)
+    for key, label in _SUMMARY_FIELDS:
+        row = table.add_row()
+        row.cells[0].text = label
+        row.cells[1].text = str(report.metadata.get(key, ""))
+    doc.add_paragraph(report.metadata.get("summary_text", ""))
     doc.add_page_break()
-
-    # --- Executive Summary ---
-    doc.add_heading("Executive Summary", level=1)
-
-    if include_synopsis and test_run.synopsis:
-        synopsis_text = test_run.synopsis.replace("[AI-DRAFTED] ", "")
-        p = doc.add_paragraph(_sanitize_for_excel(synopsis_text))
-        p.paragraph_format.space_after = Pt(12)
-    else:
-        p = doc.add_paragraph(
-            f"This report presents the results of the cybersecurity qualification "
-            f"testing for the {_safe_attr(device, 'manufacturer', 'device')} "
-            f"{_safe_attr(device, 'model', '')} at IP address "
-            f"{_safe_attr(device, 'ip_address', 'N/A')}."
-        )
-        p.paragraph_format.space_after = Pt(12)
-
-    doc.add_heading("Key Findings", level=2)
-
-    findings_table = doc.add_table(rows=6, cols=2)
-    findings_table.style = "Table Grid"
-    findings_data = [
-        ("Total Tests", str(len(filtered_results))),
-        ("Passed", str(test_run.passed_tests or 0)),
-        ("Failed", str(test_run.failed_tests or 0)),
-        ("Advisory", str(test_run.advisory_tests or 0)),
-        ("N/A", str(test_run.na_tests or 0)),
-        ("Overall Verdict", overall_display),
-    ]
-    for i, (label, value) in enumerate(findings_data):
-        findings_table.rows[i].cells[0].text = _sanitize_for_excel(label)
-        findings_table.rows[i].cells[1].text = _sanitize_for_excel(value)
-        for paragraph in findings_table.rows[i].cells[0].paragraphs:
-            for run in paragraph.runs:
-                run.font.bold = True
-                run.font.name = "Calibri"
-        if i == 5:
-            bg = {"pass": "C6EFCE", "qualified_pass": "FFEB9C", "fail": "FFC7CE"}.get(overall_raw, "FFFFFF")
-            _set_cell_shading(findings_table.rows[i].cells[1], bg)
-
-    doc.add_paragraph()
-
-    scenario = getattr(test_run, "connection_scenario", "direct")
-    _add_styled_paragraph(doc, f"Connection Scenario: {scenario}", bold=True, size=11)
-
-    tool_versions = _get_tool_versions(test_run)
-    if tool_versions:
-        doc.add_heading("Tool Versions", level=2)
-        tv_table = doc.add_table(rows=len(tool_versions) + 1, cols=2)
-        tv_table.style = "Table Grid"
-        tv_table.rows[0].cells[0].text = "Tool"
-        tv_table.rows[0].cells[1].text = "Version"
-        for paragraph in tv_table.rows[0].cells[0].paragraphs:
-            for run in paragraph.runs:
-                run.font.bold = True
-        for paragraph in tv_table.rows[0].cells[1].paragraphs:
-            for run in paragraph.runs:
-                run.font.bold = True
-        for i, (tool_name, tool_ver) in enumerate(tool_versions.items(), 1):
-            tv_table.rows[i].cells[0].text = _sanitize_for_excel(tool_name)
-            tv_table.rows[i].cells[1].text = _sanitize_for_excel(str(tool_ver))
-
-    doc.add_page_break()
-
-    # --- Test Results Table (matching template columns) ---
-    doc.add_heading("Test Results", level=1)
-
-    results_table = doc.add_table(rows=1, cols=8)
-    results_table.style = "Table Grid"
-    result_headers = [
-        "Test Number", "Brief Description", "Test Description",
-        "Script", "Essential Pass", "Test Result",
-        "Test Comments", "Engineer Notes",
-    ]
-    for i, header in enumerate(result_headers):
-        cell = results_table.rows[0].cells[i]
-        cell.text = header
-        _set_cell_shading(cell, "1F4E79")
-        for paragraph in cell.paragraphs:
-            for run in paragraph.runs:
-                run.font.bold = True
-                run.font.color.rgb = RGBColor(255, 255, 255)
-                run.font.name = "Calibri"
-                run.font.size = Pt(10)
-
-    for result in filtered_results:
+    doc.add_heading("TESTPLAN", level=1)
+    results_table = doc.add_table(rows=1, cols=6)
+    for idx, header in enumerate(["Test Number", "Brief Description", "Test Description", "Essential Test", "Test Result", "Test Comments"]):
+        results_table.rows[0].cells[idx].text = header
+    for item in report.rows:
         row = results_table.add_row()
-        verdict_raw = _get_verdict_raw(result)
-
-        row.cells[0].text = _sanitize_for_excel(result.test_id)
-        row.cells[1].text = _sanitize_for_excel(result.test_name)
-        # Test description: compliance map or empty
-        test_desc = ""
-        if result.compliance_map:
-            test_desc = ", ".join(result.compliance_map)
-        row.cells[2].text = _sanitize_for_excel(test_desc)
-        row.cells[3].text = _sanitize_for_excel(_resolve_script_flag(result))
-        row.cells[4].text = _sanitize_for_excel((result.is_essential or "no").upper())
-        row.cells[5].text = _sanitize_for_excel(_resolve_verdict(result, {}))
-        row.cells[6].text = _sanitize_for_excel(_resolve_comment(result)[:500])
-        eng_notes = getattr(result, "engineer_notes", None) or ""
-        row.cells[7].text = _sanitize_for_excel(eng_notes[:300])
-
-        bg_hex = _VERDICT_BG_COLORS.get(verdict_raw)
-        if bg_hex:
-            for cell in row.cells:
-                _set_cell_shading(cell, bg_hex)
-
-        for cell in row.cells:
-            for paragraph in cell.paragraphs:
-                for run in paragraph.runs:
-                    run.font.name = "Calibri"
-                    run.font.size = Pt(9)
-
+        row.cells[0].text = item.test_number
+        row.cells[1].text = item.brief_description
+        row.cells[2].text = item.test_description
+        row.cells[3].text = item.essential_test
+        row.cells[4].text = item.test_result
+        row.cells[5].text = item.test_comments
     doc.add_page_break()
-
-    # --- Detailed Findings (FAIL and ADVISORY only) ---
-    fail_advisory = [
-        r for r in filtered_results
-        if _get_verdict_raw(r) in ("fail", "advisory")
-    ]
-
-    if fail_advisory:
-        doc.add_heading("Detailed Findings", level=1)
-        _add_styled_paragraph(
-            doc,
-            "The following tests returned FAIL or ADVISORY verdicts and require attention.",
-            size=11,
-        )
-
-        for result in fail_advisory:
-            verdict_raw = _get_verdict_raw(result)
-            color_tuple = _VERDICT_COLORS.get(verdict_raw, (0, 0, 0))
-
-            h = doc.add_heading(level=2)
-            h_run = h.add_run(f"{result.test_id} \u2014 {result.test_name}")
-            h_run.font.name = "Calibri"
-
-            verdict_p = doc.add_paragraph()
-            v_label = verdict_p.add_run("Verdict: ")
-            v_label.bold = True
-            v_label.font.name = "Calibri"
-            v_value = verdict_p.add_run(_resolve_verdict(result, {}).upper())
-            v_value.bold = True
-            v_value.font.color.rgb = RGBColor(*color_tuple)
-            v_value.font.name = "Calibri"
-
-            comment = _resolve_comment(result)
-            if comment:
-                doc.add_paragraph(f"Comment: {_sanitize_for_excel(comment)}")
-
-            findings = getattr(result, "findings", None)
-            if findings:
-                doc.add_paragraph("Findings:", style="List Bullet")
-                if isinstance(findings, list):
-                    for f in findings:
-                        doc.add_paragraph(
-                            _sanitize_for_excel(str(f) if isinstance(f, str) else json.dumps(f)),
-                            style="List Bullet 2",
-                        )
-                elif isinstance(findings, dict):
-                    for k, v in findings.items():
-                        doc.add_paragraph(_sanitize_for_excel(f"{k}: {v}"), style="List Bullet 2")
-
-            raw_output = getattr(result, "raw_output", None)
-            if raw_output:
-                doc.add_paragraph("Tool Output (excerpt):", style="List Bullet")
-                excerpt = raw_output[:500]
-                if len(raw_output) > 500:
-                    excerpt += "..."
-                p = doc.add_paragraph()
-                run = p.add_run(_sanitize_for_excel(excerpt))
-                run.font.name = "Courier New"
-                run.font.size = Pt(8)
-
-            doc.add_paragraph()
-
-        doc.add_page_break()
-
-    # --- Protocol Whitelist Comparison ---
-    has_u09 = any(r.test_id == "U09" for r in filtered_results)
-    if has_u09 and whitelist_entries:
-        doc.add_heading("Protocol Whitelist Comparison", level=1)
-        _add_styled_paragraph(
-            doc,
-            "Comparison of discovered open ports against the approved protocol whitelist.",
-            size=11,
-        )
-
-        wl_table = doc.add_table(rows=1, cols=4)
-        wl_table.style = "Table Grid"
-        wl_headers = ["Protocol / Service", "Port", "Expected", "Status"]
-        for i, header in enumerate(wl_headers):
-            cell = wl_table.rows[0].cells[i]
-            cell.text = header
-            _set_cell_shading(cell, "1F4E79")
-            for paragraph in cell.paragraphs:
-                for run in paragraph.runs:
-                    run.font.bold = True
-                    run.font.color.rgb = RGBColor(255, 255, 255)
-                    run.font.name = "Calibri"
-
-        u09_result = next((r for r in filtered_results if r.test_id == "U09"), None)
-        parsed = getattr(u09_result, "parsed_data", None) or {} if u09_result else {}
-        non_compliant_ports = set()
-        if isinstance(parsed, dict):
-            for item in parsed.get("non_compliant", []):
-                non_compliant_ports.add(item.get("port"))
-
-        for entry in whitelist_entries:
-            if isinstance(entry, str):
-                try:
-                    entry = json.loads(entry)
-                except (json.JSONDecodeError, TypeError):
-                    continue
-            row = wl_table.add_row()
-            service = entry.get("service", "Unknown")
-            port = entry.get("port", "")
-            protocol = entry.get("protocol", "")
-            row.cells[0].text = _sanitize_for_excel(service)
-            row.cells[1].text = _sanitize_for_excel(f"{port}/{protocol}")
-            row.cells[2].text = "Allowed"
-            is_compliant = port not in non_compliant_ports
-            row.cells[3].text = "Compliant" if is_compliant else "Non-Compliant"
-            if not is_compliant:
-                _set_cell_shading(row.cells[3], "FFC7CE")
-
-    # --- Footer ---
-    doc.add_paragraph()
-    footer = doc.add_paragraph()
-    footer_run = footer.add_run(
-        f"Report generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} | "
-        f"EDQ v{settings.APP_VERSION}"
-    )
-    footer_run.italic = True
-    footer_run.font.size = Pt(9)
-    footer_run.font.color.rgb = RGBColor(150, 150, 150)
-
-    output_dir = Path(settings.REPORT_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"EDQ_Report_{test_run.id[:8]}_{timestamp}.docx"
-    output_path = output_dir / filename
-    doc.save(str(output_path))
-    logger.info("Word report saved: %s", output_path)
-    return str(output_path)
+    doc.add_heading("ADDITIONAL INFORMATION", level=1)
+    for section in report.additional_sections:
+        doc.add_heading(section.title, level=2)
+        doc.add_paragraph(section.body)
+    path = _output_path(test_run, template_key, ".docx")
+    doc.save(str(path))
+    return str(path)
 
 
-# ---------------------------------------------------------------------------
-# PDF Report Generation
-# ---------------------------------------------------------------------------
-
-async def generate_pdf_report(
-    test_run,
-    test_results,
-    report_config=None,
-    include_synopsis=False,
-    enabled_test_ids: Optional[list] = None,
-    whitelist_entries: Optional[list] = None,
-) -> str:
-    docx_path = await generate_word_report(
-        test_run,
-        test_results,
-        report_config=report_config,
-        include_synopsis=include_synopsis,
-        enabled_test_ids=enabled_test_ids,
-        whitelist_entries=whitelist_entries,
-    )
-
+async def _generate_pdf_via_libreoffice(docx_path: str) -> str:
     output_dir = str(Path(docx_path).parent)
-
-    try:
-        env = os.environ.copy()
-        env["HOME"] = "/tmp"
-        subprocess.run(
-            [
-                "libreoffice",
-                "--headless",
-                "--norestore",
-                "--convert-to", "pdf",
-                "--outdir", output_dir,
-                docx_path,
-            ],
-            check=True,
-            timeout=120,
-            capture_output=True,
-            env=env,
-        )
-    except FileNotFoundError:
-        logger.error("libreoffice not found — cannot convert to PDF")
-        raise RuntimeError(
-            "PDF generation requires LibreOffice. "
-            "Install libreoffice-writer in the container."
-        )
-    except subprocess.TimeoutExpired:
-        logger.error("LibreOffice conversion timed out after 120s")
-        raise RuntimeError("PDF conversion timed out")
-    except subprocess.CalledProcessError as e:
-        logger.error("LibreOffice conversion failed: %s", e.stderr.decode(errors="replace"))
-        raise RuntimeError(f"PDF conversion failed: {e.stderr.decode(errors='replace')}")
-
+    subprocess.run(["libreoffice", "--headless", "--norestore", "--convert-to", "pdf", "--outdir", output_dir, docx_path], check=True, timeout=120, capture_output=True)
     pdf_path = Path(docx_path).with_suffix(".pdf")
     if not pdf_path.exists():
         raise RuntimeError(f"Expected PDF file not found at {pdf_path}")
-
-    logger.info("PDF report saved: %s", pdf_path)
     return str(pdf_path)
+
+
+async def _generate_pdf_via_fpdf(
+    test_run: Any,
+    test_results: list[Any],
+    report_config: Any = None,
+    include_synopsis: bool = False,
+    enabled_test_ids: Optional[list[str]] = None,
+    whitelist_entries: Optional[list[Any]] = None,
+    template_key: str = "generic",
+) -> str:
+    from fpdf import FPDF
+
+    report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=10)
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "IP DEVICE QUALIFICATION REPORT", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "TEST SUMMARY", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for key, label in _SUMMARY_FIELDS:
+        pdf.cell(60, 6, f"{label}:")
+        pdf.cell(0, 6, str(report.metadata.get(key, "")), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+    pdf.multi_cell(0, 5, report.metadata.get("summary_text", ""))
+    pdf.add_page(orientation="L")
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "TESTPLAN", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 8)
+    for row in report.rows:
+        pdf.multi_cell(0, 5, f"{row.test_number} | {row.brief_description} | {row.test_result} | {row.test_comments}")
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "ADDITIONAL INFORMATION", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    for section in report.additional_sections:
+        pdf.multi_cell(0, 5, f"{section.title}\n{section.body}\n")
+    path = _output_path(test_run, template_key, ".pdf")
+    pdf.output(str(path))
+    return str(path)
+
+
+async def generate_pdf_report(
+    test_run: Any,
+    test_results: list[Any],
+    report_config: Any = None,
+    include_synopsis: bool = False,
+    enabled_test_ids: Optional[list[str]] = None,
+    whitelist_entries: Optional[list[Any]] = None,
+    template_key: str = "generic",
+) -> str:
+    try:
+        docx_path = await generate_word_report(test_run, test_results, report_config, include_synopsis, enabled_test_ids, whitelist_entries, template_key)
+        return await _generate_pdf_via_libreoffice(docx_path)
+    except Exception:
+        return await _generate_pdf_via_fpdf(test_run, test_results, report_config, include_synopsis, enabled_test_ids, whitelist_entries, template_key)
+
+
+async def generate_csv_report(
+    test_run: Any,
+    test_results: list[Any],
+    report_config: Any = None,
+    include_synopsis: bool = False,
+    enabled_test_ids: Optional[list[str]] = None,
+    whitelist_entries: Optional[list[Any]] = None,
+    template_key: str = "generic",
+) -> str:
+    report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
+    path = _output_path(test_run, template_key, ".csv")
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["TEST SUMMARY"])
+        writer.writerow(["Field", "Value"])
+        for key, label in _SUMMARY_FIELDS:
+            writer.writerow([label, report.metadata.get(key, "")])
+        writer.writerow(["Summary", report.metadata.get("summary_text", "")])
+        writer.writerow([])
+        writer.writerow(["TESTPLAN"])
+        writer.writerow(["Test Number", "Brief Description", "Test Description", "Essential Test", "Test Result", "Test Comments"])
+        for row in report.rows:
+            writer.writerow([row.test_number, row.brief_description, row.test_description, row.essential_test, row.test_result, row.test_comments])
+        writer.writerow([])
+        writer.writerow(["ADDITIONAL INFORMATION"])
+        writer.writerow(["Section", "Content"])
+        for section in report.additional_sections:
+            writer.writerow([section.title, section.body])
+    return str(path)

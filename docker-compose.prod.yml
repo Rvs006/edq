@@ -1,27 +1,46 @@
 # EDQ Production Override — HTTPS via Let's Encrypt / Certbot
 # Usage:
 #   1. Set DOMAIN in your .env (e.g. DOMAIN=edq.example.com)
-#   2. Obtain certificates:
-#      docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot \
-#        certonly --webroot -w /var/www/certbot -d $DOMAIN --agree-tos -m your@email.com
-#   3. Start with HTTPS:
+#   2. Set LETSENCRYPT_EMAIL in your .env
+#   3. Start the stack; nginx will serve an HTTP bootstrap config until certs exist:
 #      docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-#   4. Set COOKIE_SECURE=true in .env
+#   4. Obtain certificates:
+#      DOMAIN=edq.example.com LETSENCRYPT_EMAIL=ops@example.com \
+#      docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot \
+#        certonly --webroot -w /var/www/certbot -d "$DOMAIN" --agree-tos -m "$LETSENCRYPT_EMAIL" --non-interactive --keep-until-expiring
+#   5. Restart the frontend to switch to HTTPS:
+#      docker compose -f docker-compose.yml -f docker-compose.prod.yml restart frontend
 #
 # Certificate renewal (add to crontab):
-#   0 3 * * * cd /path/to/edq && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot renew && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec frontend nginx -s reload
+#   0 3 * * * cd /path/to/edq && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot renew && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T frontend nginx -s reload
 
 services:
   frontend:
+    # Built-in TLS needs to bind 80/443, rewrite nginx config at startup,
+    # and read mounted certificate keys. Keep the default rootless image for
+    # local HTTP, but run the prod TLS override as root.
+    user: "0:0"
+    ports: !override
+      - "80:80"
+      - "443:443"
     volumes:
-      - ./nginx-ssl.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx-bootstrap.sh:/opt/edq/nginx/bootstrap.sh:ro
+      - ./nginx-acme-bootstrap.conf.template:/opt/edq/nginx/http-bootstrap.conf.template:ro
+      - ./nginx-ssl.conf.template:/opt/edq/nginx/https.conf.template:ro
       - certbot-www:/var/www/certbot:ro
       - certbot-certs:/etc/letsencrypt:ro
     environment:
       - DOMAIN=${DOMAIN:-localhost}
-    ports:
-      - "80:80"
-      - "443:443"
+    command:
+      - /bin/sh
+      - -c
+      - /bin/sh /opt/edq/nginx/bootstrap.sh && exec nginx -g 'daemon off;'
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   backend:
     environment:

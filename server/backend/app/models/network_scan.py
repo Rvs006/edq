@@ -6,6 +6,8 @@ import enum
 import uuid
 
 from app.models.database import Base
+from app.models.enum_utils import enum_values
+from app.utils.datetime import utcnow_naive
 
 
 class NetworkScanStatus(str, enum.Enum):
@@ -23,10 +25,13 @@ class NetworkScan(Base):
     cidr = Column(String(43), nullable=False)
     connection_scenario = Column(String(32), default="test_lab")
     selected_test_ids = Column(JSON, nullable=True)
-    status = Column(SAEnum(NetworkScanStatus), default=NetworkScanStatus.PENDING)
+    status = Column(
+        SAEnum(NetworkScanStatus, values_callable=enum_values),
+        default=NetworkScanStatus.PENDING,
+    )
     devices_found = Column(JSON, nullable=True)
     run_ids = Column(JSON, nullable=True)
     error_message = Column(String(512), nullable=True)
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
     completed_at = Column(DateTime, nullable=True)

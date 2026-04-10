@@ -32,6 +32,7 @@ from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, 
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
 from app.utils.audit import log_action
+from app.utils.datetime import utcnow_naive
 from app.models.user import UserRole
 
 logger = logging.getLogger("edq.routes.test_runs")
@@ -172,13 +173,22 @@ async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int
 
 
 async def _device_is_reachable(device: Device | None) -> bool:
+    """Return True only if the device has at least one TCP service port open.
+
+    ICMP alone is NOT sufficient — a router/gateway/unrelated device on the
+    user's LAN may respond to ping at the target IP without actually being
+    the device under test. For a device to be testable, at least one service
+    port (HTTP/HTTPS/SSH/Telnet/RTSP/Modbus/MQTT/etc.) must accept a TCP
+    connection.
+    """
     if device is None or not device.ip_address:
         return False
-    reachable, _probe_method = await probe_device_connectivity(
+    _reachable, probe_method = await probe_device_connectivity(
         device.ip_address,
         extract_probe_ports(device.open_ports),
     )
-    return reachable
+    # Require TCP service — ICMP-only responses are rejected.
+    return bool(probe_method) and probe_method.startswith("tcp:")
 
 
 def _overall_verdict_from_summary(summary: dict[str, int | bool]) -> str | None:
@@ -326,8 +336,9 @@ async def create_test_run(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    device = await db.execute(select(Device).where(Device.id == data.device_id))
-    if not device.scalar_one_or_none():
+    device_result = await db.execute(select(Device).where(Device.id == data.device_id))
+    device = device_result.scalar_one_or_none()
+    if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
     template_result = await db.execute(select(TestTemplate).where(TestTemplate.id == data.template_id))
@@ -354,6 +365,7 @@ async def create_test_run(
         device_id=data.device_id,
         template_id=data.template_id,
         engineer_id=user.id,
+        project_id=device.project_id,
         agent_id=data.agent_id,
         connection_scenario=data.connection_scenario,
         total_tests=len(raw_ids),
@@ -381,6 +393,9 @@ async def create_test_run(
     await db.flush()
     await db.refresh(test_run)
     await log_action(db, user, "create", "test_run", test_run.id, {"device_id": data.device_id}, request)
+    # Commit explicitly so the new run is visible to subsequent GET requests
+    # immediately (before get_db's implicit commit after response is sent).
+    await db.commit()
     return await _enrich_run(test_run, db)
 
 
@@ -445,14 +460,24 @@ async def start_test_run(
     if not await _device_is_reachable(device):
         run.status = TestRunStatus.PAUSED_CABLE
         await db.flush()
-        launch_test_run(run_id)
+        task = launch_test_run(run_id)
+        if task is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Test run was already started by another process",
+            )
         return {
             "status": TestRunStatus.PAUSED_CABLE.value,
             "message": "Device is not reachable. Tests are paused until the cable or device is reconnected.",
             "run_id": run_id,
         }
 
-    launch_test_run(run_id)
+    task = launch_test_run(run_id)
+    if task is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Test run was already started by another process",
+        )
 
     return {"status": "running", "message": "Test execution started", "run_id": run_id}
 
@@ -493,7 +518,7 @@ async def cancel_test_run(
 
     # 3. Mark run as cancelled
     run.status = TestRunStatus.CANCELLED
-    run.completed_at = datetime.now(timezone.utc)
+    run.completed_at = utcnow_naive()
     await db.flush()
 
     return {"status": "cancelled", "message": "Test run cancelled", "run_id": run_id}
@@ -593,7 +618,7 @@ async def complete_test_run(
     _apply_summary_to_run(run, summary)
     run.progress_pct = 100.0 if run.total_tests else 0.0
     run.status = TestRunStatus.COMPLETED
-    run.completed_at = datetime.now(timezone.utc)
+    run.completed_at = utcnow_naive()
     run.overall_verdict = _overall_verdict_from_summary(summary)
 
     await db.flush()
@@ -618,7 +643,7 @@ async def request_review_for_test_run(
     _apply_summary_to_run(run, summary)
     run.progress_pct = 100.0 if run.total_tests else 0.0
     run.status = TestRunStatus.AWAITING_REVIEW
-    run.completed_at = datetime.now(timezone.utc)
+    run.completed_at = utcnow_naive()
     run.overall_verdict = _overall_verdict_from_summary(summary)
     await db.flush()
     await db.refresh(run)

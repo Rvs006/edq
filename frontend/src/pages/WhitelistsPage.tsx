@@ -4,14 +4,17 @@ import { whitelistsApi } from '@/lib/api'
 import type { Whitelist, WhitelistEntry } from '@/lib/types'
 import { Shield, Plus, Copy, Pencil, Trash2, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 
 export default function WhitelistsPage() {
+  const { user } = useAuth()
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [editingWhitelist, setEditingWhitelist] = useState<Whitelist | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const queryClient = useQueryClient()
+  const canManageWhitelists = user?.role === 'admin'
 
   const { data: whitelists, isLoading } = useQuery({
     queryKey: ['whitelists'],
@@ -46,9 +49,11 @@ export default function WhitelistsPage() {
           <h1 className="section-title">Protocol Whitelists</h1>
           <p className="section-subtitle">Define allowed ports and services for compliance checking</p>
         </div>
-        <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> New Whitelist
-        </button>
+        {canManageWhitelists && (
+          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
+            <Plus className="w-4 h-4" /> New Whitelist
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -73,18 +78,22 @@ export default function WhitelistsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {wl.is_default && <span className="badge text-[10px] bg-blue-50 text-blue-700 border border-blue-200">Default</span>}
-                  <button type="button" onClick={(e) => { e.stopPropagation(); setEditingWhitelist(wl) }}
-                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit" aria-label={`Edit ${wl.name}`}>
-                    <Pencil className="w-4 h-4 text-zinc-400" />
-                  </button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(wl.id) }}
-                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Duplicate" aria-label={`Duplicate ${wl.name}`}>
-                    <Copy className="w-4 h-4 text-zinc-400" />
-                  </button>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: wl.id, name: wl.name }) }}
-                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30" title="Delete" aria-label={`Delete ${wl.name}`}>
-                    <Trash2 className="w-4 h-4 text-red-400" />
-                  </button>
+                  {canManageWhitelists && (
+                    <>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setEditingWhitelist(wl) }}
+                        className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit" aria-label={`Edit ${wl.name}`}>
+                        <Pencil className="w-4 h-4 text-zinc-400" />
+                      </button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(wl.id) }}
+                        className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800" title="Duplicate" aria-label={`Duplicate ${wl.name}`}>
+                        <Copy className="w-4 h-4 text-zinc-400" />
+                      </button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: wl.id, name: wl.name }) }}
+                        className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30" title="Delete" aria-label={`Delete ${wl.name}`}>
+                        <Trash2 className="w-4 h-4 text-red-400" />
+                      </button>
+                    </>
+                  )}
                   {expanded === wl.id ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
                 </div>
               </button>
@@ -126,9 +135,11 @@ export default function WhitelistsPage() {
           <Shield className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
           <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No whitelists</h3>
           <p className="text-sm text-zinc-500 mb-4">Create a protocol whitelist for compliance checking</p>
-          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
-            <Plus className="w-4 h-4" /> New Whitelist
-          </button>
+          {canManageWhitelists && (
+            <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
+              <Plus className="w-4 h-4" /> New Whitelist
+            </button>
+          )}
         </div>
       )}
 
@@ -151,8 +162,8 @@ export default function WhitelistsPage() {
       )}
 
       <AnimatePresence>
-        {showCreate && <WhitelistModal onClose={() => setShowCreate(false)} />}
-        {editingWhitelist && <WhitelistModal whitelist={editingWhitelist} onClose={() => setEditingWhitelist(null)} />}
+        {canManageWhitelists && showCreate && <WhitelistModal onClose={() => setShowCreate(false)} />}
+        {canManageWhitelists && editingWhitelist && <WhitelistModal whitelist={editingWhitelist} onClose={() => setEditingWhitelist(null)} />}
       </AnimatePresence>
     </div>
   )

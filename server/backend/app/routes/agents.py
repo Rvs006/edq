@@ -13,6 +13,7 @@ from app.schemas.agent import AgentRegister, AgentResponse, AgentRegisterRespons
 from app.security.auth import get_current_active_user, require_role, generate_api_key, hash_api_key
 from app.routes.websocket_routes import manager
 from app.utils.audit import log_action
+from app.utils.datetime import utcnow_naive
 
 router = APIRouter()
 
@@ -70,7 +71,7 @@ async def agent_heartbeat(
     if not agent:
         raise HTTPException(status_code=401, detail="Invalid agent key")
 
-    agent.last_heartbeat = datetime.now(timezone.utc)
+    agent.last_heartbeat = utcnow_naive()
     if data.status:
         agent.status = data.status
     if data.current_task:

@@ -12,6 +12,10 @@ node_modules
 electron
 __pycache__
 *.pyc
+.pytest_cache
+pytest-cache-files-*
+server/backend/pytest-cache-files-*
+tests/pytest-cache-files-*
 *.db
 backups
 reports

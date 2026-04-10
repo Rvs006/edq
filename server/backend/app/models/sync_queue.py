@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.database import Base
+from app.utils.datetime import utcnow_naive
 
 
 class SyncQueue(Base):
@@ -20,5 +21,5 @@ class SyncQueue(Base):
     status = Column(String(16), default="pending")  # pending, processing, completed, failed
     retry_count = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
     processed_at = Column(DateTime, nullable=True)

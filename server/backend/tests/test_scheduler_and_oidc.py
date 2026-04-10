@@ -19,7 +19,7 @@ from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.services import scan_scheduler
 from app.routes import oidc
-from tests.conftest import register_and_login
+from .conftest import register_and_login
 
 
 async def _create_schedule_fixture(db: AsyncSession, creator_id: str) -> ScanSchedule:

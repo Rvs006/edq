@@ -4,14 +4,17 @@ import { templatesApi } from '@/lib/api'
 import type { TestTemplate, TestLibraryItem } from '@/lib/types'
 import { FileText, Plus, Pencil, Trash2, Loader2, X, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 
 export default function TemplatesPage() {
+  const { user } = useAuth()
   const [showCreate, setShowCreate] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<TestTemplate | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const queryClient = useQueryClient()
+  const canManageTemplates = user?.role === 'admin'
 
   const { data: templates, isLoading } = useQuery({
     queryKey: ['templates'],
@@ -43,9 +46,11 @@ export default function TemplatesPage() {
           <h1 className="section-title">Test Templates</h1>
           <p className="section-subtitle">Configure test suites for device qualification</p>
         </div>
-        <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> New Template
-        </button>
+        {canManageTemplates && (
+          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
+            <Plus className="w-4 h-4" /> New Template
+          </button>
+        )}
       </div>
 
       <div className="card mb-5">
@@ -131,12 +136,16 @@ export default function TemplatesPage() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit" aria-label={`Edit ${t.name}`}>
-                          <Pencil className="w-3.5 h-3.5 text-zinc-500" />
-                        </button>
-                        <button type="button" onClick={() => setDeleteTarget({ id: t.id, name: t.name })} className="p-1.5 rounded hover:bg-red-50" title="Delete" aria-label={`Delete ${t.name}`}>
-                          <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                        </button>
+                        {canManageTemplates && (
+                          <>
+                            <button type="button" onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit" aria-label={`Edit ${t.name}`}>
+                              <Pencil className="w-3.5 h-3.5 text-zinc-500" />
+                            </button>
+                            <button type="button" onClick={() => setDeleteTarget({ id: t.id, name: t.name })} className="p-1.5 rounded hover:bg-red-50" title="Delete" aria-label={`Delete ${t.name}`}>
+                              <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -150,9 +159,11 @@ export default function TemplatesPage() {
           <FileText className="w-10 h-10 text-zinc-300 mx-auto mb-3" />
           <h3 className="text-base font-semibold text-zinc-700 dark:text-slate-300 mb-1">No templates yet</h3>
           <p className="text-sm text-zinc-500 mb-4">Create a test template to define which tests to run</p>
-          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
-            <Plus className="w-4 h-4" /> New Template
-          </button>
+          {canManageTemplates && (
+            <button type="button" onClick={() => setShowCreate(true)} className="btn-primary">
+              <Plus className="w-4 h-4" /> New Template
+            </button>
+          )}
         </div>
       )}
 
@@ -175,8 +186,8 @@ export default function TemplatesPage() {
       )}
 
       <AnimatePresence>
-        {showCreate && <CreateTemplateModal library={library || []} onClose={() => setShowCreate(false)} />}
-        {editingTemplate && <EditTemplateModal template={editingTemplate} library={library || []} onClose={() => setEditingTemplate(null)} />}
+        {canManageTemplates && showCreate && <CreateTemplateModal library={library || []} onClose={() => setShowCreate(false)} />}
+        {canManageTemplates && editingTemplate && <EditTemplateModal template={editingTemplate} library={library || []} onClose={() => setEditingTemplate(null)} />}
       </AnimatePresence>
     </div>
   )

@@ -9,7 +9,7 @@ from app.models.device import Device
 from app.models.test_run import TestRun, TestRunStatus
 from app.models.test_template import TestTemplate
 from app.models.user import User
-from tests.conftest import register_and_login
+from .conftest import register_and_login
 
 
 async def _get_user_id(db: AsyncSession, username: str) -> str:
@@ -72,7 +72,7 @@ async def test_start_run_pauses_when_device_is_unreachable(
 
     def fake_launch(run_id: str, test_plan_id: str | None = None):
         launched.append(run_id)
-        return None
+        return object()
 
     monkeypatch.setattr("app.routes.test_runs.probe_device_connectivity", fake_probe)
     monkeypatch.setattr("app.routes.test_runs.launch_test_run", fake_launch)
@@ -128,7 +128,7 @@ async def test_resume_paused_cable_run_succeeds_when_device_is_reachable(
     await db_session.commit()
 
     async def fake_probe(_ip: str, _ports=None):
-        return (True, "icmp")
+        return (True, "tcp:443")
 
     monkeypatch.setattr("app.routes.test_runs.probe_device_connectivity", fake_probe)
 

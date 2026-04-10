@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.database import Base
+from app.utils.datetime import utcnow_naive
 
 
 class TestPlan(Base):
@@ -16,5 +17,5 @@ class TestPlan(Base):
     base_template_id = Column(String(36), ForeignKey("test_templates.id"), nullable=True)
     test_configs = Column(JSON, nullable=False)
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=True, onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    updated_at = Column(DateTime, nullable=True, onupdate=utcnow_naive)

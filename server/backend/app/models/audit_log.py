@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.database import Base
+from app.utils.datetime import utcnow_naive
 
 
 class AuditLog(Base):
@@ -20,7 +21,7 @@ class AuditLog(Base):
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(String(512), nullable=True)
     compliance_refs = Column(JSON, nullable=True)  # ["ISO 27001 A.x.y", "SOC2 CCx.x"]
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utcnow_naive)
 
     # Relationships
     user = relationship("User", back_populates="audit_logs")

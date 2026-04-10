@@ -14,14 +14,14 @@ from sqlalchemy import select
 from app.models.database import get_db
 from app.models.network_scan import NetworkScan, NetworkScanStatus
 from app.models.device import Device, DeviceStatus, DeviceCategory
-from app.models.test_run import TestRun, TestRunStatus
+from app.models.test_run import TestRun, TestRunStatus, normalize_test_run_status
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit
 from app.services.discovery_service import build_device_display_name
-from app.services.tools_client import tools_client
+from app.services.tools_client import describe_tools_error, tools_client
 from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
 from app.services.parsers.nmap_parser import nmap_parser
@@ -29,6 +29,7 @@ from app.utils.audit import log_action
 from app.models.authorized_network import AuthorizedNetwork
 from app.models.user import UserRole
 from app.routes.authorized_networks import get_active_networks, is_target_authorized, is_ip_authorized
+from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.routes.network_scan")
 
@@ -97,21 +98,14 @@ async def detect_networks(
     Returns discovered interfaces, host IP, and scan recommendations.
     Used by the frontend to pre-fill scan targets.
     """
-    import httpx
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                f"{tools_client.base_url}/detect-networks",
-                headers=tools_client._headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        return await tools_client.detect_networks()
     except Exception as exc:
         logger.warning("Network detection failed: %s", exc)
         return {
             "interfaces": [],
             "host_ip": None,
-            "in_docker": True,
+            "in_docker": tools_client.in_docker,
             "scan_recommendation": None,
             "debug": {"error": str(exc)},
         }
@@ -180,11 +174,14 @@ async def discover_devices(
     await db.flush()
     await db.refresh(scan)
     scan_id = scan.id
+    # Release SQLite write locks before the potentially long-running discovery scan.
+    await db.commit()
+    await db.refresh(scan)
 
     try:
         raw = await tools_client.nmap(
             data.cidr,
-            ["-sn"],
+            ["-sn", "-PR"],
             timeout=120,
         )
         hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
@@ -223,6 +220,11 @@ async def discover_devices(
                                     for p in ports if p.get("state") == "open"
                                 ]
                                 h["os"] = einfo.get("os")
+                                # Merge MAC address from enrichment if not already set by discovery
+                                if not h.get("mac") and einfo.get("mac_address"):
+                                    h["mac"] = einfo["mac_address"]
+                                if not h.get("vendor") and einfo.get("oui_vendor"):
+                                    h["vendor"] = einfo["oui_vendor"]
                                 # Try to extract model/firmware from service banners
                                 for p in ports:
                                     version = (p.get("version") or "").strip()
@@ -239,10 +241,10 @@ async def discover_devices(
         scan.status = NetworkScanStatus.PENDING
         await db.flush()
         await db.refresh(scan)
-    except Exception:
+    except Exception as exc:
         logger.exception("Discovery failed for %s", data.cidr)
         scan.status = NetworkScanStatus.ERROR
-        scan.error_message = "Discovery scan failed"
+        scan.error_message = describe_tools_error(exc, fallback="Discovery scan failed")
         await db.flush()
         await db.refresh(scan)
 
@@ -259,7 +261,7 @@ async def start_batch_scan(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    check_rate_limit(request, max_requests=3, window_seconds=60, action="network_start")
+    check_rate_limit(request, max_requests=3, window_seconds=60, action="network_scan_start")
 
     # Validate device IPs against authorized networks — admins auto-authorize
     authorized = await get_active_networks(db)
@@ -331,23 +333,45 @@ async def start_batch_scan(
             seen.add(tid)
             test_ids.append(tid)
 
+    # Build IP -> discovery data map for enriching new Device records
+    _discovered_map = {}
+    if scan.devices_found:
+        for dh in scan.devices_found:
+            if dh.get("ip"):
+                _discovered_map[dh["ip"]] = dh
+
     run_ids = []
     for ip in data.device_ips:
         dev_result = await db.execute(select(Device).where(Device.ip_address == ip))
         device = dev_result.scalar_one_or_none()
         if not device:
+            disc = _discovered_map.get(ip, {})
             device = Device(
                 ip_address=ip,
+                mac_address=disc.get("mac"),
+                manufacturer=disc.get("vendor"),
+                hostname=disc.get("hostname"),
                 status=DeviceStatus.DISCOVERED,
                 category=DeviceCategory.UNKNOWN,
             )
             db.add(device)
+            await db.flush()
+        elif not device.mac_address:
+            # Update existing device with MAC if discovered
+            disc = _discovered_map.get(ip, {})
+            if disc.get("mac"):
+                device.mac_address = disc["mac"]
+            if disc.get("vendor") and not device.manufacturer:
+                device.manufacturer = disc["vendor"]
+            if disc.get("hostname") and not device.hostname:
+                device.hostname = disc["hostname"]
             await db.flush()
 
         test_run = TestRun(
             device_id=device.id,
             template_id=template_id,
             engineer_id=user.id,
+            project_id=device.project_id,
             connection_scenario=data.connection_scenario or scan.connection_scenario,
             total_tests=len(test_ids),
             status=TestRunStatus.PENDING,
@@ -378,6 +402,10 @@ async def start_batch_scan(
     scan.selected_test_ids = test_ids
     await db.flush()
     await db.refresh(scan)
+    # Persist the batch before launching background tasks so SQLite does not
+    # hold an open writer transaction across asynchronous test execution.
+    await db.commit()
+    await db.refresh(scan)
 
     scan_id = scan.id
     for rid in run_ids:
@@ -393,7 +421,7 @@ async def start_batch_scan(
 
 
 async def _monitor_batch(scan_id: str, run_ids: list[str]) -> None:
-    """Wait for all batch runs to complete, then mark scan complete."""
+    """Wait for all batch runs to settle, then update the aggregate scan status."""
     from app.models.database import async_session
 
     tasks = [_running_scan_tasks.get(rid) for rid in run_ids if rid in _running_scan_tasks]
@@ -407,8 +435,24 @@ async def _monitor_batch(scan_id: str, run_ids: list[str]) -> None:
         result = await db.execute(select(NetworkScan).where(NetworkScan.id == scan_id))
         scan = result.scalar_one_or_none()
         if scan and scan.status == NetworkScanStatus.SCANNING:
-            scan.status = NetworkScanStatus.COMPLETE
-            scan.completed_at = datetime.now(timezone.utc)
+            run_status_result = await db.execute(
+                select(TestRun.id, TestRun.status).where(TestRun.id.in_(run_ids))
+            )
+            run_statuses = {
+                row.id: normalize_test_run_status(row.status)
+                for row in run_status_result.all()
+            }
+            terminal_statuses = {
+                TestRunStatus.COMPLETED.value,
+                TestRunStatus.FAILED.value,
+                TestRunStatus.CANCELLED.value,
+            }
+            if run_statuses and all(status in terminal_statuses for status in run_statuses.values()):
+                scan.status = NetworkScanStatus.COMPLETE
+                scan.completed_at = utcnow_naive()
+            else:
+                scan.status = NetworkScanStatus.PENDING
+                scan.completed_at = None
             await db.commit()
 
 

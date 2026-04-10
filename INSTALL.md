@@ -1,6 +1,6 @@
 # EDQ Local Engineer Install and Test Guide
 
-This is the primary guide for engineers testing EDQ locally on `http://localhost`.
+This is the primary guide for engineers testing EDQ locally on `http://localhost:3000`.
 
 ## Audience and Scope
 
@@ -30,6 +30,7 @@ Optional but useful:
 - Use the root `.env` file only.
 - Do not create or rely on `server/backend/.env`.
 - `setup.sh` and `setup.bat` create the root `.env` for you if it does not exist.
+- The frontend also reads repo-root `VITE_*` variables through `frontend/vite.config.ts`, so `VITE_CLIENT_ERROR_ENDPOINT` and `VITE_SENTRY_ENABLED` can live alongside the other deployment variables in the root `.env`.
 
 ## First-Time Setup
 
@@ -74,11 +75,13 @@ docker compose up --build -d
 
 ## First Login
 
-1. Open `http://localhost`
+1. Open `http://localhost:3000`
 2. Log in with:
    - username: `admin`
    - password: the value of `INITIAL_ADMIN_PASSWORD` in the root `.env`
 3. Change the password after first login
+
+After you change the admin password, pass the current password to the smoke scripts with `EDQ_ADMIN_PASS`, `-AdminPass`, or the matching PowerShell parameter. The root `.env` keeps the initial seed password and is no longer correct after rotation.
 
 If `setup.sh` or `setup.bat` generated the initial admin password for you, the script prints it once and also saves it in the root `.env`.
 
@@ -104,7 +107,7 @@ Windows PowerShell:
 
 Manual checks:
 
-1. Open `http://localhost`
+1. Open `http://localhost:3000`
 2. Log in as `admin`
 3. Confirm the dashboard loads
 4. Add a device
@@ -169,7 +172,6 @@ View logs:
 docker compose logs -f
 docker compose logs -f backend
 docker compose logs -f frontend
-docker compose logs -f tools
 ```
 
 Update an existing install:
@@ -181,9 +183,17 @@ Update-only guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
 
 ## Troubleshooting
 
-### Port 80 already in use
+### Port 3000 already in use
 
-Edit `docker-compose.yml` and map the frontend to another host port, for example `8080:80`, then open `http://localhost:8080`.
+Change `EDQ_PUBLIC_PORT` in the root `.env`, then restart the stack.
+
+For example:
+
+```bash
+EDQ_PUBLIC_PORT=8080
+```
+
+Then open `http://localhost:8080`.
 
 ### Backend will not start
 
@@ -205,14 +215,16 @@ Confirm:
 
 - you are using the password from the root `.env`
 - `COOKIE_SECURE=false` in the local `.env`
-- you opened `http://localhost`, not an outdated bookmarked URL
+- you opened `http://localhost:3000`, not an outdated bookmarked URL
 
 ### Tools sidecar unhealthy
+
+The tools sidecar now runs inside the backend container.
 
 Check:
 
 ```bash
-docker compose logs tools
+docker compose logs backend
 ```
 
 ### Blank or broken frontend

@@ -16,6 +16,42 @@ _MAX_RETRIES = 3
 _RETRY_BACKOFF = 2  # seconds, doubled each retry
 
 
+def get_tools_error_status(exc: Exception) -> int:
+    """Map sidecar/client failures to an API response code."""
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.TimeoutException)):
+        return 503
+    if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code in (401, 403, 429, 502, 503, 504):
+            return 503 if exc.response.status_code in (502, 503, 504) else 502
+        return 502
+    return 502
+
+
+def describe_tools_error(exc: Exception, fallback: str = "Tools sidecar error") -> str:
+    """Return an operator-friendly description of a sidecar failure."""
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return "Tools sidecar is unreachable. Automated discovery is unavailable."
+    if isinstance(exc, (httpx.ReadTimeout, httpx.TimeoutException)):
+        return "Tools sidecar timed out while running the scan."
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        body = (exc.response.text or "").strip()
+        if status == 401:
+            return "Tools sidecar authentication failed. Check TOOLS_API_KEY."
+        if status == 403:
+            return "Tools sidecar rejected the request."
+        if status == 429:
+            return "Tools sidecar rate limit exceeded. Retry in a moment."
+        if status == 503:
+            return "Tools sidecar is running, but the required scan tool is unavailable."
+        if body:
+            return f"{fallback}: {body[:200]}"
+        return fallback
+
+    message = str(exc).strip()
+    return message or fallback
+
+
 class ToolsClient:
     """Calls the tools sidecar REST API to execute security scans."""
 
@@ -26,19 +62,21 @@ class ToolsClient:
             self._headers["X-Tools-Key"] = settings.TOOLS_API_KEY
         # Detect Docker environment — nmap needs -sT -Pn through NAT
         import os
-        self.in_docker: bool = os.path.exists("/.dockerenv") or "TOOLS_SIDECAR_URL" in os.environ
+        self.in_docker: bool = os.path.exists("/.dockerenv")
 
     def docker_nmap_flags(self, args: List[str]) -> List[str]:
-        """Adjust nmap flags for Docker NAT: replace -sS with -sT, add -Pn."""
+        """Adjust nmap flags for container NAT without breaking discovery scans."""
         if not self.in_docker:
-            return args
+            return list(args)
+        if "-sn" in args or "-PR" in args:
+            return list(args)
         adjusted = []
         for a in args:
             if a == "-sS":
                 adjusted.append("-sT")
             else:
                 adjusted.append(a)
-        if "-Pn" not in adjusted:
+        if any(flag in adjusted for flag in ("-sT", "-sS", "-sV", "-O", "-A", "-p", "-p-", "--top-ports")) and "-Pn" not in adjusted:
             adjusted.insert(0, "-Pn")
         return adjusted
 
@@ -266,8 +304,15 @@ class ToolsClient:
 
     async def versions(self) -> Dict[str, Any]:
         """Get installed tool versions from the sidecar."""
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{self.base_url}/versions", headers=self._headers)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def detect_networks(self) -> Dict[str, Any]:
+        """Get detected host/container networks from the sidecar."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(f"{self.base_url}/detect-networks", headers=self._headers)
             resp.raise_for_status()
             return resp.json()
 

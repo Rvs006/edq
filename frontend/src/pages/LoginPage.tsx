@@ -44,6 +44,23 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const oidcHandledRef = useRef(false)
+  const redirectTarget = (() => {
+    const next = searchParams.get('next')
+    if (!next || !next.startsWith('/') || next.startsWith('//')) {
+      return '/'
+    }
+    return next
+  })()
+
+  // Show session expired message if redirected from 401
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('edq_session_expired') === '1') {
+        sessionStorage.removeItem('edq_session_expired')
+        toast.error('Your session has expired. Please log in again.')
+      }
+    } catch { /* noop */ }
+  }, [])
 
   const getLoginErrorMessage = (err: unknown) => {
     const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string }
@@ -116,7 +133,7 @@ export default function LoginPage() {
       if (res.data.user) {
         clearOidcSession()
         toast.success('Welcome!')
-        window.location.href = '/'
+        window.location.href = redirectTarget
       }
     } catch (err: unknown) {
       clearOidcSession()
@@ -172,7 +189,7 @@ export default function LoginPage() {
 
       clearOidcSession()
       toast.success('Welcome back!')
-      navigate('/', { replace: true })
+      navigate(redirectTarget, { replace: true })
     } catch (err: unknown) {
       toast.error(getLoginErrorMessage(err))
       if (requires2FA) setTotpCode('')

@@ -26,6 +26,7 @@ from app.security.auth import (
     create_refresh_token,
     generate_csrf_token,
     hash_password,
+    revoke_user_access_tokens,
     set_auth_cookies,
     store_refresh_token,
     validate_and_rotate_refresh_token,
@@ -36,13 +37,41 @@ from app.security.auth import (
 )
 
 from app.utils.audit import log_security_event
+from app.utils.datetime import utcnow_naive
+from app.utils.sanitize import sanitize_dict
 
 logger = logging.getLogger("edq.routes.auth")
 
 
 def _utcnow() -> datetime:
     """Return current UTC time as a naive datetime (matches SQLite storage)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return utcnow_naive()
+
+
+async def _record_auth_failure(
+    db: AsyncSession,
+    user: User,
+    identity: str,
+    request: Request,
+    event_name: str,
+) -> None:
+    user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+    if user.failed_login_attempts >= settings.ACCOUNT_LOCKOUT_ATTEMPTS:
+        user.locked_until = _utcnow() + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
+        logger.warning(
+            "Account locked for user %s after %d failed attempts",
+            identity,
+            user.failed_login_attempts,
+        )
+    await log_security_event(
+        db,
+        event_name,
+        user_id=user.id,
+        details={"username": identity},
+        request=request,
+    )
+    await db.commit()
+
 
 router = APIRouter()
 
@@ -53,15 +82,29 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
         raise HTTPException(status_code=403, detail="Public registration is disabled")
     check_rate_limit(request, max_requests=3, window_seconds=60, action="register")
 
-    result = await db.execute(select(User).where((User.email == data.email) | (User.username == data.username)))
-    if result.scalar_one_or_none():
+    clean = sanitize_dict(data.model_dump(), ["full_name", "username"])
+    username = (clean["username"] or "").strip()
+    if len(username) < 3:
+        raise HTTPException(status_code=422, detail="Username must be at least 3 characters")
+
+    email = data.email.strip()
+    normalized_username = username.casefold()
+    normalized_email = email.casefold()
+
+    result = await db.execute(
+        select(User).where(
+            (func.lower(User.email) == normalized_email)
+            | (func.lower(User.username) == normalized_username)
+        )
+    )
+    if result.scalars().first():
         raise HTTPException(status_code=400, detail="Email or username already registered")
 
     user = User(
-        email=data.email,
-        username=data.username,
+        email=email,
+        username=username,
         password_hash=hash_password(data.password),
-        full_name=data.full_name,
+        full_name=clean.get("full_name"),
         role=UserRole.ENGINEER,
     )
     db.add(user)
@@ -84,7 +127,11 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
             | (func.lower(User.email) == normalized_identity)
         )
     )
-    user = result.scalar_one_or_none()
+    matches = result.scalars().all()
+    if len(matches) > 1:
+        logger.warning("Ambiguous login identity for %s due to duplicate normalized credentials", identity)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    user = matches[0] if matches else None
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -102,14 +149,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         user.locked_until = None
 
     if not verify_password(data.password, user.password_hash):
-        # Track failed attempts for account lockout and commit before raising
-        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-        if user.failed_login_attempts >= settings.ACCOUNT_LOCKOUT_ATTEMPTS:
-            user.locked_until = _utcnow() + timedelta(minutes=settings.ACCOUNT_LOCKOUT_MINUTES)
-            logger.warning("Account locked for user %s after %d failed attempts", identity, user.failed_login_attempts)
-        await log_security_event(db, "auth.login_failed", user_id=user.id,
-                                 details={"username": identity}, request=request)
-        await db.commit()
+        await _record_auth_failure(db, user, identity, request, "auth.login_failed")
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user.is_active:
@@ -119,13 +159,11 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     if user.totp_secret:
         if not data.totp_code:
             # Signal the frontend that 2FA is required
+            clear_auth_cookies(response)
             return {"requires_2fa": True, "detail": "Additional verification required"}
         from app.routes.two_factor import verify_totp_for_user
         if not verify_totp_for_user(user, data.totp_code):
-            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-            await log_security_event(db, "auth.2fa_failed", user_id=user.id,
-                                     details={"username": identity}, request=request)
-            await db.commit()
+            await _record_auth_failure(db, user, identity, request, "auth.2fa_failed")
             raise HTTPException(status_code=401, detail="Invalid two-factor authentication code")
 
     # Reset failed attempts on successful login
@@ -137,7 +175,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
     refresh_token = create_refresh_token({"sub": user.id})
     csrf_token = generate_csrf_token()
 
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = _utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     await store_refresh_token(db, user.id, refresh_token, expires_at)
 
     set_auth_cookies(response, access_token, csrf_token, refresh_token)
@@ -165,6 +203,7 @@ async def logout(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    revoke_user_access_tokens(user)
     await revoke_user_refresh_tokens(db, user.id)
     await log_security_event(db, "auth.logout", user_id=user.id, request=request)
     clear_auth_cookies(response)
@@ -194,6 +233,7 @@ async def refresh(
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
+        await db.commit()
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     access_token = create_access_token({"sub": user.id, "role": user.role.value})
@@ -201,7 +241,7 @@ async def refresh(
     csrf_token = generate_csrf_token()
 
     # Store the new refresh token
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = _utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     await store_refresh_token(db, user.id, refresh_token, expires_at)
 
     set_auth_cookies(response, access_token, csrf_token, refresh_token)
@@ -231,15 +271,22 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     updates = data.model_dump(exclude_unset=True)
+    updates = sanitize_dict(updates, ["full_name"])
     if "full_name" in updates:
         user.full_name = updates["full_name"]
     if "email" in updates:
         # Check email uniqueness
-        if updates["email"] != user.email:
-            existing = await db.execute(select(User).where(User.email == updates["email"]))
-            if existing.scalar_one_or_none():
+        normalized_email = updates["email"].strip()
+        if normalized_email.casefold() != user.email.casefold():
+            existing = await db.execute(
+                select(User).where(
+                    func.lower(User.email) == normalized_email.casefold(),
+                    User.id != user.id,
+                )
+            )
+            if existing.scalars().first():
                 raise HTTPException(status_code=400, detail="Email already in use")
-        user.email = updates["email"]
+        user.email = normalized_email
     await db.flush()
     await db.refresh(user)
     return user
@@ -257,6 +304,8 @@ async def change_password(
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.password_hash = hash_password(data.new_password)
+
+    revoke_user_access_tokens(user)
     await revoke_user_refresh_tokens(db, user.id)
     await log_security_event(db, "auth.password_change", user_id=user.id, request=request)
     return {"message": "Password changed successfully"}

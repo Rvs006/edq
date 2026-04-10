@@ -22,6 +22,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    connection = op.get_bind()
+    addressing_mode_enum = sa.Enum('static', 'dhcp', 'unknown', name='addressingmode')
+    if connection.dialect.name == "postgresql":
+        addressing_mode_enum.create(connection, checkfirst=True)
+
     # SQLite requires batch mode for ALTER TABLE
     with op.batch_alter_table('devices', schema=None) as batch_op:
         # Make ip_address nullable for DHCP devices
@@ -34,9 +39,9 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column(
                 'addressing_mode',
-                sa.Enum('static', 'dhcp', 'unknown', name='addressingmode'),
+                addressing_mode_enum,
                 nullable=True,
-                server_default='static',
+                server_default=sa.text("'static'"),
             )
         )
 
@@ -45,6 +50,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    connection = op.get_bind()
+    addressing_mode_enum = sa.Enum('static', 'dhcp', 'unknown', name='addressingmode')
     with op.batch_alter_table('devices', schema=None) as batch_op:
         batch_op.drop_column('addressing_mode')
         batch_op.alter_column(
@@ -52,3 +59,5 @@ def downgrade() -> None:
             existing_type=sa.String(length=45),
             nullable=False,
         )
+    if connection.dialect.name == "postgresql":
+        addressing_mode_enum.drop(connection, checkfirst=True)

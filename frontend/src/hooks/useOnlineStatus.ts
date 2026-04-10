@@ -7,6 +7,8 @@ interface SystemStatus {
   backendHealthy: boolean
   databaseHealthy: boolean
   toolsHealthy: boolean
+  toolsStatus: 'ok' | 'unavailable' | 'not_configured' | 'unknown'
+  toolsMessage: string | null
   toolVersions: Record<string, string>
   lastChecked: Date | null
 }
@@ -17,6 +19,8 @@ export function useOnlineStatus(): SystemStatus {
   const [backendHealthy, setBackendHealthy] = useState(true)
   const [databaseHealthy, setDatabaseHealthy] = useState(true)
   const [toolsHealthy, setToolsHealthy] = useState(true)
+  const [toolsStatus, setToolsStatus] = useState<'ok' | 'unavailable' | 'not_configured' | 'unknown'>('unknown')
+  const [toolsMessage, setToolsMessage] = useState<string | null>(null)
   const [toolVersions, setToolVersions] = useState<Record<string, string>>({})
   const [lastChecked, setLastChecked] = useState<Date | null>(null)
 
@@ -37,14 +41,20 @@ export function useOnlineStatus(): SystemStatus {
       const data = res.data
       setBackendHealthy(data.backend?.status === 'ok')
       setDatabaseHealthy(data.database?.status === 'ok')
-      setToolsHealthy(data.tools_sidecar?.status === 'ok')
+      const sidecarStatus = data.tools_sidecar?.status || 'unknown'
+      setToolsHealthy(sidecarStatus === 'ok')
+      setToolsStatus(sidecarStatus as 'ok' | 'unavailable' | 'not_configured' | 'unknown')
+      setToolsMessage(data.tools_sidecar?.message || null)
       setToolVersions(data.tools || {})
       setLastChecked(data.checked_at ? new Date(data.checked_at) : new Date())
     } catch {
       setBackendHealthy(false)
       setDatabaseHealthy(false)
       setToolsHealthy(false)
+      setToolsStatus('unknown')
+      setToolsMessage(null)
       setToolVersions({})
+      setLastChecked(null)
     }
   }, [])
 
@@ -60,6 +70,8 @@ export function useOnlineStatus(): SystemStatus {
     backendHealthy,
     databaseHealthy,
     toolsHealthy,
+    toolsStatus,
+    toolsMessage,
     toolVersions,
     lastChecked,
   }

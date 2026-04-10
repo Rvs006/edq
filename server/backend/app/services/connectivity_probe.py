@@ -63,6 +63,10 @@ async def probe_device_connectivity(
     """Return whether the target is reachable via ICMP or a quick TCP probe.
 
     Runs ICMP and TCP probes in parallel for faster detection.
+
+    Prefer reporting a TCP hit when one exists so callers that inspect the
+    probe source can distinguish "host is up" from "host has a testable
+    service port open".
     """
     ports = probe_ports or list(DEFAULT_CONNECTIVITY_PORTS[:MAX_PROBE_PORTS])
 
@@ -90,8 +94,8 @@ async def probe_device_connectivity(
 
     icmp_result, tcp_result = await asyncio.gather(_icmp_probe(), _tcp_probes())
 
-    if icmp_result[0]:
-        return icmp_result
     if tcp_result[0]:
         return tcp_result
+    if icmp_result[0]:
+        return icmp_result
     return (False, None)

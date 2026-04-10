@@ -26,6 +26,7 @@ from app.models.user import UserRole
 from app.middleware.rate_limit import check_rate_limit
 from app.utils.audit import log_action
 from app.services.report_generator import (
+    generate_csv_report,
     generate_excel_report,
     generate_pdf_report,
     generate_word_report,
@@ -39,7 +40,7 @@ router = APIRouter()
 
 class ReportRequest(BaseModel):
     test_run_id: str
-    report_type: Literal["excel", "word", "pdf"] = "excel"
+    report_type: Literal["excel", "word", "pdf", "csv"] = "excel"
     report_config_id: Optional[str] = None
     include_synopsis: bool = False
     template_key: Literal["generic", "pelco_camera", "easyio_controller"] = "generic"
@@ -159,9 +160,18 @@ async def generate_report(
                 enabled_test_ids=enabled_test_ids,
                 whitelist_entries=whitelist_entries,
             )
+        elif data.report_type == "csv":
+            file_path = await generate_csv_report(
+                test_run,
+                test_results,
+                report_config,
+                include_synopsis=data.include_synopsis,
+                enabled_test_ids=enabled_test_ids,
+                whitelist_entries=whitelist_entries,
+            )
         else:
             raise HTTPException(
-                status_code=400, detail="Invalid report type. Use 'excel', 'word', or 'pdf'."
+                status_code=400, detail="Invalid report type. Use 'excel', 'word', 'pdf', or 'csv'."
             )
 
         filename = os.path.basename(file_path)
@@ -201,6 +211,7 @@ async def download_report(filename: str, _: User = Depends(get_current_active_us
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".pdf": "application/pdf",
+        ".csv": "text/csv",
     }
     ext = os.path.splitext(safe_filename)[1].lower()
     media_type = media_types.get(ext, "application/octet-stream")

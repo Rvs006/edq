@@ -6,13 +6,26 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BASE_URL="${EDQ_URL:-http://localhost:80}"
-API_URL="$BASE_URL/api"
 ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
 COOKIE_FILE=$(mktemp)
 PASS=0
 FAIL=0
 SKIP=0
+
+read_root_env() {
+  local key="$1"
+  if [ ! -f "$REPO_ROOT/.env" ]; then
+    return 0
+  fi
+  grep -E "^${key}=" "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\r' || true
+}
+
+DEFAULT_PUBLIC_PORT="${EDQ_PUBLIC_PORT:-$(read_root_env EDQ_PUBLIC_PORT)}"
+DEFAULT_PUBLIC_PORT="${DEFAULT_PUBLIC_PORT:-3000}"
+DEFAULT_PUBLIC_URL="${EDQ_PUBLIC_URL:-$(read_root_env EDQ_PUBLIC_URL)}"
+DEFAULT_PUBLIC_URL="${DEFAULT_PUBLIC_URL:-http://localhost:${DEFAULT_PUBLIC_PORT}}"
+BASE_URL="${EDQ_URL:-$DEFAULT_PUBLIC_URL}"
+API_URL="$BASE_URL/api"
 
 resolve_admin_password() {
   if [ -n "${EDQ_ADMIN_PASS:-}" ]; then
@@ -21,7 +34,7 @@ resolve_admin_password() {
   fi
 
   if [ -f "$REPO_ROOT/.env" ]; then
-    grep -E '^INITIAL_ADMIN_PASSWORD=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\r'
+    grep -E '^INITIAL_ADMIN_PASSWORD=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\r' || true
     return 0
   fi
 
@@ -33,6 +46,8 @@ if [ -z "$ADMIN_PASS" ] || [[ "$ADMIN_PASS" == CHANGE_ME* ]] || [[ "$ADMIN_PASS"
   echo "ERROR: Set EDQ_ADMIN_PASS or configure INITIAL_ADMIN_PASSWORD in $REPO_ROOT/.env" >&2
   exit 1
 fi
+export EDQ_LOGIN_USER="$ADMIN_USER"
+export EDQ_LOGIN_PASS="$ADMIN_PASS"
 
 cleanup() {
   rm -f "$COOKIE_FILE"
@@ -74,7 +89,7 @@ echo ""
 echo "--- Authentication ---"
 check "Login (admin)" bash -c "curl -sf -X POST '$API_URL/auth/login' \
   -H 'Content-Type: application/json' \
-  -d '{\"username\":\"'$ADMIN_USER'\",\"password\":\"'$ADMIN_PASS'\"}' \
+  -d \"\$(python3 -c 'import json, os; print(json.dumps({\"username\": os.environ[\"EDQ_LOGIN_USER\"], \"password\": os.environ[\"EDQ_LOGIN_PASS\"]}))')\" \
   -c '$COOKIE_FILE' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('token received')\""
 
 check "Get current user" bash -c "curl -sf '$API_URL/auth/me' -b '$COOKIE_FILE' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('username',''))\""
@@ -97,7 +112,7 @@ echo ""
 echo "--- Frontend ---"
 check "Frontend serves HTML" bash -c "curl -sf '$BASE_URL/' | grep -qi 'edq\|device qualifier' && echo 'HTML OK'"
 
-check "Static assets (JS)" bash -c "curl -sf '$BASE_URL/' | grep -oP 'src=\"[^\"]+\\.js\"' | head -1 && echo 'JS bundle linked'"
+check "Static assets (JS)" bash -c "curl -sf '$BASE_URL/' | python3 -c \"import re, sys; html = sys.stdin.read(); assert re.search(r'src=\\\"[^\\\"]+\\\\.js\\\"', html); print('JS bundle linked')\""
 
 echo ""
 echo "--- WebSocket ---"

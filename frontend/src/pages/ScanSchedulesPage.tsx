@@ -8,6 +8,7 @@ import {
   CalendarClock, RefreshCw, ChevronDown,
 } from 'lucide-react'
 import { getPreferredDeviceName } from '@/lib/deviceLabels'
+import { useAuth } from '@/contexts/AuthContext'
 
 function FrequencyBadge({ frequency }: { frequency: string }) {
   const colors: Record<string, string> = {
@@ -202,8 +203,11 @@ function CreateScheduleDialog({
 }
 
 export default function ScanSchedulesPage() {
+  const { user } = useAuth()
   const [showCreate, setShowCreate] = useState(false)
   const queryClient = useQueryClient()
+  const canManageSchedules = user?.role === 'admin' || user?.role === 'reviewer'
+  const canDeleteSchedules = user?.role === 'admin'
 
   const { data: schedules, isLoading } = useQuery({
     queryKey: ['scan-schedules'],
@@ -241,9 +245,11 @@ export default function ScanSchedulesPage() {
           <h1 className="section-title">Scan Schedules</h1>
           <p className="section-subtitle">Schedule recurring security scans for your devices</p>
         </div>
-        <button type="button" onClick={() => setShowCreate(true)} className="btn-primary text-sm">
-          <Plus className="w-4 h-4" /> New Schedule
-        </button>
+        {canManageSchedules && (
+          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary text-sm">
+            <Plus className="w-4 h-4" /> New Schedule
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -257,9 +263,15 @@ export default function ScanSchedulesPage() {
           <p className="text-sm text-zinc-500 mb-4">
             Create a schedule to automatically re-scan devices on a recurring basis.
           </p>
-          <button type="button" onClick={() => setShowCreate(true)} className="btn-primary text-sm mx-auto">
-            <Plus className="w-4 h-4" /> Create First Schedule
-          </button>
+          {canManageSchedules ? (
+            <button type="button" onClick={() => setShowCreate(true)} className="btn-primary text-sm mx-auto">
+              <Plus className="w-4 h-4" /> Create First Schedule
+            </button>
+          ) : (
+            <p className="text-xs text-zinc-400 dark:text-slate-500">
+              Reviewers and admins can create recurring schedules.
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -295,25 +307,27 @@ export default function ScanSchedulesPage() {
                     <button
                       type="button"
                       onClick={() => toggleMutation.mutate({ id: schedule.id, is_active: !schedule.is_active })}
-                      disabled={toggleMutation.isPending}
+                      disabled={!canManageSchedules || toggleMutation.isPending}
                       className="p-2 rounded-lg hover:bg-zinc-100 transition-colors text-zinc-500 hover:text-zinc-700"
                       title={schedule.is_active ? 'Pause schedule' : 'Resume schedule'}
                     >
                       {schedule.is_active ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm('Delete this schedule? This cannot be undone.')) {
-                          deleteMutation.mutate(schedule.id)
-                        }
-                      }}
-                      disabled={deleteMutation.isPending}
-                      className="p-2 rounded-lg hover:bg-red-50 transition-colors text-zinc-400 hover:text-red-600"
-                      title="Delete schedule"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {canDeleteSchedules && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm('Delete this schedule? This cannot be undone.')) {
+                            deleteMutation.mutate(schedule.id)
+                          }
+                        }}
+                        disabled={deleteMutation.isPending}
+                        className="p-2 rounded-lg hover:bg-red-50 transition-colors text-zinc-400 hover:text-red-600"
+                        title="Delete schedule"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -329,7 +343,7 @@ export default function ScanSchedulesPage() {
         </div>
       )}
 
-      {showCreate && (
+      {canManageSchedules && showCreate && (
         <CreateScheduleDialog
           open={showCreate}
           onClose={() => setShowCreate(false)}

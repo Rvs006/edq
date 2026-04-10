@@ -1,0 +1,8 @@
+# Compatibility override for older startup commands.
+#
+# PostgreSQL is now part of the base docker-compose.yml, so this file is
+# intentionally a no-op. Keeping it allows existing commands like:
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+# to continue working without introducing split runtime behavior.
+
+services: {}

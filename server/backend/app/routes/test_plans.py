@@ -15,6 +15,7 @@ from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.security.auth import get_current_active_user, require_role
 from app.utils.audit import log_action
+from app.utils.sanitize import sanitize_dict
 
 logger = logging.getLogger("edq.routes.test_plans")
 
@@ -83,9 +84,10 @@ async def create_test_plan(
         if not t_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Base template not found")
 
+    clean = sanitize_dict(data.model_dump(), ["name", "description"])
     plan = TestPlan(
-        name=data.name,
-        description=data.description,
+        name=clean["name"],
+        description=clean.get("description"),
         base_template_id=data.base_template_id,
         test_configs=[c.model_dump() for c in data.test_configs],
         created_by=user.id,
@@ -123,12 +125,13 @@ async def update_test_plan(
     if not plan:
         raise HTTPException(status_code=404, detail="Test plan not found")
 
+    clean = sanitize_dict(data.model_dump(exclude_unset=True), ["name", "description"])
     updated_fields = []
     if data.name is not None:
-        plan.name = data.name
+        plan.name = clean["name"]
         updated_fields.append("name")
     if data.description is not None:
-        plan.description = data.description
+        plan.description = clean["description"]
         updated_fields.append("description")
     if data.base_template_id is not None:
         plan.base_template_id = data.base_template_id

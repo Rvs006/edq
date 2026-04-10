@@ -1,9 +1,11 @@
 """Tests for device management routes."""
 
+import io
+
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import register_and_login
+from .conftest import register_and_login
 
 
 @pytest.mark.asyncio
@@ -23,6 +25,30 @@ async def test_create_device(client: AsyncClient):
     assert data["manufacturer"] == "Axis"
     assert data["category"] == "camera"
     assert "id" in data
+
+
+@pytest.mark.asyncio
+async def test_create_device_with_project_and_extended_fields(client: AsyncClient):
+    """Creating a device should persist project, location, and serial number."""
+    headers = await register_and_login(client, "devproject", role="admin")
+    project_resp = await client.post("/api/projects/", json={
+        "name": "Project Alpha",
+    }, headers=headers)
+    assert project_resp.status_code == 201
+    project_id = project_resp.json()["id"]
+
+    resp = await client.post("/api/devices/", json={
+        "ip_address": "192.168.1.11",
+        "hostname": "project-camera",
+        "serial_number": "SN-12345",
+        "location": "Level 2 comms room",
+        "project_id": project_id,
+    }, headers=headers)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["project_id"] == project_id
+    assert data["serial_number"] == "SN-12345"
+    assert data["location"] == "Level 2 comms room"
 
 
 @pytest.mark.asyncio
@@ -105,6 +131,25 @@ async def test_update_device(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_update_device_extended_fields(client: AsyncClient):
+    """Updating serial number and location should persist to the device record."""
+    headers = await register_and_login(client, "devupdateext", role="admin")
+    create_resp = await client.post("/api/devices/", json={
+        "ip_address": "172.16.0.33",
+        "hostname": "field-device",
+    }, headers=headers)
+    device_id = create_resp.json()["id"]
+
+    resp = await client.patch(f"/api/devices/{device_id}", json={
+        "serial_number": "SERIAL-9000",
+        "location": "Plant room",
+    }, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["serial_number"] == "SERIAL-9000"
+    assert resp.json()["location"] == "Plant room"
+
+
+@pytest.mark.asyncio
 async def test_update_device_invalid_ip(client: AsyncClient):
     """Updating with invalid IP should fail validation."""
     headers = await register_and_login(client, "devupdateip", role="admin")
@@ -142,3 +187,73 @@ async def test_devices_unauthenticated(client: AsyncClient):
     """Accessing devices without auth should fail."""
     resp = await client.get("/api/devices/")
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_import_devices_csv_preserves_firmware_version(client: AsyncClient):
+    """CSV imports should persist the firmware_version column."""
+    headers = await register_and_login(client, "devimportfw", role="admin")
+    csv_content = (
+        "ip_address,hostname,firmware_version,manufacturer,model\n"
+        "192.168.55.10,fw-device,1.2.3,Axis,P3245-V\n"
+    )
+    files = {"file": ("devices.csv", io.BytesIO(csv_content.encode()), "text/csv")}
+
+    resp = await client.post("/api/devices/import", files=files, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["imported"] == 1
+
+    listing = await client.get("/api/devices/", headers=headers)
+    assert listing.status_code == 200
+    imported = next(device for device in listing.json() if device["ip_address"] == "192.168.55.10")
+    assert imported["firmware_version"] == "1.2.3"
+
+
+@pytest.mark.asyncio
+async def test_discover_device_ip_uses_detected_networks(client: AsyncClient, monkeypatch):
+    """DHCP IP discovery should scan detected/authorized networks, not just hard-coded defaults."""
+    headers = await register_and_login(client, "devdiscoverdyn", role="admin")
+    create_resp = await client.post("/api/devices/", json={
+        "mac_address": "AA:BB:CC:DD:EE:FF",
+        "hostname": "dhcp-device",
+        "addressing_mode": "dhcp",
+        "category": "camera",
+    }, headers=headers)
+    assert create_resp.status_code == 201
+    device_id = create_resp.json()["id"]
+
+    scanned_targets: list[str] = []
+
+    async def fake_detect_networks():
+        return {
+            "interfaces": [
+                {
+                    "cidr": "10.42.0.0/24",
+                    "sample_hosts": ["10.42.0.1"],
+                    "reachable": True,
+                }
+            ],
+            "host_ip": "10.42.0.5",
+            "in_docker": False,
+            "scan_recommendation": None,
+            "debug": {},
+        }
+
+    async def fake_nmap(target: str, args=None, timeout: int = 300):
+        scanned_targets.append(target)
+        return {
+            "stdout": (
+                "Nmap scan report for 10.42.0.99\n"
+                "Host is up (0.0010s latency).\n"
+                "MAC Address: AA:BB:CC:DD:EE:FF (Example Vendor)\n"
+            )
+        }
+
+    monkeypatch.setattr("app.routes.devices.tools_client.detect_networks", fake_detect_networks)
+    monkeypatch.setattr("app.routes.devices.tools_client.nmap", fake_nmap)
+
+    resp = await client.post(f"/api/devices/{device_id}/discover-ip", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["ip_address"] == "10.42.0.99"
+    assert scanned_targets[0] == "10.42.0.0/24"
+    assert "192.168.1.0/24" not in scanned_targets

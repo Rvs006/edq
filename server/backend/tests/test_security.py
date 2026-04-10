@@ -6,12 +6,15 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_security_headers(client: AsyncClient):
-    """Responses should include security headers."""
+    """Responses should include backend-set security headers.
+
+    Note: X-Content-Type-Options, X-Frame-Options, CSP, and Referrer-Policy
+    are now set by nginx (frontend proxy), not the backend middleware.
+    The backend sets X-Request-ID and Cache-Control.
+    """
     resp = await client.get("/api/health")
-    assert resp.headers.get("X-Content-Type-Options") == "nosniff"
-    assert resp.headers.get("X-Frame-Options") == "DENY"
-    assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
-    assert "Content-Security-Policy" in resp.headers
+    assert resp.headers.get("x-request-id"), "X-Request-ID header should be present"
+    assert "cache-control" in resp.headers, "Cache-Control header should be present"
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { networkScanApi, templatesApi, authorizedNetworksApi } from '@/lib/api'
 import { UNIVERSAL_TESTS, TEST_CATEGORIES } from '@/lib/universal-tests'
 import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
+import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 
 const LiveTerminal = lazy(() => import('@/components/testing/LiveTerminal'))
@@ -76,6 +77,15 @@ interface ScanResult {
   test_details: TestDetail[]
 }
 
+const ACTIVE_NETWORK_SCAN_STATUSES = new Set(['pending', 'discovering', 'scanning'])
+const ACTIVE_TEST_RUN_STATUSES = new Set(['pending', 'selecting_interface', 'syncing', 'running', 'paused_manual', 'paused_cable'])
+const COMPLETED_TEST_RUN_STATUSES = new Set(['completed', 'awaiting_manual', 'awaiting_review'])
+const ERROR_TEST_RUN_STATUSES = new Set(['failed', 'error', 'cancelled'])
+
+function normalizeStatus(status: string | null | undefined): string {
+  return String(status || '').toLowerCase()
+}
+
 // Persist active scan across page navigations so leaving and returning resumes monitoring
 function _loadScanState(): { scanId: string | null; step: Step } {
   try {
@@ -100,20 +110,23 @@ function _saveScanState(scanId: string | null, step: Step) {
 
 export default function NetworkScanPage() {
   const navigate = useNavigate()
-  const saved = _loadScanState()
-  const [step, setStep] = useState<Step>(saved.step)
+  const { user } = useAuth()
+  const [savedState] = useState(() => _loadScanState())
+  const [step, setStep] = useState<Step>(savedState.step)
   const [cidr, setCidr] = useState('192.168.1.0/24')
   const [scenario, setScenario] = useState('test_lab')
   const [selectedTests, setSelectedTests] = useState<Set<string>>(new Set(SCENARIO_PRESELECTS.test_lab))
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Network']))
   const [discovering, setDiscovering] = useState(false)
-  const [scanId, setScanId] = useState<string | null>(saved.scanId)
+  const [scanId, setScanId] = useState<string | null>(savedState.scanId)
   const [devices, setDevices] = useState<DiscoveredDevice[]>([])
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set())
   const [starting, setStarting] = useState(false)
   const [results, setResults] = useState<ScanResult[]>([])
-  const [scanStatus, setScanStatus] = useState<string>(saved.scanId ? 'running' : 'pending')
+  const [scanStatus, setScanStatus] = useState<string>(savedState.scanId ? 'scanning' : 'pending')
+  const [monitorError, setMonitorError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const skipScenarioPresetRef = useRef(Boolean(savedState.scanId))
 
   // Persist scan state whenever it changes
   useEffect(() => {
@@ -138,8 +151,47 @@ export default function NetworkScanPage() {
 
   useEffect(() => {
     const preselected = SCENARIO_PRESELECTS[scenario] || []
+    if (skipScenarioPresetRef.current) {
+      skipScenarioPresetRef.current = false
+      return
+    }
     setSelectedTests(new Set(preselected))
   }, [scenario])
+
+  useEffect(() => {
+    if (!savedState.scanId) return
+    let active = true
+
+    void networkScanApi.get(savedState.scanId)
+      .then((res) => {
+        if (!active) return
+        const scan = res.data
+        const restoredStatus = normalizeStatus(scan.status)
+        const restoredDevices = Array.isArray(scan.devices_found) ? scan.devices_found : []
+        if (scan.connection_scenario) setScenario(scan.connection_scenario)
+        if (Array.isArray(scan.selected_test_ids) && scan.selected_test_ids.length > 0) {
+          setSelectedTests(new Set(scan.selected_test_ids))
+        }
+        setDevices(restoredDevices)
+        setSelectedDevices(new Set(restoredDevices.map((device: DiscoveredDevice) => device.ip)))
+        setScanStatus(restoredStatus || 'pending')
+        if (restoredStatus === 'error') {
+          setStep('configure')
+          setScanId(null)
+          toast.error(scan.error_message || 'Bulk discovery failed')
+        }
+      })
+      .catch(() => {
+        if (!active) return
+        setStep('configure')
+        setScanId(null)
+        setMonitorError('Could not restore the saved bulk discovery session.')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [savedState.scanId])
 
   const toggleTest = (id: string) => {
     setSelectedTests(prev => {
@@ -163,6 +215,7 @@ export default function NetworkScanPage() {
   const handleDiscover = async () => {
     if (!cidrValid) return
     setDiscovering(true)
+    setMonitorError(null)
     try {
       const res = await networkScanApi.discover({
         cidr,
@@ -170,6 +223,13 @@ export default function NetworkScanPage() {
         test_ids: Array.from(selectedTests),
       })
       const scan = res.data
+      const nextStatus = normalizeStatus(scan.status)
+      if (nextStatus === 'error') {
+        setScanId(scan.id)
+        setScanStatus(nextStatus)
+        toast.error(scan.error_message || 'Discovery failed')
+        return
+      }
       setScanId(scan.id)
       const found: DiscoveredDevice[] = scan.devices_found || []
       setDevices(found)
@@ -195,7 +255,7 @@ export default function NetworkScanPage() {
         test_ids: Array.from(selectedTests),
         connection_scenario: scenario,
       })
-      setScanStatus(res.data.status)
+      setScanStatus(normalizeStatus(res.data.status) || 'scanning')
       setStep('monitor')
       toast.success('Batch scan started')
     } catch (err: unknown) {
@@ -211,13 +271,17 @@ export default function NetworkScanPage() {
     const poll = async () => {
       try {
         const res = await networkScanApi.results(scanId)
+        const nextStatus = normalizeStatus(res.data.status)
         setResults(res.data.results || [])
-        setScanStatus(res.data.status)
-        if (res.data.status === 'complete' || res.data.status === 'error') {
+        setScanStatus(nextStatus)
+        setMonitorError(null)
+        if (nextStatus === 'complete' || nextStatus === 'error') {
           if (pollRef.current) clearInterval(pollRef.current)
           setStep('results')
         }
-      } catch { /* ignore */ }
+      } catch {
+        setMonitorError('Could not refresh batch scan status. Retrying automatically.')
+      }
     }
     poll()
     pollRef.current = setInterval(poll, 3000)
@@ -230,7 +294,10 @@ export default function NetworkScanPage() {
       try {
         const res = await networkScanApi.results(scanId)
         setResults(res.data.results || [])
-      } catch { /* ignore */ }
+        setMonitorError(null)
+      } catch {
+        setMonitorError('Could not load the latest batch scan results.')
+      }
     }
     fetchFinal()
   }, [step, scanId])
@@ -244,16 +311,28 @@ export default function NetworkScanPage() {
 
       <StepIndicator current={step} />
 
+      {monitorError && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          {monitorError}
+        </div>
+      )}
+
       {authNetsLoaded && authorizedNets.length === 0 && (
         <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-200">No authorized networks configured</p>
             <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              Scanning is blocked until an admin authorizes scan ranges.{' '}
-              <a href="/authorized-networks" className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200">
-                Go to Authorized Networks →
-              </a>
+              {user?.role === 'admin' ? (
+                <>
+                  Scanning is blocked until an admin authorizes scan ranges.{' '}
+                  <a href="/authorized-networks" className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200">
+                    Manage Authorized Networks
+                  </a>
+                </>
+              ) : (
+                'Scanning is blocked until an admin authorizes scan ranges. Contact an administrator to add the required subnet.'
+              )}
             </p>
           </div>
         </div>
@@ -851,26 +930,35 @@ function MonitorStep({ results, scanStatus, navigate, onNewScan, selectedTests }
   const totalTests = results.reduce((s, r) => s + r.total_tests, 0)
   const completedTests = results.reduce((s, r) => s + r.completed_tests, 0)
   const overallPct = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0
-  const isRunning = scanStatus === 'running' || scanStatus === 'pending'
+  const normalizedScanStatus = normalizeStatus(scanStatus)
+  const isRunning = ACTIVE_NETWORK_SCAN_STATUSES.has(normalizedScanStatus)
+  const isError = normalizedScanStatus === 'error'
 
   return (
     <div className="space-y-4">
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            {isRunning
-              ? <Loader2 className="w-4 h-4 animate-spin text-brand-500" />
-              : <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            }
+            {isRunning ? (
+              <Loader2 className="w-4 h-4 animate-spin text-brand-500" />
+            ) : isError ? (
+              <XCircle className="w-4 h-4 text-red-500" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            )}
             <span className="text-sm font-semibold text-zinc-900 dark:text-slate-100">
-              {isRunning ? `Scanning ${results.length} device(s)...` : `Scan complete — ${results.length} device(s)`}
+              {isRunning
+                ? `Scanning ${results.length} device(s)...`
+                : isError
+                  ? `Scan failed - ${results.length} device(s)`
+                  : `Scan complete - ${results.length} device(s)`}
             </span>
           </div>
           <span className="text-sm font-medium text-brand-500">{overallPct}%</span>
         </div>
         <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2">
           <div
-            className="bg-brand-500 h-2 rounded-full transition-all duration-500"
+            className={`h-2 rounded-full transition-all duration-500 ${isError ? 'bg-red-500' : 'bg-brand-500'}`}
             style={{ width: `${overallPct}%` }}
           />
         </div>
@@ -941,12 +1029,13 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
   const [expandedOutput, setExpandedOutput] = useState<string | null>(null)
   const [liveOutputTestId, setLiveOutputTestId] = useState<string | null>(null)
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
-  const isRunning = result.status === 'running'
+  const runStatus = normalizeStatus(result.status)
+  const isRunning = ACTIVE_TEST_RUN_STATUSES.has(runStatus)
   const { terminalOutput, lastProgress } = useTestRunWebSocket(isRunning ? result.run_id : undefined)
   const runningTestId = isRunning && lastProgress?.type === 'test_start' ? lastProgress.data.test_id : null
   const pct = Math.round(result.progress_pct || 0)
-  const isComplete = result.status === 'completed' || result.status === 'awaiting_manual'
-  const isError = result.status === 'failed' || result.status === 'error'
+  const isComplete = COMPLETED_TEST_RUN_STATUSES.has(runStatus)
+  const isError = ERROR_TEST_RUN_STATUSES.has(runStatus)
 
   const displayName = result.device_name || result.hostname || result.vendor || null
   const detailLine = [result.vendor, result.model].filter(Boolean).join(' · ')
@@ -1201,15 +1290,56 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
 }
 
 function StatusBadge({ status, verdict }: { status: string; verdict: string | null }) {
-  if (status === 'completed' || status === 'awaiting_manual') {
+  const normalizedStatus = normalizeStatus(status)
+
+  if (normalizedStatus === 'completed') {
     if (verdict === 'pass') return <span className="badge bg-emerald-50 text-emerald-600 border border-emerald-200">Pass</span>
     if (verdict === 'fail') return <span className="badge bg-red-50 text-red-600 border border-red-200">Fail</span>
-    if (verdict === 'qualified_pass') return <span className="badge bg-amber-50 text-amber-600 border border-amber-200">Advisory</span>
+    if (verdict === 'qualified_pass') return <span className="badge bg-amber-50 text-amber-600 border border-amber-200">Qualified Pass</span>
     return <span className="badge bg-blue-50 text-blue-600 border border-blue-200">Done</span>
   }
-  if (status === 'running') return <span className="badge bg-brand-50 text-brand-600 border border-brand-200 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800">Running</span>
-  if (status === 'failed' || status === 'error') return <span className="badge bg-red-50 text-red-600 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800">Error</span>
-  return <span className="badge bg-zinc-100 text-zinc-500 border border-zinc-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/50">{status}</span>
+
+  if (normalizedStatus === 'awaiting_manual') {
+    return <span className="badge bg-yellow-50 text-yellow-700 border border-yellow-200">Awaiting Manual</span>
+  }
+
+  if (normalizedStatus === 'awaiting_review') {
+    return <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-200">Awaiting Review</span>
+  }
+
+  if (normalizedStatus === 'running' || normalizedStatus === 'scanning') {
+    return <span className="badge bg-brand-50 text-brand-600 border border-brand-200 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800">Running</span>
+  }
+
+  if (normalizedStatus === 'syncing') {
+    return <span className="badge bg-sky-50 text-sky-700 border border-sky-200">Syncing</span>
+  }
+
+  if (normalizedStatus === 'selecting_interface') {
+    return <span className="badge bg-purple-50 text-purple-700 border border-purple-200">Selecting Interface</span>
+  }
+
+  if (normalizedStatus === 'paused_manual') {
+    return <span className="badge bg-amber-50 text-amber-700 border border-amber-200">Manual Pause</span>
+  }
+
+  if (normalizedStatus === 'paused_cable') {
+    return <span className="badge bg-orange-50 text-orange-700 border border-orange-200">Cable Pause</span>
+  }
+
+  if (normalizedStatus === 'pending') {
+    return <span className="badge bg-zinc-100 text-zinc-500 border border-zinc-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/50">Pending</span>
+  }
+
+  if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
+    return <span className="badge bg-red-50 text-red-600 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800">Error</span>
+  }
+
+  if (normalizedStatus === 'cancelled') {
+    return <span className="badge bg-zinc-100 text-zinc-500 border border-zinc-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/50">Cancelled</span>
+  }
+
+  return <span className="badge bg-zinc-100 text-zinc-500 border border-zinc-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/50">{status.replace(/_/g, ' ')}</span>
 }
 
 function ResultsStep({
