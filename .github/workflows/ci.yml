@@ -44,3 +44,4 @@ jobs:
         env:
           INITIAL_ADMIN_PASSWORD: ci-test-admin-password
           TOOLS_API_KEY: ci-test-tools-key
+          POSTGRES_PASSWORD: ci-test-postgres-password
