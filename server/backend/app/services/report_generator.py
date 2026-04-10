@@ -34,6 +34,13 @@ def _sanitize_for_excel(value):
         return value
     return _ILLEGAL_XML_CHARS.sub('', value)
 
+
+def _sanitize_for_pdf(value: object) -> str:
+    """Convert dynamic text to a core-font-safe string for fpdf2."""
+    if value is None:
+        return ""
+    return str(value).encode("latin-1", "replace").decode("latin-1")
+
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "templates"
@@ -967,6 +974,235 @@ async def generate_word_report(
 # PDF Report Generation
 # ---------------------------------------------------------------------------
 
+async def _generate_pdf_via_libreoffice(docx_path: str) -> str:
+    """Convert a DOCX file to PDF using LibreOffice headless."""
+    output_dir = str(Path(docx_path).parent)
+    env = os.environ.copy()
+    env["HOME"] = "/tmp"
+    subprocess.run(
+        [
+            "libreoffice",
+            "--headless",
+            "--norestore",
+            "--convert-to", "pdf",
+            "--outdir", output_dir,
+            docx_path,
+        ],
+        check=True,
+        timeout=120,
+        capture_output=True,
+        env=env,
+    )
+    pdf_path = Path(docx_path).with_suffix(".pdf")
+    if not pdf_path.exists():
+        raise RuntimeError(f"Expected PDF file not found at {pdf_path}")
+    return str(pdf_path)
+
+
+async def _generate_pdf_via_fpdf(
+    test_run,
+    test_results,
+    report_config=None,
+    include_synopsis=False,
+    enabled_test_ids: Optional[list] = None,
+    whitelist_entries: Optional[list] = None,
+) -> str:
+    """Pure-Python PDF generation fallback using fpdf2."""
+    from fpdf import FPDF
+
+    filtered_results = _filter_enabled_results(test_results, enabled_test_ids)
+    device = getattr(test_run, "device", None)
+    engineer = getattr(test_run, "engineer", None)
+    overall_raw = _get_overall_verdict_raw(test_run)
+    overall_display = _resolve_overall_verdict(test_run)
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # --- Cover Page ---
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 24)
+    pdf.ln(40)
+    pdf.cell(0, 15, "IP DEVICE QUALIFICATION REPORT", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(10)
+    pdf.set_font("Helvetica", "", 14)
+    pdf.cell(0, 10, "Electracom Projects Ltd", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(15)
+
+    pdf.set_font("Helvetica", "", 11)
+    info_items = [
+        ("Manufacturer", _sanitize_for_pdf(_safe_attr(device, "manufacturer", "N/A"))),
+        ("Model", _sanitize_for_pdf(_safe_attr(device, "model", "N/A"))),
+        ("Firmware", _sanitize_for_pdf(_safe_attr(device, "firmware_version", "N/A"))),
+        ("IP Address", _sanitize_for_pdf(_safe_attr(device, "ip_address", "N/A"))),
+        ("System", _sanitize_for_pdf(_safe_attr(device, "category", "N/A"))),
+        ("Test Date", _sanitize_for_pdf(_format_date_range(test_run))),
+        ("Tester", _sanitize_for_pdf(_safe_attr(engineer, "full_name", "N/A"))),
+        ("Connection", _sanitize_for_pdf(getattr(test_run, "connection_scenario", "direct"))),
+    ]
+    for label, value in info_items:
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(50, 8, f"{label}:")
+        pdf.set_font("Helvetica", "", 11)
+        pdf.cell(0, 8, value, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.ln(10)
+    verdict_colors = {"pass": (39, 174, 96), "qualified_pass": (243, 156, 18), "fail": (231, 76, 60)}
+    color = verdict_colors.get(overall_raw, (0, 0, 0))
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 12, f"OVERALL VERDICT: ", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*color)
+    pdf.cell(0, 12, _sanitize_for_pdf(overall_display), align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+
+    # --- Executive Summary ---
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 12, "Executive Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    pdf.set_font("Helvetica", "", 11)
+    if include_synopsis and test_run.synopsis:
+        synopsis_text = _sanitize_for_pdf(test_run.synopsis.replace("[AI-DRAFTED] ", ""))
+        pdf.multi_cell(0, 6, synopsis_text)
+    else:
+        pdf.multi_cell(
+            0, 6,
+            _sanitize_for_pdf(
+                f"This report presents the results of the cybersecurity qualification "
+                f"testing for the {_safe_attr(device, 'manufacturer', 'device')} "
+                f"{_safe_attr(device, 'model', '')} at IP address "
+                f"{_safe_attr(device, 'ip_address', 'N/A')}."
+            ),
+        )
+    pdf.ln(5)
+
+    # Key findings
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 10, "Key Findings", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    findings = [
+        ("Total Tests", str(len(filtered_results))),
+        ("Passed", str(test_run.passed_tests or 0)),
+        ("Failed", str(test_run.failed_tests or 0)),
+        ("Advisory", str(test_run.advisory_tests or 0)),
+        ("N/A", str(test_run.na_tests or 0)),
+        ("Overall Verdict", _sanitize_for_pdf(overall_display)),
+    ]
+    for label, value in findings:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(50, 7, f"{label}:")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 7, _sanitize_for_pdf(value), new_x="LMARGIN", new_y="NEXT")
+
+    if whitelist_entries:
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 10, "Protocol Whitelist", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(
+            0,
+            5,
+            _sanitize_for_pdf(
+                f"Whitelist entries included in this report: {len(whitelist_entries)}."
+            ),
+        )
+        for entry in whitelist_entries[:20]:
+            service = _sanitize_for_pdf(entry.get("service", ""))
+            protocol = _sanitize_for_pdf(entry.get("protocol", ""))
+            port = _sanitize_for_pdf(entry.get("port", ""))
+            version = _sanitize_for_pdf(entry.get("required_version", ""))
+            line = f"- {service} ({protocol}/{port})"
+            if version:
+                line += f" - {version}"
+            pdf.multi_cell(0, 5, _sanitize_for_pdf(line))
+
+    # --- Test Results Table ---
+    pdf.add_page("L")  # Landscape for the table
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Test Results", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+
+    col_widths = [25, 45, 25, 25, 25, 80, 52]
+    headers = ["Test ID", "Test Name", "Script", "Essential", "Result", "Comments", "Engineer Notes"]
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(31, 78, 121)
+    pdf.set_text_color(255, 255, 255)
+    for i, header in enumerate(headers):
+        pdf.cell(col_widths[i], 7, header, border=1, fill=True, align="C")
+    pdf.ln()
+    pdf.set_text_color(0, 0, 0)
+
+    verdict_bg = {
+        "pass": (213, 245, 227), "fail": (250, 219, 216),
+        "advisory": (254, 249, 231), "na": (234, 237, 237),
+    }
+
+    pdf.set_font("Helvetica", "", 7)
+    for result in filtered_results:
+        verdict_raw = _get_verdict_raw(result)
+        bg = verdict_bg.get(verdict_raw, (255, 255, 255))
+        pdf.set_fill_color(*bg)
+
+        row_data = [
+            result.test_id or "",
+            _sanitize_for_pdf((result.test_name or "")[:30]),
+            _resolve_script_flag(result),
+            (result.is_essential or "no").upper(),
+            _resolve_verdict(result, {}),
+            _sanitize_for_pdf((_resolve_comment(result))[:60]),
+            _sanitize_for_pdf((getattr(result, "engineer_notes", None) or "")[:40]),
+        ]
+        for i, val in enumerate(row_data):
+            pdf.cell(col_widths[i], 6, _sanitize_for_pdf(val), border=1, fill=True)
+        pdf.ln()
+
+    # --- Detailed Findings ---
+    fail_advisory = [r for r in filtered_results if _get_verdict_raw(r) in ("fail", "advisory")]
+    if fail_advisory:
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "Detailed Findings", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 6, "The following tests returned FAIL or ADVISORY verdicts and require attention.")
+        pdf.ln(5)
+
+        for result in fail_advisory:
+            verdict_raw = _get_verdict_raw(result)
+            color = verdict_colors.get(verdict_raw, (0, 0, 0))
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(0, 8, _sanitize_for_pdf(f"{result.test_id} - {result.test_name}"), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(20, 7, "Verdict: ")
+            pdf.set_text_color(*color)
+            pdf.cell(0, 7, _sanitize_for_pdf(_resolve_verdict(result, {}).upper()), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(0, 0, 0)
+            comment = _resolve_comment(result)
+            if comment:
+                pdf.set_font("Helvetica", "", 9)
+                pdf.multi_cell(0, 5, _sanitize_for_pdf(f"Comment: {comment[:500]}"))
+            pdf.ln(5)
+
+    # --- Footer ---
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(
+        0, 10,
+        f"Report generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} | "
+        f"EDQ v{settings.APP_VERSION}",
+        align="C",
+    )
+
+    output_dir = Path(settings.REPORT_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"EDQ_Report_{test_run.id[:8]}_{timestamp}.pdf"
+    output_path = output_dir / filename
+    pdf.output(str(output_path))
+    logger.info("PDF report (fpdf2 fallback) saved: %s", output_path)
+    return str(output_path)
+
+
 async def generate_pdf_report(
     test_run,
     test_results,
@@ -975,7 +1211,35 @@ async def generate_pdf_report(
     enabled_test_ids: Optional[list] = None,
     whitelist_entries: Optional[list] = None,
 ) -> str:
-    docx_path = await generate_word_report(
+    # Try LibreOffice conversion first (higher quality)
+    try:
+        docx_path = await generate_word_report(
+            test_run,
+            test_results,
+            report_config=report_config,
+            include_synopsis=include_synopsis,
+            enabled_test_ids=enabled_test_ids,
+            whitelist_entries=whitelist_entries,
+        )
+        pdf_path = await _generate_pdf_via_libreoffice(docx_path)
+        logger.info("PDF report saved (via LibreOffice): %s", pdf_path)
+        return pdf_path
+    except FileNotFoundError:
+        logger.warning("LibreOffice not found — falling back to fpdf2 for PDF generation")
+    except subprocess.TimeoutExpired:
+        logger.warning("LibreOffice conversion timed out — falling back to fpdf2")
+    except subprocess.CalledProcessError as e:
+        logger.warning(
+            "LibreOffice conversion failed — falling back to fpdf2: %s",
+            e.stderr.decode(errors="replace") if e.stderr else str(e),
+        )
+    except RuntimeError as e:
+        logger.warning("LibreOffice PDF conversion error — falling back to fpdf2: %s", e)
+    except Exception as e:
+        logger.warning("Unexpected error in LibreOffice PDF path — falling back to fpdf2: %s", e)
+
+    # Fallback: pure-Python PDF generation via fpdf2
+    return await _generate_pdf_via_fpdf(
         test_run,
         test_results,
         report_config=report_config,
@@ -983,42 +1247,3 @@ async def generate_pdf_report(
         enabled_test_ids=enabled_test_ids,
         whitelist_entries=whitelist_entries,
     )
-
-    output_dir = str(Path(docx_path).parent)
-
-    try:
-        env = os.environ.copy()
-        env["HOME"] = "/tmp"
-        subprocess.run(
-            [
-                "libreoffice",
-                "--headless",
-                "--norestore",
-                "--convert-to", "pdf",
-                "--outdir", output_dir,
-                docx_path,
-            ],
-            check=True,
-            timeout=120,
-            capture_output=True,
-            env=env,
-        )
-    except FileNotFoundError:
-        logger.error("libreoffice not found — cannot convert to PDF")
-        raise RuntimeError(
-            "PDF generation requires LibreOffice. "
-            "Install libreoffice-writer in the container."
-        )
-    except subprocess.TimeoutExpired:
-        logger.error("LibreOffice conversion timed out after 120s")
-        raise RuntimeError("PDF conversion timed out")
-    except subprocess.CalledProcessError as e:
-        logger.error("LibreOffice conversion failed: %s", e.stderr.decode(errors="replace"))
-        raise RuntimeError(f"PDF conversion failed: {e.stderr.decode(errors='replace')}")
-
-    pdf_path = Path(docx_path).with_suffix(".pdf")
-    if not pdf_path.exists():
-        raise RuntimeError(f"Expected PDF file not found at {pdf_path}")
-
-    logger.info("PDF report saved: %s", pdf_path)
-    return str(pdf_path)
