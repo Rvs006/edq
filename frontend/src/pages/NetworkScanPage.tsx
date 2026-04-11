@@ -123,7 +123,7 @@ export default function NetworkScanPage() {
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set())
   const [starting, setStarting] = useState(false)
   const [results, setResults] = useState<ScanResult[]>([])
-  const [scanStatus, setScanStatus] = useState<string>(savedState.scanId ? 'scanning' : 'pending')
+  const [scanStatus, setScanStatus] = useState<string>('pending')
   const [monitorError, setMonitorError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const skipScenarioPresetRef = useRef(Boolean(savedState.scanId))
@@ -136,16 +136,21 @@ export default function NetworkScanPage() {
   const [authorizedNets, setAuthorizedNets] = useState<{ cidr: string; label: string | null }[]>([])
   const [authNetsLoaded, setAuthNetsLoaded] = useState(false)
 
-  useEffect(() => {
+  const fetchAuthorizedNets = useCallback(() => {
     authorizedNetworksApi.list({ active_only: true }).then(res => {
       setAuthorizedNets(res.data.map((n: { cidr: string; label: string | null }) => ({ cidr: n.cidr, label: n.label })))
       setAuthNetsLoaded(true)
     }).catch((err) => { console.error('Failed to fetch authorized networks:', err); setAuthNetsLoaded(true) })
   }, [])
 
+  useEffect(() => {
+    fetchAuthorizedNets()
+  }, [fetchAuthorizedNets])
+
   const cidrValid = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(cidr)
   const cidrPrefix = cidr.split('/')[1] ? parseInt(cidr.split('/')[1]) : 0
-  const hostCount = cidrValid && cidrPrefix >= 16 && cidrPrefix <= 30
+  const cidrPrefixInRange = cidrPrefix >= 16 && cidrPrefix <= 30
+  const hostCount = cidrValid && cidrPrefixInRange
     ? Math.pow(2, 32 - cidrPrefix) - 2
     : 0
 
@@ -237,6 +242,7 @@ export default function NetworkScanPage() {
       setDevices(found)
       setSelectedDevices(new Set(found.map((d: DiscoveredDevice) => d.ip)))
       setStep('review')
+      fetchAuthorizedNets()
       if (found.length === 0) toast('No devices found on this subnet', { icon: '📡' })
       else toast.success(`Discovered ${found.length} device(s)`)
     } catch (err: unknown) {
@@ -311,7 +317,7 @@ export default function NetworkScanPage() {
         <p className="section-subtitle">Survey a subnet when the IP is unknown, then batch-test selected devices</p>
       </div>
 
-      <StepIndicator current={step} />
+      <StepIndicator current={step} hasError={scanStatus === 'error'} />
 
       {monitorError && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
@@ -352,7 +358,7 @@ export default function NetworkScanPage() {
 
       {step === 'configure' && !discovering && (
         <ConfigureStep
-          cidr={cidr} setCidr={setCidr} cidrValid={cidrValid} hostCount={hostCount}
+          cidr={cidr} setCidr={setCidr} cidrValid={cidrValid} cidrPrefixInRange={cidrPrefixInRange} hostCount={hostCount}
           scenario={scenario} setScenario={setScenario}
           selectedTests={selectedTests} setSelectedTests={setSelectedTests} toggleTest={toggleTest} toggleCategory={toggleCategory}
           expandedCategories={expandedCategories} setExpandedCategories={setExpandedCategories}
@@ -391,7 +397,7 @@ export default function NetworkScanPage() {
   )
 }
 
-function StepIndicator({ current }: { current: Step }) {
+function StepIndicator({ current, hasError }: { current: Step; hasError?: boolean }) {
   const steps: { key: Step; label: string }[] = [
     { key: 'configure', label: 'Configure' },
     { key: 'review', label: 'Review Devices' },
@@ -405,11 +411,13 @@ function StepIndicator({ current }: { current: Step }) {
       {steps.map((s, i) => (
         <div key={s.key} className="flex items-center gap-2">
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
+            hasError && i === idx ? 'bg-red-50 text-red-600 border border-red-200 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800' :
             i < idx ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
             i === idx ? 'bg-brand-50 text-brand-600 border border-brand-200 dark:bg-brand-950/30 dark:text-brand-300 dark:border-brand-800' :
             'bg-zinc-100 dark:bg-slate-800 text-zinc-400 border border-zinc-200 dark:border-slate-700/50'
           }`}>
-            {i < idx ? <CheckCircle2 className="w-3.5 h-3.5" /> :
+            {hasError && i === idx ? <XCircle className="w-3.5 h-3.5" /> :
+             i < idx ? <CheckCircle2 className="w-3.5 h-3.5" /> :
              <span className="w-4 h-4 rounded-full bg-current opacity-20 flex items-center justify-center text-[10px]">{i + 1}</span>}
             {s.label}
           </div>
@@ -421,13 +429,13 @@ function StepIndicator({ current }: { current: Step }) {
 }
 
 function ConfigureStep({
-  cidr, setCidr, cidrValid, hostCount,
+  cidr, setCidr, cidrValid, cidrPrefixInRange, hostCount,
   scenario, setScenario,
   selectedTests, setSelectedTests, toggleTest, toggleCategory,
   expandedCategories, setExpandedCategories,
   discovering, onDiscover,
 }: {
-  cidr: string; setCidr: (v: string) => void; cidrValid: boolean; hostCount: number
+  cidr: string; setCidr: (v: string) => void; cidrValid: boolean; cidrPrefixInRange: boolean; hostCount: number
   scenario: string; setScenario: (v: string) => void
   selectedTests: Set<string>; setSelectedTests: (v: Set<string>) => void; toggleTest: (id: string) => void; toggleCategory: (cat: string) => void
   expandedCategories: Set<string>; setExpandedCategories: (v: Set<string>) => void
@@ -513,6 +521,7 @@ function ConfigureStep({
               className={`input ${cidr && !cidrValid ? 'border-red-300 focus:border-red-400' : ''}`}
             />
             {cidr && !cidrValid && <p className="text-xs text-red-500 mt-1">Invalid CIDR format</p>}
+            {cidr && cidrValid && !cidrPrefixInRange && <p className="text-xs text-red-500 mt-1">CIDR prefix must be between /16 and /30</p>}
           </div>
           <div className="sm:w-48">
             <label className="label">Possible IPs in range</label>

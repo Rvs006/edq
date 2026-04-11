@@ -143,7 +143,7 @@ ALLOWED_FLAGS = {
         "-sn", "-sS", "-sT", "-sU", "-sV", "-sC", "-A", "-O", "-Pn", "-p", "-p-",
         "-T0", "-T1", "-T2", "-T3", "-T4", "-T5", "--top-ports", "--open",
         "-v", "-vv", "--version-intensity",
-        "--script", "-F", "-n", "-R", "-6", "--max-rate", "-",
+        "--script", "-F", "-n", "-R", "-6", "--max-rate", "-", "-oX",
         "--min-rate", "--max-retries", "--defeat-rst-ratelimit", "--send-ip", "-PR", "-e",
         "--host-timeout",
     },

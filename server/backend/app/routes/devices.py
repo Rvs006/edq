@@ -318,6 +318,13 @@ async def create_device(
     is_dhcp = data.addressing_mode == "dhcp"
     project_id = await _validate_project_id(db, data.project_id)
 
+    # Validate profile_id exists if provided
+    if data.profile_id:
+        from app.models.device_profile import DeviceProfile
+        profile_check = await db.execute(select(DeviceProfile.id).where(DeviceProfile.id == data.profile_id))
+        if profile_check.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="Device profile not found")
+
     # DHCP devices require a MAC address instead of IP
     if is_dhcp:
         if not data.mac_address:
@@ -496,7 +503,7 @@ async def import_devices_csv(
     errors: list[dict] = []
 
     for row_num, row in enumerate(reader, start=2):  # row 1 is the header
-        if row_num - 1 > _MAX_IMPORT_ROWS:
+        if row_num - 1 >= _MAX_IMPORT_ROWS:
             errors.append({
                 "row": row_num,
                 "error": f"Row limit of {_MAX_IMPORT_ROWS} exceeded; remaining rows ignored",
@@ -953,7 +960,7 @@ async def update_device(
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["hostname", "manufacturer", "model", "notes", "location", "serial_number"])
+    updates = sanitize_dict(data.model_dump(exclude_unset=True), ["hostname", "manufacturer", "model", "firmware_version", "notes", "location", "serial_number"])
 
     # Duplicate IP/MAC validation
     if "ip_address" in updates and updates["ip_address"]:
@@ -968,6 +975,24 @@ async def update_device(
         )
         if dup.scalar_one_or_none():
             raise HTTPException(status_code=409, detail=f"A device with MAC address {updates['mac_address']} already exists")
+
+    # Validate addressing_mode transitions
+    effective_mode = updates.get("addressing_mode", device.addressing_mode.value if hasattr(device.addressing_mode, "value") else device.addressing_mode)
+    if effective_mode == "dhcp":
+        effective_mac = updates.get("mac_address", device.mac_address)
+        if not effective_mac:
+            raise HTTPException(status_code=422, detail="MAC address is required when addressing mode is DHCP")
+    elif effective_mode == "static":
+        effective_ip = updates.get("ip_address", device.ip_address)
+        if not effective_ip:
+            raise HTTPException(status_code=422, detail="IP address is required when addressing mode is static")
+
+    # Validate profile_id exists if provided
+    if "profile_id" in updates and updates["profile_id"]:
+        from app.models.device_profile import DeviceProfile
+        profile_result = await db.execute(select(DeviceProfile.id).where(DeviceProfile.id == updates["profile_id"]))
+        if profile_result.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="Device profile not found")
 
     allowed_fields = [
         "ip_address", "mac_address", "hostname", "manufacturer", "model",

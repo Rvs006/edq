@@ -78,6 +78,11 @@ api.interceptors.response.use(
     const originalRequest = (error.config || {}) as RetryableRequestConfig
     const requestUrl = String(originalRequest.url || '')
 
+    // Suppress expected 401s from initial auth checks (pre-login)
+    if (status === 401 && (requestUrl.endsWith('/auth/me') || requestUrl.endsWith('/auth/refresh'))) {
+      return Promise.reject(error)
+    }
+
     if (
       status === 401
       && !originalRequest._retry
