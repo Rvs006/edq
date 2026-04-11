@@ -49,6 +49,7 @@ export default function DevicesPage() {
     return () => clearTimeout(timer)
   }, [searchInput, categoryFilter, setSearchParams])
   const [showAddModal, setShowAddModal] = useState(false)
+  const [addModalKey, setAddModalKey] = useState(0)
   const [showDiscoverModal, setShowDiscoverModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const urlView = searchParams.get('view') as 'table' | 'topology' | null
@@ -153,7 +154,7 @@ export default function DevicesPage() {
           <button type="button" onClick={() => setShowImportModal(true)} className="btn-secondary">
             <Upload className="w-4 h-4" /> Import CSV
           </button>
-          <button type="button" onClick={() => setShowAddModal(true)} className="btn-primary">
+          <button type="button" onClick={() => { setAddModalKey(k => k + 1); setShowAddModal(true) }} className="btn-primary">
             <Plus className="w-4 h-4" /> Add Device
           </button>
         </div>
@@ -299,7 +300,7 @@ export default function DevicesPage() {
               <button type="button" onClick={() => setShowDiscoverModal(true)} className="btn-secondary">
                 <Radar className="w-4 h-4" /> Discover Devices
               </button>
-              <button type="button" onClick={() => setShowAddModal(true)} className="btn-primary">
+              <button type="button" onClick={() => { setAddModalKey(k => k + 1); setShowAddModal(true) }} className="btn-primary">
                 <Plus className="w-4 h-4" /> Add Device
               </button>
             </div>
@@ -337,7 +338,7 @@ export default function DevicesPage() {
       )}
 
       <AnimatePresence>
-        {showAddModal && <AddDeviceModal projectId={projectIdFilter || undefined} onClose={() => setShowAddModal(false)} />}
+        {showAddModal && <AddDeviceModal key={addModalKey} projectId={projectIdFilter || undefined} onClose={() => setShowAddModal(false)} />}
         {showDiscoverModal && <DiscoverModal projectId={projectIdFilter || undefined} onClose={() => setShowDiscoverModal(false)} />}
         {showImportModal && <ImportCsvModal initialProjectId={projectIdFilter} onClose={() => setShowImportModal(false)} />}
       </AnimatePresence>
@@ -389,6 +390,7 @@ function DiscoverModal({ onClose, projectId }: { onClose: () => void; projectId?
   useEffect(() => {
     setInlineError(null)
     setResults(null)
+    setLoading(false)
   }, [ipTarget, mode, subnetTarget])
 
   const handleDiscover = async (e: React.FormEvent) => {
@@ -636,7 +638,23 @@ function AddDeviceModal({ onClose, projectId }: { onClose: () => void; projectId
       toast.success('Device added successfully')
       onClose()
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
+      const status = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response?.status
+      if (status === 422) {
+        const detail = (err as { response?: { data?: { detail?: Array<{ loc?: string[]; msg?: string }> } } })?.response?.data?.detail
+        if (Array.isArray(detail)) {
+          const fieldErrors: { ip_address?: string; mac_address?: string } = {}
+          for (const item of detail) {
+            const field = item.loc?.[item.loc.length - 1]
+            if (field === 'ip_address') fieldErrors.ip_address = item.msg || 'Invalid value'
+            if (field === 'mac_address') fieldErrors.mac_address = item.msg || 'Invalid value'
+          }
+          if (Object.keys(fieldErrors).length > 0) {
+            setFormErrors(fieldErrors)
+            toast.error('Please correct the highlighted fields')
+            return
+          }
+        }
+      }
       if (status === 409) {
         const lookupValue = isDhcp ? form.mac_address.trim() : form.ip_address.trim()
         try {
@@ -790,6 +808,8 @@ const CSV_TEMPLATE = 'ip_address,hostname,mac_address,manufacturer,model,firmwar
 const REQUIRED_CSV_HEADERS = ['ip_address']
 
 function parseCsvRows(text: string): string[][] {
+  // Normalize line endings: \r\n -> \n, standalone \r -> \n
+  text = text.replace(/\r\n?/g, '\n')
   const rows: string[][] = []
   let row: string[] = []
   let cell = ''
@@ -985,7 +1005,7 @@ function ImportCsvModal({ onClose, initialProjectId }: { onClose: () => void; in
           <div
             onDrop={handleDrop}
             onDragOver={handleDragOver}
-            onDragLeave={() => setDragOver(false)}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false) }}
             className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
               dragOver
                 ? 'border-brand-500 bg-brand-50 dark:bg-brand-950/20'

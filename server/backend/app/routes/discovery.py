@@ -109,12 +109,23 @@ async def _upsert_device(
     project_id: Optional[str],
 ) -> tuple[Device, bool]:
     """Create or update a device record. Returns (device, is_new)."""
+    from sqlalchemy.exc import IntegrityError
+
     # Active reverse DNS if nmap didn't provide hostname
     if not hostname:
         hostname = await _resolve_hostname_async(ip)
 
     result = await db.execute(select(Device).where(Device.ip_address == ip))
     device = result.scalar_one_or_none()
+
+    # Also check by MAC address if IP lookup returned nothing
+    if device is None and mac:
+        mac_result = await db.execute(select(Device).where(Device.mac_address == mac))
+        device = mac_result.scalar_one_or_none()
+        if device and not device.ip_address:
+            # Found DHCP device by MAC — assign the discovered IP
+            device.ip_address = ip
+
     is_new = device is None
 
     # Auto-detect manufacturer and model from scan data
@@ -137,7 +148,19 @@ async def _upsert_device(
             project_id=project_id,
         )
         db.add(device)
-    else:
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            # Race condition: another task inserted the same IP — re-select and update
+            result = await db.execute(select(Device).where(Device.ip_address == ip))
+            device = result.scalar_one_or_none()
+            if device is None:
+                raise
+            is_new = False
+            # Fall through to update path below
+
+    if not is_new:
         if mac:
             device.mac_address = mac
         if hostname:
@@ -158,8 +181,8 @@ async def _upsert_device(
             device.project_id = project_id
         device.category = category
         device.status = DeviceStatus.IDENTIFIED
+        await db.flush()
 
-    await db.flush()
     await db.refresh(device)
     return device, is_new
 
@@ -355,6 +378,31 @@ async def register_discovered_device(
     user: User = Depends(get_current_active_user),
 ):
     """Register a device discovered by an agent."""
+    # Check for existing device by IP to prevent duplicates
+    existing = await db.execute(
+        select(Device).where(Device.ip_address == data.ip_address)
+    )
+    device = existing.scalar_one_or_none()
+    if device:
+        # Update existing device with new discovery data
+        if data.mac_address:
+            device.mac_address = data.mac_address
+        if data.hostname:
+            device.hostname = data.hostname
+        if data.oui_vendor:
+            device.oui_vendor = data.oui_vendor
+        if data.open_ports is not None:
+            device.open_ports = data.open_ports
+        if data.os_fingerprint:
+            device.os_fingerprint = data.os_fingerprint
+        if data.category and data.category != "unknown":
+            device.category = data.category
+        await db.flush()
+        await db.refresh(device)
+        await log_action(db, user, "discovery.register_device", "device", device.id,
+                         {"ip_address": data.ip_address, "updated": True}, request)
+        return {"device_id": device.id, "message": "Device updated with new discovery data"}
+
     device = Device(
         ip_address=data.ip_address,
         mac_address=data.mac_address,

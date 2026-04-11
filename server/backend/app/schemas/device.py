@@ -69,6 +69,19 @@ class DeviceCreate(BaseModel):
 class DeviceUpdate(BaseModel):
     ip_address: Optional[str] = Field(None, max_length=45)
     mac_address: Optional[str] = Field(None, max_length=17)
+    hostname: Optional[str] = Field(None, max_length=255)
+    manufacturer: Optional[str] = Field(None, max_length=128)
+    model: Optional[str] = Field(None, max_length=128)
+    firmware_version: Optional[str] = Field(None, max_length=64)
+    serial_number: Optional[str] = Field(None, max_length=128)
+    category: Optional[str] = Field(None, max_length=64)
+    status: Optional[str] = Field(None, max_length=32)
+    addressing_mode: Optional[str] = Field(None, max_length=16)
+    location: Optional[str] = Field(None, max_length=255)
+    notes: Optional[str] = Field(None, max_length=2000)
+    profile_id: Optional[str] = Field(None, max_length=36)
+    open_ports: Optional[List[Any]] = None
+    discovery_data: Optional[Any] = None
 
     @field_validator("ip_address")
     @classmethod
@@ -113,19 +126,6 @@ class DeviceUpdate(BaseModel):
         if normalized not in _ADDRESSING_MODES:
             raise ValueError("addressing_mode must be 'static', 'dhcp', or 'unknown'")
         return normalized
-    hostname: Optional[str] = Field(None, max_length=255)
-    manufacturer: Optional[str] = Field(None, max_length=128)
-    model: Optional[str] = Field(None, max_length=128)
-    firmware_version: Optional[str] = Field(None, max_length=64)
-    serial_number: Optional[str] = Field(None, max_length=128)
-    category: Optional[str] = Field(None, max_length=64)
-    status: Optional[str] = Field(None, max_length=32)
-    addressing_mode: Optional[str] = Field(None, max_length=16)
-    location: Optional[str] = Field(None, max_length=255)
-    notes: Optional[str] = Field(None, max_length=2000)
-    profile_id: Optional[str] = Field(None, max_length=36)
-    open_ports: Optional[List[Any]] = None
-    discovery_data: Optional[Any] = None
 
 
 class DeviceResponse(BaseModel):
