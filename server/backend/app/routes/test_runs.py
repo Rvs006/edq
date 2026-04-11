@@ -173,22 +173,29 @@ async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int
 
 
 async def _device_is_reachable(device: Device | None) -> bool:
-    """Return True only if the device has at least one TCP service port open.
+    """Return True when the device is reachable.
 
-    ICMP alone is NOT sufficient — a router/gateway/unrelated device on the
-    user's LAN may respond to ping at the target IP without actually being
-    the device under test. For a device to be testable, at least one service
-    port (HTTP/HTTPS/SSH/Telnet/RTSP/Modbus/MQTT/etc.) must accept a TCP
-    connection.
+    When the device has known open ports, at least one TCP service must
+    accept a connection. For newly-added devices with no port data,
+    ICMP is accepted as a reasonable fallback so the user is not
+    permanently blocked from starting or resuming test runs.
     """
     if device is None or not device.ip_address:
         return False
+    known_ports = extract_probe_ports(device.open_ports)
     _reachable, probe_method = await probe_device_connectivity(
         device.ip_address,
-        extract_probe_ports(device.open_ports),
+        known_ports,
     )
-    # Require TCP service — ICMP-only responses are rejected.
-    return bool(probe_method) and probe_method.startswith("tcp:")
+    if not probe_method:
+        return False
+    # If the device has scanned open-port data, require TCP connectivity
+    if device.open_ports:
+        return probe_method.startswith("tcp:")
+    # For devices with no port data yet (manually added, never scanned),
+    # accept ICMP so the user can start/resume tests. The test engine will
+    # discover ports during execution.
+    return True
 
 
 def _overall_verdict_from_summary(summary: dict[str, int | bool]) -> str | None:

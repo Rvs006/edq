@@ -125,7 +125,7 @@ async def test_validate_id_token_uses_verified_claims(
     def fake_decode(token: str, key: dict, algorithms: list[str], audience: str, issuer: str):
         assert token == "signed-token"
         assert key["kid"] == "kid-1"
-        assert algorithms == ["RS256"]
+        assert algorithms == ["RS256", "ES256"]
         assert audience == "client-id"
         assert issuer == "https://idp.example"
         return {

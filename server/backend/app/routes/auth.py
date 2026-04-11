@@ -87,7 +87,7 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
     if len(username) < 3:
         raise HTTPException(status_code=422, detail="Username must be at least 3 characters")
 
-    email = data.email.strip()
+    email = data.email.strip().lower()
     normalized_username = username.casefold()
     normalized_email = email.casefold()
 
@@ -125,7 +125,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         select(User).where(
             (func.lower(User.username) == normalized_identity)
             | (func.lower(User.email) == normalized_identity)
-        )
+        ).with_for_update()
     )
     matches = result.scalars().all()
     if len(matches) > 1:
@@ -137,10 +137,8 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Reject password-based login for OIDC-only accounts
-    if user.oidc_provider and not user.totp_secret:
-        # OIDC users should authenticate via the OIDC flow, not password
-        if not verify_password(data.password, user.password_hash):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.oidc_provider:
+        raise HTTPException(status_code=401, detail="This account uses SSO. Please sign in with your identity provider.")
 
     # Check account lockout — return 401 (not 403) to avoid leaking whether the account exists
     if user.locked_until and user.locked_until > _utcnow():
@@ -154,12 +152,12 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         user.failed_login_attempts = 0
         user.locked_until = None
 
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     if not verify_password(data.password, user.password_hash):
         await _record_auth_failure(db, user, identity, request, "auth.login_failed")
         raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account is deactivated")
 
     # Enforce 2FA if enabled on the account
     if user.totp_secret:
@@ -231,7 +229,10 @@ async def refresh(
         raise HTTPException(status_code=401, detail="Refresh token missing")
 
     # Verify JWT signature/expiry first
-    verify_token(refresh_token_input, token_type="refresh")
+    try:
+        verify_token(refresh_token_input, token_type="refresh")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     # Validate against DB — revokes the old token (single-use rotation)
     user_id = await validate_and_rotate_refresh_token(db, refresh_token_input)

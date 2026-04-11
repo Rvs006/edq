@@ -1,6 +1,6 @@
 """Device model — IP devices under test."""
 
-from sqlalchemy import Column, String, DateTime, Text, JSON, ForeignKey, Enum as SAEnum
+from sqlalchemy import Column, String, DateTime, Text, JSON, ForeignKey, Enum as SAEnum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import enum
@@ -40,12 +40,16 @@ class AddressingMode(str, enum.Enum):
 
 class Device(Base):
     __tablename__ = "devices"
+    __table_args__ = (
+        UniqueConstraint("ip_address", "project_id", name="uq_device_ip_project"),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     ip_address = Column(String(45), nullable=True, index=True)
-    mac_address = Column(String(17), nullable=True)
+    mac_address = Column(String(17), nullable=True, unique=True, index=True)
     addressing_mode = Column(
         SAEnum(AddressingMode, values_callable=enum_values),
+        nullable=False,
         default=AddressingMode.STATIC,
     )
     hostname = Column(String(255), nullable=True)
@@ -56,10 +60,12 @@ class Device(Base):
     location = Column(String(255), nullable=True)
     category = Column(
         SAEnum(DeviceCategory, values_callable=enum_values),
+        nullable=False,
         default=DeviceCategory.UNKNOWN,
     )
     status = Column(
         SAEnum(DeviceStatus, values_callable=enum_values),
+        nullable=False,
         default=DeviceStatus.DISCOVERED,
     )
     oui_vendor = Column(String(128), nullable=True)  # IEEE OUI lookup result
@@ -67,9 +73,9 @@ class Device(Base):
     open_ports = Column(JSON, nullable=True)  # [{port, protocol, service, version}]
     discovery_data = Column(JSON, nullable=True)  # Full discovery fingerprint
     notes = Column(Text, nullable=True)
-    profile_id = Column(String(36), ForeignKey("device_profiles.id"), nullable=True, index=True)
-    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
-    discovered_by = Column(String(36), ForeignKey("agents.id"), nullable=True, index=True)
+    profile_id = Column(String(36), ForeignKey("device_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
+    discovered_by = Column(String(36), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=utcnow_naive)
     updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 

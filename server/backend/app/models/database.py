@@ -5,15 +5,19 @@ SQLite remains available as an explicit override for tests and single-user fallb
 """
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
@@ -63,7 +67,10 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 if _is_sqlite:
     sync_url = settings.DATABASE_URL.replace("+aiosqlite", "")
 else:
-    sync_url = settings.DATABASE_URL.replace("+asyncpg", "")
+    if "+asyncpg" in settings.DATABASE_URL:
+        sync_url = settings.DATABASE_URL.replace("+asyncpg", "")
+    else:
+        sync_url = settings.DATABASE_URL
 sync_engine = create_engine(sync_url, echo=settings.DEBUG)
 if _is_sqlite:
     event.listen(sync_engine, "connect", _set_sqlite_pragmas)
@@ -168,8 +175,8 @@ def _reconcile_legacy_schema(connection) -> None:
     for sql in _LEGACY_SCHEMA_PATCHES:
         try:
             connection.execute(text(sql))
-        except Exception:
-            pass
+        except (ProgrammingError, OperationalError) as exc:
+            logger.debug("Legacy patch skipped: %s", exc)
     _create_missing_indexes(connection)
     _validate_schema(connection)
 

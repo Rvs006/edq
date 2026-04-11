@@ -49,10 +49,17 @@ _MAX_CACHE_SIZE = 50
 
 
 class _BoundedDict(dict):
-    """Dict that evicts the oldest entry when it exceeds max_size."""
-    def __init__(self, max_size: int):
+    """Dict that evicts the oldest entry when it exceeds max_size.
+
+    NOTE: The asyncio.Lock here guards __setitem__ at the data-structure level,
+    but callers that need a true read-modify-write atomic operation must acquire
+    ``instance._lock`` externally before performing composite operations.
+    """
+    def __init__(self, max_size: int = 20):
         super().__init__()
         self._max_size = max_size
+        self._lock = asyncio.Lock()
+
     def __setitem__(self, key, value):
         if len(self) >= self._max_size and key not in self:
             oldest = next(iter(self))
@@ -129,6 +136,12 @@ class TestEngine:
             run.run_metadata = existing_meta
             await db.commit()
 
+            # Eagerly load all device attributes then detach so they remain
+            # accessible after this session closes without triggering lazy-load
+            # errors (DetachedInstanceError).
+            await db.refresh(device)
+            db.expunge(device)
+
         probe_ports = extract_probe_ports(device.open_ports)
         cable_handler = WobblyCableHandler(
             device.ip_address,
@@ -144,10 +157,14 @@ class TestEngine:
             device.ip_address, probe_ports=probe_ports
         )
         has_tcp_service = bool(probe_method) and probe_method.startswith("tcp:")
+        # For devices with no known open ports (manually added, never scanned),
+        # accept ICMP as sufficient to start — the test engine will discover
+        # actual ports during execution.
+        can_start = has_tcp_service or (initial_reachable and not device.open_ports)
         cable_task = asyncio.create_task(cable_handler.monitor())
         run_started_broadcasted = False
 
-        if has_tcp_service:
+        if can_start:
             async with async_session() as db:
                 run = await db.get(TestRun, test_run_id)
                 if run:
@@ -404,7 +421,10 @@ class TestEngine:
         except Exception as exc:
             logger.exception("Test engine error for run %s: %s", test_run_id, exc)
             async with async_session() as db:
-                await self._set_run_error(db, await db.get(TestRun, test_run_id), str(exc))
+                try:
+                    await self._set_run_error(db, await db.get(TestRun, test_run_id), str(exc))
+                except Exception as inner_exc:
+                    logger.error("Failed to mark run %s as error: %s", test_run_id, inner_exc)
             return
         finally:
             cable_handler.stop()
@@ -897,7 +917,15 @@ class TestEngine:
         then runs Hydra with the appropriate module.  Tries HTTPS if HTTP is
         not available.
         """
+        import ipaddress as _ipaddress
         import httpx
+
+        # Validate IP address to prevent argument injection via device_ip
+        try:
+            _ipaddress.ip_address(device_ip)
+        except ValueError:
+            logger.error("Invalid device IP address for brute force test: %r", device_ip)
+            return {"lockout_detected": False, "auth_type": "http-get", "error": "Invalid device IP address"}
 
         auth_type = "http-get"
         form_path = "/"
@@ -1021,6 +1049,7 @@ class TestEngine:
         rtsp_open = False
         auth_required = False
 
+        writer = None
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(device_ip, 554), timeout=10
@@ -1044,12 +1073,17 @@ class TestEngine:
             elif '200' in response_str:
                 auth_required = False
 
-            writer.close()
-            await writer.wait_closed()
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             rtsp_open = False
         except Exception as e:
-            logger.debug("RTSP auth check failed for %s: %s", device_ip, e)
+            logger.warning("RTSP check error: %s", e)
+        finally:
+            if writer:
+                try:
+                    writer.close()
+                    await writer.wait_closed()
+                except Exception:
+                    pass
 
         return {"rtsp_open": rtsp_open, "auth_required": auth_required}
 
@@ -1121,12 +1155,16 @@ class TestEngine:
             run.progress_pct = 100.0
             await db.commit()
 
+            # Capture values while the ORM object is still bound to the session
+            overall_verdict = run.overall_verdict
+            run_status = run.status
+
         await manager.broadcast(f"test-run:{run_id}", {
             "type": "run_complete",
             "data": {
                 "run_id": run_id,
-                "status": normalize_test_run_status(run.status),
-                "overall_verdict": run.overall_verdict,
+                "status": normalize_test_run_status(run_status),
+                "overall_verdict": overall_verdict,
                 "passed": passed,
                 "failed": failed,
                 "advisory": advisory,
@@ -1138,7 +1176,7 @@ class TestEngine:
         logger.info(
             "Test run %s finalized: %s (pass=%d fail=%d advisory=%d na=%d pending=%d)",
             run_id,
-            run.overall_verdict or "awaiting_manual",
+            overall_verdict or "awaiting_manual",
             passed,
             failed,
             advisory,
@@ -1228,6 +1266,8 @@ async def recover_orphaned_runs() -> None:
                 TestRunStatus.SELECTING_INTERFACE,
                 TestRunStatus.SYNCING,
                 TestRunStatus.RUNNING,
+                TestRunStatus.PAUSED_CABLE,
+                TestRunStatus.PAUSED_MANUAL,
             ]))
         )
         orphans = result.scalars().all()

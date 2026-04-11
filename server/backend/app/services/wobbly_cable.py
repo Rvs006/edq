@@ -33,11 +33,20 @@ class WobblyCableHandler:
         self.consecutive_failures = 0
         self._resume_lock = asyncio.Lock()
 
-    async def check_connectivity(self) -> bool:
-        """Return True when the device is reachable on a usable TCP service."""
+    async def check_connectivity(self, require_tcp: bool = True) -> bool:
+        """Return True when the device is reachable.
+
+        When *require_tcp* is False, ICMP-only responses are accepted.
+        This is used during reconnection detection where a ping is
+        sufficient to prove the cable is connected.
+        """
         try:
             _reachable, probe_method = await probe_device_connectivity(self.ip, self.probe_ports)
-            return bool(probe_method) and probe_method.startswith("tcp:")
+            if not probe_method:
+                return False
+            if require_tcp:
+                return probe_method.startswith("tcp:")
+            return True
         except Exception as exc:
             logger.warning("Connectivity probe error for %s: %s", self.ip, exc)
             return False
@@ -50,7 +59,12 @@ class WobblyCableHandler:
         probe_interval = self.PING_INTERVAL
         try:
             while self.is_running:
-                reachable = await self.check_connectivity()
+                # During cable-paused state, accept ICMP for reconnection
+                # detection — a ping proves the cable is plugged in even
+                # before TCP services come up.
+                reachable = await self.check_connectivity(
+                    require_tcp=not self.is_paused
+                )
 
                 # Broadcast probe status for UI cable indicator
                 if not self.is_paused:
@@ -75,7 +89,7 @@ class WobblyCableHandler:
                             self.run_id,
                         )
                         await asyncio.sleep(self.STABILITY_WAIT)
-                        if await self.check_connectivity():
+                        if await self.check_connectivity(require_tcp=False):
                             await self._resume_testing()
                     self.consecutive_failures = 0
                     probe_interval = self.PING_INTERVAL
@@ -166,7 +180,7 @@ class WobblyCableHandler:
             await asyncio.sleep(self.RETRY_INTERVAL)
             elapsed += self.RETRY_INTERVAL
 
-            reachable = await self.check_connectivity()
+            reachable = await self.check_connectivity(require_tcp=False)
             if reachable:
                 logger.info(
                     "Device %s back online - waiting %ds for stability",
@@ -175,7 +189,7 @@ class WobblyCableHandler:
                 )
                 await asyncio.sleep(self.STABILITY_WAIT)
 
-                if await self.check_connectivity():
+                if await self.check_connectivity(require_tcp=False):
                     await self._resume_testing()
                     return
 

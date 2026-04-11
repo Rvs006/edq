@@ -194,9 +194,14 @@ async def generate_report(
 
 
 @router.get("/download/{filename}")
-async def download_report(filename: str, _: User = Depends(get_current_active_user)):
+async def download_report(
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
     """Download a generated report file."""
     safe_filename = os.path.basename(filename)
+    safe_filename = safe_filename.replace('"', '').replace(';', '').replace('\n', '').replace('\r', '')
     report_dir = Path(settings.REPORT_DIR).resolve()
     file_path_resolved = (report_dir / safe_filename).resolve()
     # Prevent path traversal — works correctly on case-insensitive Windows paths
@@ -204,6 +209,20 @@ async def download_report(filename: str, _: User = Depends(get_current_active_us
         raise HTTPException(status_code=400, detail="Invalid filename")
     if not file_path_resolved.exists():
         raise HTTPException(status_code=404, detail="Report file not found")
+
+    # IDOR check: non-admin users may only download reports linked to their own test runs.
+    # Report filenames embed the test_run_id as the first UUID-shaped segment.
+    if user.role != UserRole.ADMIN:
+        import re as _re
+        _UUID_RE = _re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", _re.IGNORECASE)
+        run_id_match = _UUID_RE.search(safe_filename)
+        if run_id_match:
+            run_id = run_id_match.group(0)
+            tr_result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+            tr = tr_result.scalar_one_or_none()
+            if tr and tr.engineer_id != user.id:
+                raise HTTPException(status_code=403, detail="Access denied")
+
     file_path_real = str(file_path_resolved)
 
     media_types = {
@@ -228,5 +247,5 @@ async def list_report_configs(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(ReportConfig).where(ReportConfig.is_active == True))
+    result = await db.execute(select(ReportConfig).where(ReportConfig.is_active.is_(True)))
     return result.scalars().all()

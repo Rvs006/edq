@@ -10,7 +10,8 @@ from datetime import datetime
 from app.models.database import get_db
 from app.models.device_profile import DeviceProfile
 from app.models.test_run import TestRun
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.models.protocol_whitelist import ProtocolWhitelist
 from app.security.auth import get_current_active_user, require_role
 from app.services.device_fingerprinter import fingerprinter
 from app.utils.sanitize import sanitize_dict
@@ -136,6 +137,10 @@ async def update_profile(
         profile.description = updates["description"]
     if "default_whitelist_id" in updates:
         profile.default_whitelist_id = updates["default_whitelist_id"]
+    if "default_whitelist_id" in updates and updates["default_whitelist_id"]:
+        wl = await db.execute(select(ProtocolWhitelist).where(ProtocolWhitelist.id == updates["default_whitelist_id"]))
+        if not wl.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Referenced whitelist not found")
     if "additional_tests" in updates:
         profile.additional_tests = updates["additional_tests"]
     if "safe_mode" in updates:
@@ -162,7 +167,9 @@ async def delete_profile(
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     profile.is_active = False
+    await db.flush()
     await log_action(db, user, "delete", "device_profile", profile_id, {"name": profile.name}, request)
+    await db.flush()
 
 
 class AutoLearnRequest(BaseModel):
@@ -187,6 +194,9 @@ async def auto_learn_profile(
     run = run_result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found")
+
+    if user.role != UserRole.ADMIN and run.engineer_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if not run.run_metadata or not run.run_metadata.get("fingerprint"):
         raise HTTPException(status_code=400, detail="No fingerprint data for this run")

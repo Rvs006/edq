@@ -1,8 +1,10 @@
 """Network Scan model — subnet-wide device discovery and batch testing."""
 
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Enum as SAEnum
+from sqlalchemy.orm import validates
 from datetime import datetime, timezone
 import enum
+import ipaddress
 import uuid
 
 from app.models.database import Base
@@ -35,3 +37,11 @@ class NetworkScan(Base):
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, nullable=False, default=utcnow_naive)
     completed_at = Column(DateTime, nullable=True)
+
+    @validates("cidr")
+    def validate_cidr(self, key, value):
+        try:
+            ipaddress.ip_network(value, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"Invalid CIDR notation '{value}': {exc}") from exc
+        return value

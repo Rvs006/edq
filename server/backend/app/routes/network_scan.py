@@ -1,6 +1,7 @@
 """Network scan routes — subnet discovery and batch testing."""
 
 import asyncio
+import ipaddress
 import logging
 import re
 from datetime import datetime, timezone
@@ -136,6 +137,11 @@ async def discover_devices(
     if not CIDR_RE.match(data.cidr):
         raise HTTPException(status_code=400, detail="Invalid CIDR format. Expected e.g. 192.168.1.0/24")
 
+    try:
+        ipaddress.ip_network(data.cidr, strict=False)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid CIDR notation")
+
     parts = data.cidr.split("/")
     prefix = int(parts[1])
     if prefix < 16 or prefix > 30:
@@ -145,7 +151,6 @@ async def discover_devices(
     authorized = await get_active_networks(db)
     if not is_target_authorized(data.cidr, authorized):
         if user.role == UserRole.ADMIN:
-            import ipaddress
             net = ipaddress.ip_network(data.cidr, strict=False)
             new_auth = AuthorizedNetwork(
                 cidr=str(net),
@@ -269,7 +274,6 @@ async def start_batch_scan(
     unauthorized_ips = [ip for ip in data.device_ips if not is_ip_authorized(ip, authorized)]
     if unauthorized_ips:
         if user.role == UserRole.ADMIN:
-            import ipaddress
             # Auto-authorize each unique /24 subnet containing unauthorized IPs
             auto_subnets: set[str] = set()
             for ip in unauthorized_ips:
@@ -412,6 +416,7 @@ async def start_batch_scan(
     for rid in run_ids:
         task = asyncio.create_task(test_engine.run(rid))
         _running_scan_tasks[rid] = task
+        task.add_done_callback(lambda t, rid=rid: _running_scan_tasks.pop(rid, None))
 
     asyncio.create_task(_monitor_batch(scan_id, run_ids))
 
@@ -475,7 +480,7 @@ async def get_network_scan(
 async def get_scan_results(
     scan_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
     result = await db.execute(select(NetworkScan).where(NetworkScan.id == scan_id))
     scan = result.scalar_one_or_none()
@@ -526,7 +531,7 @@ async def get_scan_results(
                 "is_essential": tr.is_essential,
                 "tier": tr.tier.value if hasattr(tr.tier, "value") else str(tr.tier),
                 "comment": tr.comment,
-                "raw_output": tr.raw_output,
+                "raw_output": tr.raw_output if user.role == UserRole.ADMIN else None,
                 "started_at": tr.started_at.isoformat() if tr.started_at else None,
                 "completed_at": tr.completed_at.isoformat() if tr.completed_at else None,
             })

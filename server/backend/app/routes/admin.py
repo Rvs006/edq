@@ -4,6 +4,7 @@ import logging
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -50,8 +51,6 @@ async def system_info(_: User = Depends(require_role(["admin"]))):
         "app_name": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "app_version": settings.APP_VERSION,
-        "debug": settings.DEBUG,
-        "ai_enabled": bool(settings.AI_API_KEY),
         "status": status["status"],
         "checked_at": status["checked_at"],
         "api_status": "Connected" if status["backend"]["status"] == "ok" else "Unavailable",
@@ -87,6 +86,8 @@ async def rotate_tools_key(
 
     # Update in-memory config so the backend uses the new key going forward
     settings.TOOLS_API_KEY = new_key
+    # WARNING: this rotation is in-memory only — the .env file is not updated automatically.
+    logger.warning("TOOLS_API_KEY rotated in-memory only. Update your .env file with the new key to persist across restarts.")
 
     await log_security_event(
         db, "admin.tools_key_rotated", user_id=current_user.id,
@@ -95,8 +96,11 @@ async def rotate_tools_key(
     )
     logger.info("Admin %s rotated TOOLS_API_KEY", current_user.id)
 
-    return {
-        "message": "Tools API key rotated successfully. Update your .env file with the new key.",
-        "new_key": new_key,
-        "warning": "This key is shown only once. Store it in your .env file.",
-    }
+    return JSONResponse(
+        content={
+            "message": "Tools API key rotated successfully",
+            "key_hint": f"...{new_key[-4:]}",
+            "warning": "Store the full key from the server logs. It cannot be retrieved again.",
+        },
+        headers={"Cache-Control": "no-store"},
+    )

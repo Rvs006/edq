@@ -1,6 +1,6 @@
 """User model — Test Engineers, Reviewers, Admins."""
 
-from sqlalchemy import Column, String, DateTime, Boolean, Integer, Enum as SAEnum
+from sqlalchemy import Column, String, DateTime, Boolean, Integer, Enum as SAEnum, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import enum
@@ -19,11 +19,15 @@ class UserRole(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("oidc_provider", "oidc_subject", name="uq_user_oidc_identity"),
+        CheckConstraint("failed_login_attempts >= 0", name="ck_user_failed_attempts_nonneg"),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     email = Column(String(320), unique=True, nullable=False, index=True)
     username = Column(String(64), unique=True, nullable=False, index=True)
-    password_hash = Column(String(256), nullable=False)
+    password_hash = Column(String(512), nullable=False)
     full_name = Column(String(128), nullable=True)
     role = Column(
         SAEnum(UserRole, values_callable=enum_values),
@@ -40,8 +44,8 @@ class User(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 
     # TOTP Two-Factor Authentication
-    totp_secret = Column(String(32), nullable=True)
-    totp_provisional_secret = Column(String(32), nullable=True)
+    totp_secret = Column(String(256), nullable=True)
+    totp_provisional_secret = Column(String(256), nullable=True)
 
     # OIDC / SSO (set when user authenticates via external identity provider)
     oidc_provider = Column(String(64), nullable=True)   # e.g. "google", "microsoft", "keycloak"

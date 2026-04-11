@@ -158,12 +158,25 @@ class Settings(BaseSettings):
                 self.DB_HOST = "postgres"
             if self.DB_PORT == _LOCAL_DB_PORT:
                 self.DB_PORT = 5432
+            if not self.COOKIE_SECURE:
+                import warnings
+                warnings.warn(
+                    "[EDQ SECURITY] COOKIE_SECURE=false in docker environment — session cookies "
+                    "will be sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",
+                    stacklevel=2,
+                )
         elif self.ENVIRONMENT == "cloud":
             if self.DB_HOST == _LOCAL_DB_HOST:
                 self.DB_HOST = "postgres"
             if self.DB_PORT == _LOCAL_DB_PORT:
                 self.DB_PORT = 5432
             if not self.COOKIE_SECURE:
+                import warnings
+                warnings.warn(
+                    "[EDQ SECURITY] COOKIE_SECURE=false in production environment — session cookies "
+                    "will be sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",
+                    stacklevel=2,
+                )
                 self.COOKIE_SECURE = True
             if self.COOKIE_SAMESITE == "strict":
                 self.COOKIE_SAMESITE = "lax"
@@ -229,10 +242,19 @@ if not settings.TOOLS_API_KEY or any(
     )
     raise RuntimeError(_msg)
 
+if len(settings.TOOLS_API_KEY) < 32:
+    _msg = (
+        "[EDQ SECURITY] TOOLS_API_KEY must be at least 32 characters. "
+        "Generate a strong key with: openssl rand -hex 32"
+    )
+    raise RuntimeError(_msg)
+
 _localhost_origins = [o for o in settings.CORS_ORIGINS if "localhost" in o or "127.0.0.1" in o]
 _localhost_only = bool(settings.CORS_ORIGINS) and len(_localhost_origins) == len(settings.CORS_ORIGINS)
-if _localhost_origins and not settings.DEBUG and not _localhost_only:
-    # Auto-strip localhost origins in production to prevent accidental CORS bypass
+if _localhost_origins and not settings.DEBUG:
+    # Auto-strip localhost origins in production to prevent accidental CORS bypass.
+    # Previously guarded by `not _localhost_only` which incorrectly skipped stripping
+    # when ALL origins were localhost (the most dangerous production misconfiguration).
     settings.CORS_ORIGINS = [o for o in settings.CORS_ORIGINS if o not in _localhost_origins]
     _warnings.warn(
         "[EDQ SECURITY] Stripped localhost origins from CORS_ORIGINS in production: "
@@ -255,15 +277,16 @@ if settings.DATABASE_URL.startswith("sqlite") and not settings.DEBUG:
     )
 
 # Log effective auth/env config (non-secret) at startup for debugging drift
-print(
-    f"[EDQ CONFIG] ENVIRONMENT={settings.ENVIRONMENT} "
-    f"DB_HOST={settings.DB_HOST}:{settings.DB_PORT} "
-    f"COOKIE_SECURE={settings.COOKIE_SECURE} "
-    f"COOKIE_SAMESITE={settings.COOKIE_SAMESITE} "
-    f"DEBUG={settings.DEBUG} "
-    f"CORS_ORIGINS={settings.CORS_ORIGINS}",
-    file=_sys.stderr,
-)
+if settings.DEBUG:
+    print(
+        f"[EDQ CONFIG] ENVIRONMENT={settings.ENVIRONMENT} "
+        f"DB_HOST={settings.DB_HOST}:{settings.DB_PORT} "
+        f"COOKIE_SECURE={settings.COOKIE_SECURE} "
+        f"COOKIE_SAMESITE={settings.COOKIE_SAMESITE} "
+        f"DEBUG={settings.DEBUG} "
+        f"CORS_ORIGINS={settings.CORS_ORIGINS}",
+        file=_sys.stderr,
+    )
 
 _sentry_configured = False
 

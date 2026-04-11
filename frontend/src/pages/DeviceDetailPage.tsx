@@ -474,7 +474,7 @@ export default function DeviceDetailPage() {
                               <SeverityBadge severity={cve.severity} />
                               <div className="flex-1 min-w-0">
                                 <a
-                                  href={cve.url}
+                                  href={/^https?:\/\//i.test(cve.url) ? cve.url : '#'}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-xs font-mono text-brand-600 hover:underline flex items-center gap-1"
@@ -524,11 +524,11 @@ export default function DeviceDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
-                  {runs.map((run: TestRun) => (
+                  {runs.map((run: TestRun, runIdx: number) => (
                     <tr key={run.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                       <td className="py-2.5 px-4">
                         <Link to={`/test-runs/${run.id}`} className="font-medium text-zinc-900 dark:text-zinc-100 hover:text-brand-500">
-                          {device.hostname || device.manufacturer || 'Device'} – {toLocalDateOnly(run.created_at, { day: 'numeric', month: 'short' })} – Test #{(runs as TestRun[]).indexOf(run) + 1}
+                          {device.hostname || device.manufacturer || 'Device'} – {toLocalDateOnly(run.created_at, { day: 'numeric', month: 'short' })} – Test #{runIdx + 1}
                         </Link>
                       </td>
                       <td className="py-2.5 px-4"><StatusBadge status={run.status} /></td>
@@ -584,13 +584,13 @@ export default function DeviceDetailPage() {
               <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">Best Pass Rate</p>
                 <p className="text-lg font-bold text-green-600 dark:text-green-400">
-                  {Math.max(...trendData.runs.map(r => r.pass_rate))}%
+                  {trendData.runs.length > 0 ? Math.max(...trendData.runs.map(r => r.pass_rate)) : 0}%
                 </p>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">Worst Pass Rate</p>
                 <p className="text-lg font-bold text-red-600 dark:text-red-400">
-                  {Math.min(...trendData.runs.map(r => r.pass_rate))}%
+                  {trendData.runs.length > 0 ? Math.min(...trendData.runs.map(r => r.pass_rate)) : 0}%
                 </p>
               </div>
               <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3">

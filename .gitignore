@@ -192,3 +192,5 @@ electron/dist/
 electron/build-output/
 electron/out/
 electron/package-lock.json
+# Added by code-review-graph
+.code-review-graph/

@@ -46,7 +46,7 @@ export default function LoginPage() {
   const oidcHandledRef = useRef(false)
   const redirectTarget = (() => {
     const next = searchParams.get('next')
-    if (!next || !next.startsWith('/') || next.startsWith('//')) {
+    if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('\\') || next.includes(':') || next.includes('%2f') || next.includes('%2F') || next.includes('%5c') || next.includes('%5C')) {
       return '/'
     }
     return next
@@ -133,7 +133,7 @@ export default function LoginPage() {
       if (res.data.user) {
         clearOidcSession()
         toast.success('Welcome!')
-        window.location.href = redirectTarget
+        navigate(redirectTarget, { replace: true })
       }
     } catch (err: unknown) {
       clearOidcSession()
@@ -167,7 +167,13 @@ export default function LoginPage() {
         code_challenge: codeChallenge,
         code_challenge_method: 'S256',
       })
-      window.location.href = `${oidcConfig.authorization_endpoint}?${params}`
+      const authUrl = oidcConfig.authorization_endpoint
+      if (!authUrl || (!authUrl.startsWith('https://') && !authUrl.startsWith('http://localhost'))) {
+        clearOidcSession()
+        toast.error('Invalid SSO configuration: authorization endpoint must use HTTPS')
+        return
+      }
+      window.location.href = `${authUrl}?${params}`
     } catch {
       clearOidcSession()
       toast.error('Unable to start SSO login')

@@ -35,7 +35,9 @@ def compute_next_run(frequency: ScheduleFrequency, from_time: datetime) -> datet
     elif frequency == ScheduleFrequency.WEEKLY:
         return from_time + timedelta(weeks=1)
     elif frequency == ScheduleFrequency.MONTHLY:
-        return from_time + timedelta(days=30)
+        import calendar
+        days_in_month = calendar.monthrange(from_time.year, from_time.month)[1]
+        return from_time + timedelta(days=days_in_month)
     return from_time + timedelta(days=1)
 
 
@@ -166,6 +168,13 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
             )
             device = device_result.scalar_one_or_none()
 
+            if device is None:
+                logger.warning(
+                    "Scheduled scan %s: device %s not found, skipping",
+                    schedule_id, schedule.device_id,
+                )
+                return
+
             # Create a new test run with total_tests
             new_run = TestRun(
                 device_id=schedule.device_id,
@@ -198,12 +207,8 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
             # Update schedule metadata
             now = utcnow_naive()
             schedule.last_run_at = now
-            schedule.run_count += 1
+            # Note: run_count is incremented AFTER successful launch below
             schedule.next_run_at = compute_next_run(schedule.frequency, now)
-
-            # Deactivate if max_runs reached
-            if schedule.max_runs and schedule.run_count >= schedule.max_runs:
-                schedule.is_active = False
 
             if prev_results:
                 schedule.diff_summary = {
@@ -225,6 +230,16 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 task = launch_test_run(new_run.id)
                 if task is None:
                     logger.warning("Scheduled run %s could not be launched (likely duplicate)", new_run.id)
+                else:
+                    # Only count the run after a successful launch
+                    async with async_session() as count_db:
+                        sched_row = await count_db.get(type(schedule), schedule.id)
+                        if sched_row:
+                            sched_row.run_count += 1
+                            # Deactivate if max_runs reached
+                            if schedule.max_runs and sched_row.run_count >= schedule.max_runs:
+                                sched_row.is_active = False
+                            await count_db.commit()
             except Exception:
                 logger.exception("Failed to launch scheduled run %s", new_run.id)
                 async with async_session() as retry_db:
@@ -235,7 +250,8 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
 
         except Exception:
             logger.exception("Failed to execute scheduled scan %s", schedule_id)
-            await db.rollback()
+            # The async with context manager rolls back automatically on exception;
+            # do NOT call db.rollback() here again — it is redundant and can mask errors.
 
 
 async def _check_due_schedules() -> None:

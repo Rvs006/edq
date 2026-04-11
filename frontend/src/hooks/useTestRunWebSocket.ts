@@ -41,6 +41,14 @@ export function useTestRunWebSocket(runId: string | undefined) {
   const connect = useCallback(() => {
     if (!runId || !shouldReconnectRef.current) return
 
+    // Close any existing socket to prevent duplicates
+    if (wsRef.current) {
+      const old = wsRef.current
+      wsRef.current = null
+      old.onclose = null  // prevent reconnect from old socket
+      old.close()
+    }
+
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
     const url = `${proto}//${host}/api/ws/test-run/${runId}`

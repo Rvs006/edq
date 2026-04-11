@@ -74,6 +74,8 @@ async def _get_oidc_discovery(provider: str) -> dict:
     disc_url = _DISCOVERY_URLS.get(provider, settings.OIDC_DISCOVERY_URL)
     if not disc_url:
         raise HTTPException(status_code=500, detail="OIDC discovery URL not configured")
+    if not disc_url.startswith("https://") and not settings.DEBUG:
+        raise HTTPException(status_code=400, detail="OIDC discovery endpoint must use HTTPS")
     return await _http_get_json(disc_url)
 
 
@@ -115,7 +117,7 @@ async def _validate_id_token(id_token: str, discovery: dict, expected_nonce: str
     unverified_header = jose_jwt.get_unverified_header(id_token)
     alg = unverified_header.get("alg")
     kid = unverified_header.get("kid")
-    if not alg or alg.lower() == "none":
+    if not alg or alg not in ("RS256", "ES256"):
         raise HTTPException(status_code=401, detail="OIDC token uses an unsupported signing algorithm")
 
     jwks = await _http_get_json(jwks_uri)
@@ -133,7 +135,7 @@ async def _validate_id_token(id_token: str, discovery: dict, expected_nonce: str
         claims = jose_jwt.decode(
             id_token,
             key,
-            algorithms=[alg],
+            algorithms=["RS256", "ES256"],
             audience=settings.OIDC_CLIENT_ID,
             issuer=issuer,
         )
@@ -155,9 +157,12 @@ async def oidc_config():
 
     try:
         discovery = await _get_oidc_discovery(settings.OIDC_PROVIDER)
-    except Exception:
-        logger.exception("Failed to load OIDC discovery metadata")
-        return OIDCConfigResponse(enabled=False)
+    except (HTTPException, ValueError) as exc:
+        logger.warning("OIDC config error: %s", exc)
+        raise
+    except Exception as exc:
+        logger.error("Unexpected OIDC error: %s", exc)
+        raise HTTPException(status_code=500, detail="OIDC configuration error")
 
     return OIDCConfigResponse(
         enabled=True,
@@ -203,20 +208,31 @@ async def oidc_callback(
         raise HTTPException(status_code=401, detail="OIDC response missing email or subject")
 
     if settings.OIDC_ALLOWED_DOMAINS:
+        if not email or "@" not in email or email.count("@") != 1:
+            raise HTTPException(status_code=400, detail="Invalid email format from identity provider")
         allowed = [domain.strip().lower() for domain in settings.OIDC_ALLOWED_DOMAINS.split(",") if domain.strip()]
         domain = email.split("@")[1].lower()
         if domain not in allowed:
             raise HTTPException(status_code=403, detail=f"Email domain '{domain}' is not allowed")
+    else:
+        if not email or "@" not in email or email.count("@") != 1:
+            raise HTTPException(status_code=400, detail="Invalid email format from identity provider")
 
-    result = await db.execute(
-        select(User).where(
-            or_(
-                (User.oidc_subject == sub) & (User.oidc_provider == provider),
-                User.email == email,
-            )
+    query = select(User).where(
+        or_(
+            (User.oidc_subject == sub) & (User.oidc_provider == provider),
+            User.email == email,
         )
     )
-    user = result.scalar_one_or_none()
+    results = (await db.execute(query)).scalars().all()
+    if len(results) > 1:
+        logger.warning("Multiple users found for OIDC email: %s", email)
+        raise HTTPException(status_code=409, detail="Multiple accounts found for this email")
+    user = results[0] if results else None
+
+    email_verified = claims.get("email_verified", False)
+    if user and not email_verified:
+        raise HTTPException(status_code=403, detail="Email not verified by identity provider")
 
     if user:
         if not user.oidc_subject:
@@ -227,12 +243,14 @@ async def oidc_callback(
             user.full_name = name
         user.last_login = utcnow_naive()
     else:
-        username = email.split("@")[0][:64]
-        existing_username = await db.execute(select(User).where(User.username == username))
+        import uuid
+        local_part = email.split("@")[0][:64]
+        existing_username = await db.execute(select(User).where(User.username == local_part))
         if existing_username.scalar_one_or_none():
-            import uuid
-
-            username = f"{username}_{uuid.uuid4().hex[:4]}"
+            suffix = uuid.uuid4().hex[:8]
+            username = f"{local_part}_{suffix}"
+        else:
+            username = local_part
 
         import secrets as _secrets
         from app.security.auth import hash_password

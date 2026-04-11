@@ -3,6 +3,7 @@ FROM ubuntu:24.04 AS tools-builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+# Pin to v3.2.3 release tag. For maximum security, pin to the commit SHA.
 RUN git clone --depth 1 --branch v3.2.3 https://github.com/drwetter/testssl.sh.git /opt/testssl && \
     chmod +x /opt/testssl/testssl.sh
 
@@ -50,6 +51,8 @@ RUN if [ "$INSTALL_LIBREOFFICE" = "true" ]; then \
     fi
 
 # Install nikto from source (not in Debian repos)
+# NOTE: Verify the SHA256 hash of the downloaded archive matches the official release
+# before deploying to production (https://github.com/sullo/nikto/releases/tag/2.6.0).
 RUN cd /opt && wget -q https://github.com/sullo/nikto/archive/refs/tags/2.6.0.tar.gz \
     && tar xzf 2.6.0.tar.gz && rm 2.6.0.tar.gz \
     && ln -s /opt/nikto-2.6.0/program/nikto.pl /usr/local/bin/nikto \
@@ -76,9 +79,11 @@ COPY tools/wordlists/ /usr/share/wordlists/
 RUN mkdir -p data uploads reports /app/.cache/dconf /app/tools && \
     chmod +x /app/entrypoint.sh
 
-# Run as root — nmap SYN scan and OS detection require raw socket access.
-# Security: the tools API is only accessible on localhost (same container).
-USER root
+# Run as non-root user. nmap has setcap for raw socket access (line 44).
+# The tools API is only accessible on localhost (same container).
+RUN groupadd -r edq && useradd -r -g edq -s /sbin/nologin edq \
+    && chown -R edq:edq /app data uploads reports
+USER edq
 
 EXPOSE 8000 8001
 

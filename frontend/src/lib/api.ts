@@ -60,7 +60,7 @@ async function refreshSession() {
 
 api.interceptors.request.use((config) => {
   if (config.method && ['post', 'put', 'patch', 'delete'].includes(config.method)) {
-    const isExempt = CSRF_EXEMPT.some((path) => config.url?.endsWith(path))
+    const isExempt = CSRF_EXEMPT.some((p) => config.url === p || config.url?.startsWith(p + '?') || config.url?.startsWith(p + '/'))
     const csrf = getCsrfToken()
     if (csrf) {
       config.headers['X-CSRF-Token'] = csrf
@@ -79,14 +79,14 @@ api.interceptors.response.use(
     const requestUrl = String(originalRequest.url || '')
 
     // Suppress expected 401s from initial auth checks (pre-login)
-    if (status === 401 && (requestUrl.endsWith('/auth/me') || requestUrl.endsWith('/auth/refresh'))) {
+    if (status === 401 && (requestUrl === '/auth/me' || requestUrl.startsWith('/auth/me?') || requestUrl === '/auth/refresh' || requestUrl.startsWith('/auth/refresh?'))) {
       return Promise.reject(error)
     }
 
     if (
       status === 401
       && !originalRequest._retry
-      && !AUTH_RETRY_EXEMPT.some((path) => requestUrl.endsWith(path))
+      && !AUTH_RETRY_EXEMPT.some((p) => requestUrl === p || requestUrl.startsWith(p + '?') || requestUrl.startsWith(p + '/'))
     ) {
       originalRequest._retry = true
       try {
@@ -255,7 +255,7 @@ export const whitelistsApi = {
 }
 
 export const discoveryApi = {
-  scan: (data: { subnet?: string; ip_address?: string; interface?: string; project_id?: string }) => api.post<DiscoveryScanResponse>('/discovery/scan', data),
+  scan: (data: { subnet?: string; ip_address?: string; interface?: string; project_id?: string }) => api.post<DiscoveryScanResponse>('/discovery/scan', data, { timeout: 330000 }),
   registerDevice: (data: { ip_address: string; mac_address?: string; hostname?: string }) => api.post('/discovery/register-device', data),
 }
 

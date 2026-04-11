@@ -25,19 +25,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchUser = useCallback(async () => {
+  const fetchUser = useCallback(async (signal?: AbortSignal) => {
     try {
       const { data } = await authApi.me()
+      if (signal?.aborted) return
       setUser(data)
     } catch {
+      if (signal?.aborted) return
       setUser(null)
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    fetchUser()
+    const controller = new AbortController()
+    fetchUser(controller.signal)
+    return () => controller.abort()
   }, [fetchUser])
 
   const login = async (username: string, password: string, totpCode?: string) => {
@@ -56,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ignore
     }
     setUser(null)
+    setLoading(false)
   }
 
   const refreshUser = async () => {

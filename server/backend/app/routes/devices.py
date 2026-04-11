@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFil
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, case
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, Field
 
 from app.models.database import get_db
@@ -126,7 +127,7 @@ def _build_discovery_scan_ranges(authorized_cidrs: list[str], detection: dict | 
 async def list_devices(
     category: Optional[str] = None,
     status: Optional[str] = None,
-    search: Optional[str] = None,
+    search: Optional[str] = Query(None, max_length=200),
     project_id: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -390,7 +391,11 @@ async def create_device(
 
     device = Device(**payload)
     db.add(device)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="A device with this IP or MAC address already exists")
     await db.refresh(device)
     await log_action(db, user, "create", "device", device.id, {"ip": device.ip_address, "mac": device.mac_address, "addressing_mode": data.addressing_mode}, request)
     return device
@@ -566,7 +571,11 @@ async def import_devices_csv(
         imported += 1
 
     if imported:
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="A device with this IP or MAC address already exists")
 
     await log_action(
         db, user, "bulk_import", "device", None,
@@ -1019,8 +1028,9 @@ async def delete_device(
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    await log_action(db, user, "delete", "device", device_id, {"ip": device.ip_address}, request)
     await db.delete(device)
+    await db.flush()
+    await log_action(db, user, "delete", "device", device_id, {"ip": device.ip_address}, request)
 
 
 @router.post("/{device_id}/discover-ip", response_model=DeviceResponse)

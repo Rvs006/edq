@@ -8,8 +8,8 @@ from app.services.tools_client import tools_client
 
 logger = logging.getLogger("edq.connectivity_probe")
 
-DEFAULT_CONNECTIVITY_PORTS = (80, 443, 22, 23, 554, 8080, 8443, 1883, 8883, 502)
-MAX_PROBE_PORTS = 10
+DEFAULT_CONNECTIVITY_PORTS = (80, 443, 22, 23, 554, 8080, 8443, 1883, 8883, 502, 47808)
+MAX_PROBE_PORTS = 12
 
 
 def extract_probe_ports(open_ports: Any) -> list[int]:
