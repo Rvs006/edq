@@ -164,6 +164,8 @@ pytest-cache-files-*
 .venv-wsl/
 server/backend/.venv/
 server/backend/.venv-wsl/
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Database
 *.db

@@ -17,8 +17,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       tailwindcss(),
       react(),
-      compression({ algorithm: 'gzip' }),
-      compression({ algorithm: 'brotliCompress' }),
+      compression({ algorithms: ['gzip', 'brotliCompress'] }),
     ],
     resolve: {
       alias: {
