@@ -22,6 +22,7 @@ import SessionControls from '@/components/testing/SessionControls'
 import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDialog'
 import type { TestResult } from '@/lib/types'
 import { isActiveTestRunStatus, toLocalDateString } from '@/lib/testContracts'
+import { summarizeRunProgress } from '@/lib/testUi'
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -195,18 +196,10 @@ export default function TestRunDetailPage() {
   const progressPct =
     results.length > 0 ? Math.round((completedCount / results.length) * 100) : 0
 
-  const etaText = useMemo(() => {
-    const durations = (results as TestResult[])
-      .filter(r => r.duration_seconds && r.duration_seconds > 0 && r.verdict && r.verdict !== 'pending')
-      .map(r => r.duration_seconds!)
-    if (durations.length === 0) return null
-    const avg = durations.reduce((a, b) => a + b, 0) / durations.length
-    const remaining = results.length - completedCount - (runningTestId ? 1 : 0)
-    if (remaining <= 0) return null
-    const etaSecs = Math.round(avg * remaining)
-    if (etaSecs >= 60) return `~${Math.ceil(etaSecs / 60)}m left`
-    return `~${etaSecs}s left`
-  }, [results, completedCount, runningTestId])
+  const runProgressSummary = useMemo(
+    () => summarizeRunProgress(results as TestResult[], runningTestId),
+    [results, runningTestId]
+  )
 
   const progressSegments = useMemo(() => {
     const segs = { pass: 0, fail: 0, advisory: 0, info: 0, pending: 0, running: 0 }
@@ -558,6 +551,10 @@ export default function TestRunDetailPage() {
               total={results.length}
               segments={progressSegments}
             />
+            <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] text-zinc-500 dark:text-slate-400">
+              <span aria-live="polite">{runProgressSummary.progressLabel}</span>
+              <span>{runProgressSummary.detailText}</span>
+            </div>
           </div>
           <CsvExportButton
             results={sidebarResults}
@@ -579,15 +576,6 @@ export default function TestRunDetailPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-indigo-900 dark:text-indigo-200 capitalize">
                   {fingerprint.category?.replace(/_/g, ' ') || 'Unknown'}
-                </span>
-                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                  fingerprint.confidence === 'high'
-                    ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                    : fingerprint.confidence === 'medium'
-                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
-                    : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                }`}>
-                  {fingerprint.confidence} confidence
                 </span>
                 {fingerprint.matched_profile_name && (
                   <span className="text-[10px] text-indigo-600 dark:text-indigo-400">
@@ -628,12 +616,17 @@ export default function TestRunDetailPage() {
                 : undefined
             }
           >
-            <strong>{pendingManualCount} manual test{pendingManualCount > 1 ? 's' : ''} remaining.</strong>{' '}
-            These require you to physically interact with the device. Click on them in the sidebar
-            to see step-by-step instructions.
+            <strong>{pendingManualCount} manual test{pendingManualCount > 1 ? 's' : ''} waiting for you.</strong>{' '}
+            Open the amber clipboard items in the sidebar, read the explainer at the top of each test, perform the check on the real device, then save a verdict with notes.
           </SmartPrompt>
         </div>
       )}
+
+      <div className="flex-shrink-0 px-4 pt-3">
+        <SmartPrompt variant="info">
+          <strong>Quick guide:</strong> start with the left sidebar, use each test’s explainer to understand what “pass” means, and add notes whenever a result needs context for review or reporting.
+        </SmartPrompt>
+      </div>
 
       <AnimatePresence>
         {cableAlertStatus !== 'connected' && (
@@ -732,7 +725,7 @@ export default function TestRunDetailPage() {
           progressPct={run.progress_pct ?? progressPct}
           completedCount={completedCount}
           totalCount={results.length}
-          etaText={etaText}
+          etaText={null}
         />
       </div>
 

@@ -64,12 +64,21 @@ describe('TestRunDetailPage', () => {
     renderWithProviders(<TestRunDetailPage />)
     await waitFor(() => {
       const found =
-        screen.queryByText(/192\.168\.1\.100/i) ||
-        screen.queryByText(/cam-lobby/i) ||
-        screen.queryByText(/Full Security Scan/i) ||
-        screen.queryByText(/completed/i)
+        screen.queryByText(/Device dev-1/i) ||
+        screen.queryByText(/Started/i) ||
+        screen.queryByText(/Quick guide:/i)
       expect(found).toBeInTheDocument()
     }, { timeout: 3000 })
+  })
+
+  it('shows guidance instead of a misleading time-left estimate', async () => {
+    renderWithProviders(<TestRunDetailPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Quick guide:/i)).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText(/left$/i)).not.toBeInTheDocument()
   })
 
   it('shows loading state initially', () => {

@@ -19,6 +19,7 @@ from app.schemas.device import DiscoveryRequest
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit
 from app.services.connectivity_probe import probe_device_connectivity
+from app.services.mac_vendor import resolve_mac_vendor
 from app.services.discovery_service import (
     build_device_display_name,
     guess_category,
@@ -114,6 +115,7 @@ async def _upsert_device(
     # Active reverse DNS if nmap didn't provide hostname
     if not hostname:
         hostname = await _resolve_hostname_async(ip)
+    vendor = await resolve_mac_vendor(mac, vendor)
 
     result = await db.execute(select(Device).where(Device.ip_address == ip))
     device = result.scalar_one_or_none()

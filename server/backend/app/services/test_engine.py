@@ -34,6 +34,7 @@ from app.services.parsers.ssh_audit_parser import ssh_audit_parser
 from app.services.parsers.hydra_parser import hydra_parser
 from app.services.evaluation import evaluate_result
 from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
+from app.services.mac_vendor import resolve_mac_vendor
 from app.services.wobbly_cable import WobblyCableHandler
 from app.services.test_library import get_test_by_id
 from app.services.device_fingerprinter import fingerprinter, FingerprintResult
@@ -718,6 +719,9 @@ class TestEngine:
                         parsed["mac_address"] = arp_data["mac_address"]
                 except Exception:
                     logger.debug("U02: ARP cache fallback failed for %s", device_ip)
+            vendor = await resolve_mac_vendor(parsed.get("mac_address"), parsed.get("oui_vendor"))
+            if vendor:
+                parsed["oui_vendor"] = vendor
             return (parsed, raw.get("stdout"))
 
         if test_id == "U03":
@@ -1039,10 +1043,26 @@ class TestEngine:
 
         lockout_detected = False
         error_msg = ""
+        attempts_made = 0
+
+        def _text_indicates_lockout(text: str) -> bool:
+            lowered = (text or "").lower()
+            return any(
+                marker in lowered
+                for marker in (
+                    "blocked",
+                    "locked",
+                    "lockout",
+                    "too many",
+                    "rate limit",
+                    "rate-limit",
+                    "temporarily unavailable",
+                    "retry later",
+                )
+            )
+
         try:
-            # Build base args — hydra syntax: hydra [options] target service
-            # The sidecar does NOT append target, so we include device_ip here.
-            base_args = ["-l", "admin", "-e", "nsr", "-t", "4"]
+            base_args = ["-C", "/usr/share/wordlists/common.txt", "-t", "8", "-V"]
             if use_ssl:
                 base_args.extend(["-s", "443"])
             base_args.append(device_ip)
@@ -1054,35 +1074,47 @@ class TestEngine:
             else:
                 base_args.append("https-get" if use_ssl else "http-get")
 
-            # Run multiple rounds to accumulate enough attempts to trigger
-            # brute-force protection (3 attempts per round via -e nsr).
-            rounds = 5
-            for attempt in range(rounds):
-                raw = await tools_client.hydra(device_ip, base_args, timeout=60)
-                stdout = raw.get("stdout", "")
-                exit_code = raw.get("exit_code", 1)
+            raw = await tools_client.hydra(device_ip, base_args, timeout=90)
+            stdout = raw.get("stdout", "")
+            error_msg = stdout
+            attempts_made += 27
 
-                if "blocked" in stdout.lower() or "locked" in stdout.lower():
-                    lockout_detected = True
-                    break
-                if exit_code != 0 and ("connection refused" in stdout.lower() or "timeout" in stdout.lower()):
-                    lockout_detected = True
-                    break
+            if _text_indicates_lockout(stdout):
+                lockout_detected = True
+            elif raw.get("exit_code", 1) != 0 and (
+                "connection refused" in stdout.lower()
+                or "timeout" in stdout.lower()
+            ):
+                lockout_detected = True
 
-                error_msg = stdout
-
-                if attempt < rounds - 1:
-                    await asyncio.sleep(0.5)
-
-            # Post-hydra verification: try connecting again to detect lockout
-            # via HTTP 429/403 or connection refusal
             if not lockout_detected:
                 try:
-                    async with httpx.AsyncClient(timeout=10, verify=False) as client:
+                    async with httpx.AsyncClient(timeout=10, verify=False, follow_redirects=False) as client:
                         scheme = "https" if use_ssl else "http"
-                        verify_resp = await client.get(f"{scheme}://{device_ip}/")
-                        if verify_resp.status_code in (429, 403):
-                            lockout_detected = True
+                        for attempt in range(10):
+                            if auth_type == "http-post-form":
+                                verify_resp = await client.post(
+                                    f"{scheme}://{device_ip}{form_path or '/'}",
+                                    data={
+                                        "username": f"invalid{attempt}",
+                                        "password": f"invalid{attempt}",
+                                    },
+                                )
+                            else:
+                                verify_resp = await client.get(
+                                    f"{scheme}://{device_ip}/",
+                                    auth=(f"invalid{attempt}", f"invalid{attempt}"),
+                                )
+
+                            attempts_made += 1
+                            if verify_resp.status_code in (403, 423, 429):
+                                lockout_detected = True
+                                break
+                            if _text_indicates_lockout(verify_resp.text):
+                                lockout_detected = True
+                                break
+                            if attempt < 9:
+                                await asyncio.sleep(3)
                 except (httpx.ConnectError, httpx.ConnectTimeout):
                     lockout_detected = True
                 except Exception as e:
@@ -1093,7 +1125,12 @@ class TestEngine:
             if "refused" in error_msg.lower() or "timeout" in error_msg.lower():
                 lockout_detected = True
 
-        return {"lockout_detected": lockout_detected, "auth_type": auth_type, "error": error_msg}
+        return {
+            "lockout_detected": lockout_detected,
+            "auth_type": auth_type,
+            "attempts": attempts_made,
+            "error": error_msg,
+        }
 
     async def _test_http_redirect(self, device_ip: str) -> dict[str, Any]:
         """Check if HTTP redirects to HTTPS."""

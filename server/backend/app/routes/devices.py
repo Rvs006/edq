@@ -28,6 +28,7 @@ from app.utils.sanitize import sanitize_dict, strip_html
 from app.utils.audit import log_action
 from app.utils.datetime import as_utc
 from app.services.parsers.nmap_parser import nmap_parser
+from app.services.device_ip_discovery import discover_ip_for_mac
 from app.services.tools_client import describe_tools_error, get_tools_error_status, tools_client
 from app.middleware.rate_limit import check_rate_limit
 from app.routes.authorized_networks import get_active_networks
@@ -1054,78 +1055,39 @@ async def discover_device_ip(
             detail="Device has no MAC address — cannot discover IP",
         )
 
-    mac_upper = device.mac_address.upper().replace("-", ":")
+    discovery = await discover_ip_for_mac(db, device.mac_address)
 
-    authorized_networks = await get_active_networks(db)
-    authorized_cidrs = [network.cidr for network in authorized_networks if network.cidr]
-    detection = None
-    try:
-        detection = await tools_client.detect_networks()
-    except Exception as exc:
-        logger.warning("Network detection failed during DHCP IP discovery: %s", exc)
-
-    subnets_to_scan = _build_discovery_scan_ranges(authorized_cidrs, detection)
-    discovered_ip = None
-    successful_scans = 0
-    last_scan_error: str | None = None
-    last_scan_exception: Exception | None = None
-
-    for subnet in subnets_to_scan:
-        try:
-            scan_result = await tools_client.nmap(
-                target=subnet,
-                args=["-sn", "-PR"],  # ARP ping scan
-                timeout=30,
-            )
-            successful_scans += 1
-            hosts = nmap_parser.parse_host_discovery(scan_result.get("stdout", ""))
-            for host in hosts:
-                found_mac = str(host.get("mac") or "").upper().replace("-", ":")
-                candidate_ip = str(host.get("ip") or "").strip()
-                if found_mac != mac_upper or not candidate_ip:
-                    continue
-                try:
-                    ipaddress.ip_address(candidate_ip)
-                except ValueError:
-                    logger.warning("Ignoring invalid discovered IP %s for MAC %s", candidate_ip, mac_upper)
-                    continue
-                discovered_ip = candidate_ip
-                break
-            if discovered_ip:
-                break
-        except Exception as exc:
-            last_scan_exception = exc
-            last_scan_error = describe_tools_error(exc, fallback=f"Discovery scan failed on {subnet}")
-            logger.warning("ARP scan on %s failed: %s", subnet, exc)
-            continue
-
-    if not discovered_ip:
-        if successful_scans == 0:
+    if not discovery.discovered_ip:
+        if discovery.successful_scans == 0:
             raise HTTPException(
-                status_code=get_tools_error_status(last_scan_exception or RuntimeError("Tools sidecar is unavailable")),
-                detail=last_scan_error or "Tools sidecar is unavailable. Automated IP discovery could not run.",
+                status_code=discovery.error_status or 503,
+                detail=discovery.last_scan_error or "Tools sidecar is unavailable. Automated IP discovery could not run.",
             )
         raise HTTPException(
             status_code=404,
             detail=f"Could not discover IP for MAC {device.mac_address}. "
-                   f"Scanned {len(subnets_to_scan)} subnet(s). Ensure the device is powered on and connected to the network.",
+                   f"Scanned {len(discovery.scanned_subnets)} subnet(s). Ensure the device is powered on and connected to the network.",
         )
 
     # Check that no other device already has this IP
     existing_ip = await db.execute(
-        select(Device).where(Device.ip_address == discovered_ip, Device.id != device_id)
+        select(Device).where(Device.ip_address == discovery.discovered_ip, Device.id != device_id)
     )
     if existing_ip.scalar_one_or_none():
         raise HTTPException(
             status_code=409,
-            detail=f"Discovered IP {discovered_ip} is already assigned to another device",
+            detail=f"Discovered IP {discovery.discovered_ip} is already assigned to another device",
         )
 
-    device.ip_address = discovered_ip
+    device.ip_address = discovery.discovered_ip
+    if discovery.vendor and not device.oui_vendor:
+        device.oui_vendor = discovery.vendor
+    if discovery.vendor and not device.manufacturer:
+        device.manufacturer = discovery.vendor
     await db.flush()
     await db.refresh(device)
     await log_action(
         db, user, "discover_ip", "device", device_id,
-        {"mac": device.mac_address, "discovered_ip": discovered_ip}, request,
+        {"mac": device.mac_address, "discovered_ip": discovery.discovered_ip}, request,
     )
     return device

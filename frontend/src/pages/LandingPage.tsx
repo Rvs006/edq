@@ -20,7 +20,7 @@ const capabilities = [
   {
     icon: ClipboardCheck,
     title: 'Guided Manual Tests',
-    description: '14 guided manual checks for physical inspection, web UI review, and configuration verification with single-click verdicts.',
+    description: '31 guided manual checks for physical inspection, web UI review, configuration validation, and extended qualification evidence.',
   },
   {
     icon: FileDown,
@@ -73,7 +73,7 @@ export default function LandingPage() {
               </h1>
               <p className="mt-3 text-sm sm:text-base text-zinc-600 dark:text-slate-400 leading-relaxed">
                 Internal tool for security qualification of IP devices on Electracom projects.
-                43 tests (29 automated + 14 guided manual). Runs offline on Docker.
+                60 tests (29 automated + 31 guided manual). Runs offline on Docker.
               </p>
               <div className="mt-5 flex items-center gap-3">
                 <Link to="/login" className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
@@ -95,6 +95,30 @@ export default function LandingPage() {
                 <p className="text-xs text-zinc-500 dark:text-slate-400 leading-relaxed">{cap.description}</p>
               </div>
             ))}
+          </div>
+        </section>
+
+        <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-12 sm:pb-16">
+          <div className="rounded-2xl border border-zinc-200 dark:border-slate-700/50 bg-white dark:bg-dark-card p-5 sm:p-6">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-4">How to use EDQ effectively</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm text-zinc-600 dark:text-slate-400">
+              <div>
+                <h3 className="font-semibold text-zinc-900 dark:text-slate-200 mb-2">Before you start</h3>
+                <ul className="space-y-2 list-disc pl-5">
+                  <li>Make sure the device is powered, reachable, and on an authorised network.</li>
+                  <li>If the device uses DHCP, register its MAC address so EDQ can discover the lease later.</li>
+                  <li>Pick the right connection scenario so skips and manual steps make sense.</li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="font-semibold text-zinc-900 dark:text-slate-200 mb-2">While reviewing tests</h3>
+                <ul className="space-y-2 list-disc pl-5">
+                  <li>Use the sidebar to move test by test instead of scanning the whole page.</li>
+                  <li>Open the explainer first: it tells you what the test checks, why it matters, and what pass/fail means.</li>
+                  <li>Add notes whenever a result is unusual, partially acceptable, or needs reviewer context.</li>
+                </ul>
+              </div>
+            </div>
           </div>
         </section>
 

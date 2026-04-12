@@ -168,7 +168,14 @@ server/backend/.venv-wsl/
 *.db
 
 # Application data
-reports/
+reports/*
+!reports/schemas/
+!reports/schemas/**
+!reports/templates/
+!reports/templates/**
+!reports/examples/
+!reports/examples/**
+server/backend/reports/
 uploads/
 
 # AI agent/session artifacts

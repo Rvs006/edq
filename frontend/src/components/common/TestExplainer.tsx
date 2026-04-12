@@ -7,6 +7,7 @@ interface TestExplainerProps {
   description?: string | null
   passCriteria?: string | null
   toolUsed?: string | null
+  tier?: string | null
   className?: string
 }
 
@@ -271,7 +272,7 @@ const TEST_EXPLAINERS: Record<string, { what: string; why: string; pass: string;
   },
 }
 
-export default function TestExplainer({ testNumber, testName, description, passCriteria, toolUsed, className = '' }: TestExplainerProps) {
+export default function TestExplainer({ testNumber, testName, description, passCriteria, toolUsed, tier, className = '' }: TestExplainerProps) {
   const [expanded, setExpanded] = useState(false)
   const explainer = TEST_EXPLAINERS[testNumber]
 
@@ -338,6 +339,17 @@ export default function TestExplainer({ testNumber, testName, description, passC
               </div>
             </div>
           )}
+          <div className="flex gap-2">
+            <HelpCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-medium text-zinc-700 dark:text-slate-200">How to use it: </span>
+              <span className="text-zinc-600 dark:text-slate-400">
+                {tier === 'guided_manual'
+                  ? 'Read the steps below, perform the check on the real device, then record Pass, Fail, Advisory, or N/A with notes that explain what you saw.'
+                  : 'Watch the terminal output and parsed findings together. Use the pass/fail text above to decide whether the result looks expected before moving on.'}
+              </span>
+            </div>
+          </div>
           {toolUsed && (
             <p className="text-[10px] text-zinc-400 pt-1 border-t border-zinc-100">
               Tool: <span className="font-mono">{toolUsed}</span>

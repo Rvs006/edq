@@ -215,7 +215,7 @@ export default function ReportsPage() {
             <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Template Formats</h3>
             <div className="space-y-2">
               {[
-                { name: 'Generic C00', desc: 'Universal IP device template (43 tests)' },
+                { name: 'Generic C00', desc: 'Universal IP device template (43 worksheet rows mapped from 60 EDQ tests)' },
                 { name: 'Pelco Camera', desc: 'Camera qualification Rev 2 (31 tests)' },
                 { name: 'EasyIO Controller', desc: 'Controller report template aligned to the current EDQ workflow' },
                 { name: 'CSV Export', desc: 'Flat report data aligned to the same shared report model' },

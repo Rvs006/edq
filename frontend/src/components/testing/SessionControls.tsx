@@ -41,7 +41,7 @@ export default function SessionControls({
   progressPct = 0,
   completedCount = 0,
   totalCount = 0,
-  etaText,
+  etaText: _etaText,
 }: SessionControlsProps) {
   const isRunning = runStatus === 'running' || runStatus === 'selecting_interface' || runStatus === 'syncing'
   const isPaused = runStatus === 'paused_manual' || runStatus === 'paused_cable'
@@ -52,7 +52,6 @@ export default function SessionControls({
 
   return (
     <div className="bg-white dark:bg-dark-card border-t border-zinc-200 dark:border-slate-700/50">
-      {/* Running progress banner */}
       {isRunning && (
         <div className="px-4 pt-2">
           <div className="flex items-center gap-2 mb-1.5">
@@ -61,7 +60,7 @@ export default function SessionControls({
               {runningTestName ? `Running: ${runningTestName}` : 'Running tests...'}
             </span>
             <span className="text-xs font-mono text-blue-500 ml-auto flex-shrink-0">
-              {completedCount}/{totalCount}{etaText ? ` \u00B7 ${etaText}` : ''}
+              {completedCount}/{totalCount} completed
             </span>
           </div>
           <div className="w-full h-1.5 bg-blue-100 dark:bg-blue-900/40 rounded-full overflow-hidden">
@@ -74,7 +73,6 @@ export default function SessionControls({
         </div>
       )}
 
-      {/* Next step prompts */}
       {isAwaitingManual && (
         <div className="px-4 pt-2">
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50">
@@ -83,7 +81,7 @@ export default function SessionControls({
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
             </span>
             <span className="text-xs font-medium text-amber-800 dark:text-amber-300">
-              Automatic tests complete — manual tests need your input. Click each one in the sidebar.
+              Automatic tests complete — manual tests need your input. Open each amber clipboard item, follow the explainer, then save your verdict and notes.
             </span>
           </div>
         </div>
@@ -100,7 +98,6 @@ export default function SessionControls({
         </div>
       )}
 
-      {/* Action buttons */}
       <div className="flex items-center gap-2 px-4 py-3 flex-wrap">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {isPending && (

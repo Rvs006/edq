@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "excluded_paths": [
+    ".git",
+    ".venv",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".pytest_cache",
+    "coverage",
+    "htmlcov",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".code-review-graph",
+    "reports/audit",
+    "testsprite_tests"
+  ],
+  "source_extensions": [
+    ".py",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx"
+  ],
+  "route_roots": [
+    "server/backend/app/routes"
+  ],
+  "backend_test_roots": [
+    "server/backend/tests"
+  ],
+  "frontend_test_roots": [
+    "frontend/src"
+  ],
+  "forbidden_summary_phrases": [
+    "no critical bugs found",
+    "all endpoints are protected",
+    "all queries are parameterized",
+    "no n+1 queries",
+    "fully safe",
+    "100/100 reliable"
+  ]
+}

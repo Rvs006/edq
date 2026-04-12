@@ -173,9 +173,86 @@ ALLOWED_FLAGS = {
 # Approved directory for hydra wordlist files (-L, -P, -C flags)
 HYDRA_APPROVED_WORDLIST_DIRS = ("/app/wordlists/", "/usr/share/wordlists/")
 
+_MAC_VENDOR_FALLBACKS = {
+    "000CAB": "Commend International GmbH",
+    "2C2D48": "Commend International GmbH",
+    "BC6A44": "Commend International GmbH",
+    "38D135": "EasyIO Corporation Sdn. Bhd.",
+    "00408C": "Axis Communications AB",
+    "ACCC8E": "Axis Communications AB",
+    "B8A44F": "Axis Communications AB",
+    "E82725": "Axis Communications AB",
+    "00BC99": "Hangzhou Hikvision Digital Technology Co.,Ltd.",
+    "0C75D2": "Hangzhou Hikvision Digital Technology Co.,Ltd.",
+    "1012FB": "Hangzhou Hikvision Digital Technology Co.,Ltd.",
+    "244845": "Hangzhou Hikvision Digital Technology Co.,Ltd.",
+    "2857BE": "Hangzhou Hikvision Digital Technology Co.,Ltd.",
+    "4CF5DC": "Hangzhou Hikvision Digital Technology Co.,Ltd.",
+    "5850ED": "Hangzhou Hikvision Digital Technology Co.,Ltd.",
+}
+_MAC_PREFIX_RE = re.compile(r"^[0-9A-F]{6}$")
+_MAC_VENDOR_CACHE: dict[str, str] | None = None
+
 
 def _tool_available(binary: str) -> bool:
     return shutil.which(binary) is not None
+
+
+def _normalize_mac_prefix(mac: str) -> str | None:
+    hex_only = re.sub(r"[^0-9A-Fa-f]+", "", str(mac or ""))
+    if len(hex_only) < 6:
+        return None
+    prefix = hex_only[:6].upper()
+    return prefix if _MAC_PREFIX_RE.match(prefix) else None
+
+
+def _load_mac_vendor_cache() -> dict[str, str]:
+    global _MAC_VENDOR_CACHE
+    if _MAC_VENDOR_CACHE is not None:
+        return _MAC_VENDOR_CACHE
+
+    cache = dict(_MAC_VENDOR_FALLBACKS)
+    candidates = [
+        "/usr/share/nmap/nmap-mac-prefixes",
+        "/usr/local/share/nmap/nmap-mac-prefixes",
+        "/opt/homebrew/share/nmap/nmap-mac-prefixes",
+        "C:\\Program Files (x86)\\Nmap\\nmap-mac-prefixes",
+        "C:\\Program Files\\Nmap\\nmap-mac-prefixes",
+    ]
+
+    nmap_binary = shutil.which("nmap")
+    if nmap_binary:
+        candidates.append(os.path.normpath(os.path.join(os.path.dirname(nmap_binary), "..", "share", "nmap", "nmap-mac-prefixes")))
+
+    for path in candidates:
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    parts = stripped.split(maxsplit=1)
+                    if len(parts) != 2:
+                        continue
+                    prefix, vendor = parts
+                    prefix = prefix.strip().upper()
+                    vendor = vendor.strip()
+                    if _MAC_PREFIX_RE.match(prefix) and vendor:
+                        cache[prefix] = vendor
+        except Exception:
+            continue
+
+    _MAC_VENDOR_CACHE = cache
+    return cache
+
+
+def _lookup_mac_vendor(mac: str) -> str | None:
+    prefix = _normalize_mac_prefix(mac)
+    if not prefix:
+        return None
+    return _load_mac_vendor_cache().get(prefix)
 
 
 def _check_tool_version(binary: str) -> bool:
@@ -661,7 +738,10 @@ def detect_networks() -> Response:
         "interfaces": interfaces,
         "host_ip": host_ip,
         "in_docker": in_docker,
-        "scan_recommendation": "Use TCP connect scan (-sT -Pn) when running in Docker" if in_docker else None,
+        "scan_recommendation": (
+            "Docker detected — EDQ will prefer raw SYN scans when privileges are available, "
+            "otherwise it falls back to TCP connect (-sT -Pn)."
+        ) if in_docker else None,
         "debug": debug_info,
     })
 
@@ -878,6 +958,21 @@ def scan_arp_cache() -> Union[Response, Tuple[Response, int]]:
     # Step 2: read ARP cache
     result = _run_tool(["ip", "neigh", "show", target], timeout=5)
     return jsonify(result)
+
+
+@app.route("/scan/mac-vendor", methods=["POST"])
+@require_api_key
+def scan_mac_vendor() -> Union[Response, Tuple[Response, int]]:
+    data = request.get_json(force=True, silent=True)
+    if not data or not data.get("mac"):
+        return jsonify({"error": "Missing 'mac' field"}), 400
+
+    prefix = _normalize_mac_prefix(str(data["mac"]))
+    if not prefix:
+        return jsonify({"error": "Invalid MAC address"}), 400
+
+    vendor = _lookup_mac_vendor(prefix)
+    return jsonify({"mac_prefix": prefix, "vendor": vendor})
 
 
 @app.route("/versions", methods=["GET"])

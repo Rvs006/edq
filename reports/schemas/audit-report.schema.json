@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://edq.local/schemas/audit-report.schema.json",
+  "title": "EDQ Evidence Audit Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "report_version",
+    "metadata",
+    "summary",
+    "inventories",
+    "limitations",
+    "manual_review_required",
+    "findings"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "reports/schemas/audit-report.schema.json"
+    },
+    "report_version": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "repository_name",
+        "generated_at",
+        "scan_scope",
+        "excluded_paths",
+        "generator",
+        "commands"
+      ],
+      "properties": {
+        "repository_name": {
+          "type": "string"
+        },
+        "generated_at": {
+          "type": "string"
+        },
+        "scan_scope": {
+          "enum": [
+            "full",
+            "changed",
+            "example"
+          ]
+        },
+        "excluded_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "generator": {
+          "type": "object",
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_findings",
+        "by_severity",
+        "by_confidence",
+        "by_claim_status",
+        "by_category",
+        "intentional_pattern_count",
+        "manual_review_required_count",
+        "verified_fact_count",
+        "inferred_risk_count",
+        "unverified_claim_count",
+        "forbidden_phrases_detected"
+      ],
+      "properties": {
+        "total_findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "by_severity": {
+          "$ref": "#/$defs/severityCounts"
+        },
+        "by_confidence": {
+          "$ref": "#/$defs/confidenceCounts"
+        },
+        "by_claim_status": {
+          "$ref": "#/$defs/claimStatusCounts"
+        },
+        "by_category": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "intentional_pattern_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual_review_required_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verified_fact_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inferred_risk_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified_claim_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "forbidden_phrases_detected": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "inventories": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "route_surface",
+        "tests",
+        "logging",
+        "scan_stats"
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "manual_review_required": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/manualReview"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "severityCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "info"
+      ],
+      "properties": {
+        "critical": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "high": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "low": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "info": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "confidenceCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "properties": {
+        "high": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "low": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "claimStatusCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified",
+        "inferred",
+        "unverified",
+        "disproven",
+        "not_applicable"
+      ],
+      "properties": {
+        "verified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inferred": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disproven": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "not_applicable": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "manualReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "topic",
+        "reason",
+        "recommended_verification"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "recommended_verification": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_path",
+        "line_start",
+        "line_end",
+        "snippet",
+        "collection_method"
+      ],
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "snippet": {
+          "type": "string"
+        },
+        "collection_method": {
+          "enum": [
+            "pattern",
+            "ast",
+            "inventory",
+            "manual",
+            "manual_example"
+          ]
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "rule_id",
+        "category",
+        "severity",
+        "confidence",
+        "claim_status",
+        "title",
+        "description",
+        "intentional_pattern",
+        "evidence",
+        "verification_steps",
+        "false_positive_notes",
+        "remediation"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "claim_status": {
+          "enum": [
+            "verified",
+            "inferred",
+            "unverified",
+            "disproven",
+            "not_applicable"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "intentional_pattern": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "verification_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "false_positive_notes": {
+          "type": "string"
+        },
+        "remediation": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -20,13 +20,14 @@ from app.models.test_run import (
 )
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.test_template import TestTemplate
-from app.models.device import Device
+from app.models.device import Device, AddressingMode
 from app.models.user import User
 from app.models.nessus_finding import NessusFinding
 from app.schemas.test import TestRunCreate, TestRunUpdate, TestRunResponse
 from app.security.auth import get_current_active_user
 from app.services.discovery_service import build_device_display_name
 from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
+from app.services.device_ip_discovery import discover_ip_for_mac
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, is_run_executing, launch_test_run
 from app.services.wobbly_cable import get_cable_handler
@@ -196,6 +197,39 @@ async def _device_is_reachable(device: Device | None) -> bool:
     # For devices with no port data yet (manually added, never scanned),
     # accept ICMP so the user can start/resume tests. The test engine will
     # discover ports during execution.
+    return True
+
+
+def _device_uses_dhcp(device: Device | None) -> bool:
+    if not device:
+        return False
+    mode = getattr(device.addressing_mode, "value", device.addressing_mode)
+    return mode == AddressingMode.DHCP.value
+
+
+async def _autodiscover_device_ip_if_needed(
+    db: AsyncSession,
+    device: Device | None,
+) -> bool:
+    if not device or device.ip_address or not _device_uses_dhcp(device) or not device.mac_address:
+        return False
+
+    discovery = await discover_ip_for_mac(db, device.mac_address)
+    if not discovery.discovered_ip:
+        return False
+
+    device.ip_address = discovery.discovered_ip
+    if discovery.vendor and not device.oui_vendor:
+        device.oui_vendor = discovery.vendor
+    if discovery.vendor and not device.manufacturer:
+        device.manufacturer = discovery.vendor
+    await db.flush()
+    await db.refresh(device)
+    logger.info(
+        "Auto-discovered DHCP device %s IP address as %s before starting/resuming run",
+        device.mac_address,
+        device.ip_address,
+    )
     return True
 
 
@@ -465,6 +499,14 @@ async def start_test_run(
         raise HTTPException(status_code=409, detail="Test run is already executing")
 
     device = await db.get(Device, run.device_id)
+    await _autodiscover_device_ip_if_needed(db, device)
+    if device and not device.ip_address:
+        if _device_uses_dhcp(device):
+            raise HTTPException(
+                status_code=409,
+                detail="DHCP device has no discovered IP address yet. Use Discover IP or connect it to the target network so EDQ can locate the lease.",
+            )
+        raise HTTPException(status_code=422, detail="Device has no IP address")
     if not await _device_is_reachable(device):
         run.status = TestRunStatus.PAUSED_CABLE
         await db.flush()
@@ -620,6 +662,12 @@ async def resume_test_run(
 
     if run_status == TestRunStatus.PAUSED_CABLE.value:
         device = await db.get(Device, run.device_id)
+        await _autodiscover_device_ip_if_needed(db, device)
+        if device and not device.ip_address:
+            raise HTTPException(
+                status_code=409,
+                detail="DHCP device still has no discovered IP address. Reconnect it to the target network or use Discover IP before resuming.",
+            )
         if not await _device_is_reachable(device):
             raise HTTPException(
                 status_code=409,

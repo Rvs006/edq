@@ -35,7 +35,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     page: '/test-runs',
     title: 'Test Sessions',
-    description: 'Each test session runs 43 security checks — about 25 run automatically, and 18 are guided manual tests where you physically verify the device.',
+    description: 'Each test session runs 60 EDQ tests — 29 automated plus 31 guided manual checks where you physically verify the device and capture extra evidence.',
     targetSelector: '[data-tour="test-runs-table"]',
     position: 'bottom',
   },

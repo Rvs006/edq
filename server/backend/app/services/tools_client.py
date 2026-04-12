@@ -3,6 +3,9 @@
 import asyncio
 import json
 import logging
+import os
+import shutil
+import subprocess
 from typing import Any, AsyncGenerator, Callable, Coroutine, Dict, List, Optional
 
 import httpx
@@ -65,10 +68,38 @@ class ToolsClient:
         self._headers: Dict[str, str] = {}
         if settings.TOOLS_API_KEY:
             self._headers["X-Tools-Key"] = settings.TOOLS_API_KEY
-        # Detect Docker environment — nmap needs -sT -Pn through NAT
-        import os
         self.in_docker: bool = os.path.exists("/.dockerenv")
+        self._docker_raw_scan_capable = self._detect_docker_raw_scan_capability()
         self._client: Optional[httpx.AsyncClient] = None
+
+    def _detect_docker_raw_scan_capability(self) -> bool:
+        if not self.in_docker:
+            return False
+
+        override = os.environ.get("EDQ_FORCE_DOCKER_TCP_CONNECT_SCAN", "").strip().lower()
+        if override in {"1", "true", "yes", "on"}:
+            return False
+
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return True
+
+        getcap_path = shutil.which("getcap")
+        nmap_path = shutil.which("nmap")
+        if not getcap_path or not nmap_path:
+            return False
+
+        try:
+            result = subprocess.run(
+                [getcap_path, nmap_path],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except Exception:
+            return False
+
+        capabilities = f"{result.stdout}\n{result.stderr}".lower()
+        return "cap_net_raw" in capabilities or "cap_net_admin" in capabilities
 
     def _get_client(self, timeout: int = 300) -> httpx.AsyncClient:
         """Return a persistent shared AsyncClient, creating it on first use."""
@@ -91,12 +122,9 @@ class ToolsClient:
             return list(args)
         if "-sn" in args or "-PR" in args:
             return list(args)
-        adjusted = []
-        for a in args:
-            if a == "-sS":
-                adjusted.append("-sT")
-            else:
-                adjusted.append(a)
+        adjusted = list(args)
+        if not self._docker_raw_scan_capable:
+            adjusted = ["-sT" if a == "-sS" else a for a in adjusted]
         if any(flag in adjusted for flag in ("-sT", "-sS", "-sV", "-O", "-A", "-p", "-p-", "--top-ports")) and "-Pn" not in adjusted:
             adjusted.insert(0, "-Pn")
         return adjusted
@@ -385,6 +413,14 @@ class ToolsClient:
             "/scan/arp-cache",
             {"target": target, "timeout": 15},
             timeout=20,
+        )
+
+    async def mac_vendor(self, mac: str) -> Dict[str, Any]:
+        """Resolve a MAC/OUI prefix to a vendor name using the sidecar's offline data."""
+        return await self._post(
+            "/scan/mac-vendor",
+            {"mac": mac},
+            timeout=15,
         )
 
 

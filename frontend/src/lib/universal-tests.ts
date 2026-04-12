@@ -1,4 +1,4 @@
-/** Single source of truth for the 43 universal security tests.
+/** Single source of truth for the 60 EDQ security tests.
  *  Imported by NetworkScanPage and TestPlansPage instead of duplicating. */
 
 export interface UniversalTest {
@@ -53,6 +53,23 @@ export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U41', name: 'Audit/Log Review', tier: 'guided_manual', category: 'Manual', essential: false },
   { id: 'U42', name: 'Data-at-Rest Encryption', tier: 'guided_manual', category: 'Manual', essential: false },
   { id: 'U43', name: 'End-of-Life / Vendor Support', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U44', name: 'Static IP Configuration', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U45', name: 'Hostname Resolution', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U46', name: 'Data Flow Analysis', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U47', name: 'x509 Certificate Replacement', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U48', name: 'BACnet PIC/BIBB Statement', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U49', name: 'MQTT Custom Payloads', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U50', name: 'MQTT Write-back Commands', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U51', name: 'MQTT Over TLS', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U52', name: 'MQTT Client Certificate Auth', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U53', name: 'MQTT Username/Password Auth', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U54', name: 'PKI Integration', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U55', name: 'Wi-Fi Standards Supported', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U56', name: 'Wi-Fi Disablement', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U57', name: 'Wi-Fi Encryption', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U58', name: 'PoE Standards Supported', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U59', name: 'SOAK Test (7-Day Stability)', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U60', name: 'Additional Information / Notes', tier: 'guided_manual', category: 'Manual', essential: false },
 ]
 
 export const TEST_CATEGORIES = ['Network', 'TLS', 'SSH', 'Web', 'Manual'] as const

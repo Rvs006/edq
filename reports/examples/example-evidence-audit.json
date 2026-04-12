@@ -1,0 +1,259 @@
+{
+  "$schema": "reports/schemas/audit-report.schema.json",
+  "report_version": "1.0.0",
+  "metadata": {
+    "repository_name": "edq",
+    "generated_at": "2026-04-12T00:00:00Z",
+    "scan_scope": "example",
+    "excluded_paths": [
+      ".git",
+      ".venv",
+      "node_modules",
+      "dist",
+      "build",
+      "__pycache__",
+      ".pytest_cache",
+      "coverage",
+      "htmlcov",
+      ".mypy_cache",
+      ".ruff_cache",
+      ".code-review-graph",
+      "reports/audit",
+      "testsprite_tests"
+    ],
+    "generator": {
+      "name": "repo-audit",
+      "version": "1.0.0"
+    },
+    "commands": [
+      "python scripts/audit/run_audit.py --scope full --output-dir reports/audit/local --format both"
+    ],
+    "commit_sha": "example",
+    "branch": "main"
+  },
+  "summary": {
+    "total_findings": 5,
+    "by_severity": {
+      "critical": 0,
+      "high": 0,
+      "medium": 2,
+      "low": 3,
+      "info": 0
+    },
+    "by_confidence": {
+      "high": 5,
+      "medium": 0,
+      "low": 0
+    },
+    "by_claim_status": {
+      "verified": 5,
+      "inferred": 0,
+      "unverified": 0,
+      "disproven": 0,
+      "not_applicable": 0
+    },
+    "by_category": {
+      "background_tasks": 1,
+      "exception_handling": 1,
+      "runtime_logging": 1,
+      "sql_usage": 1,
+      "type_safety": 1
+    },
+    "intentional_pattern_count": 1,
+    "manual_review_required_count": 2,
+    "verified_fact_count": 5,
+    "inferred_risk_count": 0,
+    "unverified_claim_count": 0,
+    "forbidden_phrases_detected": []
+  },
+  "inventories": {
+    "route_surface": {
+      "route_file_count": 26,
+      "backend_route_count": 126,
+      "counts_by_auth": {
+        "public": 8,
+        "authenticated": 47,
+        "role_protected": 63,
+        "alternate_auth": 8
+      },
+      "routes": []
+    },
+    "tests": {
+      "backend_test_count": 24,
+      "frontend_test_count": 16,
+      "backend_tests": [],
+      "frontend_tests": []
+    },
+    "logging": {
+      "logger_exception_call_count": 15,
+      "bare_except_count": 70,
+      "logged_bare_except_count": 22,
+      "except_pass_count": 23,
+      "fallback_without_log_count": 9,
+      "print_call_count": 38,
+      "raw_sql_text_count": 4,
+      "global_task_state_count": 2
+    },
+    "scan_stats": {
+      "finding_scope_file_count": 292,
+      "changed_file_count": 0
+    }
+  },
+  "limitations": [
+    "Example report illustrates format and evidence style; it is not full live audit output.",
+    "Presence of raw SQL text(...) does not prove SQL injection exploitability.",
+    "Route inventory classification does not replace request-level authorization tests."
+  ],
+  "manual_review_required": [
+    {
+      "id": "MR-001",
+      "topic": "SQL injection exploitability",
+      "reason": "Raw SQL text(...) sites need data-flow review before any vulnerability claim.",
+      "recommended_verification": [
+        "Trace request-controlled inputs into each raw SQL site.",
+        "Add injection payload tests before labeling any site vulnerable."
+      ]
+    },
+    {
+      "id": "MR-002",
+      "topic": "Background task lifecycle safety",
+      "reason": "Singleton task handles are often intentional, but restart and shutdown behavior still need runtime testing.",
+      "recommended_verification": [
+        "Exercise start-stop-restart flows under tests or local runs.",
+        "Confirm duplicate loop prevention and graceful cancellation behavior."
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "AUD-EXAMPLE-001",
+      "rule_id": "ts-any-cast",
+      "category": "type_safety",
+      "severity": "medium",
+      "confidence": "high",
+      "claim_status": "verified",
+      "title": "Type-safety bypass via `as any`",
+      "description": "`as any` bypasses TypeScript checking at this access site. Presence is verified.",
+      "intentional_pattern": false,
+      "evidence": [
+        {
+          "file_path": "frontend/src/pages/DeviceDetailPage.tsx",
+          "line_start": 40,
+          "line_end": 40,
+          "snippet": "const val = (device as any)[key]",
+          "collection_method": "manual_example"
+        }
+      ],
+      "verification_steps": [
+        "Run `pnpm --dir frontend exec tsc --noEmit`.",
+        "Replace `as any` with typed key access such as `keyof Device` where practical."
+      ],
+      "false_positive_notes": "Test doubles often use `as any`; this example is app code, not test code.",
+      "remediation": "Use a typed helper for dynamic property access instead of `as any`."
+    },
+    {
+      "id": "AUD-EXAMPLE-002",
+      "rule_id": "python-global-task-state",
+      "category": "background_tasks",
+      "severity": "low",
+      "confidence": "high",
+      "claim_status": "verified",
+      "title": "Module-level background task singleton state",
+      "description": "Module-level task handle exists here. Presence is verified. Pattern is often intentional for lifecycle control.",
+      "intentional_pattern": true,
+      "evidence": [
+        {
+          "file_path": "server/backend/app/services/scan_scheduler.py",
+          "line_start": 26,
+          "line_end": 26,
+          "snippet": "_scheduler_task: asyncio.Task | None = None",
+          "collection_method": "manual_example"
+        }
+      ],
+      "verification_steps": [
+        "Confirm matching start/stop guards exist and are covered by tests.",
+        "Review cancellation and restart behavior during shutdown/startup."
+      ],
+      "false_positive_notes": "Background schedulers commonly use a singleton task handle to prevent duplicate loops.",
+      "remediation": "Keep lifecycle guards and document task ownership semantics."
+    },
+    {
+      "id": "AUD-EXAMPLE-003",
+      "rule_id": "python-print-call",
+      "category": "runtime_logging",
+      "severity": "low",
+      "confidence": "high",
+      "claim_status": "verified",
+      "title": "Console `print()` call present",
+      "description": "Direct `print()` exists in backend runtime startup path. Presence is verified.",
+      "intentional_pattern": false,
+      "evidence": [
+        {
+          "file_path": "server/backend/app/main.py",
+          "line_start": 360,
+          "line_end": 360,
+          "snippet": "print(f\"[EDQ] Frontend directory: {FRONTEND_DIR} (exists: {os.path.isdir(FRONTEND_DIR)})\")",
+          "collection_method": "manual_example"
+        }
+      ],
+      "verification_steps": [
+        "Confirm whether this code runs in production startup.",
+        "Prefer structured logging if operational visibility matters."
+      ],
+      "false_positive_notes": "Startup diagnostics may be intentional, but runtime code should usually use logger APIs.",
+      "remediation": "Replace runtime `print()` with structured logger calls."
+    },
+    {
+      "id": "AUD-EXAMPLE-004",
+      "rule_id": "python-except-pass",
+      "category": "exception_handling",
+      "severity": "medium",
+      "confidence": "high",
+      "claim_status": "verified",
+      "title": "Exception swallowed with `pass`",
+      "description": "Handler drops exception with `pass` and no local logging or re-raise. Presence is verified.",
+      "intentional_pattern": false,
+      "evidence": [
+        {
+          "file_path": "tools/server.py",
+          "line_start": 57,
+          "line_end": 62,
+          "snippet": "try:\n    proc.kill()\n    proc.wait(timeout=5)\n    killed += 1\nexcept Exception:\n    pass",
+          "collection_method": "manual_example"
+        }
+      ],
+      "verification_steps": [
+        "Inspect caller behavior to confirm silent cleanup failure is acceptable.",
+        "Add logging if process-kill failure matters operationally."
+      ],
+      "false_positive_notes": "Best-effort cleanup may intentionally ignore kill failures.",
+      "remediation": "Log cleanup failures unless silent best-effort behavior is explicitly intended."
+    },
+    {
+      "id": "AUD-EXAMPLE-005",
+      "rule_id": "python-raw-sql-text",
+      "category": "sql_usage",
+      "severity": "low",
+      "confidence": "high",
+      "claim_status": "verified",
+      "title": "Raw SQL `text(...)` usage present",
+      "description": "SQLAlchemy `text(...)` appears here. Presence is verified. Injection risk is not inferred automatically.",
+      "intentional_pattern": false,
+      "evidence": [
+        {
+          "file_path": "server/backend/app/routes/health.py",
+          "line_start": 52,
+          "line_end": 52,
+          "snippet": "await session.execute(text(\"SELECT 1\"))",
+          "collection_method": "manual_example"
+        }
+      ],
+      "verification_steps": [
+        "Confirm SQL is fixed literal and not built from request input.",
+        "Keep exploitability claim separate from raw SQL presence."
+      ],
+      "false_positive_notes": "Fixed-literal health-check SQL is commonly low risk.",
+      "remediation": "Document trusted-input or fixed-literal nature of raw SQL sites."
+    }
+  ]
+}

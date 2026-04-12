@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef, forwardRef } from 'react'
-import { Search, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { Search, ChevronDown, ChevronRight, Loader2, HelpCircle } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { summarizeRunProgress } from '@/lib/testUi'
 
 export interface TestResultItem {
   id: string
@@ -102,22 +103,10 @@ export default function TestSidebar({
   const filteredManual = filterTests(manualTests)
   const allFiltered = useMemo(() => [...filteredAuto, ...filteredManual], [filteredAuto, filteredManual])
 
-  const completedCount = results.filter((r) => r.verdict && r.verdict !== 'pending').length
-
-  const { avgDuration, etaText } = useMemo(() => {
-    const durations = results
-      .filter(r => r.duration_seconds && r.duration_seconds > 0 && r.verdict && r.verdict !== 'pending')
-      .map(r => r.duration_seconds!)
-    const avg = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0
-    const remaining = results.length - completedCount - (runningTestId ? 1 : 0)
-    const etaSecs = Math.round(avg * remaining)
-    let eta = ''
-    if (avg > 0 && remaining > 0) {
-      if (etaSecs >= 60) eta = `~${Math.ceil(etaSecs / 60)}m left`
-      else eta = `~${etaSecs}s left`
-    }
-    return { avgDuration: avg, etaText: eta }
-  }, [results, completedCount, runningTestId])
+  const { completed: completedCount, progressLabel, detailText } = useMemo(
+    () => summarizeRunProgress(results, runningTestId),
+    [results, runningTestId]
+  )
 
   const queuePositions = useMemo(() => {
     const positions: Record<string, number> = {}
@@ -166,7 +155,7 @@ export default function TestSidebar({
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider">Tests</span>
           <div className="flex items-center gap-2">
-            {etaText && <span className="text-[10px] text-blue-500 font-medium">{etaText}</span>}
+            <span className="text-[10px] text-blue-600 dark:text-blue-300 font-medium">{progressLabel}</span>
             <span className="text-xs text-zinc-400 dark:text-slate-500 font-mono">{completedCount}/{results.length}</span>
           </div>
         </div>
@@ -192,6 +181,20 @@ export default function TestSidebar({
                        text-zinc-700 dark:text-slate-200 placeholder-zinc-400 dark:placeholder-slate-500
                        focus:outline-hidden focus:ring-1 focus:ring-brand-500/30 focus:border-brand-500"
           />
+        </div>
+
+        <div className="rounded-md border border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-800/70 px-2.5 py-2">
+          <div className="flex items-start gap-2">
+            <HelpCircle className="w-3.5 h-3.5 text-zinc-400 mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-zinc-700 dark:text-slate-200">
+                How to read this list
+              </p>
+              <p className="text-[11px] text-zinc-500 dark:text-slate-400 leading-relaxed mt-0.5">
+                {detailText} Blue means running, amber clipboard means manual action needed, and green/red show completed results.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 

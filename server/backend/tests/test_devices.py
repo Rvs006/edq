@@ -257,3 +257,55 @@ async def test_discover_device_ip_uses_detected_networks(client: AsyncClient, mo
     assert resp.json()["ip_address"] == "10.42.0.99"
     assert scanned_targets[0] == "10.42.0.0/24"
     assert "192.168.1.0/24" not in scanned_targets
+
+
+@pytest.mark.asyncio
+async def test_discover_device_ip_populates_vendor_from_mac_lookup(client: AsyncClient, monkeypatch):
+    headers = await register_and_login(client, "devdiscovervendor", role="admin")
+    create_resp = await client.post("/api/devices/", json={
+        "mac_address": "BC:6A:44:01:0A:96",
+        "hostname": "commend-device",
+        "addressing_mode": "dhcp",
+        "category": "intercom",
+    }, headers=headers)
+    assert create_resp.status_code == 201
+    device_id = create_resp.json()["id"]
+
+    async def fake_detect_networks():
+        return {
+            "interfaces": [
+                {
+                    "cidr": "192.168.4.0/24",
+                    "sample_hosts": ["192.168.4.1"],
+                    "reachable": True,
+                }
+            ],
+            "host_ip": "192.168.4.10",
+            "in_docker": False,
+            "scan_recommendation": None,
+            "debug": {},
+        }
+
+    async def fake_nmap(target: str, args=None, timeout: int = 300):
+        assert target == "192.168.4.0/24"
+        return {
+            "stdout": (
+                "Nmap scan report for 192.168.4.66\n"
+                "Host is up (0.0010s latency).\n"
+                "MAC Address: BC:6A:44:01:0A:96\n"
+            )
+        }
+
+    async def fake_mac_vendor(mac: str):
+        assert mac == "BC:6A:44:01:0A:96"
+        return {"vendor": "Commend International GmbH"}
+
+    monkeypatch.setattr("app.services.device_ip_discovery.tools_client.detect_networks", fake_detect_networks)
+    monkeypatch.setattr("app.services.device_ip_discovery.tools_client.nmap", fake_nmap)
+    monkeypatch.setattr("app.services.mac_vendor.tools_client.mac_vendor", fake_mac_vendor)
+
+    resp = await client.post(f"/api/devices/{device_id}/discover-ip", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["ip_address"] == "192.168.4.66"
+    assert resp.json()["manufacturer"] == "Commend International GmbH"
+    assert resp.json()["oui_vendor"] == "Commend International GmbH"

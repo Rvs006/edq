@@ -63,7 +63,7 @@ describe('LandingPage', () => {
     renderLandingPage()
 
     expect(screen.getByText('What EDQ Does')).toBeInTheDocument()
-    expect(screen.getByText(/43 tests \(29 automated \+ 14 guided manual\)/)).toBeInTheDocument()
+    expect(screen.getByText(/60 tests \(29 automated \+ 31 guided manual\)/)).toBeInTheDocument()
     expect(screen.getByText(/Export Excel, Word, and PDF reports/)).toBeInTheDocument()
   })
 
@@ -72,6 +72,14 @@ describe('LandingPage', () => {
 
     expect(screen.getByText('Workflow')).toBeInTheDocument()
     expect(screen.getByText('Security Tools')).toBeInTheDocument()
+  })
+
+  it('shows the practical usage guide', () => {
+    renderLandingPage()
+
+    expect(screen.getByText('How to use EDQ effectively')).toBeInTheDocument()
+    expect(screen.getByText(/If the device uses DHCP, register its MAC address/)).toBeInTheDocument()
+    expect(screen.getByText(/Open the explainer first/)).toBeInTheDocument()
   })
 
   it('displays the footer with Electracom branding', () => {

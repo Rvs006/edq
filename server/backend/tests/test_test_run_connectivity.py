@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.device import Device
+from app.models.device import AddressingMode, Device
 from app.models.test_run import TestRun, TestRunStatus
 from app.models.test_template import TestTemplate
 from app.models.user import User
@@ -141,3 +141,72 @@ async def test_resume_paused_cable_run_succeeds_when_device_is_reachable(
     saved_run = await db_session.get(TestRun, run_id)
     assert saved_run is not None
     assert saved_run.status == TestRunStatus.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_start_run_discovers_ip_for_dhcp_device_before_launch(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = await register_and_login(client, suffix="startDhcp")
+    user_id = await _get_user_id(db_session, "startDhcpuser")
+    device = Device(
+        ip_address=None,
+        mac_address="BC:6A:44:01:0A:96",
+        addressing_mode=AddressingMode.DHCP,
+        category="unknown",
+        status="discovered",
+    )
+    db_session.add(device)
+    await db_session.flush()
+    await db_session.refresh(device)
+    template_id = await _create_template(db_session)
+    run = TestRun(
+        device_id=device.id,
+        template_id=template_id,
+        engineer_id=user_id,
+        connection_scenario="direct",
+        total_tests=1,
+        status=TestRunStatus.PENDING,
+    )
+    db_session.add(run)
+    await db_session.flush()
+    await db_session.refresh(run)
+    await db_session.commit()
+
+    launched: list[str] = []
+
+    async def fake_discover_ip(_db, mac_address: str):
+        from app.services.device_ip_discovery import DeviceIpDiscoveryResult
+        assert mac_address == "BC:6A:44:01:0A:96"
+        return DeviceIpDiscoveryResult(
+            discovered_ip="192.168.4.66",
+            vendor="Commend International GmbH",
+            scanned_subnets=["192.168.4.0/24"],
+            successful_scans=1,
+        )
+
+    async def fake_probe(_ip: str, _ports=None):
+        return (True, "tcp:443")
+
+    def fake_launch(run_id: str, test_plan_id: str | None = None):
+        launched.append(run_id)
+        return object()
+
+    monkeypatch.setattr("app.routes.test_runs.discover_ip_for_mac", fake_discover_ip)
+    monkeypatch.setattr("app.routes.test_runs.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.routes.test_runs.launch_test_run", fake_launch)
+
+    resp = await client.post(f"/api/test-runs/{run.id}/start", headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "running"
+    assert launched == [run.id]
+
+    device_id = device.id
+    db_session.expire_all()
+    saved_device = await db_session.get(Device, device_id)
+    assert saved_device is not None
+    assert saved_device.ip_address == "192.168.4.66"
+    assert saved_device.manufacturer == "Commend International GmbH"
