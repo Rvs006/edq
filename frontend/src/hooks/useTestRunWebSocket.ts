@@ -13,6 +13,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
   const [messages, setMessages] = useState<TestRunProgressMessage[]>([])
   const [lastProgress, setLastProgress] = useState<TestRunProgressMessage | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [hasConnectedOnce, setHasConnectedOnce] = useState(false)
   const [isFresh, setIsFresh] = useState(false)
   const [cableStatus, setCableStatus] = useState<CableStatus>('connected')
   const [terminalOutput, setTerminalOutput] = useState<Record<string, string>>({})
@@ -59,6 +60,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
 
       ws.onopen = () => {
         setIsConnected(true)
+        setHasConnectedOnce(true)
         if (reconnectAttempts.current > 0) {
           setReconnectCount((count: number) => count + 1)
           console.warn('[WS] Reconnected - triggering state sync')
@@ -194,6 +196,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
       setMessages([])
       setLastProgress(null)
       setIsConnected(false)
+      setHasConnectedOnce(false)
       setIsFresh(false)
       setCableStatus('connected')
       setTerminalOutput({})
@@ -209,6 +212,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
       setMessages([])
       setLastProgress(null)
       setIsConnected(false)
+      setHasConnectedOnce(false)
       setIsFresh(false)
       setCableStatus('connected')
       setTerminalOutput({})
@@ -243,6 +247,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
     messages,
     lastProgress,
     isConnected,
+    hasConnectedOnce,
     isFresh,
     cableStatus,
     terminalOutput,

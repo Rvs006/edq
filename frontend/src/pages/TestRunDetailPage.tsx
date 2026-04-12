@@ -482,14 +482,15 @@ export default function TestRunDetailPage() {
       : ''
 
   // Cable alert: prefer WS cable status, but fall back to REST poll status.
-  // Also treat WS disconnection during an active run as a warning signal.
+  // Only treat WS disconnection as a warning if the socket was previously
+  // connected — avoids a false "reconnecting" flash on page load/refresh.
   const isRunActive = isActiveTestRunStatus(run.status)
   const cableAlertStatus =
     ws.cableStatus !== 'connected'
       ? ws.cableStatus
       : run.status === 'paused_cable'
         ? 'disconnected'
-        : !ws.isConnected && isRunActive
+        : ws.hasConnectedOnce && !ws.isConnected && isRunActive
           ? 'reconnecting'
           : 'connected'
 
