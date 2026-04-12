@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { ChevronDown, ChevronUp, Terminal, FileSearch, Pencil, ShieldAlert } from 'lucide-react'
-import LiveTerminal from './LiveTerminal'
 import ManualTestForm from './ManualTestForm'
 import VerdictBadge from '@/components/common/VerdictBadge'
 import TestExplainer from '@/components/common/TestExplainer'
+
+const LiveTerminal = lazy(() => import('./LiveTerminal'))
 
 export interface TestResultDetail {
   id: string
@@ -152,7 +153,15 @@ export default function TestDetail({
                 Terminal Output
               </h3>
             </div>
-            <LiveTerminal output={termOutput} className="h-[240px]" />
+            <Suspense
+              fallback={
+                <div className="h-[240px] rounded-lg border border-zinc-700/50 bg-zinc-950/80 flex items-center justify-center text-xs text-zinc-400">
+                  Loading terminal...
+                </div>
+              }
+            >
+              <LiveTerminal output={termOutput} className="h-[240px]" />
+            </Suspense>
           </div>
         )}
 

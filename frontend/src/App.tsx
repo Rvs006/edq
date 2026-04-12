@@ -1,33 +1,34 @@
-import type { ReactNode } from 'react'
+import { Suspense, lazy, type ReactNode } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { ErrorBoundary, PageErrorBoundary } from './components/common/ErrorBoundary'
 import SkipToContent from './components/common/SkipToContent'
-import LandingPage from './pages/LandingPage'
-import LoginPage from './pages/LoginPage'
-import DashboardPage from './pages/DashboardPage'
-import DevicesPage from './pages/DevicesPage'
-import DeviceDetailPage from './pages/DeviceDetailPage'
-import DeviceComparePage from './pages/DeviceComparePage'
-import TestRunsPage from './pages/TestRunsPage'
-import TestRunDetailPage from './pages/TestRunDetailPage'
-import TemplatesPage from './pages/TemplatesPage'
-import WhitelistsPage from './pages/WhitelistsPage'
-import ReportsPage from './pages/ReportsPage'
-import AuditLogPage from './pages/AuditLogPage'
-import SettingsPage from './pages/SettingsPage'
-import ReviewQueuePage from './pages/ReviewQueuePage'
-import AdminPage from './pages/AdminPage'
-import NetworkScanPage from './pages/NetworkScanPage'
-import TestPlansPage from './pages/TestPlansPage'
-import ScanSchedulesPage from './pages/ScanSchedulesPage'
-import AgentsPage from './pages/AgentsPage'
-import DeviceProfilesPage from './pages/DeviceProfilesPage'
-import AuthorizedNetworksPage from './pages/AuthorizedNetworksPage'
-import ProjectsPage from './pages/ProjectsPage'
-import NotFoundPage from './pages/NotFoundPage'
 import GuidedTour, { useTourState } from './components/tour/GuidedTour'
+
+const LandingPage = lazy(() => import('./pages/LandingPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const DevicesPage = lazy(() => import('./pages/DevicesPage'))
+const DeviceDetailPage = lazy(() => import('./pages/DeviceDetailPage'))
+const DeviceComparePage = lazy(() => import('./pages/DeviceComparePage'))
+const TestRunsPage = lazy(() => import('./pages/TestRunsPage'))
+const TestRunDetailPage = lazy(() => import('./pages/TestRunDetailPage'))
+const TemplatesPage = lazy(() => import('./pages/TemplatesPage'))
+const WhitelistsPage = lazy(() => import('./pages/WhitelistsPage'))
+const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+const AuditLogPage = lazy(() => import('./pages/AuditLogPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const ReviewQueuePage = lazy(() => import('./pages/ReviewQueuePage'))
+const AdminPage = lazy(() => import('./pages/AdminPage'))
+const NetworkScanPage = lazy(() => import('./pages/NetworkScanPage'))
+const TestPlansPage = lazy(() => import('./pages/TestPlansPage'))
+const ScanSchedulesPage = lazy(() => import('./pages/ScanSchedulesPage'))
+const AgentsPage = lazy(() => import('./pages/AgentsPage'))
+const DeviceProfilesPage = lazy(() => import('./pages/DeviceProfilesPage'))
+const AuthorizedNetworksPage = lazy(() => import('./pages/AuthorizedNetworksPage'))
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 function LoadingScreen() {
   return (
@@ -58,9 +59,11 @@ function LoginGate() {
   if (loading) return <LoadingScreen />
   if (isAuthenticated) return <Navigate to="/" replace />
   return (
-    <main id="main-content" tabIndex={-1}>
-      <LoginPage />
-    </main>
+    <Suspense fallback={<LoadingScreen />}>
+      <main id="main-content" tabIndex={-1}>
+        <LoginPage />
+      </main>
+    </Suspense>
   )
 }
 
@@ -85,9 +88,11 @@ function AppShell() {
   if (!isAuthenticated) {
     if (location.pathname === '/') {
       return (
-        <main id="main-content" tabIndex={-1}>
-          <LandingPage />
-        </main>
+        <Suspense fallback={<LoadingScreen />}>
+          <main id="main-content" tabIndex={-1}>
+            <LandingPage />
+          </main>
+        </Suspense>
       )
     }
     const raw = `${location.pathname}${location.search}${location.hash}`
@@ -99,29 +104,31 @@ function AppShell() {
     <>
       <DashboardLayout>
         <PageErrorBoundary>
-          <Routes>
-            <Route path="/" element={<DashboardPage tourState={tour} />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/devices" element={<DevicesPage />} />
-            <Route path="/devices/compare" element={<DeviceComparePage />} />
-            <Route path="/devices/:id" element={<DeviceDetailPage />} />
-            <Route path="/test-runs" element={<TestRunsPage />} />
-            <Route path="/test-runs/:id" element={<TestRunDetailPage />} />
-            <Route path="/templates" element={<TemplatesPage />} />
-            <Route path="/whitelists" element={<WhitelistsPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/review" element={<RequireRole allowed={['reviewer', 'admin']}><ReviewQueuePage /></RequireRole>} />
-            <Route path="/admin" element={<RequireRole allowed={['admin']}><AdminPage /></RequireRole>} />
-            <Route path="/audit-log" element={<RequireRole allowed={['reviewer', 'admin']}><AuditLogPage /></RequireRole>} />
-            <Route path="/settings" element={<SettingsPage tourState={tour} />} />
-            <Route path="/network-scan" element={<NetworkScanPage />} />
-            <Route path="/test-plans" element={<TestPlansPage />} />
-            <Route path="/scan-schedules" element={<ScanSchedulesPage />} />
-            <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/device-profiles" element={<DeviceProfilesPage />} />
-            <Route path="/authorized-networks" element={<AuthorizedNetworksPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
+          <Suspense fallback={<LoadingScreen />}>
+            <Routes>
+              <Route path="/" element={<DashboardPage tourState={tour} />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/devices" element={<DevicesPage />} />
+              <Route path="/devices/compare" element={<DeviceComparePage />} />
+              <Route path="/devices/:id" element={<DeviceDetailPage />} />
+              <Route path="/test-runs" element={<TestRunsPage />} />
+              <Route path="/test-runs/:id" element={<TestRunDetailPage />} />
+              <Route path="/templates" element={<TemplatesPage />} />
+              <Route path="/whitelists" element={<WhitelistsPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/review" element={<RequireRole allowed={['reviewer', 'admin']}><ReviewQueuePage /></RequireRole>} />
+              <Route path="/admin" element={<RequireRole allowed={['admin']}><AdminPage /></RequireRole>} />
+              <Route path="/audit-log" element={<RequireRole allowed={['reviewer', 'admin']}><AuditLogPage /></RequireRole>} />
+              <Route path="/settings" element={<SettingsPage tourState={tour} />} />
+              <Route path="/network-scan" element={<NetworkScanPage />} />
+              <Route path="/test-plans" element={<TestPlansPage />} />
+              <Route path="/scan-schedules" element={<ScanSchedulesPage />} />
+              <Route path="/agents" element={<AgentsPage />} />
+              <Route path="/device-profiles" element={<DeviceProfilesPage />} />
+              <Route path="/authorized-networks" element={<AuthorizedNetworksPage />} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Suspense>
         </PageErrorBoundary>
       </DashboardLayout>
       <GuidedTour

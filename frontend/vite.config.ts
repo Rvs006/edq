@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => {
       target: 'es2022',
       minify: true,
       cssMinify: true,
+      chunkSizeWarningLimit: 1100,
       rollupOptions: {
         output: {
           manualChunks(id: string) {
@@ -60,6 +61,11 @@ export default defineConfig(({ mode }) => {
               return 'vendor-icons'
             }
           },
+        },
+      },
+      rolldownOptions: {
+        checks: {
+          pluginTimings: false,
         },
       },
     },

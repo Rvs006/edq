@@ -158,6 +158,7 @@ __pycache__/
 *.pyo
 .pytest_cache/
 pytest-cache-files-*
+.pytest-cache-files-*/
 .venv/
 .venv-backend*/
 .venv-wsl/
