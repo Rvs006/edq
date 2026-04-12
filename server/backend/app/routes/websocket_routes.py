@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from typing import Dict, Optional, Set
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 import jwt
@@ -66,15 +67,71 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def _normalize_origin(origin: str) -> tuple[str, str] | None:
+    raw_origin = str(origin or "").strip()
+    if not raw_origin:
+        return None
+    parsed = urlsplit(raw_origin)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return parsed.scheme.lower(), parsed.netloc.lower()
+
+
+def _same_host_origins(websocket: WebSocket) -> set[tuple[str, str]]:
+    host = (
+        websocket.headers.get("x-forwarded-host")
+        or websocket.headers.get("host")
+        or ""
+    ).strip().lower()
+    if not host:
+        return set()
+
+    forwarded_proto = (
+        websocket.headers.get("x-forwarded-proto")
+        or ""
+    ).split(",")[0].strip().lower()
+    if forwarded_proto in {"http", "https"}:
+        return {(forwarded_proto, host)}
+    return {("http", host), ("https", host)}
+
+
 def _validate_ws_origin(websocket: WebSocket) -> bool:
     """Validate that the WebSocket Origin header matches allowed origins."""
     origin = websocket.headers.get("origin", "")
     if not origin:
         return True  # Same-origin requests may omit Origin
+    normalized_origin = _normalize_origin(origin)
+    if normalized_origin is None:
+        logger.warning(
+            "WS origin rejected: invalid origin header origin=%r host=%r forwarded_host=%r forwarded_proto=%r",
+            origin,
+            websocket.headers.get("host"),
+            websocket.headers.get("x-forwarded-host"),
+            websocket.headers.get("x-forwarded-proto"),
+        )
+        return False
     allowed = getattr(settings, "CORS_ORIGINS", [])
     if "*" in allowed:
         return True
-    return origin in allowed
+    normalized_allowed = {
+        candidate
+        for candidate in (_normalize_origin(value) for value in allowed)
+        if candidate is not None
+    }
+    if normalized_origin in normalized_allowed:
+        return True
+    if normalized_origin in _same_host_origins(websocket):
+        return True
+    logger.warning(
+        "WS origin rejected: origin=%r normalized=%r host=%r forwarded_host=%r forwarded_proto=%r allowed=%r",
+        origin,
+        normalized_origin,
+        websocket.headers.get("host"),
+        websocket.headers.get("x-forwarded-host"),
+        websocket.headers.get("x-forwarded-proto"),
+        sorted(normalized_allowed),
+    )
+    return False
 
 
 async def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
@@ -83,23 +140,34 @@ async def _authenticate_ws(websocket: WebSocket) -> Optional[dict]:
         return None
     token = websocket.cookies.get(SESSION_COOKIE)
     if not token:
+        logger.warning(
+            "WS auth rejected: missing session cookie path=%s host=%r forwarded_host=%r",
+            websocket.url.path,
+            websocket.headers.get("host"),
+            websocket.headers.get("x-forwarded-host"),
+        )
         return None
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         if payload.get("type") != "access":
+            logger.warning("WS auth rejected: non-access token path=%s", websocket.url.path)
             return None
         user_id = payload.get("sub")
         if not user_id:
+            logger.warning("WS auth rejected: token missing sub path=%s", websocket.url.path)
             return None
         async with async_session() as db:
             result = await db.execute(select(User).where(User.id == user_id))
             user = result.scalar_one_or_none()
             if not user or not user.is_active:
+                logger.warning("WS auth rejected: inactive or missing user user_id=%r path=%s", user_id, websocket.url.path)
                 return None
             if is_access_token_revoked_for_user(user, payload):
+                logger.warning("WS auth rejected: revoked token user_id=%r path=%s", user_id, websocket.url.path)
                 return None
         return payload
     except InvalidTokenError:
+        logger.warning("WS auth rejected: invalid token path=%s", websocket.url.path)
         return None
 
 
@@ -130,6 +198,7 @@ async def test_run_ws(websocket: WebSocket, run_id: str):
         return
 
     if not await _authorize_test_run(payload, run_id):
+        logger.warning("WS auth rejected: access denied run_id=%s user_id=%r role=%r", run_id, payload.get("sub"), payload.get("role"))
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Access denied")
         return
 
@@ -186,6 +255,7 @@ async def discovery_ws(websocket: WebSocket, task_id: str):
         return
 
     if not await _authorize_discovery_task(payload, task_id):
+        logger.warning("WS auth rejected: discovery access denied task_id=%s user_id=%r role=%r", task_id, payload.get("sub"), payload.get("role"))
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Access denied")
         return
 

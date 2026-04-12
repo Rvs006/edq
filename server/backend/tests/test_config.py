@@ -1,6 +1,6 @@
 """Configuration tests for runtime defaults and explicit overrides."""
 
-from app.config import Settings
+from app.config import Settings, _apply_runtime_security_guards
 
 
 def _base_settings(**overrides) -> Settings:
@@ -46,3 +46,40 @@ def test_log_json_defaults_follow_debug_mode():
 
     assert prod_settings.LOG_JSON is True
     assert debug_settings.LOG_JSON is False
+
+
+def test_docker_environment_keeps_localhost_cors_origins():
+    settings = _apply_runtime_security_guards(
+        _base_settings(
+            DEBUG=False,
+            ENVIRONMENT="docker",
+            CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000"],
+        )
+    )
+
+    assert settings.CORS_ORIGINS == ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+def test_secure_docker_environment_strips_localhost_cors_origins():
+    settings = _apply_runtime_security_guards(
+        _base_settings(
+            DEBUG=False,
+            ENVIRONMENT="docker",
+            COOKIE_SECURE=True,
+            CORS_ORIGINS=["https://edq.example.com", "http://localhost:3000", "http://127.0.0.1:3000"],
+        )
+    )
+
+    assert settings.CORS_ORIGINS == ["https://edq.example.com"]
+
+
+def test_cloud_environment_strips_localhost_cors_origins():
+    settings = _apply_runtime_security_guards(
+        _base_settings(
+            DEBUG=False,
+            ENVIRONMENT="cloud",
+            CORS_ORIGINS=["https://edq.example.com", "http://localhost:3000"],
+        )
+    )
+
+    assert settings.CORS_ORIGINS == ["https://edq.example.com"]

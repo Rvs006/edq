@@ -207,6 +207,42 @@ import secrets as _secrets
 import sys as _sys
 import warnings as _warnings
 
+
+def _apply_runtime_security_guards(runtime_settings: Settings) -> Settings:
+    localhost_origins = [
+        origin
+        for origin in runtime_settings.CORS_ORIGINS
+        if "localhost" in origin or "127.0.0.1" in origin
+    ]
+    localhost_only = bool(runtime_settings.CORS_ORIGINS) and len(localhost_origins) == len(
+        runtime_settings.CORS_ORIGINS
+    )
+    production_like_env = runtime_settings.ENVIRONMENT == "cloud" or (
+        runtime_settings.ENVIRONMENT == "docker" and runtime_settings.COOKIE_SECURE
+    )
+
+    if localhost_origins and production_like_env:
+        runtime_settings.CORS_ORIGINS = [
+            origin for origin in runtime_settings.CORS_ORIGINS if origin not in localhost_origins
+        ]
+        _warnings.warn(
+            "[EDQ SECURITY] Stripped localhost origins from CORS_ORIGINS in production: "
+            f"{localhost_origins}. Only non-localhost origins remain.",
+            stacklevel=2,
+        )
+
+    if not runtime_settings.COOKIE_SECURE and production_like_env and not localhost_only:
+        _warnings.warn(
+            "[EDQ SECURITY] COOKIE_SECURE=false in production mode — session cookies will be "
+            "sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",
+            stacklevel=2,
+        )
+
+    return runtime_settings
+
+
+settings = _apply_runtime_security_guards(settings)
+
 # INITIAL_ADMIN_PASSWORD must be set explicitly
 if not settings.INITIAL_ADMIN_PASSWORD:
     _generated = _secrets.token_urlsafe(16)
@@ -248,26 +284,6 @@ if len(settings.TOOLS_API_KEY) < 32:
         "Generate a strong key with: openssl rand -hex 32"
     )
     raise RuntimeError(_msg)
-
-_localhost_origins = [o for o in settings.CORS_ORIGINS if "localhost" in o or "127.0.0.1" in o]
-_localhost_only = bool(settings.CORS_ORIGINS) and len(_localhost_origins) == len(settings.CORS_ORIGINS)
-if _localhost_origins and not settings.DEBUG:
-    # Auto-strip localhost origins in production to prevent accidental CORS bypass.
-    # Previously guarded by `not _localhost_only` which incorrectly skipped stripping
-    # when ALL origins were localhost (the most dangerous production misconfiguration).
-    settings.CORS_ORIGINS = [o for o in settings.CORS_ORIGINS if o not in _localhost_origins]
-    _warnings.warn(
-        "[EDQ SECURITY] Stripped localhost origins from CORS_ORIGINS in production: "
-        f"{_localhost_origins}. Only non-localhost origins remain.",
-        stacklevel=2,
-    )
-
-if not settings.COOKIE_SECURE and not settings.DEBUG and not _localhost_only:
-    _warnings.warn(
-        "[EDQ SECURITY] COOKIE_SECURE=false in production mode — session cookies will be "
-        "sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",
-        stacklevel=2,
-    )
 
 if settings.DATABASE_URL.startswith("sqlite") and not settings.DEBUG:
     _warnings.warn(
