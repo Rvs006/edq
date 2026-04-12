@@ -56,7 +56,9 @@ services:
         max-file: "5"
 
   postgres:
-    image: postgres:17-alpine
+    build:
+      context: ./server/postgres
+      dockerfile: Dockerfile
     container_name: edq-postgres
     environment:
       POSTGRES_DB: ${DB_NAME:-edq}

@@ -28,7 +28,7 @@ FROM python:3.13-slim
 # (optional — fpdf2 is used by default; set EDQ_USE_LIBREOFFICE=true at runtime)
 ARG INSTALL_LIBREOFFICE=false
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     curl \
     wget \
     nmap \
