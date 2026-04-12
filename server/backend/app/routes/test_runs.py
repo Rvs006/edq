@@ -29,6 +29,7 @@ from app.services.discovery_service import build_device_display_name
 from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, is_run_executing, launch_test_run
+from app.services.wobbly_cable import get_cable_handler
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
 from app.utils.audit import log_action
@@ -550,6 +551,12 @@ async def pause_test_run(
     await db.flush()
     await db.refresh(run)
 
+    # Sync the live cable handler so it does NOT auto-resume the run
+    # while the engineer has manually paused it.
+    handler = get_cable_handler(run_id)
+    if handler:
+        handler.manual_pause()
+
     return {"status": TestRunStatus.PAUSED_MANUAL.value, "message": "Test execution paused", "run_id": run_id}
 
 
@@ -571,6 +578,24 @@ async def pause_test_run_for_cable(
     run.status = TestRunStatus.PAUSED_CABLE
     await db.flush()
     await db.refresh(run)
+
+    # Sync the live cable handler — mark as manually paused so the
+    # monitor loop does NOT auto-resume even if the device is pingable.
+    handler = get_cable_handler(run_id)
+    if handler:
+        handler.manual_pause()
+        await handler.manager.broadcast(
+            f"test-run:{run_id}",
+            {
+                "type": "cable_disconnected",
+                "data": {
+                    "run_id": run_id,
+                    "device_ip": handler.ip,
+                    "message": "Cable issue manually flagged by engineer",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
 
     return {"status": TestRunStatus.PAUSED_CABLE.value, "message": "Cable issue flagged", "run_id": run_id}
 
@@ -604,6 +629,17 @@ async def resume_test_run(
     run.status = TestRunStatus.RUNNING
     await db.flush()
     await db.refresh(run)
+
+    # Sync the live cable handler so the monitor loop exits paused state
+    # and enters TCP grace mode (tolerates TCP failures for 45s).
+    handler = get_cable_handler(run_id)
+    if handler:
+        import time as _time
+        async with handler._resume_lock:
+            handler.is_paused = False
+            handler.is_manually_paused = False
+            handler.consecutive_failures = 0
+            handler._tcp_grace_until = _time.monotonic() + handler.TCP_GRACE_SECONDS
 
     return {"status": "running", "message": "Test execution resumed", "run_id": run_id}
 

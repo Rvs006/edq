@@ -116,12 +116,22 @@ export function useTestRunWebSocket(runId: string | undefined) {
         }
 
         if (msg.type === 'cable_probe') {
-          setCableProbe({
+          const probeData = {
             reachable: Boolean(msg.data.reachable),
             consecutiveFailures: Number(msg.data.consecutive_failures) || 0,
-            failThreshold: Number(msg.data.fail_threshold) || 2,
+            failThreshold: Number(msg.data.fail_threshold) || 3,
             timestamp: String(msg.data.timestamp || ''),
-          })
+          }
+          setCableProbe(probeData)
+
+          // During paused state, if the device becomes reachable, show
+          // "reconnecting" in the UI before the server confirms full resume.
+          // If it goes back to unreachable, revert to "disconnected".
+          if (msg.data.paused && probeData.reachable) {
+            setCableStatus('reconnecting')
+          } else if (msg.data.paused && !probeData.reachable) {
+            setCableStatus('disconnected')
+          }
         }
 
         if (msg.type === 'cable_reconnected') {

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from app.models.database import async_session
@@ -11,17 +12,26 @@ from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.wobbly_cable")
 
+# ---------------------------------------------------------------------------
+# Handler registry — allows REST endpoints (pause-cable, resume) to look up
+# the live in-memory handler for a running test and sync state changes.
+# ---------------------------------------------------------------------------
+_active_handlers: dict[str, "WobblyCableHandler"] = {}
+
+
+def get_cable_handler(run_id: str) -> "WobblyCableHandler | None":
+    """Return the live cable handler for *run_id*, or None if not active."""
+    return _active_handlers.get(run_id)
+
 
 class WobblyCableHandler:
-    FAIL_THRESHOLD = 2
-    RETRY_INTERVAL = 30
+    FAIL_THRESHOLD = 3
+    RETRY_INTERVAL = 5
     STABILITY_WAIT = 8
     TIMEOUT_MINUTES = 5
     PING_INTERVAL = 3
-    # Exponential backoff ceiling for the probe loop while the device is
-    # unreachable. Keeps CPU/network burn low when the host has no route to
-    # the target. Reset to PING_INTERVAL on the first successful probe.
     MAX_PING_INTERVAL = 30
+    TCP_GRACE_SECONDS = 45
 
     def __init__(self, ip: str, run_id: str, ws_manager, probe_ports: list[int] | None = None):
         self.ip = ip
@@ -30,8 +40,21 @@ class WobblyCableHandler:
         self.probe_ports = probe_ports or []
         self.is_running = True
         self.is_paused = False
+        # When True, the monitor loop will NOT auto-resume even if the
+        # device is reachable.  Set by manual pause actions (Flag Cable
+        # button, general pause).  Cleared only by an explicit resume.
+        self.is_manually_paused = False
         self.consecutive_failures = 0
         self._resume_lock = asyncio.Lock()
+        # Monotonic timestamp until which TCP failures are tolerated after
+        # a cable reconnection.  Prevents the "flapping" bug where TCP
+        # services haven't started yet but ICMP is already up.
+        self._tcp_grace_until: float = 0.0
+        _active_handlers[self.run_id] = self
+
+    def update_probe_ports(self, ports: list[int]) -> None:
+        """Hot-update the port list used for TCP reachability probes."""
+        self.probe_ports = ports
 
     async def check_connectivity(self, require_tcp: bool = True) -> bool:
         """Return True when the device is reachable.
@@ -54,35 +77,38 @@ class WobblyCableHandler:
     async def monitor(self) -> None:
         """Continuous monitoring loop during test execution."""
         logger.info("Cable monitor started for run %s (device %s)", self.run_id, self.ip)
-        # Adaptive probe interval: starts at PING_INTERVAL, doubles on each
-        # failed probe up to MAX_PING_INTERVAL, and resets on any success.
         probe_interval = self.PING_INTERVAL
         try:
             while self.is_running:
-                # During cable-paused state, accept ICMP for reconnection
-                # detection — a ping proves the cable is plugged in even
-                # before TCP services come up.
-                reachable = await self.check_connectivity(
-                    require_tcp=not self.is_paused
+                now_mono = time.monotonic()
+                in_grace = now_mono < self._tcp_grace_until
+
+                # During cable-paused state or TCP grace period, accept ICMP.
+                require_tcp = not self.is_paused and not in_grace
+                reachable = await self.check_connectivity(require_tcp=require_tcp)
+
+                # Always broadcast probe status — including during paused
+                # state — so the frontend can show reconnection progress.
+                await self.manager.broadcast(
+                    f"test-run:{self.run_id}",
+                    {
+                        "type": "cable_probe",
+                        "data": {
+                            "reachable": reachable,
+                            "consecutive_failures": self.consecutive_failures,
+                            "fail_threshold": self.FAIL_THRESHOLD,
+                            "paused": self.is_paused,
+                            "in_grace": in_grace,
+                            "manually_paused": self.is_manually_paused,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    },
                 )
 
-                # Broadcast probe status for UI cable indicator
-                if not self.is_paused:
-                    await self.manager.broadcast(
-                        f"test-run:{self.run_id}",
-                        {
-                            "type": "cable_probe",
-                            "data": {
-                                "reachable": reachable,
-                                "consecutive_failures": self.consecutive_failures,
-                                "fail_threshold": self.FAIL_THRESHOLD,
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                            },
-                        },
-                    )
-
                 if reachable:
-                    if self.is_paused:
+                    if self.is_paused and not self.is_manually_paused:
+                        # Only auto-resume if the pause was caused by a
+                        # detected cable disconnect, NOT by a manual action.
                         logger.info(
                             "Device %s reachable again while run %s is paused; verifying stability",
                             self.ip,
@@ -91,27 +117,35 @@ class WobblyCableHandler:
                         await asyncio.sleep(self.STABILITY_WAIT)
                         if await self.check_connectivity(require_tcp=False):
                             await self._resume_testing()
-                    self.consecutive_failures = 0
+                    async with self._resume_lock:
+                        self.consecutive_failures = 0
                     probe_interval = self.PING_INTERVAL
                 else:
-                    self.consecutive_failures += 1
-                    logger.debug(
-                        "Probe failure %d/%d for %s",
-                        self.consecutive_failures,
-                        self.FAIL_THRESHOLD,
-                        self.ip,
-                    )
-
-                    if self.consecutive_failures >= self.FAIL_THRESHOLD and not self.is_paused:
-                        await self.pause_for_disconnect()
-                        await self._wait_for_reconnection()
-                        # _wait_for_reconnection handles its own pacing; reset
-                        # the probe interval so the main loop resumes normally.
-                        probe_interval = self.PING_INTERVAL
+                    # During TCP grace period, don't count failures toward
+                    # the disconnect threshold — TCP services may still be
+                    # booting after a cable reconnection.
+                    if in_grace:
+                        logger.debug(
+                            "TCP probe failed for %s but in grace period (%ds left)",
+                            self.ip,
+                            int(self._tcp_grace_until - now_mono),
+                        )
                     else:
-                        # Back off exponentially while unreachable to avoid
-                        # burning CPU/network when the host has no route.
-                        probe_interval = min(probe_interval * 2, self.MAX_PING_INTERVAL)
+                        async with self._resume_lock:
+                            self.consecutive_failures += 1
+                        logger.debug(
+                            "Probe failure %d/%d for %s",
+                            self.consecutive_failures,
+                            self.FAIL_THRESHOLD,
+                            self.ip,
+                        )
+
+                        if self.consecutive_failures >= self.FAIL_THRESHOLD and not self.is_paused:
+                            await self.pause_for_disconnect()
+                            await self._wait_for_reconnection()
+                            probe_interval = self.PING_INTERVAL
+                        else:
+                            probe_interval = min(probe_interval * 2, self.MAX_PING_INTERVAL)
 
                 await asyncio.sleep(probe_interval)
         except asyncio.CancelledError:
@@ -170,17 +204,54 @@ class WobblyCableHandler:
             },
         )
 
+    def manual_pause(self) -> None:
+        """Mark the handler as manually paused (prevents auto-resume)."""
+        self.is_paused = True
+        self.is_manually_paused = True
+
     async def _wait_for_reconnection(self) -> None:
-        """Poll until the device comes back, or notify after timeout."""
+        """Poll until the device comes back, or notify after timeout.
+
+        Exits early if the run is resumed externally (e.g. via REST),
+        which clears ``is_paused``.
+        """
         logger.info("Waiting for reconnection to %s (timeout %dm)", self.ip, self.TIMEOUT_MINUTES)
         elapsed = 0
+        attempt = 0
         max_wait = self.TIMEOUT_MINUTES * 60
 
-        while self.is_running and elapsed < max_wait:
-            await asyncio.sleep(self.RETRY_INTERVAL)
-            elapsed += self.RETRY_INTERVAL
+        while self.is_running and self.is_paused and elapsed < max_wait:
+            # Fast initial polling (5s), with gentle backoff up to 15s
+            interval = min(self.RETRY_INTERVAL * (1 + attempt // 3), 15)
+            await asyncio.sleep(interval)
+            elapsed += interval
+            attempt += 1
+
+            # Exit immediately if resumed externally (REST resume endpoint)
+            if not self.is_paused:
+                logger.info("Run %s was resumed externally during reconnection wait", self.run_id)
+                return
 
             reachable = await self.check_connectivity(require_tcp=False)
+
+            # Broadcast reconnection progress so the UI can show it
+            # Use live state instead of hardcoded values
+            await self.manager.broadcast(
+                f"test-run:{self.run_id}",
+                {
+                    "type": "cable_probe",
+                    "data": {
+                        "reachable": reachable,
+                        "consecutive_failures": self.consecutive_failures,
+                        "fail_threshold": self.FAIL_THRESHOLD,
+                        "paused": self.is_paused,
+                        "in_grace": time.monotonic() < self._tcp_grace_until,
+                        "manually_paused": self.is_manually_paused,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                },
+            )
+
             if reachable:
                 logger.info(
                     "Device %s back online - waiting %ds for stability",
@@ -195,7 +266,7 @@ class WobblyCableHandler:
 
                 logger.warning("Device %s went down again during stability wait", self.ip)
 
-        if elapsed >= max_wait:
+        if self.is_paused and elapsed >= max_wait:
             await self._mark_paused_cable()
 
     async def _resume_testing(self) -> None:
@@ -204,8 +275,13 @@ class WobblyCableHandler:
             if not self.is_paused:
                 return
             self.is_paused = False
-        self.consecutive_failures = 0
-        logger.info("Resuming test run %s after cable reconnection", self.run_id)
+            self.is_manually_paused = False
+            self.consecutive_failures = 0
+            # Start TCP grace period — don't require TCP for 45s after resume
+            # because services need time to bind ports after link-up.
+            self._tcp_grace_until = time.monotonic() + self.TCP_GRACE_SECONDS
+
+        logger.info("Resuming test run %s after cable reconnection (TCP grace %ds)", self.run_id, self.TCP_GRACE_SECONDS)
 
         try:
             async with async_session() as session:
@@ -269,5 +345,6 @@ class WobblyCableHandler:
         )
 
     def stop(self) -> None:
-        """Stop the monitoring loop."""
+        """Stop the monitoring loop and unregister from the handler registry."""
         self.is_running = False
+        _active_handlers.pop(self.run_id, None)

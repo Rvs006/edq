@@ -135,12 +135,25 @@ async def test_run_ws(websocket: WebSocket, run_id: str):
 
     channel = f"test-run:{run_id}"
     await manager.connect(websocket, channel)
+
+    async def _keepalive():
+        try:
+            while True:
+                await asyncio.sleep(20)
+                await websocket.send_json({"type": "keepalive"})
+        except Exception:
+            pass
+
+    keepalive_task = asyncio.create_task(_keepalive())
     try:
         while True:
             # Receive-only: consume client messages but do not re-broadcast.
             # The server is the sole broadcaster via manager.broadcast().
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
+        keepalive_task.cancel()
         await manager.disconnect(websocket, channel)
 
 

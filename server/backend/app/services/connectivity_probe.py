@@ -39,10 +39,7 @@ def extract_probe_ports(open_ports: Any) -> list[int]:
 async def _tcp_probe(ip: str, port: int, timeout: float) -> tuple[int, bool]:
     writer = None
     try:
-        reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
-        if reader:
-            # The connection succeeding is enough to prove the device is reachable.
-            pass
+        _reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
         return (port, True)
     except Exception:
         return (port, False)
@@ -58,7 +55,7 @@ async def _tcp_probe(ip: str, port: int, timeout: float) -> tuple[int, bool]:
 async def probe_device_connectivity(
     ip: str,
     probe_ports: list[int] | None = None,
-    tcp_timeout: float = 1.5,
+    tcp_timeout: float = 3.0,
 ) -> tuple[bool, str | None]:
     """Return whether the target is reachable via ICMP or a quick TCP probe.
 

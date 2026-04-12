@@ -51,14 +51,13 @@ _MAX_CACHE_SIZE = 50
 class _BoundedDict(dict):
     """Dict that evicts the oldest entry when it exceeds max_size.
 
-    NOTE: The asyncio.Lock here guards __setitem__ at the data-structure level,
-    but callers that need a true read-modify-write atomic operation must acquire
-    ``instance._lock`` externally before performing composite operations.
+    Thread-safety note: asyncio is single-threaded, so no lock is needed
+    for __setitem__. Callers that perform composite read-modify-write
+    operations across await points should use their own synchronisation.
     """
     def __init__(self, max_size: int = 20):
         super().__init__()
         self._max_size = max_size
-        self._lock = asyncio.Lock()
 
     def __setitem__(self, key, value):
         if len(self) >= self._max_size and key not in self:
@@ -750,6 +749,11 @@ class TestEngine:
             xml_out = raw.get("stdout", "")
             parsed = nmap_parser.parse_xml(xml_out)
             _PORT_SCAN_CACHE[run_id] = parsed
+            # Hot-update the cable handler's probe ports with newly discovered ports
+            from app.services.wobbly_cable import get_cable_handler
+            _handler = get_cable_handler(run_id)
+            if _handler and parsed.get("open_ports"):
+                _handler.update_probe_ports(extract_probe_ports(parsed["open_ports"]))
             return (parsed, xml_out)
 
         if test_id == "U07":

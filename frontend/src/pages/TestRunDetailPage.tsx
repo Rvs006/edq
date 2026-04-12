@@ -643,7 +643,7 @@ export default function TestRunDetailPage() {
             className="flex-shrink-0 px-4 pt-2 overflow-hidden"
             aria-live="assertive"
           >
-            <WobblyCableAlert status={cableAlertStatus} />
+            <WobblyCableAlert status={cableAlertStatus} probe={ws.cableProbe} />
           </motion.div>
         )}
       </AnimatePresence>
