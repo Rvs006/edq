@@ -2,6 +2,7 @@
 
 import logging
 import os
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -110,7 +111,7 @@ async def upload_branding_logo(
     upload_dir = os.path.join(settings.UPLOAD_DIR, "branding")
     os.makedirs(upload_dir, exist_ok=True)
 
-    logo_filename = f"company_logo{ext}"
+    logo_filename = f"company_logo_{uuid.uuid4().hex[:8]}{ext}"
     logo_path = os.path.join(upload_dir, logo_filename)
 
     with open(logo_path, "wb") as f:
@@ -122,6 +123,15 @@ async def upload_branding_logo(
         branding = BrandingSettings()
         db.add(branding)
         await db.flush()
+
+    # Remove old logo file to avoid stale files accumulating
+    if branding.logo_path:
+        old_logo = os.path.join(upload_dir, branding.logo_path)
+        if os.path.isfile(old_logo):
+            try:
+                os.remove(old_logo)
+            except OSError:
+                logger.warning("Failed to remove old logo: %s", old_logo)
 
     branding.logo_path = logo_filename
     await db.flush()
