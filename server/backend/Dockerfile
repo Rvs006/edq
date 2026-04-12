@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     perl \
     libnet-ssleay-perl \
+    snmp \
     && setcap cap_net_raw,cap_net_admin+ep /usr/bin/nmap \
     && rm -rf /var/lib/apt/lists/*
 

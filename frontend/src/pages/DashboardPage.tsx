@@ -18,14 +18,17 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
   const deviceStatsQuery = useQuery({
     queryKey: ['device-stats'],
     queryFn: () => devicesApi.stats().then((r) => r.data),
+    refetchInterval: 15000,
   })
   const runStatsQuery = useQuery({
     queryKey: ['run-stats'],
     queryFn: () => testRunsApi.stats().then((r) => r.data),
+    refetchInterval: 15000,
   })
   const recentRunsQuery = useQuery({
     queryKey: ['recent-runs'],
     queryFn: () => testRunsApi.list({ limit: 8 }).then((r) => r.data),
+    refetchInterval: 15000,
   })
 
   const deviceStats = deviceStatsQuery.data

@@ -148,6 +148,8 @@ export default function TestRunDetailPage() {
         tool: r.tool || null,
         is_essential: r.is_essential === 'yes',
         comment: r.comment || null,
+        duration_seconds: r.duration_seconds ?? null,
+        started_at: r.started_at || null,
       })),
     [results]
   )
@@ -192,6 +194,19 @@ export default function TestRunDetailPage() {
 
   const progressPct =
     results.length > 0 ? Math.round((completedCount / results.length) * 100) : 0
+
+  const etaText = useMemo(() => {
+    const durations = (results as TestResult[])
+      .filter(r => r.duration_seconds && r.duration_seconds > 0 && r.verdict && r.verdict !== 'pending')
+      .map(r => r.duration_seconds!)
+    if (durations.length === 0) return null
+    const avg = durations.reduce((a, b) => a + b, 0) / durations.length
+    const remaining = results.length - completedCount - (runningTestId ? 1 : 0)
+    if (remaining <= 0) return null
+    const etaSecs = Math.round(avg * remaining)
+    if (etaSecs >= 60) return `~${Math.ceil(etaSecs / 60)}m left`
+    return `~${etaSecs}s left`
+  }, [results, completedCount, runningTestId])
 
   const progressSegments = useMemo(() => {
     const segs = { pass: 0, fail: 0, advisory: 0, info: 0, pending: 0, running: 0 }
@@ -716,6 +731,7 @@ export default function TestRunDetailPage() {
           progressPct={run.progress_pct ?? progressPct}
           completedCount={completedCount}
           totalCount={results.length}
+          etaText={etaText}
         />
       </div>
 

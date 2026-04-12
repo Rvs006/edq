@@ -11,6 +11,8 @@ export interface TestResultItem {
   tool?: string | null
   is_essential?: boolean
   comment?: string | null
+  duration_seconds?: number | null
+  started_at?: string | null
 }
 
 interface TestSidebarProps {
@@ -102,6 +104,34 @@ export default function TestSidebar({
 
   const completedCount = results.filter((r) => r.verdict && r.verdict !== 'pending').length
 
+  const { avgDuration, etaText } = useMemo(() => {
+    const durations = results
+      .filter(r => r.duration_seconds && r.duration_seconds > 0 && r.verdict && r.verdict !== 'pending')
+      .map(r => r.duration_seconds!)
+    const avg = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0
+    const remaining = results.length - completedCount - (runningTestId ? 1 : 0)
+    const etaSecs = Math.round(avg * remaining)
+    let eta = ''
+    if (avg > 0 && remaining > 0) {
+      if (etaSecs >= 60) eta = `~${Math.ceil(etaSecs / 60)}m left`
+      else eta = `~${etaSecs}s left`
+    }
+    return { avgDuration: avg, etaText: eta }
+  }, [results, completedCount, runningTestId])
+
+  const queuePositions = useMemo(() => {
+    const positions: Record<string, number> = {}
+    const autoWaiting = autoTests.filter(t => !t.verdict || t.verdict === 'pending')
+    const runningIdx = runningTestId ? autoWaiting.findIndex(t => t.test_id === runningTestId) : -1
+    let pos = 1
+    for (let i = 0; i < autoWaiting.length; i++) {
+      if (autoWaiting[i].test_id === runningTestId) continue
+      if (runningIdx >= 0 && i < runningIdx) continue
+      positions[autoWaiting[i].test_id] = pos++
+    }
+    return positions
+  }, [autoTests, runningTestId])
+
   // Auto-scroll to running test
   useEffect(() => {
     if (runningItemRef.current && scrollContainerRef.current) {
@@ -135,7 +165,10 @@ export default function TestSidebar({
       <div className="px-3 pt-3 pb-2 border-b border-zinc-100 dark:border-slate-700/50 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider">Tests</span>
-          <span className="text-xs text-zinc-400 dark:text-slate-500 font-mono">{completedCount}/{results.length}</span>
+          <div className="flex items-center gap-2">
+            {etaText && <span className="text-[10px] text-blue-500 font-medium">{etaText}</span>}
+            <span className="text-xs text-zinc-400 dark:text-slate-500 font-mono">{completedCount}/{results.length}</span>
+          </div>
         </div>
 
         {/* Overall progress bar */}
@@ -171,6 +204,7 @@ export default function TestSidebar({
               result={t}
               isSelected={t.id === selectedTestId}
               isRunning={t.test_id === runningTestId}
+              queuePosition={queuePositions[t.test_id] || null}
               onClick={() => onSelectTest(t.id)}
             />
           ))}
@@ -183,6 +217,7 @@ export default function TestSidebar({
               result={t}
               isSelected={t.id === selectedTestId}
               isRunning={t.test_id === runningTestId}
+              queuePosition={null}
               onClick={() => onSelectTest(t.id)}
             />
           ))}
@@ -212,8 +247,8 @@ function SidebarSection({ title, count, collapsed, onToggle, children }: {
 }
 
 const SidebarItem = forwardRef<HTMLButtonElement, {
-  result: TestResultItem; isSelected: boolean; isRunning: boolean; onClick: () => void
-}>(function SidebarItem({ result, isSelected, isRunning, onClick }, ref) {
+  result: TestResultItem; isSelected: boolean; isRunning: boolean; queuePosition: number | null; onClick: () => void
+}>(function SidebarItem({ result, isRunning, isSelected, queuePosition, onClick }, ref) {
   const display = getStatusDisplay(result, isRunning)
   const state = getDisplayState(result, isRunning)
 
@@ -224,7 +259,7 @@ const SidebarItem = forwardRef<HTMLButtonElement, {
       className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-all group relative
         ${isSelected ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-300' : ''}
         ${isRunning ? 'bg-blue-50/60 dark:bg-blue-950/30' : ''}
-        ${state === 'waiting' && !isSelected ? 'opacity-60' : ''}
+        ${state === 'waiting' && !isSelected ? 'opacity-50' : ''}
         ${state !== 'waiting' || isSelected ? 'hover:bg-zinc-50 dark:hover:bg-slate-700/40' : 'hover:opacity-60'}
         text-zinc-700 dark:text-slate-200`}
     >
@@ -236,6 +271,8 @@ const SidebarItem = forwardRef<HTMLButtonElement, {
           <Loader2 className="w-4 h-4 animate-spin text-blue-500 mx-auto" />
         ) : display.icon ? (
           <span>{display.icon}</span>
+        ) : queuePosition && queuePosition <= 20 ? (
+          <span className="block w-4 h-4 rounded-full border border-zinc-300 dark:border-slate-600 text-[9px] font-bold text-zinc-400 dark:text-slate-500 leading-[14px] mx-auto">{queuePosition}</span>
         ) : (
           <span className="block w-2 h-2 rounded-full bg-zinc-200 dark:bg-slate-600 mx-auto" />
         )}

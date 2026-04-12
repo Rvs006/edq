@@ -1,14 +1,15 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import ThemeToggle from '@/components/common/ThemeToggle'
 import { ElectracomLogo } from '@/components/common/ElectracomLogo'
+import { devicesApi } from '@/lib/api'
 import {
   LayoutDashboard, Monitor, Play, FileText, Shield, ClipboardList,
   ListChecks, Settings, LogOut, Menu, X, ChevronDown, User,
   Bell, Search, Users, Eye, Network, Activity, CalendarClock, Cpu, ShieldCheck,
-  FolderOpen
+  FolderOpen, AlertCircle
 } from 'lucide-react'
 
 const pageDescriptions: Record<string, string> = {
@@ -106,6 +107,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [statusTooltipOpen, setStatusTooltipOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<{ id: string; ip_address: string; hostname?: string; mac_address?: string; category?: string }[]>([])
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchDone, setSearchDone] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const statusRef = useRef<HTMLDivElement>(null)
   const mobileSidebarRef = useRef<HTMLElement>(null)
@@ -220,8 +227,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (e.key === 'Enter' && searchQuery.trim()) {
       navigate(`/devices?search=${encodeURIComponent(searchQuery.trim())}`)
       setSearchQuery('')
+      setSearchOpen(false)
+      setSearchResults([])
+      setSearchDone(false)
+    }
+    if (e.key === 'Escape') {
+      setSearchOpen(false)
     }
   }
+
+  const handleSearchInput = useCallback((value: string) => {
+    setSearchQuery(value)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!value.trim()) {
+      setSearchResults([])
+      setSearchOpen(false)
+      setSearchDone(false)
+      return
+    }
+    setSearchLoading(true)
+    setSearchOpen(true)
+    setSearchDone(false)
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await devicesApi.list({ search: value.trim(), limit: 6 })
+        const data = Array.isArray(res.data) ? res.data : []
+        setSearchResults(data.map((d: { id: string; ip_address: string | null; hostname?: string | null; mac_address?: string | null; category?: string | null }) => ({
+          id: d.id, ip_address: d.ip_address || '', hostname: d.hostname || undefined, mac_address: d.mac_address || undefined, category: d.category || undefined,
+        })))
+        setSearchDone(true)
+      } catch {
+        setSearchResults([])
+        setSearchDone(true)
+      } finally {
+        setSearchLoading(false)
+      }
+    }, 300)
+  }, [])
+
+  useEffect(() => {
+    function handleClickOutsideSearch(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutsideSearch)
+    return () => document.removeEventListener('mousedown', handleClickOutsideSearch)
+  }, [])
 
   return (
     <div className="min-h-screen bg-surface dark:bg-dark-bg">
@@ -285,16 +337,65 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden sm:flex items-center gap-2 bg-zinc-100 dark:bg-slate-800 rounded-lg px-3 py-1.5 w-56">
-                <Search className="w-4 h-4 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Search devices..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={handleSearch}
-                  className="bg-transparent text-sm text-zinc-700 dark:text-slate-200 placeholder-zinc-400 outline-none w-full"
-                />
+              <div className="hidden sm:block relative" ref={searchRef}>
+                <div className="flex items-center gap-2 bg-zinc-100 dark:bg-slate-800 rounded-lg px-3 py-1.5 w-56">
+                  <Search className="w-4 h-4 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Search devices..."
+                    value={searchQuery}
+                    onChange={(e) => handleSearchInput(e.target.value)}
+                    onKeyDown={handleSearch}
+                    onFocus={() => { if (searchQuery.trim() && searchDone) setSearchOpen(true) }}
+                    className="bg-transparent text-sm text-zinc-700 dark:text-slate-200 placeholder-zinc-400 outline-none w-full"
+                  />
+                </div>
+                {searchOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 z-50 overflow-hidden">
+                    {searchLoading && (
+                      <div className="px-3 py-2.5 text-xs text-zinc-400 flex items-center gap-2">
+                        <div className="w-3 h-3 border-2 border-zinc-300 border-t-brand-500 rounded-full animate-spin" />
+                        Searching...
+                      </div>
+                    )}
+                    {!searchLoading && searchDone && searchResults.length === 0 && (
+                      <div className="px-3 py-3 text-center">
+                        <AlertCircle className="w-4 h-4 text-zinc-300 mx-auto mb-1" />
+                        <p className="text-xs text-zinc-400">No devices found for &quot;{searchQuery}&quot;</p>
+                        <p className="text-[10px] text-zinc-300 dark:text-slate-500 mt-0.5">Press Enter to search all</p>
+                      </div>
+                    )}
+                    {!searchLoading && searchResults.length > 0 && (
+                      <>
+                        {searchResults.map(device => (
+                          <Link
+                            key={device.id}
+                            to={`/devices/${device.id}`}
+                            onClick={() => { setSearchOpen(false); setSearchQuery(''); setSearchDone(false) }}
+                            className="flex items-center gap-3 px-3 py-2 hover:bg-zinc-50 dark:hover:bg-slate-700/50 transition-colors border-b border-zinc-50 dark:border-slate-700/30 last:border-0"
+                          >
+                            <Monitor className="w-4 h-4 text-zinc-400 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-zinc-800 dark:text-slate-200 truncate">
+                                {device.hostname || device.ip_address}
+                              </p>
+                              <p className="text-[10px] text-zinc-400 dark:text-slate-500 truncate">
+                                {device.ip_address}{device.mac_address ? ` / ${device.mac_address}` : ''}{device.category ? ` / ${device.category}` : ''}
+                              </p>
+                            </div>
+                          </Link>
+                        ))}
+                        <Link
+                          to={`/devices?search=${encodeURIComponent(searchQuery)}`}
+                          onClick={() => { setSearchOpen(false); setSearchQuery(''); setSearchDone(false) }}
+                          className="block px-3 py-2 text-xs text-brand-500 hover:bg-zinc-50 dark:hover:bg-slate-700/50 text-center font-medium"
+                        >
+                          View all results
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="relative" ref={statusRef}>

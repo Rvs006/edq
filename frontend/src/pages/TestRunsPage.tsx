@@ -87,19 +87,6 @@ function formatRunName(run: TestRun) {
   return `${device} — ${date}`
 }
 
-function ConfidenceBadge({ score }: { score: number | null }) {
-  if (score == null) return <span className="text-xs text-zinc-400">—</span>
-  const color =
-    score <= 3 ? 'text-red-600 bg-red-50 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800'
-    : score <= 6 ? 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800'
-    : 'text-green-600 bg-green-50 border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-800'
-  return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${color}`}>
-      {score}/10
-    </span>
-  )
-}
-
 function CategoryIcon({ category }: { category: string | null }) {
   if (!category || category === 'unknown') return <Monitor className="w-4 h-4 text-zinc-400" />
   const icons: Record<string, React.ElementType> = {
@@ -248,7 +235,6 @@ export default function TestRunsPage() {
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Status</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">Progress</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Verdict</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Confidence</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden lg:table-cell">Started</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Actions</th>
                 </tr>
@@ -324,9 +310,6 @@ export default function TestRunsPage() {
                       <td className="py-3 px-4">
                         {run.overall_verdict ? <VerdictBadge verdict={run.overall_verdict} /> : <span className="text-xs text-zinc-400">&mdash;</span>}
                       </td>
-                      <td className="py-3 px-4 hidden lg:table-cell">
-                        <ConfidenceBadge score={run.confidence ?? null} />
-                      </td>
                       <td className="py-3 px-4 text-xs text-zinc-500 hidden lg:table-cell">
                         {toLocalDateString(run.started_at || run.created_at)}
                       </td>
@@ -376,7 +359,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
   const [duplicateInfo, setDuplicateInfo] = useState<{
     has_duplicates: boolean
     count: number
-    existing_runs: { id: string; status: string; overall_verdict: string | null; completed_tests: number; total_tests: number; confidence: number; created_at: string }[]
+    existing_runs: { id: string; status: string; overall_verdict: string | null; completed_tests: number; total_tests: number; created_at: string }[]
   } | null>(null)
   const [duplicateAck, setDuplicateAck] = useState(false)
   const queryClient = useQueryClient()
@@ -486,7 +469,6 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
                       <div key={r.id} className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
                         <StatusBadge status={r.status} />
                         <span>{r.completed_tests}/{r.total_tests} tests</span>
-                        <ConfidenceBadge score={r.confidence} />
                         <span className="text-amber-500">{toLocalDateOnly(r.created_at)}</span>
                       </div>
                     ))}

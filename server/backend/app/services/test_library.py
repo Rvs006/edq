@@ -8,27 +8,32 @@ UNIVERSAL_TESTS = [
     {
         "test_id": "U01", "name": "Ping Response", "tier": "automatic", "tool": "nmap",
         "is_essential": True, "description": "Verify device responds to ICMP echo requests.",
-        "compliance_map": ["ISO 27001 A.13.1.1"]
+        "compliance_map": ["ISO 27001 A.13.1.1"],
+        "platform_notes": None
     },
     {
         "test_id": "U02", "name": "MAC Address Vendor Lookup", "tier": "automatic", "tool": "nmap",
         "is_essential": True, "description": "Identify device manufacturer via IEEE OUI database.",
-        "compliance_map": ["ISO 27001 A.8.1.1"]
+        "compliance_map": ["ISO 27001 A.8.1.1"],
+        "platform_notes": "Best results: Linux/Windows host on same subnet. Docker: limited by NAT (L2 adjacency required for MAC)."
     },
     {
         "test_id": "U03", "name": "Switch Negotiation (Speed/Duplex)", "tier": "automatic", "tool": "ethtool",
         "is_essential": False, "description": "Verify Ethernet link negotiation parameters.",
-        "compliance_map": []
+        "compliance_map": [],
+        "platform_notes": "Requires: Linux host with direct Ethernet connection. Not possible via Docker or remote scan."
     },
     {
         "test_id": "U04", "name": "DHCP Behaviour", "tier": "automatic", "tool": "discovery_metadata",
         "is_essential": False, "description": "Determine if device uses DHCP or static IP assignment.",
-        "compliance_map": ["ISO 27001 A.13.1.1"]
+        "compliance_map": ["ISO 27001 A.13.1.1"],
+        "platform_notes": "Docker: detects DHCP server on segment via broadcast. For device-specific DHCP status, check device admin UI."
     },
     {
         "test_id": "U05", "name": "IPv6 Support Detection", "tier": "automatic", "tool": "nmap",
         "is_essential": False, "description": "Check if device has IPv6 enabled and responding.",
-        "compliance_map": ["ISO 27001 A.13.1.1"]
+        "compliance_map": ["ISO 27001 A.13.1.1"],
+        "platform_notes": "Docker: may not work if container lacks IPv6 connectivity."
     },
     {
         "test_id": "U06", "name": "Full TCP Port Scan (All 65535)", "tier": "automatic", "tool": "nmap",
@@ -38,7 +43,8 @@ UNIVERSAL_TESTS = [
     {
         "test_id": "U07", "name": "UDP Top-100 Port Scan", "tier": "automatic", "tool": "nmap",
         "is_essential": False, "description": "Scan top 100 UDP ports for open services.",
-        "compliance_map": ["ISO 27001 A.13.1.1"]
+        "compliance_map": ["ISO 27001 A.13.1.1"],
+        "platform_notes": "Docker: UDP scanning through NAT may miss ports. Direct host connection recommended."
     },
     {
         "test_id": "U08", "name": "Service Version Detection", "tier": "automatic", "tool": "nmap",
@@ -98,7 +104,8 @@ UNIVERSAL_TESTS = [
     {
         "test_id": "U19", "name": "OS Fingerprinting", "tier": "automatic", "tool": "nmap",
         "is_essential": False, "description": "Identify operating system and version.",
-        "compliance_map": ["ISO 27001 A.12.6.1"]
+        "compliance_map": ["ISO 27001 A.12.6.1"],
+        "platform_notes": "Docker: OS detection limited through NAT. Best on Linux host with direct connection."
     },
     {
         "test_id": "U20", "name": "Network Disconnection Behaviour", "tier": "guided_manual", "tool": None,

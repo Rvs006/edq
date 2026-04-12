@@ -21,6 +21,7 @@ interface SessionControlsProps {
   progressPct?: number
   completedCount?: number
   totalCount?: number
+  etaText?: string | null
 }
 
 export default function SessionControls({
@@ -40,6 +41,7 @@ export default function SessionControls({
   progressPct = 0,
   completedCount = 0,
   totalCount = 0,
+  etaText,
 }: SessionControlsProps) {
   const isRunning = runStatus === 'running' || runStatus === 'selecting_interface' || runStatus === 'syncing'
   const isPaused = runStatus === 'paused_manual' || runStatus === 'paused_cable'
@@ -59,7 +61,7 @@ export default function SessionControls({
               {runningTestName ? `Running: ${runningTestName}` : 'Running tests...'}
             </span>
             <span className="text-xs font-mono text-blue-500 ml-auto flex-shrink-0">
-              {completedCount}/{totalCount}
+              {completedCount}/{totalCount}{etaText ? ` \u00B7 ${etaText}` : ''}
             </span>
           </div>
           <div className="w-full h-1.5 bg-blue-100 dark:bg-blue-900/40 rounded-full overflow-hidden">
