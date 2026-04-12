@@ -198,6 +198,14 @@ def _tool_available(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
+def _normalize_mac_address(mac: str) -> str | None:
+    hex_only = re.sub(r"[^0-9A-Fa-f]+", "", str(mac or ""))
+    if len(hex_only) != 12:
+        return None
+    hex_only = hex_only.upper()
+    return ":".join(hex_only[i:i + 2] for i in range(0, 12, 2))
+
+
 def _normalize_mac_prefix(mac: str) -> str | None:
     hex_only = re.sub(r"[^0-9A-Fa-f]+", "", str(mac or ""))
     if len(hex_only) < 6:
@@ -253,6 +261,87 @@ def _lookup_mac_vendor(mac: str) -> str | None:
     if not prefix:
         return None
     return _load_mac_vendor_cache().get(prefix)
+
+
+def _parse_neighbor_table(stdout: str, subnet: str | None = None) -> list[dict[str, str | None]]:
+    network = None
+    if subnet:
+        try:
+            network = ipaddress.ip_network(subnet, strict=False)
+        except ValueError:
+            network = None
+
+    entries: list[dict[str, str | None]] = []
+    seen_ips: set[str] = set()
+
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        ip = None
+        mac = None
+        device = None
+        state = None
+
+        parts = line.split()
+        if parts:
+            try:
+                ipaddress.ip_address(parts[0])
+                ip = parts[0]
+            except ValueError:
+                ip = None
+
+        if ip:
+            if "dev" in parts:
+                dev_index = parts.index("dev")
+                if dev_index + 1 < len(parts):
+                    device = parts[dev_index + 1]
+            if "lladdr" in parts:
+                mac_index = parts.index("lladdr")
+                if mac_index + 1 < len(parts):
+                    mac = _normalize_mac_address(parts[mac_index + 1])
+            last_token = parts[-1].strip().upper()
+            if last_token.isalpha():
+                state = last_token
+        else:
+            arp_match = re.search(
+                r"\((?P<ip>[0-9a-fA-F:.]+)\)\s+at\s+(?P<mac>(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}|<incomplete>)(?:\s+\[[^\]]+\])?(?:\s+on\s+(?P<dev>\S+))?",
+                line,
+            )
+            if arp_match:
+                ip = arp_match.group("ip")
+                device = arp_match.group("dev")
+                raw_mac = arp_match.group("mac")
+                mac = _normalize_mac_address(raw_mac) if raw_mac.lower() != "<incomplete>" else None
+                state = "REACHABLE" if mac else "INCOMPLETE"
+
+        if not ip or ip in seen_ips:
+            continue
+
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+
+        if network and ip_obj not in network:
+            continue
+
+        if not mac or state in {"INCOMPLETE", "FAILED"}:
+            continue
+
+        entries.append(
+            {
+                "ip": ip,
+                "mac": mac,
+                "vendor": _lookup_mac_vendor(mac) if mac else None,
+                "device": device,
+                "state": state,
+            }
+        )
+        seen_ips.add(ip)
+
+    return entries
 
 
 def _check_tool_version(binary: str) -> bool:
@@ -957,6 +1046,35 @@ def scan_arp_cache() -> Union[Response, Tuple[Response, int]]:
 
     # Step 2: read ARP cache
     result = _run_tool(["ip", "neigh", "show", target], timeout=5)
+    return jsonify(result)
+
+
+@app.route("/scan/neighbors", methods=["POST"])
+@require_api_key
+def scan_neighbors() -> Union[Response, Tuple[Response, int]]:
+    data = request.get_json(force=True, silent=True) or {}
+    subnet = data.get("subnet")
+    if subnet is not None:
+        try:
+            subnet = str(ipaddress.ip_network(str(subnet), strict=False))
+        except ValueError:
+            return jsonify({"error": "Invalid subnet"}), 400
+
+    rate_key = subnet or "__neighbors__"
+    if not _check_rate_limit(rate_key):
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+
+    if shutil.which("ip"):
+        result = _run_tool(["ip", "neigh", "show"], timeout=5)
+    elif shutil.which("arp"):
+        arp_args = ["arp", "-a"] if os.name == "nt" else ["arp", "-an"]
+        result = _run_tool(arp_args, timeout=5)
+    else:
+        return jsonify({"error": "Neighbor table tool unavailable"}), 503
+
+    result["entries"] = _parse_neighbor_table(result.get("stdout", ""), subnet)
+    if subnet:
+        result["subnet"] = subnet
     return jsonify(result)
 
 

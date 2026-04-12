@@ -309,3 +309,68 @@ async def test_discover_device_ip_populates_vendor_from_mac_lookup(client: Async
     assert resp.json()["ip_address"] == "192.168.4.66"
     assert resp.json()["manufacturer"] == "Commend International GmbH"
     assert resp.json()["oui_vendor"] == "Commend International GmbH"
+
+
+@pytest.mark.asyncio
+async def test_discover_device_ip_falls_back_to_neighbor_cache_when_nmap_has_no_mac(
+    client: AsyncClient,
+    monkeypatch,
+):
+    headers = await register_and_login(client, "devdiscoverneighbor", role="admin")
+    create_resp = await client.post(
+        "/api/devices/",
+        json={
+            "mac_address": "BA:EF:DD:5D:42:C0",
+            "hostname": "docker-peer",
+            "addressing_mode": "dhcp",
+            "category": "intercom",
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    device_id = create_resp.json()["id"]
+
+    async def fake_detect_networks():
+        return {
+            "interfaces": [
+                {
+                    "cidr": "172.19.0.0/24",
+                    "sample_hosts": ["172.19.0.1"],
+                    "reachable": True,
+                }
+            ],
+            "host_ip": "172.19.0.1",
+            "in_docker": True,
+            "scan_recommendation": None,
+            "debug": {},
+        }
+
+    async def fake_nmap(target: str, args=None, timeout: int = 300):
+        assert target == "172.19.0.0/24"
+        return {
+            "stdout": (
+                "Nmap scan report for edq-frontend.edq_edq-frontend (172.19.0.3)\n"
+                "Host is up (0.00066s latency).\n"
+            )
+        }
+
+    async def fake_neighbors(subnet: str | None = None):
+        assert subnet == "172.19.0.0/24"
+        return {
+            "entries": [
+                {
+                    "ip": "172.19.0.3",
+                    "mac": "BA:EF:DD:5D:42:C0",
+                    "state": "DELAY",
+                    "vendor": None,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.services.device_ip_discovery.tools_client.detect_networks", fake_detect_networks)
+    monkeypatch.setattr("app.services.device_ip_discovery.tools_client.nmap", fake_nmap)
+    monkeypatch.setattr("app.services.device_ip_discovery.tools_client.neighbors", fake_neighbors)
+
+    resp = await client.post(f"/api/devices/{device_id}/discover-ip", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["ip_address"] == "172.19.0.3"

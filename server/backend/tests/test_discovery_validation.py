@@ -43,3 +43,52 @@ async def test_network_scan_rejects_invalid_device_ips(client: AsyncClient):
         headers=headers,
     )
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_network_scan_enriches_missing_mac_from_neighbor_cache(client: AsyncClient, monkeypatch):
+    headers = await register_and_login(client, suffix="netscanneighbor", role="admin")
+    nmap_calls: list[tuple[str, tuple[str, ...] | None]] = []
+
+    async def fake_nmap(target: str, args=None, timeout: int = 300):
+        nmap_calls.append((target, tuple(args) if args else None))
+        if args == ["-sn", "-PR"]:
+            return {
+                "stdout": (
+                    "Nmap scan report for edq-frontend.edq_edq-frontend (172.19.0.3)\n"
+                    "Host is up (0.00066s latency).\n"
+                )
+            }
+        return {"stdout": ""}
+
+    async def fake_neighbors(subnet: str | None = None):
+        assert subnet == "172.19.0.0/24"
+        return {
+            "entries": [
+                {
+                    "ip": "172.19.0.3",
+                    "mac": "BA:EF:DD:5D:42:C0",
+                    "state": "REACHABLE",
+                    "vendor": None,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.routes.network_scan.tools_client.nmap", fake_nmap)
+    monkeypatch.setattr("app.services.device_ip_discovery.tools_client.neighbors", fake_neighbors)
+
+    resp = await client.post(
+        "/api/network-scan/discover",
+        json={
+            "cidr": "172.19.0.0/24",
+            "connection_scenario": "test_lab",
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "pending"
+    assert data["devices_found"][0]["ip"] == "172.19.0.3"
+    assert data["devices_found"][0]["mac"] == "BA:EF:DD:5D:42:C0"
+    assert nmap_calls[0][0] == "172.19.0.0/24"

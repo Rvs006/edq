@@ -22,6 +22,10 @@ from app.models.user import User
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit
 from app.services.discovery_service import build_device_display_name
+from app.services.device_ip_discovery import (
+    enrich_hosts_with_neighbor_entries,
+    get_neighbor_entries,
+)
 from app.services.tools_client import describe_tools_error, tools_client
 from app.services.test_library import get_test_by_id
 from app.services.test_engine import test_engine
@@ -190,6 +194,8 @@ async def discover_devices(
             timeout=120,
         )
         hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
+        neighbor_entries = await get_neighbor_entries(data.cidr)
+        hosts = enrich_hosts_with_neighbor_entries(hosts, neighbor_entries)
 
         # Enrich discovered hosts with service/OS info via quick scan (batched)
         if hosts:

@@ -415,6 +415,17 @@ class ToolsClient:
             timeout=20,
         )
 
+    async def neighbors(self, subnet: str | None = None) -> Dict[str, Any]:
+        """Read the sidecar neighbor cache, optionally filtered to a subnet."""
+        payload: Dict[str, Any] = {}
+        if subnet:
+            payload["subnet"] = subnet
+        return await self._post(
+            "/scan/neighbors",
+            payload,
+            timeout=15,
+        )
+
     async def mac_vendor(self, mac: str) -> Dict[str, Any]:
         """Resolve a MAC/OUI prefix to a vendor name using the sidecar's offline data."""
         return await self._post(

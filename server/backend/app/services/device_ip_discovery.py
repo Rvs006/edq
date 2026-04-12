@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,7 @@ _DEFAULT_DHCP_SCAN_SUBNETS = (
     "10.0.0.0/24",
     "172.16.0.0/24",
 )
+_INVALID_NEIGHBOR_STATES = {"INCOMPLETE", "FAILED"}
 
 
 def _append_scan_cidr(candidates: list[str], candidate: str) -> None:
@@ -136,6 +138,83 @@ class DeviceIpDiscoveryResult:
     error_status: int | None = None
 
 
+def _normalize_neighbor_entries(payload: dict[str, Any] | list[Any] | None) -> list[dict[str, str | None]]:
+    raw_entries = payload
+    if isinstance(payload, dict):
+        raw_entries = payload.get("entries", [])
+    if not isinstance(raw_entries, list):
+        return []
+
+    entries: list[dict[str, str | None]] = []
+    for item in raw_entries:
+        if not isinstance(item, dict):
+            continue
+        ip = str(item.get("ip") or "").strip()
+        mac = normalize_mac(item.get("mac"))
+        state = str(item.get("state") or "").strip().upper() or None
+        vendor = str(item.get("vendor") or "").strip() or None
+        if not ip or not mac or state in _INVALID_NEIGHBOR_STATES:
+            continue
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+        entries.append(
+            {
+                "ip": ip,
+                "mac": mac,
+                "vendor": vendor,
+                "state": state,
+            }
+        )
+    return entries
+
+
+async def get_neighbor_entries(subnet: str | None = None) -> list[dict[str, str | None]]:
+    try:
+        payload = await tools_client.neighbors(subnet=subnet)
+    except Exception as exc:
+        logger.debug("Neighbor cache lookup failed for %s: %s", subnet or "all", exc)
+        return []
+    return _normalize_neighbor_entries(payload)
+
+
+def enrich_hosts_with_neighbor_entries(
+    hosts: list[dict[str, Any]],
+    neighbor_entries: list[dict[str, str | None]],
+) -> list[dict[str, Any]]:
+    if not hosts or not neighbor_entries:
+        return hosts
+
+    entries_by_ip = {
+        str(entry.get("ip")): entry
+        for entry in neighbor_entries
+        if entry.get("ip")
+    }
+    for host in hosts:
+        candidate_ip = str(host.get("ip") or "").strip()
+        if not candidate_ip:
+            continue
+        neighbor = entries_by_ip.get(candidate_ip)
+        if not neighbor:
+            continue
+        if not host.get("mac") and neighbor.get("mac"):
+            host["mac"] = neighbor["mac"]
+        if not host.get("vendor") and neighbor.get("vendor"):
+            host["vendor"] = neighbor["vendor"]
+    return hosts
+
+
+def find_neighbor_entry_for_mac(
+    normalized_mac: str,
+    neighbor_entries: list[dict[str, str | None]],
+) -> dict[str, str | None] | None:
+    for entry in neighbor_entries:
+        if entry.get("mac") == normalized_mac:
+            return entry
+    return None
+
+
 async def discover_ip_for_mac(
     db: AsyncSession,
     mac_address: str,
@@ -161,6 +240,16 @@ async def discover_ip_for_mac(
 
     for subnet in subnets_to_scan:
         try:
+            neighbor_entries = await get_neighbor_entries(subnet=subnet)
+            neighbor_match = find_neighbor_entry_for_mac(normalized_mac, neighbor_entries)
+            if neighbor_match and neighbor_match.get("ip"):
+                result.discovered_ip = neighbor_match["ip"]
+                result.vendor = await resolve_mac_vendor(
+                    neighbor_match.get("mac"),
+                    neighbor_match.get("vendor"),
+                )
+                return result
+
             scan_result = await tools_client.nmap(
                 target=subnet,
                 args=["-sn", "-PR"],
@@ -184,6 +273,16 @@ async def discover_ip_for_mac(
                     continue
                 result.discovered_ip = candidate_ip
                 result.vendor = await resolve_mac_vendor(found_mac, host.get("vendor"))
+                return result
+
+            neighbor_entries = await get_neighbor_entries(subnet=subnet)
+            neighbor_match = find_neighbor_entry_for_mac(normalized_mac, neighbor_entries)
+            if neighbor_match and neighbor_match.get("ip"):
+                result.discovered_ip = neighbor_match["ip"]
+                result.vendor = await resolve_mac_vendor(
+                    neighbor_match.get("mac"),
+                    neighbor_match.get("vendor"),
+                )
                 return result
         except Exception as exc:
             result.last_scan_error = describe_tools_error(

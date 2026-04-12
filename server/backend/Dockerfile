@@ -23,6 +23,9 @@ RUN pip install --no-cache-dir --prefix=/install "ssh-audit==3.3.0" "flask==3.1.
 
 # ---------- Stage 3: runtime (backend + tools combined) ----------
 FROM python:3.13-slim
+ENV HOME=/home/edq
+ENV XDG_CACHE_HOME=/app/.cache
+ENV XDG_CONFIG_HOME=/app/.config
 
 # Set INSTALL_LIBREOFFICE=true to include LibreOffice for PDF conversion
 # (optional — fpdf2 is used by default; set EDQ_USE_LIBREOFFICE=true at runtime)
@@ -77,13 +80,13 @@ COPY templates/ /app/templates/
 COPY tools/server.py /app/tools/server.py
 COPY tools/wordlists/ /usr/share/wordlists/
 
-RUN mkdir -p data uploads reports /app/.cache/dconf /app/tools && \
+RUN mkdir -p data uploads reports /app/.cache/dconf /app/.config /app/tools /home/edq && \
     chmod +x /app/entrypoint.sh
 
 # Run as non-root user. nmap has setcap for raw socket access (line 44).
 # The tools API is only accessible on localhost (same container).
-RUN groupadd -r edq && useradd -r -g edq -s /sbin/nologin edq \
-    && chown -R edq:edq /app data uploads reports
+RUN groupadd -r edq && useradd -r -g edq -d /home/edq -s /sbin/nologin edq \
+    && chown -R edq:edq /app data uploads reports /home/edq
 USER edq
 
 EXPOSE 8000 8001

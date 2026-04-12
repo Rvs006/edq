@@ -179,6 +179,9 @@ server/backend/reports/
 uploads/
 
 # AI agent/session artifacts
+.tmp/
+.verdent/
+.playwright-mcp/
 .agents/
 .claude-flow/
 .hive-mind/
