@@ -8,9 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.device import Device
-from app.models.test_result import TestResult, TestTier, TestVerdict
-from app.models.test_run import TestRun, TestRunStatus
-from app.models.test_template import TestTemplate
+from app.models.test_result import (
+    TestResult as ResultModel,
+    TestTier as ResultTier,
+    TestVerdict as ResultVerdict,
+)
+from app.models.test_run import TestRun as RunModel, TestRunStatus as RunStatus
+from app.models.test_template import TestTemplate as TemplateModel
 from app.models.user import User
 from .conftest import register_and_login
 
@@ -24,7 +28,7 @@ async def _create_device(db: AsyncSession) -> str:
 
 
 async def _create_template(db: AsyncSession) -> str:
-    template = TestTemplate(name="results-template", test_ids=["U01"], version="1.0")
+    template = TemplateModel(name="results-template", test_ids=["U01"], version="1.0")
     db.add(template)
     await db.flush()
     await db.refresh(template)
@@ -39,25 +43,25 @@ async def _get_user_id(db: AsyncSession, username: str) -> str:
 async def _create_run_with_result(db: AsyncSession, engineer_id: str) -> tuple[str, str]:
     device_id = await _create_device(db)
     template_id = await _create_template(db)
-    run = TestRun(
+    run = RunModel(
         device_id=device_id,
         template_id=template_id,
         engineer_id=engineer_id,
         connection_scenario="direct",
         total_tests=1,
-        status=TestRunStatus.PENDING,
+        status=RunStatus.PENDING,
     )
     db.add(run)
     await db.flush()
     await db.refresh(run)
 
-    result = TestResult(
+    result = ResultModel(
         test_run_id=run.id,
         test_id="U01",
         test_name="Ping",
-        tier=TestTier.AUTOMATIC,
+        tier=ResultTier.AUTOMATIC,
         tool="ping",
-        verdict=TestVerdict.PENDING,
+        verdict=ResultVerdict.PENDING,
         is_essential="yes",
         created_at=datetime.now(timezone.utc),
     )

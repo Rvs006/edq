@@ -27,6 +27,7 @@ from app.models.database import Base, get_db
 from app.main import create_app
 from app.middleware.rate_limit import rate_limiter
 from app.models.user import User, UserRole
+from app.services.tools_client import tools_client
 
 # Module-level ref so helpers can access the session factory
 _session_factory: async_sessionmaker | None = None
@@ -36,6 +37,7 @@ _session_factory: async_sessionmaker | None = None
 def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
+    loop.run_until_complete(asyncio.sleep(0))
     loop.close()
 
 
@@ -87,6 +89,7 @@ async def client(db_engine) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+    await tools_client.close()
     # Clear rate limiter state between tests
     rate_limiter._buckets.clear()
 

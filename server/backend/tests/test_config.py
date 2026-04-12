@@ -1,5 +1,7 @@
 """Configuration tests for runtime defaults and explicit overrides."""
 
+import pytest
+
 from app.config import Settings, _apply_runtime_security_guards
 
 
@@ -61,25 +63,30 @@ def test_docker_environment_keeps_localhost_cors_origins():
 
 
 def test_secure_docker_environment_strips_localhost_cors_origins():
-    settings = _apply_runtime_security_guards(
-        _base_settings(
-            DEBUG=False,
-            ENVIRONMENT="docker",
-            COOKIE_SECURE=True,
-            CORS_ORIGINS=["https://edq.example.com", "http://localhost:3000", "http://127.0.0.1:3000"],
+    with pytest.warns(UserWarning, match="Stripped localhost origins"):
+        settings = _apply_runtime_security_guards(
+            _base_settings(
+                DEBUG=False,
+                ENVIRONMENT="docker",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["https://edq.example.com", "http://localhost:3000", "http://127.0.0.1:3000"],
+            )
         )
-    )
 
     assert settings.CORS_ORIGINS == ["https://edq.example.com"]
 
 
 def test_cloud_environment_strips_localhost_cors_origins():
-    settings = _apply_runtime_security_guards(
-        _base_settings(
-            DEBUG=False,
-            ENVIRONMENT="cloud",
-            CORS_ORIGINS=["https://edq.example.com", "http://localhost:3000"],
+    with pytest.warns(UserWarning) as captured:
+        settings = _apply_runtime_security_guards(
+            _base_settings(
+                DEBUG=False,
+                ENVIRONMENT="cloud",
+                CORS_ORIGINS=["https://edq.example.com", "http://localhost:3000"],
+            )
         )
-    )
 
     assert settings.CORS_ORIGINS == ["https://edq.example.com"]
+    messages = [str(warning.message) for warning in captured]
+    assert any("COOKIE_SECURE=false in production environment" in message for message in messages)
+    assert any("Stripped localhost origins" in message for message in messages)

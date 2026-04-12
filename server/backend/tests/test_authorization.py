@@ -8,8 +8,8 @@ from sqlalchemy import select
 from .conftest import register_and_login
 from app.middleware.rate_limit import rate_limiter
 from app.models.device import Device
-from app.models.test_template import TestTemplate
-from app.models.test_run import TestRun, TestRunStatus
+from app.models.test_template import TestTemplate as TemplateModel
+from app.models.test_run import TestRun as RunModel, TestRunStatus as RunStatus
 from app.models.user import User
 
 
@@ -24,7 +24,7 @@ async def _create_device(db: AsyncSession) -> str:
 
 async def _create_template(db: AsyncSession) -> str:
     """Insert a minimal test template and return its ID."""
-    tmpl = TestTemplate(name="auth-test-tmpl", test_ids=[], version="1.0")
+    tmpl = TemplateModel(name="auth-test-tmpl", test_ids=[], version="1.0")
     db.add(tmpl)
     await db.flush()
     await db.refresh(tmpl)
@@ -33,13 +33,13 @@ async def _create_template(db: AsyncSession) -> str:
 
 async def _create_test_run(db: AsyncSession, engineer_id: str, device_id: str, template_id: str) -> str:
     """Insert a test run owned by engineer_id, return its ID."""
-    run = TestRun(
+    run = RunModel(
         device_id=device_id,
         template_id=template_id,
         engineer_id=engineer_id,
         connection_scenario="test_lab",
         total_tests=0,
-        status=TestRunStatus.PENDING,
+        status=RunStatus.PENDING,
     )
     db.add(run)
     await db.flush()

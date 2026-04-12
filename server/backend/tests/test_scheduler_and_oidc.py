@@ -13,9 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import settings
 from app.models.device import Device
 from app.models.scan_schedule import ScanSchedule, ScheduleFrequency
-from app.models.test_result import TestResult
-from app.models.test_run import TestRun, TestRunStatus
-from app.models.test_template import TestTemplate
+from app.models.test_result import TestResult as ResultModel
+from app.models.test_run import TestRun as RunModel, TestRunStatus as RunStatus
+from app.models.test_template import TestTemplate as TemplateModel
 from app.models.user import User
 from app.services import scan_scheduler
 from app.routes import oidc
@@ -24,7 +24,7 @@ from .conftest import register_and_login
 
 async def _create_schedule_fixture(db: AsyncSession, creator_id: str) -> ScanSchedule:
     device = Device(ip_address="10.0.0.77", category="unknown", status="discovered")
-    template = TestTemplate(name="schedule-template", test_ids=["U01"], version="1.0")
+    template = TemplateModel(name="schedule-template", test_ids=["U01"], version="1.0")
     db.add_all([device, template])
     await db.flush()
     await db.refresh(device)
@@ -72,9 +72,9 @@ async def test_due_schedule_launches_background_execution(
 
         async def mark_started():
             async with session_factory() as session:
-                run = await session.get(TestRun, run_id)
+                run = await session.get(RunModel, run_id)
                 assert run is not None
-                run.status = TestRunStatus.RUNNING
+                run.status = RunStatus.RUNNING
                 run.started_at = datetime.now(timezone.utc)
                 await session.commit()
             started.set()
@@ -88,17 +88,17 @@ async def test_due_schedule_launches_background_execution(
 
     async with session_factory() as verify_session:
         runs_result = await verify_session.execute(
-            select(TestRun).where(TestRun.template_id == schedule.template_id)
+            select(RunModel).where(RunModel.template_id == schedule.template_id)
         )
         runs = runs_result.scalars().all()
         assert len(runs) == 1
         run = runs[0]
         assert run.id in launched
-        assert run.status == TestRunStatus.RUNNING
+        assert run.status == RunStatus.RUNNING
         assert run.started_at is not None
 
         results_result = await verify_session.execute(
-            select(TestResult).where(TestResult.test_run_id == run.id)
+            select(ResultModel).where(ResultModel.test_run_id == run.id)
         )
         assert len(results_result.scalars().all()) == 1
 

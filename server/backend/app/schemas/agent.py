@@ -1,6 +1,6 @@
 """Agent schemas."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Any
 from datetime import datetime
 
@@ -14,6 +14,8 @@ class AgentRegister(BaseModel):
 
 
 class AgentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     hostname: Optional[str] = None
@@ -27,10 +29,6 @@ class AgentResponse(BaseModel):
     current_task: Optional[str] = None
     is_active: bool
     created_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class AgentRegisterResponse(BaseModel):
     id: str

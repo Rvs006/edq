@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -44,6 +44,8 @@ class TestPlanUpdate(BaseModel):
 
 
 class TestPlanResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     description: Optional[str] = None
@@ -52,10 +54,6 @@ class TestPlanResponse(BaseModel):
     created_by: str
     created_at: datetime
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
 
 @router.get("/", response_model=List[TestPlanResponse])
 async def list_test_plans(

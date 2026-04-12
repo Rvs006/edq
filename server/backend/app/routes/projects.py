@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from app.models.database import get_db
@@ -38,6 +38,8 @@ class ProjectUpdate(BaseModel):
 
 
 class ProjectResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     description: Optional[str] = None
@@ -50,10 +52,6 @@ class ProjectResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     is_archived: bool
-
-    class Config:
-        from_attributes = True
-
 
 @router.get("/")
 async def list_projects(

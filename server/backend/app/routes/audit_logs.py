@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime, timedelta
 
 from app.models.database import get_db
@@ -19,6 +19,8 @@ router = APIRouter()
 
 
 class AuditLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     user_id: Optional[str] = None
     user_name: Optional[str] = None
@@ -29,10 +31,6 @@ class AuditLogResponse(BaseModel):
     ip_address: Optional[str] = None
     compliance_refs: Optional[list] = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 def _build_audit_query(
     action: Optional[str],

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,8 @@ class NetworkUpdate(BaseModel):
 
 
 class NetworkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     cidr: str
     label: Optional[str] = None
@@ -60,10 +62,6 @@ class NetworkResponse(BaseModel):
     created_by: str
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 # ---------------------------------------------------------------------------
 # Helper: check if an IP or CIDR is within any authorized network

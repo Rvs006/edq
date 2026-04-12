@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -78,6 +78,8 @@ class StartBatchRequest(BaseModel):
 
 
 class NetworkScanResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     cidr: str
     connection_scenario: str
@@ -89,10 +91,6 @@ class NetworkScanResponse(BaseModel):
     created_by: str
     created_at: datetime
     completed_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
 
 @router.get("/detect-networks")
 async def detect_networks(

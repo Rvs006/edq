@@ -7,18 +7,16 @@ from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _resolve_env_file() -> Path:
     current_file = Path(__file__).resolve()
     parents = current_file.parents
 
-    # Repo checkout layout: <repo>/server/backend/app/config.py
     if len(parents) > 3 and parents[1].name == "backend" and parents[2].name == "server":
         return parents[3] / ".env"
 
-    # Container layout: /app/app/config.py
     return Path("/app/.env")
 
 
@@ -26,21 +24,30 @@ ROOT_ENV_FILE = _resolve_env_file()
 load_dotenv(ROOT_ENV_FILE, override=False)
 
 
+def _partition_localhost_origins(origins: List[str]) -> tuple[list[str], bool]:
+    localhost_origins = [
+        origin
+        for origin in origins
+        if "localhost" in origin or "127.0.0.1" in origin
+    ]
+    localhost_only = bool(origins) and len(localhost_origins) == len(origins)
+    return localhost_origins, localhost_only
+
+
 class Settings(BaseSettings):
-    # Application
+    model_config = SettingsConfigDict(
+        env_file=str(ROOT_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     APP_NAME: str = "EDQ"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production-use-openssl-rand-hex-32"
 
-    # Environment — controls auto-derived defaults for DB, cookies, and CORS.
-    # Values: "local" (default), "docker", "cloud"
-    # Explicit overrides (e.g. DB_HOST=myhost) always take precedence.
     ENVIRONMENT: str = "local"
 
-    # Database — PostgreSQL is the primary runtime for both Docker and local runs.
-    # DATABASE_URL can still be set explicitly when needed (for tests, SQLite fallback,
-    # managed cloud Postgres URLs, etc).
     DATABASE_URL: str = ""
     DB_DRIVER: str = "postgresql+asyncpg"
     DB_HOST: str = "127.0.0.1"
@@ -50,61 +57,54 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = "edq-postgres-secret"
     DB_CONNECT_TIMEOUT_SECONDS: int = 15
 
-    # JWT
     JWT_SECRET: str = "change-me-jwt-secret-use-openssl-rand-hex-64"
     JWT_REFRESH_SECRET: str = "change-me-refresh-secret-use-openssl-rand-hex-64"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour (use refresh tokens for longer sessions)
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:8080",
+    ]
 
-    # File Storage
     UPLOAD_DIR: str = "./uploads"
     REPORT_DIR: str = "./reports"
-    MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB
-    MAX_NESSUS_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+    MAX_FILE_SIZE: int = 50 * 1024 * 1024
+    MAX_NESSUS_FILE_SIZE: int = 10 * 1024 * 1024
 
-    # Agent
     AGENT_API_KEY_LENGTH: int = 64
-    AGENT_HEARTBEAT_TIMEOUT: int = 300  # 5 minutes
+    AGENT_HEARTBEAT_TIMEOUT: int = 300
 
-    # AI Synopsis (optional — configure with your preferred LLM provider)
     AI_API_KEY: str = ""
     AI_API_URL: str = ""
     AI_MODEL: str = "gpt-4o"
     AI_MAX_SYNOPSIS_PER_HOUR: int = 10
 
-    # Tools Sidecar
     TOOLS_SIDECAR_URL: str = "http://localhost:8001"
-    TOOLS_API_KEY: str = ""  # Shared secret for backend ↔ tools sidecar auth
+    TOOLS_API_KEY: str = ""
 
-    # Security
-    COOKIE_SECURE: bool = False  # Set True when serving over HTTPS
-    COOKIE_SAMESITE: str = "strict"  # "strict" or "lax" — use "lax" if external-link navigation breaks
-    INITIAL_ADMIN_PASSWORD: str = ""  # REQUIRED — must be set in .env
-    SSL_VERIFY_DEVICES: bool = True  # Set False only if your devices use self-signed certs
-    ALLOW_REGISTRATION: bool = False  # Set True to allow public self-registration
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "strict"
+    INITIAL_ADMIN_PASSWORD: str = ""
+    SSL_VERIFY_DEVICES: bool = True
+    ALLOW_REGISTRATION: bool = False
 
-    # Metrics
-    METRICS_API_KEY: str = ""  # Optional bearer token for /health/metrics. If set, requests must include Authorization: Bearer <key>
+    METRICS_API_KEY: str = ""
 
-    # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
     LOGIN_RATE_LIMIT_PER_MINUTE: int = 15
-    REDIS_URL: str = ""  # Optional: redis://host:6379/0 for persistent rate limiting across instances
+    REDIS_URL: str = ""
     ACCOUNT_LOCKOUT_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15
 
-    # OIDC / SSO (optional — Google, Microsoft, Keycloak, or any OIDC provider)
-    OIDC_PROVIDER: str = ""  # "google", "microsoft", or "custom"
+    OIDC_PROVIDER: str = ""
     OIDC_CLIENT_ID: str = ""
     OIDC_CLIENT_SECRET: str = ""
-    OIDC_DISCOVERY_URL: str = ""  # Required for "custom" provider
-    OIDC_ALLOWED_DOMAINS: str = ""  # Comma-separated: "electracom.com,example.com"
+    OIDC_DISCOVERY_URL: str = ""
+    OIDC_ALLOWED_DOMAINS: str = ""
 
-    # Sentry (optional — error tracking & performance monitoring)
     SENTRY_DSN: str = ""
     SENTRY_ENVIRONMENT: str = "production"
     SENTRY_RELEASE: str = ""
@@ -114,10 +114,8 @@ class Settings(BaseSettings):
     SENTRY_EVENT_LEVEL: str = "ERROR"
     SENTRY_SEND_DEFAULT_PII: bool = False
 
-    # Audit log retention
-    AUDIT_LOG_RETENTION_DAYS: int = 365  # Auto-delete audit logs older than this
+    AUDIT_LOG_RETENTION_DAYS: int = 365
 
-    # Logging
     LOG_LEVEL: str = "INFO"
     LOG_JSON: bool | None = None
 
@@ -147,33 +145,33 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def finalize_runtime_defaults(self):
-        # --- Environment-aware auto-derive ---
-        # Only override values that still match their class defaults,
-        # so explicit env var overrides always take precedence.
-        _LOCAL_DB_HOST = "127.0.0.1"
-        _LOCAL_DB_PORT = 55432
+        local_db_host = "127.0.0.1"
+        local_db_port = 55432
 
         if self.ENVIRONMENT == "docker":
-            if self.DB_HOST == _LOCAL_DB_HOST:
+            if self.DB_HOST == local_db_host:
                 self.DB_HOST = "postgres"
-            if self.DB_PORT == _LOCAL_DB_PORT:
+            if self.DB_PORT == local_db_port:
                 self.DB_PORT = 5432
-            if not self.COOKIE_SECURE:
+            _, localhost_only = _partition_localhost_origins(self.CORS_ORIGINS)
+            if not self.COOKIE_SECURE and not localhost_only:
                 import warnings
+
                 warnings.warn(
-                    "[EDQ SECURITY] COOKIE_SECURE=false in docker environment — session cookies "
+                    "[EDQ SECURITY] COOKIE_SECURE=false in docker environment - session cookies "
                     "will be sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",
                     stacklevel=2,
                 )
         elif self.ENVIRONMENT == "cloud":
-            if self.DB_HOST == _LOCAL_DB_HOST:
+            if self.DB_HOST == local_db_host:
                 self.DB_HOST = "postgres"
-            if self.DB_PORT == _LOCAL_DB_PORT:
+            if self.DB_PORT == local_db_port:
                 self.DB_PORT = 5432
             if not self.COOKIE_SECURE:
                 import warnings
+
                 warnings.warn(
-                    "[EDQ SECURITY] COOKIE_SECURE=false in production environment — session cookies "
+                    "[EDQ SECURITY] COOKIE_SECURE=false in production environment - session cookies "
                     "will be sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",
                     stacklevel=2,
                 )
@@ -193,15 +191,8 @@ class Settings(BaseSettings):
 
         return self
 
-    class Config:
-        env_file = str(ROOT_ENV_FILE)
-        env_file_encoding = "utf-8"
-        extra = "ignore"
-
 
 settings = Settings()
-
-# --- Production safety checks ---
 
 import secrets as _secrets
 import sys as _sys
@@ -209,14 +200,7 @@ import warnings as _warnings
 
 
 def _apply_runtime_security_guards(runtime_settings: Settings) -> Settings:
-    localhost_origins = [
-        origin
-        for origin in runtime_settings.CORS_ORIGINS
-        if "localhost" in origin or "127.0.0.1" in origin
-    ]
-    localhost_only = bool(runtime_settings.CORS_ORIGINS) and len(localhost_origins) == len(
-        runtime_settings.CORS_ORIGINS
-    )
+    localhost_origins, localhost_only = _partition_localhost_origins(runtime_settings.CORS_ORIGINS)
     production_like_env = runtime_settings.ENVIRONMENT == "cloud" or (
         runtime_settings.ENVIRONMENT == "docker" and runtime_settings.COOKIE_SECURE
     )
@@ -233,7 +217,7 @@ def _apply_runtime_security_guards(runtime_settings: Settings) -> Settings:
 
     if not runtime_settings.COOKIE_SECURE and production_like_env and not localhost_only:
         _warnings.warn(
-            "[EDQ SECURITY] COOKIE_SECURE=false in production mode — session cookies will be "
+            "[EDQ SECURITY] COOKIE_SECURE=false in production mode - session cookies will be "
             "sent over plain HTTP. Set COOKIE_SECURE=true when deploying behind HTTPS.",
             stacklevel=2,
         )
@@ -243,47 +227,45 @@ def _apply_runtime_security_guards(runtime_settings: Settings) -> Settings:
 
 settings = _apply_runtime_security_guards(settings)
 
-# INITIAL_ADMIN_PASSWORD must be set explicitly
 if not settings.INITIAL_ADMIN_PASSWORD:
-    _generated = _secrets.token_urlsafe(16)
-    settings.INITIAL_ADMIN_PASSWORD = _generated
+    generated = _secrets.token_urlsafe(16)
+    settings.INITIAL_ADMIN_PASSWORD = generated
     print(
         f"\n[EDQ SECURITY] INITIAL_ADMIN_PASSWORD was not set. "
-        f"Generated one-time password: {_generated}\n"
+        f"Generated one-time password: {generated}\n"
         f"Set INITIAL_ADMIN_PASSWORD in your .env file for future starts.\n",
         file=_sys.stderr,
     )
 
-# Reject placeholder or CHANGE_ME secrets — app must not start with unsafe values
-_PLACEHOLDER_PREFIXES = ("change-me", "CHANGE_ME")
-_SECRET_FIELDS = {
+placeholder_prefixes = ("change-me", "CHANGE_ME")
+secret_fields = {
     "SECRET_KEY": settings.SECRET_KEY,
     "JWT_SECRET": settings.JWT_SECRET,
     "JWT_REFRESH_SECRET": settings.JWT_REFRESH_SECRET,
 }
-for _name, _value in _SECRET_FIELDS.items():
-    if any(_value.startswith(p) for p in _PLACEHOLDER_PREFIXES):
-        _msg = (
-            f"[EDQ SECURITY] {_name} is still set to a placeholder value. "
+for name, value in secret_fields.items():
+    if any(value.startswith(prefix) for prefix in placeholder_prefixes):
+        message = (
+            f"[EDQ SECURITY] {name} is still set to a placeholder value. "
             "Generate a strong secret with: openssl rand -hex 64"
         )
-        raise RuntimeError(_msg)
+        raise RuntimeError(message)
 
 if not settings.TOOLS_API_KEY or any(
-    settings.TOOLS_API_KEY.startswith(p) for p in _PLACEHOLDER_PREFIXES
+    settings.TOOLS_API_KEY.startswith(prefix) for prefix in placeholder_prefixes
 ):
-    _msg = (
+    message = (
         "[EDQ SECURITY] TOOLS_API_KEY is not set or is a placeholder. "
         "The tools sidecar requires a valid key. Generate with: openssl rand -hex 32"
     )
-    raise RuntimeError(_msg)
+    raise RuntimeError(message)
 
 if len(settings.TOOLS_API_KEY) < 32:
-    _msg = (
+    message = (
         "[EDQ SECURITY] TOOLS_API_KEY must be at least 32 characters. "
         "Generate a strong key with: openssl rand -hex 32"
     )
-    raise RuntimeError(_msg)
+    raise RuntimeError(message)
 
 if settings.DATABASE_URL.startswith("sqlite") and not settings.DEBUG:
     _warnings.warn(
@@ -292,7 +274,6 @@ if settings.DATABASE_URL.startswith("sqlite") and not settings.DEBUG:
         stacklevel=2,
     )
 
-# Log effective auth/env config (non-secret) at startup for debugging drift
 if settings.DEBUG:
     print(
         f"[EDQ CONFIG] ENVIRONMENT={settings.ENVIRONMENT} "
@@ -316,6 +297,7 @@ def configure_sentry() -> None:
 
     try:
         import logging
+
         import sentry_sdk
         from sentry_sdk.integrations.fastapi import FastApiIntegration
         from sentry_sdk.integrations.logging import LoggingIntegration
@@ -353,6 +335,6 @@ def configure_sentry() -> None:
             stacklevel=2,
         )
 
-# Ensure directories exist
+
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 os.makedirs(settings.REPORT_DIR, exist_ok=True)

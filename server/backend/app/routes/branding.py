@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,15 +24,13 @@ router = APIRouter()
 
 
 class BrandingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     company_name: Optional[str] = "Electracom"
     logo_path: Optional[str] = None
     primary_color: Optional[str] = "#2563eb"
     footer_text: Optional[str] = ""
-
-    class Config:
-        from_attributes = True
-
 
 class BrandingUpdate(BaseModel):
     company_name: Optional[str] = Field(None, max_length=255)

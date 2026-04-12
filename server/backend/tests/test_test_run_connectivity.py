@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.device import AddressingMode, Device
-from app.models.test_run import TestRun, TestRunStatus
-from app.models.test_template import TestTemplate
+from app.models.test_run import TestRun as RunModel, TestRunStatus as RunStatus
+from app.models.test_template import TestTemplate as TemplateModel
 from app.models.user import User
 from .conftest import register_and_login
 
@@ -26,7 +26,7 @@ async def _create_device(db: AsyncSession, ip_address: str = "10.0.0.77") -> str
 
 
 async def _create_template(db: AsyncSession) -> str:
-    template = TestTemplate(name="connectivity-template", test_ids=["U01"], version="1.0")
+    template = TemplateModel(name="connectivity-template", test_ids=["U01"], version="1.0")
     db.add(template)
     await db.flush()
     await db.refresh(template)
@@ -36,11 +36,11 @@ async def _create_template(db: AsyncSession) -> str:
 async def _create_run(
     db: AsyncSession,
     engineer_id: str,
-    status: TestRunStatus = TestRunStatus.PENDING,
+    status: RunStatus = RunStatus.PENDING,
 ) -> str:
     device_id = await _create_device(db)
     template_id = await _create_template(db)
-    run = TestRun(
+    run = RunModel(
         device_id=device_id,
         template_id=template_id,
         engineer_id=engineer_id,
@@ -62,7 +62,7 @@ async def test_start_run_pauses_when_device_is_unreachable(
 ):
     headers = await register_and_login(client, suffix="startCable")
     user_id = await _get_user_id(db_session, "startCableuser")
-    run_id = await _create_run(db_session, user_id, status=TestRunStatus.PENDING)
+    run_id = await _create_run(db_session, user_id, status=RunStatus.PENDING)
     await db_session.commit()
 
     launched: list[str] = []
@@ -80,13 +80,13 @@ async def test_start_run_pauses_when_device_is_unreachable(
     resp = await client.post(f"/api/test-runs/{run_id}/start", headers=headers)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == TestRunStatus.PAUSED_CABLE.value
+    assert resp.json()["status"] == RunStatus.PAUSED_CABLE.value
     assert launched == [run_id]
 
     db_session.expire_all()
-    saved_run = await db_session.get(TestRun, run_id)
+    saved_run = await db_session.get(RunModel, run_id)
     assert saved_run is not None
-    assert saved_run.status == TestRunStatus.PAUSED_CABLE
+    assert saved_run.status == RunStatus.PAUSED_CABLE
 
 
 @pytest.mark.asyncio
@@ -97,7 +97,7 @@ async def test_resume_paused_cable_run_requires_device_reachability(
 ):
     headers = await register_and_login(client, suffix="resumeCable")
     user_id = await _get_user_id(db_session, "resumeCableuser")
-    run_id = await _create_run(db_session, user_id, status=TestRunStatus.PAUSED_CABLE)
+    run_id = await _create_run(db_session, user_id, status=RunStatus.PAUSED_CABLE)
     await db_session.commit()
 
     async def fake_probe(_ip: str, _ports=None):
@@ -111,9 +111,9 @@ async def test_resume_paused_cable_run_requires_device_reachability(
     assert "still unreachable" in resp.json()["detail"]
 
     db_session.expire_all()
-    saved_run = await db_session.get(TestRun, run_id)
+    saved_run = await db_session.get(RunModel, run_id)
     assert saved_run is not None
-    assert saved_run.status == TestRunStatus.PAUSED_CABLE
+    assert saved_run.status == RunStatus.PAUSED_CABLE
 
 
 @pytest.mark.asyncio
@@ -124,7 +124,7 @@ async def test_resume_paused_cable_run_succeeds_when_device_is_reachable(
 ):
     headers = await register_and_login(client, suffix="resumeOnline")
     user_id = await _get_user_id(db_session, "resumeOnlineuser")
-    run_id = await _create_run(db_session, user_id, status=TestRunStatus.PAUSED_CABLE)
+    run_id = await _create_run(db_session, user_id, status=RunStatus.PAUSED_CABLE)
     await db_session.commit()
 
     async def fake_probe(_ip: str, _ports=None):
@@ -135,12 +135,12 @@ async def test_resume_paused_cable_run_succeeds_when_device_is_reachable(
     resp = await client.post(f"/api/test-runs/{run_id}/resume", headers=headers)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == TestRunStatus.RUNNING.value
+    assert resp.json()["status"] == RunStatus.RUNNING.value
 
     db_session.expire_all()
-    saved_run = await db_session.get(TestRun, run_id)
+    saved_run = await db_session.get(RunModel, run_id)
     assert saved_run is not None
-    assert saved_run.status == TestRunStatus.RUNNING
+    assert saved_run.status == RunStatus.RUNNING
 
 
 @pytest.mark.asyncio
@@ -162,13 +162,13 @@ async def test_start_run_discovers_ip_for_dhcp_device_before_launch(
     await db_session.flush()
     await db_session.refresh(device)
     template_id = await _create_template(db_session)
-    run = TestRun(
+    run = RunModel(
         device_id=device.id,
         template_id=template_id,
         engineer_id=user_id,
         connection_scenario="direct",
         total_tests=1,
-        status=TestRunStatus.PENDING,
+        status=RunStatus.PENDING,
     )
     db_session.add(run)
     await db_session.flush()
@@ -231,13 +231,13 @@ async def test_start_run_discovers_ip_from_neighbor_cache_for_dhcp_device(
     await db_session.flush()
     await db_session.refresh(device)
     template_id = await _create_template(db_session)
-    run = TestRun(
+    run = RunModel(
         device_id=device.id,
         template_id=template_id,
         engineer_id=user_id,
         connection_scenario="direct",
         total_tests=1,
-        status=TestRunStatus.PENDING,
+        status=RunStatus.PENDING,
     )
     db_session.add(run)
     await db_session.flush()

@@ -1,7 +1,7 @@
 """Device schemas."""
 
 import re
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
 
@@ -129,6 +129,8 @@ class DeviceUpdate(BaseModel):
 
 
 class DeviceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     ip_address: Optional[str] = None
     mac_address: Optional[str] = None
@@ -153,10 +155,6 @@ class DeviceResponse(BaseModel):
     project_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class DiscoveryRequest(BaseModel):
     subnet: Optional[str] = Field(None, max_length=43)  # e.g. "192.168.1.0/24"

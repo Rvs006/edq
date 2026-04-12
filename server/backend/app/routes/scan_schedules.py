@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime, timezone
 
 from app.models.database import get_db
@@ -34,6 +34,8 @@ class ScheduleUpdate(BaseModel):
 
 
 class ScheduleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     device_id: str
     template_id: str
@@ -47,10 +49,6 @@ class ScheduleResponse(BaseModel):
     diff_summary: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class DiffResponse(BaseModel):
     new_findings: list

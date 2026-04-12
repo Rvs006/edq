@@ -1,6 +1,6 @@
 """Test-related schemas: templates, runs, results."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
 import json
@@ -31,6 +31,8 @@ class TestTemplateUpdate(BaseModel):
 
 
 class TestTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     description: Optional[str] = None
@@ -53,10 +55,6 @@ class TestTemplateResponse(BaseModel):
             return json.loads(v)
         return v  # type: ignore[return-value]
 
-    class Config:
-        from_attributes = True
-
-
 # --- Test Run ---
 class TestRunCreate(BaseModel):
     device_id: str = Field(..., max_length=36)
@@ -73,6 +71,8 @@ class TestRunUpdate(BaseModel):
 
 
 class TestRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     device_id: str
     device_name: Optional[str] = None
@@ -104,10 +104,6 @@ class TestRunResponse(BaseModel):
     confidence: int = 1
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 # --- Test Result ---
 class TestResultCreate(BaseModel):
@@ -145,6 +141,8 @@ class TestResultOverrideRequest(BaseModel):
 
 
 class TestResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     test_run_id: str
     test_id: str
@@ -172,6 +170,3 @@ class TestResultResponse(BaseModel):
     completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
