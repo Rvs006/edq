@@ -88,6 +88,7 @@ ALLOWED_TOOLS = {
     "ssh_audit": "ssh-audit",
     "hydra": "hydra",
     "nikto": "nikto",
+    "snmpwalk": "snmpwalk",
 }
 
 # Hostname pattern: labels of 1-63 chars, total max 253, no leading/trailing hyphens
@@ -135,6 +136,7 @@ ALLOWED_NMAP_SCRIPTS = frozenset({
     "nbstat", "ntp-info", "dns-zone-transfer",
     # Additional protocol scripts
     "upnp-info",
+    "dhcp-discover",
 })
 
 # Whitelist of allowed flags per tool to prevent argument injection
@@ -145,7 +147,7 @@ ALLOWED_FLAGS = {
         "-v", "-vv", "--version-intensity",
         "--script", "-F", "-n", "-R", "-6", "--max-rate", "-", "-oX",
         "--min-rate", "--max-retries", "--defeat-rst-ratelimit", "--send-ip", "-PR", "-e",
-        "--host-timeout",
+        "--host-timeout", "--traceroute", "--osscan-guess",
     },
     "hydra": {
         "-l", "-L", "-p", "-P", "-s", "-t", "-f", "-V", "-v", "-e",
@@ -162,6 +164,9 @@ ALLOWED_FLAGS = {
     "nikto": {
         "-h", "-host", "-p", "-ssl", "-nossl", "-Tuning", "-Display",
         "-Format", "-timeout", "-maxtime", "-Cgidirs", "-id", "-ask",
+    },
+    "snmpwalk": {
+        "-v", "-c", "-t", "-r", "-O", "-On", "-Oq", "-Ov", "-Oqv", "-OQv", "-Os",
     },
 }
 
@@ -801,6 +806,30 @@ def scan_nikto() -> Union[Response, Tuple[Response, int]]:
         _scan_semaphore.release()
 
 
+@app.route("/scan/snmpwalk", methods=["POST"])
+@require_api_key
+def scan_snmpwalk() -> Union[Response, Tuple[Response, int]]:
+    target, args, timeout, err = _parse_scan_request(tool_name="snmpwalk")
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+
+    if not _tool_available("snmpwalk"):
+        return jsonify({"error": "snmpwalk not available"}), 503
+
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
+
+    try:
+        cmd = ["snmpwalk"] + args + [target]
+        result = _run_tool(cmd, timeout, target=target)
+        return jsonify(result)
+    finally:
+        _scan_semaphore.release()
+
+
 @app.route("/scan/ping", methods=["POST"])
 @require_api_key
 def scan_ping() -> Union[Response, Tuple[Response, int]]:
@@ -827,6 +856,30 @@ def scan_ping() -> Union[Response, Tuple[Response, int]]:
     return jsonify(result)
 
 
+@app.route("/scan/arp-cache", methods=["POST"])
+@require_api_key
+def scan_arp_cache() -> Union[Response, Tuple[Response, int]]:
+    """Ping a target to populate ARP cache, then read the MAC address."""
+    data = request.get_json(force=True, silent=True)
+    if not data or not data.get("target"):
+        return jsonify({"error": "Missing 'target' field"}), 400
+
+    try:
+        target = _validate_target(data["target"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+
+    # Step 1: ping to populate ARP cache
+    _run_tool(["ping", "-c", "1", "-W", "2", target], timeout=5)
+
+    # Step 2: read ARP cache
+    result = _run_tool(["ip", "neigh", "show", target], timeout=5)
+    return jsonify(result)
+
+
 @app.route("/versions", methods=["GET"])
 @require_api_key
 def tool_versions() -> Response:
@@ -837,6 +890,7 @@ def tool_versions() -> Response:
         "ssh_audit": ["ssh-audit", "--help"],
         "hydra": ["hydra", "-h"],
         "nikto": ["nikto", "-Version"],
+        "snmpwalk": ["snmpwalk", "-V"],
     }
     versions = {}
     for tool, cmd in version_cmds.items():
@@ -856,6 +910,7 @@ LATEST_KNOWN_VERSIONS = {
     "ssh_audit": "3.3.0",
     "hydra": "9.5",
     "nikto": "2.6.0",
+    "snmpwalk": "5.9.3",
 }
 
 _VERSION_PARSE = {
@@ -864,6 +919,7 @@ _VERSION_PARSE = {
     "ssh_audit": re.compile(r"([\d.]+)"),
     "hydra": re.compile(r"Hydra v([\d.]+)"),
     "nikto": re.compile(r"Nikto\s+v?([\d.]+)"),
+    "snmpwalk": re.compile(r"NET-SNMP version:\s*([\d.]+)"),
 }
 
 
@@ -877,6 +933,7 @@ def check_updates() -> Response:
         "ssh_audit": ["ssh-audit", "--help"],
         "hydra": ["hydra", "-h"],
         "nikto": ["nikto", "-Version"],
+        "snmpwalk": ["snmpwalk", "-V"],
     }
     results = {}
     for tool, cmd in version_cmds.items():
@@ -1169,6 +1226,25 @@ def stream_nikto() -> Union[Response, Tuple[Response, int]]:
     cmd = ["nikto"] + args + ["-h", target]
     return Response(
         _guarded_stream(_run_tool_stream(cmd, timeout)),
+        mimetype="text/event-stream",
+    )
+
+
+@app.route("/stream/snmpwalk", methods=["POST"])
+@require_api_key
+def stream_snmpwalk() -> Union[Response, Tuple[Response, int]]:
+    target, args, timeout, err = _parse_scan_request(tool_name="snmpwalk")
+    if err:
+        return jsonify({"error": err[0]}), err[1]
+    if not _tool_available("snmpwalk"):
+        return jsonify({"error": "snmpwalk not available"}), 503
+    if not _check_rate_limit(target):
+        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+    if not _scan_semaphore.acquire(blocking=False):
+        return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
+    cmd = ["snmpwalk"] + args + [target]
+    return Response(
+        _guarded_stream(_run_tool_stream(cmd, timeout, target=target)),
         mimetype="text/event-stream",
     )
 

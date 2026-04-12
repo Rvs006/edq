@@ -50,7 +50,10 @@ def _eval_u02(data: dict, _wl: list) -> tuple[str, str]:
         return ("pass", f"MAC Vendor Lookup — MAC address identified: {mac}. Vendor: {vendor}.")
     if mac:
         return ("advisory", f"MAC Vendor Lookup — MAC {mac} found but vendor not in OUI database. The manufacturer may not be registered.")
-    return ("info", "MAC Vendor Lookup — Could not determine MAC address. The device may be behind a router/NAT. Try scanning from the same subnet.")
+    return ("info", "MAC Vendor Lookup — Could not determine MAC address. The device may be behind a router/NAT. "
+                     "Try scanning from the same subnet.\n\n"
+                     "Platform note: MAC detection requires Layer-2 adjacency. In Docker, the scanner is behind a NAT bridge. "
+                     "For best results, run EDQ on a host directly connected to the device's subnet (Linux or Windows host, not Docker).")
 
 
 def _eval_u03(data: dict, _wl: list) -> tuple[str, str]:
@@ -58,18 +61,31 @@ def _eval_u03(data: dict, _wl: list) -> tuple[str, str]:
     return ("na", "Switch Negotiation (Speed/Duplex) — Cannot run remotely from Docker. "
                    "To verify: check the switch port LED indicators, or run 'show interface status' "
                    "on the switch CLI, or use 'ethtool <interface>' from a host with direct access. "
-                   "Expected: auto-negotiation enabled, 100Mbps or 1Gbps full-duplex.")
+                   "Expected: auto-negotiation enabled, 100Mbps or 1Gbps full-duplex.\n\n"
+                   "Optimal environment: Linux host with direct Ethernet connection to the device's switch port.")
 
 
 def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
     """DHCP Behaviour."""
-    dhcp = data.get("dhcp_enabled")
+    dhcp = data.get("dhcp_detected", data.get("dhcp_enabled"))
+    dhcp_server = data.get("dhcp_server")
+    offered_ip = data.get("offered_ip")
     if dhcp is True:
-        return ("pass", "DHCP Behaviour — Device accepts DHCP lease. Automatic IP assignment confirmed.")
+        details = "DHCP Behaviour — DHCP server detected on the network segment."
+        if dhcp_server:
+            details += f" Server: {dhcp_server}."
+        if offered_ip:
+            details += f" Offered IP: {offered_ip}."
+        details += (" Note: this confirms a DHCP server exists on the segment. "
+                     "To verify the device itself uses DHCP, check the device's network settings page.")
+        return ("pass", details)
     if dhcp is False:
-        return ("info", "DHCP Behaviour — Device uses static IP configuration. No DHCP lease detected.")
+        return ("info", "DHCP Behaviour — No DHCP server response detected on the network segment. "
+                         "The device may use static IP configuration, or the DHCP server may be on a different VLAN.")
     return ("info", "DHCP Behaviour — Could not be determined automatically. Check the device's network "
-                     "settings page, or monitor DHCP lease tables on the network switch/router.")
+                     "settings page, or monitor DHCP lease tables on the network switch/router.\n\n"
+                     "Platform note: DHCP detection uses broadcast probes. In Docker, broadcasts may not reach the device's subnet. "
+                     "For best results, run from a host on the same VLAN.")
 
 
 def _eval_u05(data: dict, _wl: list) -> tuple[str, str]:
@@ -270,7 +286,9 @@ def _eval_u19(data: dict, _wl: list) -> tuple[str, str]:
     os_fp = data.get("os_fingerprint")
     if os_fp:
         return ("info", f"OS Fingerprint — Operating system identified: {os_fp}.")
-    return ("info", "OS Fingerprint — Could not determine OS. The device may block fingerprinting probes.")
+    return ("info", "OS Fingerprint — Could not determine OS. The device may block fingerprinting probes.\n\n"
+                     "Platform note: OS fingerprinting works best with a direct network connection (not through Docker NAT). "
+                     "Alternatively, check the device admin interface for OS/firmware information.")
 
 
 def _eval_u26(data: dict, _wl: list) -> tuple[str, str]:
@@ -303,12 +321,19 @@ def _eval_u31(data: dict, _wl: list) -> tuple[str, str]:
     snmp_ports = [p for p in open_ports if p.get("port") in (161, 162)]
     if not snmp_ports:
         return ("pass", "SNMP Check — No SNMP services detected.")
+    snmpwalk_out = (data.get("snmpwalk_output", "") or "").strip()
+    if snmpwalk_out and ".1.3.6" in snmpwalk_out:
+        return ("fail", "SNMP Check — Default community string 'public' accepted on SNMPv1/v2c (verified by snmpwalk). Disable insecure SNMP versions and change community strings.")
     stdout = data.get("raw", data.get("stdout", ""))
     stdout_lower = (stdout or "").lower()
     if "snmpv1" in stdout_lower or "snmpv2" in stdout_lower or "v2c" in stdout_lower:
         return ("fail", "SNMP Check — SNMP v1/v2c detected. These versions transmit community strings in cleartext. Upgrade to SNMPv3 only.")
     if "snmpv3" in stdout_lower:
+        if snmpwalk_out:
+            return ("advisory", "SNMP Check — SNMPv3 detected but SNMP port also responded to v1/v2c probes. Verify only SNMPv3 is enabled.")
         return ("pass", "SNMP Check — SNMPv3 only detected. Secure configuration.")
+    if snmpwalk_out == "" and snmp_ports:
+        return ("pass", "SNMP Check — SNMP port open but default community 'public' rejected (snmpwalk got no response). Likely SNMPv3-only or access-controlled.")
     return ("advisory", "SNMP Check — SNMP port open but version could not be determined. Verify manually that only SNMPv3 is in use.")
 
 

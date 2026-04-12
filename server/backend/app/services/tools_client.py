@@ -248,6 +248,34 @@ class ToolsClient:
             on_line=on_line,
         )
 
+    async def snmpwalk(
+        self,
+        target: str,
+        args: Optional[List[str]] = None,
+        timeout: int = 120,
+    ) -> Dict[str, Any]:
+        """Run snmpwalk SNMP query."""
+        return await self._post(
+            "/scan/snmpwalk",
+            {"target": target, "args": args or [], "timeout": timeout},
+            timeout=timeout,
+        )
+
+    async def snmpwalk_stream(
+        self,
+        target: str,
+        args: Optional[List[str]] = None,
+        timeout: int = 120,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> Dict[str, Any]:
+        """Run snmpwalk with line-by-line streaming."""
+        return await self._post_stream(
+            "/stream/snmpwalk",
+            {"target": target, "args": args or [], "timeout": timeout},
+            timeout=timeout,
+            on_line=on_line,
+        )
+
     async def health(self) -> Dict[str, Any]:
         """Check sidecar health and tool availability."""
         client = self._get_client(10)
@@ -344,6 +372,14 @@ class ToolsClient:
             "/scan/ping",
             {"target": target, "count": count, "timeout": 30},
             timeout=30,
+        )
+
+    async def arp_cache(self, target: str) -> Dict[str, Any]:
+        """Ping target then read ARP cache to get MAC address."""
+        return await self._post(
+            "/scan/arp-cache",
+            {"target": target, "timeout": 15},
+            timeout=20,
         )
 
 

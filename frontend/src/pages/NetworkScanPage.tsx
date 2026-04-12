@@ -363,6 +363,7 @@ export default function NetworkScanPage() {
           selectedTests={selectedTests} setSelectedTests={setSelectedTests} toggleTest={toggleTest} toggleCategory={toggleCategory}
           expandedCategories={expandedCategories} setExpandedCategories={setExpandedCategories}
           discovering={discovering} onDiscover={handleDiscover}
+          authorizedNets={authorizedNets}
         />
       )}
       {step === 'configure' && discovering && (
@@ -434,15 +435,23 @@ function ConfigureStep({
   selectedTests, setSelectedTests, toggleTest, toggleCategory,
   expandedCategories, setExpandedCategories,
   discovering, onDiscover,
+  authorizedNets,
 }: {
   cidr: string; setCidr: (v: string) => void; cidrValid: boolean; cidrPrefixInRange: boolean; hostCount: number
   scenario: string; setScenario: (v: string) => void
   selectedTests: Set<string>; setSelectedTests: (v: Set<string>) => void; toggleTest: (id: string) => void; toggleCategory: (cat: string) => void
   expandedCategories: Set<string>; setExpandedCategories: (v: Set<string>) => void
   discovering: boolean; onDiscover: () => void
+  authorizedNets: { cidr: string; label: string | null }[]
 }) {
   const [detecting, setDetecting] = useState(false)
   const [detectedNets, setDetectedNets] = useState<{ label: string; cidr: string; type: string; hosts_found: number; sample_hosts: string[] }[]>([])
+
+  useEffect(() => {
+    if (authorizedNets.length === 1 && !cidr) {
+      setCidr(authorizedNets[0].cidr)
+    }
+  }, [authorizedNets, cidr, setCidr])
 
   const detectNetworks = async () => {
     setDetecting(true)
@@ -473,15 +482,45 @@ function ConfigureStep({
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Target Subnet</h3>
-          <button
-            onClick={detectNetworks}
-            disabled={detecting}
-            className="btn-secondary text-xs py-1.5 px-3"
-          >
-            {detecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-            {detecting ? 'Detecting...' : 'Detect My Network'}
-          </button>
+          {authorizedNets.length === 0 && (
+            <button
+              onClick={detectNetworks}
+              disabled={detecting}
+              className="btn-secondary text-xs py-1.5 px-3"
+            >
+              {detecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+              {detecting ? 'Detecting...' : 'Detect My Network'}
+            </button>
+          )}
         </div>
+
+        {/* Authorized networks */}
+        {authorizedNets.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400 mb-2 flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5" /> Authorized Networks
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {authorizedNets.map(net => (
+                <button
+                  key={net.cidr}
+                  onClick={() => setCidr(net.cidr)}
+                  className={`text-left p-3 rounded-lg border transition-all ${
+                    cidr === net.cidr
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                      : 'border-zinc-200 dark:border-slate-700/50 hover:border-emerald-300 dark:hover:border-emerald-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Shield className="w-4 h-4 text-emerald-500" />
+                    <span className="text-sm font-medium text-zinc-800 dark:text-slate-200">{net.label || 'Authorized Range'}</span>
+                  </div>
+                  <p className="text-xs font-mono text-zinc-500 dark:text-slate-400">{net.cidr}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Detected networks */}
         {detectedNets.length > 0 && (

@@ -215,5 +215,53 @@ class NmapParser:
 
         return hosts
 
+    def parse_arp_cache(self, stdout: str) -> dict[str, Any]:
+        """Parse `ip neigh show` output for MAC address.
+
+        Example output: '192.168.1.10 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE'
+        """
+        import re
+        mac_match = re.search(r"lladdr\s+([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})", stdout)
+        if mac_match:
+            return {"mac_address": mac_match.group(1).upper()}
+        return {"mac_address": None}
+
+    def parse_dhcp_discover(self, xml_output: str) -> dict[str, Any]:
+        """Parse nmap dhcp-discover script output from XML."""
+        result: dict[str, Any] = {"dhcp_detected": None, "dhcp_server": None, "offered_ip": None}
+
+        if not xml_output or not xml_output.strip():
+            return result
+
+        try:
+            root = ElementTree.fromstring(xml_output)
+        except Exception:
+            # Fallback: check raw text for DHCP indicators
+            lower = xml_output.lower()
+            if "dhcpack" in lower or "dhcpoffer" in lower or "ip offered" in lower or "dhcp message type" in lower:
+                result["dhcp_detected"] = True
+            else:
+                result["dhcp_detected"] = False
+            return result
+
+        # Look for dhcp-discover script output in XML
+        for script in root.iter("script"):
+            if script.get("id") == "dhcp-discover":
+                output = script.get("output", "")
+                if output:
+                    result["dhcp_detected"] = True
+                    # Extract DHCP server IP
+                    for elem in script.iter("elem"):
+                        key = elem.get("key", "")
+                        if key == "Server Identifier":
+                            result["dhcp_server"] = elem.text
+                        elif key == "IP Offered":
+                            result["offered_ip"] = elem.text
+                    return result
+
+        # No dhcp-discover script found in output
+        result["dhcp_detected"] = False
+        return result
+
 
 nmap_parser = NmapParser()

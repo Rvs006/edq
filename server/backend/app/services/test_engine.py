@@ -71,6 +71,31 @@ _PORT_SCAN_CACHE: dict[str, dict[str, Any]] = _BoundedDict(_MAX_CACHE_SIZE)
 _TESTSSL_CACHE: dict[str, dict[str, Any]] = _BoundedDict(_MAX_CACHE_SIZE)
 
 
+def _infer_os_from_services(open_ports: list[dict[str, Any]]) -> str | None:
+    """Infer OS from service banners when nmap -O fails."""
+    from collections import Counter
+    os_hints: list[str] = []
+    for p in open_ports:
+        version = (p.get("version", "") or "").lower()
+        service = (p.get("service", "") or "").lower()
+        product = (p.get("product", "") or "").lower()
+        combined = f"{service} {version} {product}"
+        if any(kw in combined for kw in ("microsoft", "windows", "iis", "msrpc", "netbios", "microsoft-ds")):
+            os_hints.append("Windows")
+        elif any(kw in combined for kw in ("ubuntu", "debian", "centos", "fedora", "red hat")):
+            os_hints.append("Linux")
+        elif "openssh" in combined and "windows" not in combined:
+            os_hints.append("Linux/Unix")
+        elif "cisco" in combined:
+            os_hints.append("Cisco IOS")
+        elif "apple" in combined or "macos" in combined:
+            os_hints.append("macOS")
+    if not os_hints:
+        return None
+    most_common = Counter(os_hints).most_common(1)[0][0]
+    return f"{most_common} (inferred from service banners)"
+
+
 class TestEngine:
     """Orchestrates the full test execution lifecycle for a test run."""
 
@@ -684,13 +709,32 @@ class TestEngine:
                         parsed["oui_vendor"] = arp_parsed.get("oui_vendor", "")
                 except Exception:
                     logger.debug("U02: ARP fallback 2 failed for %s", device_ip)
+            # Fallback 3: ping to populate ARP cache, then read it via ip neigh
+            if not parsed.get("mac_address"):
+                try:
+                    await tools_client.ping(device_ip, count=1)
+                    arp_result = await tools_client.arp_cache(device_ip)
+                    arp_data = nmap_parser.parse_arp_cache(arp_result.get("stdout", ""))
+                    if arp_data.get("mac_address"):
+                        parsed["mac_address"] = arp_data["mac_address"]
+                except Exception:
+                    logger.debug("U02: ARP cache fallback failed for %s", device_ip)
             return (parsed, raw.get("stdout"))
 
         if test_id == "U03":
             return ({"ethtool_available": False}, None)
 
         if test_id == "U04":
-            return ({"dhcp_enabled": None}, None)
+            try:
+                raw = await tools_client.nmap_stream(
+                    device_ip, ["-sU", "-p", "67", "--script", "dhcp-discover", "-oX", "-"],
+                    timeout=30, on_line=on_line
+                )
+                parsed = nmap_parser.parse_dhcp_discover(raw.get("stdout", ""))
+                return (parsed, raw.get("stdout"))
+            except Exception:
+                logger.debug("U04: DHCP discover failed for %s", device_ip)
+                return ({"dhcp_detected": None}, None)
 
         if test_id == "U05":
             raw = await tools_client.nmap_stream(device_ip, ["-6", "-sn"], timeout=60, on_line=on_line)
@@ -817,8 +861,15 @@ class TestEngine:
             return (parsed, None)
 
         if test_id == "U19":
-            raw = await tools_client.nmap_stream(device_ip, ["-O", "-oX", "-"], timeout=120, on_line=on_line)
+            raw = await tools_client.nmap_stream(device_ip, ["-O", "--osscan-guess", "-oX", "-"], timeout=120, on_line=on_line)
             parsed = nmap_parser.parse_os_fingerprint(raw.get("stdout", ""))
+            # Fallback: infer OS from service versions if -O failed
+            if not parsed.get("os_fingerprint"):
+                svc_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u08") or _PORT_SCAN_CACHE.get(run_id)
+                if svc_cache and svc_cache.get("open_ports"):
+                    inferred = _infer_os_from_services(svc_cache["open_ports"])
+                    if inferred:
+                        parsed["os_fingerprint"] = inferred
             return (parsed, raw.get("stdout"))
 
         if test_id == "U26":
@@ -867,7 +918,24 @@ class TestEngine:
                 device_ip, ["-sU", "-p", "161,162", "-sV", "--script", "snmp-info", "-oX", "-"], timeout=120, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-            return (parsed, raw.get("stdout"))
+            snmp_ports = [p for p in parsed.get("open_ports", []) if p.get("port") in (161, 162)]
+            snmpwalk_output = ""
+            if snmp_ports:
+                for version in ["2c", "1"]:
+                    try:
+                        sw_raw = await tools_client.snmpwalk(
+                            device_ip,
+                            ["-v", version, "-c", "public", "-t", "5", "-r", "0", "-On", device_ip, "1.3.6.1.2.1.1.1.0"],
+                            timeout=15,
+                        )
+                        sw_out = sw_raw.get("stdout", "")
+                        if sw_out:
+                            snmpwalk_output += f"\n--- snmpwalk v{version} ---\n{sw_out}"
+                    except Exception:
+                        pass
+            combined_stdout = (raw.get("stdout", "") or "") + snmpwalk_output
+            parsed["snmpwalk_output"] = snmpwalk_output
+            return (parsed, combined_stdout)
 
         if test_id == "U32":
             raw = await tools_client.nmap_stream(

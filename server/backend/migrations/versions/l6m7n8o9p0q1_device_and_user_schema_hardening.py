@@ -145,36 +145,6 @@ def upgrade() -> None:
             nullable=False,
         )
 
-        # Align FK ondelete for profile_id
-        batch_op.drop_constraint("devices_profile_id_fkey", type_="foreignkey")
-        batch_op.create_foreign_key(
-            "devices_profile_id_fkey",
-            "device_profiles",
-            ["profile_id"],
-            ["id"],
-            ondelete="SET NULL",
-        )
-
-        # Align FK ondelete for project_id
-        batch_op.drop_constraint("devices_project_id_fkey", type_="foreignkey")
-        batch_op.create_foreign_key(
-            "devices_project_id_fkey",
-            "projects",
-            ["project_id"],
-            ["id"],
-            ondelete="SET NULL",
-        )
-
-        # Align FK ondelete for discovered_by
-        batch_op.drop_constraint("devices_discovered_by_fkey", type_="foreignkey")
-        batch_op.create_foreign_key(
-            "devices_discovered_by_fkey",
-            "agents",
-            ["discovered_by"],
-            ["id"],
-            ondelete="SET NULL",
-        )
-
     # ------------------------------------------------------------------
     # users table schema changes
     # ------------------------------------------------------------------
@@ -253,31 +223,6 @@ def downgrade() -> None:
     # devices table — reverse in reverse order
     # ------------------------------------------------------------------
     with op.batch_alter_table("devices", schema=None) as batch_op:
-        # Restore FKs without ondelete (drop-and-recreate without clause)
-        batch_op.drop_constraint("devices_discovered_by_fkey", type_="foreignkey")
-        batch_op.create_foreign_key(
-            "devices_discovered_by_fkey",
-            "agents",
-            ["discovered_by"],
-            ["id"],
-        )
-
-        batch_op.drop_constraint("devices_project_id_fkey", type_="foreignkey")
-        batch_op.create_foreign_key(
-            "devices_project_id_fkey",
-            "projects",
-            ["project_id"],
-            ["id"],
-        )
-
-        batch_op.drop_constraint("devices_profile_id_fkey", type_="foreignkey")
-        batch_op.create_foreign_key(
-            "devices_profile_id_fkey",
-            "device_profiles",
-            ["profile_id"],
-            ["id"],
-        )
-
         # Revert NOT NULL -> nullable for status, category, addressing_mode
         batch_op.alter_column(
             "status",
