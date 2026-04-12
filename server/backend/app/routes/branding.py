@@ -123,7 +123,7 @@ async def upload_branding_logo(
         db.add(branding)
         await db.flush()
 
-    branding.logo_path = logo_path
+    branding.logo_path = logo_filename
     await db.flush()
     await db.refresh(branding)
     await log_action(db, user, "branding.logo_upload", "branding", branding.id, {"filename": logo_filename}, request)
@@ -143,7 +143,7 @@ async def get_branding_logo(
 
     # Path traversal protection: ensure logo_path stays inside the upload directory
     upload_dir_real = os.path.realpath(os.path.join(settings.UPLOAD_DIR, "branding"))
-    logo_path_real = os.path.realpath(branding.logo_path)
+    logo_path_real = os.path.realpath(os.path.join(upload_dir_real, branding.logo_path))
     if not logo_path_real.startswith(upload_dir_real + os.sep) and logo_path_real != upload_dir_real:
         raise HTTPException(status_code=403, detail="Invalid logo path")
 

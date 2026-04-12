@@ -195,6 +195,8 @@ async def discovery_ws(websocket: WebSocket, task_id: str):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         await manager.disconnect(websocket, channel)
 
 
@@ -216,4 +218,6 @@ async def agents_ws(websocket: WebSocket):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         await manager.disconnect(websocket, channel)

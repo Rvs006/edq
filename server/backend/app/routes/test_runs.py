@@ -634,12 +634,7 @@ async def resume_test_run(
     # and enters TCP grace mode (tolerates TCP failures for 45s).
     handler = get_cable_handler(run_id)
     if handler:
-        import time as _time
-        async with handler._resume_lock:
-            handler.is_paused = False
-            handler.is_manually_paused = False
-            handler.consecutive_failures = 0
-            handler._tcp_grace_until = _time.monotonic() + handler.TCP_GRACE_SECONDS
+        await handler.resume()
 
     return {"status": "running", "message": "Test execution resumed", "run_id": run_id}
 

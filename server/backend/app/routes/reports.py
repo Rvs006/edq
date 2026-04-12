@@ -20,9 +20,8 @@ from app.models.report_config import ReportConfig
 from app.models.test_result import TestResult
 from app.models.test_run import TestRun
 from app.models.test_template import TestTemplate
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.security.auth import get_current_active_user
-from app.models.user import UserRole
 from app.middleware.rate_limit import check_rate_limit
 from app.utils.audit import log_action
 from app.services.report_generator import (

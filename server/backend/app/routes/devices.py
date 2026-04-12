@@ -573,6 +573,7 @@ async def import_devices_csv(
     if imported:
         try:
             await db.flush()
+            await db.commit()
         except IntegrityError:
             await db.rollback()
             raise HTTPException(status_code=409, detail="A device with this IP or MAC address already exists")

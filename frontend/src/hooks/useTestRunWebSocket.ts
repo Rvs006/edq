@@ -85,12 +85,13 @@ export function useTestRunWebSocket(runId: string | undefined) {
         }
 
         if (msg.type === 'stdout_line' && msg.data.test_id) {
+          const testId = msg.data.test_id
           setTerminalOutput((prev: Record<string, string>) => {
-            const existing = prev[msg.data.test_id!] || ''
+            const existing = prev[testId] || ''
             const updated = existing + (msg.data.stdout_line || '') + '\n'
             return {
               ...prev,
-              [msg.data.test_id!]: updated.length > 50000
+              [testId]: updated.length > 50000
                 ? '[output truncated]\n' + updated.slice(-50000)
                 : updated,
             }

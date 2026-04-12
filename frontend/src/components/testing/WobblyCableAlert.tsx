@@ -37,7 +37,7 @@ export default function WobblyCableAlert({ status, probe }: WobblyCableAlertProp
         return () => clearTimeout(timer)
       }
     }
-  }, [status])
+  }, [status, visible])
 
   const showProbeOnly = !visible && status === 'connected' && probe
   const probeWarning = probe && probe.consecutiveFailures > 0 && probe.consecutiveFailures < probe.failThreshold

@@ -21,8 +21,13 @@ def get_tools_error_status(exc: Exception) -> int:
     if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.TimeoutException)):
         return 503
     if isinstance(exc, httpx.HTTPStatusError):
-        if exc.response.status_code in (401, 403, 429, 502, 503, 504):
-            return 503 if exc.response.status_code in (502, 503, 504) else 502
+        code = exc.response.status_code
+        if code in (502, 503, 504):
+            return 503
+        if code == 429:
+            return 429
+        if code in (401, 403):
+            return 502
         return 502
     return 502
 

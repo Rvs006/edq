@@ -125,7 +125,7 @@ async def login(data: LoginRequest, request: Request, response: Response, db: As
         select(User).where(
             (func.lower(User.username) == normalized_identity)
             | (func.lower(User.email) == normalized_identity)
-        ).with_for_update()
+        ).limit(2)
     )
     matches = result.scalars().all()
     if len(matches) > 1:

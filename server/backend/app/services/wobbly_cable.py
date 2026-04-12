@@ -115,7 +115,14 @@ class WobblyCableHandler:
                             self.run_id,
                         )
                         await asyncio.sleep(self.STABILITY_WAIT)
-                        if await self.check_connectivity(require_tcp=False):
+                        # Re-check manual pause flag — it may have been set
+                        # during the stability wait by a REST endpoint.
+                        if self.is_manually_paused:
+                            logger.info(
+                                "Manual pause set during stability wait for run %s; skipping auto-resume",
+                                self.run_id,
+                            )
+                        elif await self.check_connectivity(require_tcp=False):
                             await self._resume_testing()
                     async with self._resume_lock:
                         self.consecutive_failures = 0
@@ -268,6 +275,21 @@ class WobblyCableHandler:
 
         if self.is_paused and elapsed >= max_wait:
             await self._mark_paused_cable()
+
+    async def resume(self) -> None:
+        """Public API to resume from an external caller (e.g. REST endpoint).
+
+        Clears paused/manual-paused state, resets failure counter, and
+        starts a TCP grace period. Idempotent — safe to call when already
+        running.
+        """
+        async with self._resume_lock:
+            if not self.is_paused:
+                return
+            self.is_paused = False
+            self.is_manually_paused = False
+            self.consecutive_failures = 0
+            self._tcp_grace_until = time.monotonic() + self.TCP_GRACE_SECONDS
 
     async def _resume_testing(self) -> None:
         """Resume the test run after reconnection (idempotent)."""

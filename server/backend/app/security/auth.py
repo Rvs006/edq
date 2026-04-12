@@ -232,7 +232,6 @@ def clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(key=SESSION_COOKIE, path="/")
     response.delete_cookie(key=CSRF_COOKIE, path="/")
     response.delete_cookie(key=REFRESH_COOKIE, path="/api")
-    response.delete_cookie(key=REFRESH_COOKIE, path="/")
 
 
 async def get_current_user(
