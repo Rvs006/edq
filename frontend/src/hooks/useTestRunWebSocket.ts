@@ -5,7 +5,7 @@ import {
   type TestRunProgressMessage,
 } from '@/lib/testContracts'
 
-type CableStatus = 'connected' | 'disconnected' | 'reconnecting'
+type CableStatus = 'connected' | 'disconnected' | 'reconnecting' | 'service_unreachable'
 
 const STALE_AFTER_MS = 45_000
 
@@ -21,6 +21,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
   const [lastMessageAt, setLastMessageAt] = useState<number | null>(null)
   const [cableProbe, setCableProbe] = useState<{
     reachable: boolean
+    tcpReachable: boolean
     consecutiveFailures: number
     failThreshold: number
     timestamp: string
@@ -118,9 +119,14 @@ export function useTestRunWebSocket(runId: string | undefined) {
           setCableStatus('disconnected')
         }
 
+        if (msg.type === 'cable_service_unreachable') {
+          setCableStatus('service_unreachable')
+        }
+
         if (msg.type === 'cable_probe') {
           const probeData = {
             reachable: Boolean(msg.data.reachable),
+            tcpReachable: Boolean(msg.data.tcp_reachable),
             consecutiveFailures: Number(msg.data.consecutive_failures) || 0,
             failThreshold: Number(msg.data.fail_threshold) || 3,
             timestamp: String(msg.data.timestamp || ''),
@@ -134,6 +140,10 @@ export function useTestRunWebSocket(runId: string | undefined) {
             setCableStatus('reconnecting')
           } else if (msg.data.paused && !probeData.reachable) {
             setCableStatus('disconnected')
+          } else if (!msg.data.paused && probeData.reachable && !probeData.tcpReachable) {
+            setCableStatus('service_unreachable')
+          } else if (!msg.data.paused && probeData.reachable && probeData.tcpReachable) {
+            setCableStatus('connected')
           }
         }
 

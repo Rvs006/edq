@@ -130,6 +130,7 @@ async def list_devices(
     status: Optional[str] = None,
     search: Optional[str] = Query(None, max_length=200),
     project_id: Optional[str] = None,
+    online: Optional[bool] = Query(None, description="Filter by online status (seen within last 10 minutes)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -142,6 +143,13 @@ async def list_devices(
         query = query.where(Device.status == status)
     if project_id:
         query = query.where(Device.project_id == project_id)
+    if online is not None:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+        if online:
+            query = query.where(Device.last_seen_at >= cutoff)
+        else:
+            query = query.where(or_(Device.last_seen_at < cutoff, Device.last_seen_at.is_(None)))
     if search:
         term = f"%{search}%"
         query = query.where(
@@ -896,10 +904,17 @@ async def ping_device(
         )
 
     stdout = ping_result.get("stdout", "")
+    is_reachable = ping_result.get("exit_code") == 0
+
+    if is_reachable:
+        from app.utils.datetime import utcnow_naive
+        device.last_seen_at = utcnow_naive()
+        await db.commit()
+
     return {
         "device_id": device_id,
         "ip_address": device.ip_address,
-        "reachable": ping_result.get("exit_code") == 0,
+        "reachable": is_reachable,
         "samples": _parse_ping_samples(stdout),
         "summary": _parse_ping_summary(stdout),
     }

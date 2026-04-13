@@ -76,6 +76,7 @@ class Device(Base):
     profile_id = Column(String(36), ForeignKey("device_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     project_id = Column(String(36), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
     discovered_by = Column(String(36), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_seen_at = Column(DateTime, nullable=True, index=True)  # Last successful probe/discovery
     created_at = Column(DateTime, nullable=False, default=utcnow_naive)
     updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)
 

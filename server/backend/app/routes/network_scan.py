@@ -362,18 +362,20 @@ async def start_batch_scan(
                 hostname=disc.get("hostname"),
                 status=DeviceStatus.DISCOVERED,
                 category=DeviceCategory.UNKNOWN,
+                last_seen_at=utcnow_naive(),
             )
             db.add(device)
             await db.flush()
-        elif not device.mac_address:
+        else:
             # Update existing device with MAC if discovered
             disc = _discovered_map.get(ip, {})
-            if disc.get("mac"):
+            if not device.mac_address and disc.get("mac"):
                 device.mac_address = disc["mac"]
             if disc.get("vendor") and not device.manufacturer:
                 device.manufacturer = disc["vendor"]
             if disc.get("hostname") and not device.hostname:
                 device.hostname = disc["hostname"]
+            device.last_seen_at = utcnow_naive()
             await db.flush()
 
         test_run = TestRun(

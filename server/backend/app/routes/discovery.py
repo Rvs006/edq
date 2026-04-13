@@ -29,6 +29,7 @@ from app.services.discovery_service import (
 from app.services.tools_client import describe_tools_error, get_tools_error_status, tools_client
 from app.services.parsers.nmap_parser import nmap_parser
 from app.utils.audit import log_action
+from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.routes.discovery")
 
@@ -148,6 +149,7 @@ async def _upsert_device(
             manufacturer=auto_manufacturer,
             model=auto_model,
             project_id=project_id,
+            last_seen_at=utcnow_naive(),
         )
         db.add(device)
         try:
@@ -183,6 +185,7 @@ async def _upsert_device(
             device.project_id = project_id
         device.category = category
         device.status = DeviceStatus.IDENTIFIED
+        device.last_seen_at = utcnow_naive()
         await db.flush()
 
     await db.refresh(device)

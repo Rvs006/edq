@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { WifiOff, Wifi, Cable } from 'lucide-react'
 
-type CableStatus = 'connected' | 'disconnected' | 'reconnecting'
+type CableStatus = 'connected' | 'disconnected' | 'reconnecting' | 'service_unreachable'
 
 interface CableProbe {
   reachable: boolean
+  tcpReachable?: boolean
   consecutiveFailures: number
   failThreshold: number
 }
@@ -19,7 +20,7 @@ export default function WobblyCableAlert({ status, probe }: WobblyCableAlertProp
   const [hiding, setHiding] = useState(false)
 
   useEffect(() => {
-    if (status === 'disconnected') {
+    if (status === 'disconnected' || status === 'service_unreachable') {
       setVisible(true)
       setHiding(false)
     } else if (status === 'reconnecting') {
@@ -66,46 +67,61 @@ export default function WobblyCableAlert({ status, probe }: WobblyCableAlertProp
 
   const isDisconnected = status === 'disconnected'
   const isReconnecting = status === 'reconnecting'
+  const isServiceDown = status === 'service_unreachable'
+
+  const bannerColor = isDisconnected
+    ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/30 dark:border-red-800/50 dark:text-red-200'
+    : isServiceDown
+      ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-800/50 dark:text-amber-200'
+      : 'bg-green-50 border-green-200 text-green-800 dark:bg-green-950/30 dark:border-green-800/50 dark:text-green-200'
+
+  const iconColor = isDisconnected
+    ? 'text-red-600 dark:text-red-400'
+    : isServiceDown
+      ? 'text-amber-600 dark:text-amber-400'
+      : 'text-green-600 dark:text-green-400'
 
   return (
     <div
       className={`transition-all duration-500 ${hiding ? 'opacity-0 -translate-y-2' : 'opacity-100 translate-y-0'}`}
     >
       <div
-        className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${
-          isDisconnected
-            ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/30 dark:border-red-800/50 dark:text-red-200'
-            : 'bg-green-50 border-green-200 text-green-800 dark:bg-green-950/30 dark:border-green-800/50 dark:text-green-200'
-        }`}
+        className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${bannerColor}`}
       >
         <div
           className={`flex-shrink-0 ${isDisconnected ? 'animate-pulse' : ''}`}
         >
           {isDisconnected ? (
-            <WifiOff className="w-5 h-5 text-red-600 dark:text-red-400" />
+            <WifiOff className={`w-5 h-5 ${iconColor}`} />
+          ) : isServiceDown ? (
+            <Wifi className={`w-5 h-5 ${iconColor}`} />
           ) : (
-            <Wifi className="w-5 h-5 text-green-600 dark:text-green-400" />
+            <Wifi className={`w-5 h-5 ${iconColor}`} />
           )}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium">
             {isDisconnected
               ? 'Network cable disconnected \u2014 testing paused'
-              : 'Cable reconnected \u2014 resuming tests...'}
+              : isServiceDown
+                ? 'Service ports unreachable \u2014 cable is connected'
+                : 'Cable reconnected \u2014 resuming tests...'}
           </p>
           <p className="text-xs mt-0.5 opacity-75">
             {isDisconnected
               ? probe
                 ? `Checking connection\u2026 ${probe.consecutiveFailures}/${probe.failThreshold} probes failed. Retrying every few seconds.`
                 : 'Reconnect the cable to continue. Retrying every few seconds.'
-              : isReconnecting
-                ? 'Stabilising connection before resuming automated tests.'
-                : 'Connection restored.'}
+              : isServiceDown
+                ? 'Device responds to ping but no service ports are open. Services may be starting up.'
+                : isReconnecting
+                  ? 'Stabilising connection before resuming automated tests.'
+                  : 'Connection restored.'}
           </p>
         </div>
         <Cable
           className={`w-4 h-4 flex-shrink-0 ${
-            isDisconnected ? 'text-red-400' : 'text-green-400'
+            isDisconnected ? 'text-red-400' : isServiceDown ? 'text-amber-400' : 'text-green-400'
           }`}
         />
       </div>

@@ -150,6 +150,7 @@ class DeviceResponse(BaseModel):
     discovered_by: Optional[str] = None
     location: Optional[str] = None
     serial_number: Optional[str] = None
+    last_seen_at: Optional[datetime] = None
     last_tested: Optional[datetime] = None
     last_verdict: Optional[str] = None
     project_id: Optional[str] = None

@@ -135,7 +135,7 @@ export const authApi = {
 }
 
 export const devicesApi = {
-  list: (params?: { category?: string; status?: string; search?: string; project_id?: string; skip?: number; limit?: number }) => api.get<Device[]>('/devices/', { params }),
+  list: (params?: { category?: string; status?: string; search?: string; project_id?: string; online?: boolean; skip?: number; limit?: number }) => api.get<Device[]>('/devices/', { params }),
   get: (id: string) => api.get<Device>(`/devices/${id}`),
   create: (data: {
     ip_address?: string

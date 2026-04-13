@@ -29,6 +29,7 @@ export default function DevicesPage() {
   const [search, setSearch] = useState(urlSearch)
   const [categoryFilter, setCategoryFilter] = useState(urlCategory)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [onlineFilter, setOnlineFilter] = useState<'' | 'online' | 'offline'>('')
 
   useEffect(() => {
     if (searchInput !== urlSearch) setSearchInput(urlSearch)
@@ -64,11 +65,12 @@ export default function DevicesPage() {
   const canDeleteDevices = user?.role === 'admin'
 
   const { data: devices, isLoading, isError } = useQuery({
-    queryKey: ['devices', search, categoryFilter, projectIdFilter],
+    queryKey: ['devices', search, categoryFilter, projectIdFilter, onlineFilter],
     queryFn: () => devicesApi.list({
       search: search || undefined,
       category: categoryFilter || undefined,
       project_id: projectIdFilter || undefined,
+      online: onlineFilter === 'online' ? true : onlineFilter === 'offline' ? false : undefined,
     }).then(r => r.data),
   })
 
@@ -182,6 +184,16 @@ export default function DevicesPage() {
           {CATEGORIES.map(c => (
             <option key={c} value={c}>{c.replace('_', ' ')}</option>
           ))}
+        </select>
+        <select
+          value={onlineFilter}
+          onChange={(e) => setOnlineFilter(e.target.value as '' | 'online' | 'offline')}
+          aria-label="Filter by online status"
+          className="input w-full sm:w-40"
+        >
+          <option value="">All Devices</option>
+          <option value="online">Online</option>
+          <option value="offline">Offline</option>
         </select>
       </div>
 

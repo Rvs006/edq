@@ -57,6 +57,7 @@ export interface Device {
   profile_id: string | null
   discovered_by: string | null
   last_tested: string | null
+  last_seen_at: string | null
   last_verdict: string | null
   project_id: string | null
   created_at: string
