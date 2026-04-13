@@ -15,6 +15,13 @@ __pycache__
 .pytest_cache
 pytest-cache-files-*
 server/backend/pytest-cache-files-*
+server/backend/.pytest_cache
+server/backend/data
+server/backend/reports
+server/backend/uploads
+server/backend/test.db*
+server/backend/tmp_*.db
+server/backend/.venv
 tests/pytest-cache-files-*
 *.db
 backups

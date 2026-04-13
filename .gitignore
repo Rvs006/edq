@@ -171,6 +171,8 @@ frontend/vite.config.d.ts
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 
 # Application data
 reports/*
@@ -180,6 +182,7 @@ reports/*
 !reports/templates/**
 !reports/examples/
 !reports/examples/**
+server/backend/data/
 server/backend/reports/
 uploads/
 

@@ -6,6 +6,7 @@ pytest-cache-files-*
 .mypy_cache
 .ruff_cache
 *.egg-info
+.venv
 .git
 .gitignore
 .env
@@ -13,5 +14,7 @@ pytest-cache-files-*
 data/
 uploads/
 reports/
+test.db*
+tmp_*.db
 *.md
 tests/
