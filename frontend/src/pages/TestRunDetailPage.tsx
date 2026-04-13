@@ -447,12 +447,20 @@ export default function TestRunDetailPage() {
     ).length
   }, [results])
 
-  const firstPendingManualId = useMemo(() => {
-    const found = (results as TestResult[]).find(
-      (r) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
-    )
-    return found?.id || null
+  const pendingManualIds = useMemo(() => {
+    return (results as TestResult[])
+      .filter((r) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending'))
+      .map((r) => r.id)
   }, [results])
+
+  const firstPendingManualId = pendingManualIds[0] || null
+
+  // Auto-navigate to first pending manual test when run enters awaiting_manual
+  useEffect(() => {
+    if (run?.status === 'awaiting_manual' && firstPendingManualId && !selectedTestId) {
+      setSelectedTestId(firstPendingManualId)
+    }
+  }, [run?.status, firstPendingManualId, selectedTestId])
 
   const readinessVariant = useMemo(() => {
     if (!readinessSummary) return 'info' as const
@@ -476,13 +484,9 @@ export default function TestRunDetailPage() {
 
   const compactSummaryItems = useMemo(() => {
     const items: string[] = []
-    if (displayTemplateName) items.push(displayTemplateName)
-    if (run?.device_ip) items.push(run.device_ip)
-    if (run?.connection_scenario) items.push(run.connection_scenario.replace(/_/g, ' '))
-    if (run?.started_at) items.push(`Started ${toLocalDateString(run.started_at)}`)
     if (readinessSummary) items.push(`${readinessSummary.label} (${readinessSummary.score}/10)`)
     return items
-  }, [displayTemplateName, run?.device_ip, run?.connection_scenario, run?.started_at, readinessSummary])
+  }, [readinessSummary])
 
   const compactSummaryText = useMemo(() => {
     if (pendingManualCount > 0) {
@@ -713,6 +717,11 @@ export default function TestRunDetailPage() {
               onOverride={handleOverride}
               onSaveNotes={handleSaveNotes}
               isSubmitting={isSubmitting}
+              manualProgress={
+                selectedResult.tier === 'guided_manual'
+                  ? { current: pendingManualCount, total: (results as TestResult[]).filter(r => r.tier === 'guided_manual').length }
+                  : null
+              }
             />
           ) : resultsLoading ? (
             <div className="flex items-center justify-center h-full">

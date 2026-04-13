@@ -39,6 +39,7 @@ interface TestDetailProps {
   onOverride: (resultId: string, verdict: string, reason: string) => Promise<void>
   onSaveNotes?: (resultId: string, notes: string) => Promise<void>
   isSubmitting: boolean
+  manualProgress?: { current: number; total: number } | null
 }
 
 export default function TestDetail({
@@ -50,6 +51,7 @@ export default function TestDetail({
   onOverride,
   onSaveNotes,
   isSubmitting,
+  manualProgress,
 }: TestDetailProps) {
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [overrideVerdict, setOverrideVerdict] = useState('')
@@ -130,24 +132,15 @@ export default function TestDetail({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-5">
-        <div className="p-3 rounded-lg border border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-900/40">
-          <p className="text-xs font-semibold text-zinc-700 dark:text-slate-200">How to review this test</p>
-          <ul className="mt-2 space-y-1 text-xs text-zinc-500 dark:text-slate-400 list-disc pl-4">
-            {isManual ? (
-              <>
-                <li>Read the explainer first so you know what evidence the test is asking for.</li>
-                <li>Perform the action on the physical device or its web UI.</li>
-                <li>Use notes to record what screen, setting, or behaviour you observed.</li>
-              </>
-            ) : (
-              <>
-                <li>Check the terminal output for what the tool actually tested.</li>
-                <li>Use parsed findings for the key result, not just the raw text.</li>
-                <li>If a fail looks unexpected, add notes so the reviewer understands why.</li>
-              </>
-            )}
-          </ul>
-        </div>
+
+        {!isManual && !termOutput && !structuredOutput && !isRunning && result.verdict && result.verdict !== 'pending' && (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-800/50">
+            <Terminal className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+            <span className="text-xs text-zinc-500 dark:text-slate-400">
+              This test completed without terminal output. The verdict was determined by internal checks (e.g. HTTP probes, local analysis).
+            </span>
+          </div>
+        )}
 
         {!isManual && termOutput && (
           <div>
@@ -159,12 +152,12 @@ export default function TestDetail({
             </div>
             <Suspense
               fallback={
-                <div className="h-[240px] rounded-lg border border-zinc-700/50 bg-zinc-950/80 flex items-center justify-center text-xs text-zinc-400">
+                <div className="min-h-[120px] max-h-[400px] rounded-lg border border-zinc-700/50 bg-zinc-950/80 flex items-center justify-center text-xs text-zinc-400">
                   Loading terminal...
                 </div>
               }
             >
-              <LiveTerminal output={termOutput} className="h-[240px]" />
+              <LiveTerminal output={termOutput} className="min-h-[120px] max-h-[400px]" />
             </Suspense>
           </div>
         )}
@@ -197,6 +190,11 @@ export default function TestDetail({
               <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                 Manual Assessment
               </h3>
+              {manualProgress && (
+                <span className="ml-auto text-[10px] font-mono text-amber-600 dark:text-amber-400">
+                  {manualProgress.current}/{manualProgress.total} remaining
+                </span>
+              )}
             </div>
             <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
               Pick the verdict that best matches what you observed. Use <strong>Advisory</strong> when it works but still needs attention, and <strong>N/A</strong> only when the test genuinely does not apply to this device.
