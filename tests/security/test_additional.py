@@ -59,7 +59,7 @@ async def test_expired_token(client: httpx.AsyncClient):
 
     # Create expired token
     payload["exp"] = int(time.time()) - 3600  # Expired 1 hour ago
-    signing_material = "jwt-token-test-fixture-value"
+    signing_material = "jwt-token-test-fixture-value-0123456789abcdef-long"
     algorithm = payload.get("alg", "HS256")
     # PyJWT encodes with algorithm param, not alg from payload
     try:

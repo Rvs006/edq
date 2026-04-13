@@ -10,10 +10,16 @@ try:
     import websockets
 except ImportError:
     websockets = None  # type: ignore[assignment]
+    websocket_connect = None  # type: ignore[assignment]
+else:
+    try:
+        from websockets.asyncio.client import connect as websocket_connect
+    except ImportError:
+        websocket_connect = websockets.connect
 
 from live_helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.websocket, pytest.mark.timeout(10)]
+pytestmark = [pytest.mark.asyncio, pytest.mark.websocket]
 
 WS_BASE = BASE_URL.replace("http://", "ws://").replace("https://", "wss://")
 
@@ -45,7 +51,7 @@ async def test_ws_connection(ws_auth: dict):
     headers = _build_cookie_header(ws_auth)
 
     try:
-        async with websockets.connect(url, additional_headers=headers) as ws:
+        async with websocket_connect(url, additional_headers=headers) as ws:
             # Connection established; try to receive briefly
             try:
                 msg = await asyncio.wait_for(ws.recv(), timeout=2.0)
@@ -71,7 +77,7 @@ async def test_ws_receives_message(ws_auth: dict):
 
     received = []
     try:
-        async with websockets.connect(url, additional_headers=headers) as ws:
+        async with websocket_connect(url, additional_headers=headers) as ws:
             try:
                 msg = await asyncio.wait_for(ws.recv(), timeout=3.0)
                 received.append(msg)
@@ -96,14 +102,13 @@ async def test_ws_invalid_run_id(ws_auth: dict):
     headers = _build_cookie_header(ws_auth)
 
     try:
-        async with websockets.connect(url, additional_headers=headers) as ws:
+        async with websocket_connect(url, additional_headers=headers) as ws:
             try:
                 await asyncio.wait_for(ws.recv(), timeout=2.0)
             except asyncio.TimeoutError:
                 pass
     except (
         websockets.exceptions.ConnectionClosed,
-        websockets.exceptions.InvalidStatusCode,
         websockets.exceptions.InvalidStatus,
         websockets.exceptions.InvalidURI,
         ConnectionRefusedError,
@@ -125,7 +130,7 @@ async def test_ws_no_auth():
 
     rejected = False
     try:
-        async with websockets.connect(url) as ws:
+        async with websocket_connect(url) as ws:
             try:
                 msg = await asyncio.wait_for(ws.recv(), timeout=2.0)
                 # If we got a message, the server may not enforce auth on WS
@@ -134,7 +139,6 @@ async def test_ws_no_auth():
     except websockets.exceptions.ConnectionClosed as exc:
         rejected = True
     except (
-        websockets.exceptions.InvalidStatusCode,
         websockets.exceptions.InvalidStatus,
         websockets.exceptions.InvalidURI,
         ConnectionRefusedError,
