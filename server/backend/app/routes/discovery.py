@@ -223,31 +223,49 @@ async def initiate_discovery(
     discovered_devices: List[Dict[str, Any]] = []
 
     if data.ip_address:
-        # Best-effort pre-flight: use it to bound scan time, but do not hard-fail
-        # the request. Some real devices block ICMP or only expose non-default
-        # services, so a quick probe can miss a device that nmap can still find.
+        # Strict pre-flight: flush ARP cache for this IP, then do a fresh
+        # TCP + ICMP probe.  ARP cache can make probes succeed for ~30s
+        # after a cable is unplugged, causing false "device found" results.
         scan_timeout = 300
+        # Run a quick nmap ping-only probe with --send-ip to bypass ARP
+        # cache. This forces a fresh ICMP/TCP probe that won't succeed
+        # from a stale ARP entry after cable is unplugged.
+        try:
+            arp_flush_scan = await tools_client.nmap(
+                data.ip_address,
+                ["--send-ip", "-sn", "-n", "--max-retries", "1", "--host-timeout", "3s", "-oX", "-"],
+                timeout=8,
+            )
+            arp_hosts = nmap_parser.parse_host_discovery(arp_flush_scan.get("stdout", ""))
+            arp_host_alive = any(h.get("ip") == data.ip_address for h in arp_hosts)
+        except Exception:
+            arp_host_alive = False
+
         try:
             is_reachable, probe_source = await asyncio.wait_for(
                 probe_device_connectivity(data.ip_address),
-                timeout=5.0,
+                timeout=6.0,
             )
         except (asyncio.TimeoutError, Exception) as exc:
             logger.warning("Connectivity pre-check failed for %s: %s", data.ip_address, exc)
             is_reachable = False
             probe_source = None
 
-        if not is_reachable:
-            logger.info(
-                "Connectivity pre-check did not confirm %s; proceeding with full scan timeout anyway",
-                data.ip_address,
-            )
-        else:
-            logger.debug(
-                "Connectivity pre-check confirmed %s via %s",
-                data.ip_address,
-                probe_source,
-            )
+        if not is_reachable and not arp_host_alive:
+            # Device is unreachable on both TCP/ICMP probes AND nmap's
+            # ARP-bypass ping.  Do NOT proceed with full scan.
+            logger.info("Device %s is unreachable — skipping nmap scan", data.ip_address)
+            await log_action(db, user, "discovery.scan", "discovery", data.ip_address,
+                             {"devices_found": 0, "reason": "unreachable"}, request)
+            return {
+                "status": "complete",
+                "target": data.ip_address,
+                "devices_found": 0,
+                "devices": [],
+                "message": f"Device {data.ip_address} is not reachable. Check that the cable is connected and the device is powered on.",
+            }
+
+        logger.debug("Connectivity pre-check confirmed %s via %s", data.ip_address, probe_source)
 
         try:
             raw = await tools_client.nmap(
@@ -261,31 +279,6 @@ async def initiate_discovery(
                 status_code=get_tools_error_status(exc),
                 detail=describe_tools_error(exc, fallback="Device discovery failed"),
             )
-
-        xml_out = raw.get("stdout", "")
-        parsed = nmap_parser.parse_xml(xml_out) if xml_out else {}
-
-        # Check if nmap actually found the host as "up".  When the device
-        # is disconnected nmap either reports no hosts or reports the host
-        # with status "down".  In both cases we should NOT upsert — the
-        # device is unreachable and should not appear in discovery results.
-        host_is_up = False
-        for h in parsed.get("hosts", []):
-            if h.get("ip") == data.ip_address and h.get("status") == "up":
-                host_is_up = True
-                break
-
-        if not host_is_up and not is_reachable:
-            # Neither pre-flight probe nor nmap confirmed the host is alive.
-            await log_action(db, user, "discovery.scan", "discovery", data.ip_address,
-                             {"devices_found": 0, "reason": "unreachable"}, request)
-            return {
-                "status": "complete",
-                "target": data.ip_address,
-                "devices_found": 0,
-                "devices": [],
-                "message": f"Device {data.ip_address} is unreachable. No device was found at this address.",
-            }
 
         open_ports = parsed.get("open_ports", [])
         os_fp = parsed.get("os_fingerprint")
