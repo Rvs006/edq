@@ -155,10 +155,21 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-def check_rate_limit(request: Request, max_requests: int, window_seconds: int = 60, action: str = "default") -> None:
-    """Raise 429 if rate limit is exceeded for the client IP + action."""
+def check_rate_limit(
+    request: Request,
+    max_requests: int,
+    window_seconds: int = 60,
+    action: str = "default",
+    scope: str | None = None,
+) -> None:
+    """Raise 429 if rate limit is exceeded for the client IP + action.
+
+    ``scope`` lets callers isolate limits for a specific target identity
+    (for example, login attempts against a single username) without
+    poisoning unrelated requests from the same client IP.
+    """
     ip = get_client_ip(request)
-    key = f"{ip}:{action}"
+    key = f"{ip}:{action}" if not scope else f"{ip}:{action}:{scope}"
     if not rate_limiter.check(key, max_requests, window_seconds):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

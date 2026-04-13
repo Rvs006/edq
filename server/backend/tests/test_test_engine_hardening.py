@@ -1,5 +1,6 @@
 """Hardening coverage for test-engine lifecycle and trust metadata."""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -150,3 +151,129 @@ async def test_finalize_run_completed_sets_pass_and_release_blocking_counts(monk
     assert run.run_metadata["trust_tier_counts"]["release_blocking"] >= 1
     assert run.run_metadata["trust_tier_counts"]["release_blocking"] >= 2
     assert messages[-1]["payload"]["data"]["overall_verdict"] == RunVerdictEnum.QUALIFIED_PASS
+
+
+@pytest.mark.asyncio
+async def test_run_uses_refreshed_device_ip_for_live_cable_handler(monkeypatch: pytest.MonkeyPatch):
+    run = SimpleNamespace(
+        id="run-3",
+        device_id="device-3",
+        template_id="template-3",
+        run_metadata={},
+        started_at=None,
+    )
+    device = SimpleNamespace(
+        id="device-3",
+        ip_address="192.168.10.20",
+        open_ports=[{"port": 443}],
+    )
+    template = SimpleNamespace(whitelist_id=None)
+    created_handlers: list[SimpleNamespace] = []
+
+    class DummyResults:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class DummySession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, _obj):
+            return None
+
+        def expunge(self, _obj):
+            return None
+
+        async def execute(self, _query):
+            return DummyResults()
+
+    class FakeCableHandler:
+        def __init__(self, ip: str, run_id: str, _manager, probe_ports: list[int] | None = None):
+            self.ip = ip
+            self.run_id = run_id
+            self.probe_ports = probe_ports or []
+            self.pause_calls: list[dict] = []
+            self.monitor_started = False
+            self.is_running = True
+            self.stopped = False
+            created_handlers.append(self)
+
+        async def monitor(self):
+            self.monitor_started = True
+            while self.is_running:
+                await asyncio.sleep(0.01)
+
+        async def pause_for_disconnect(self, message: str | None = None, kill_tools: bool = True, reason: str = "cable"):
+            await asyncio.sleep(0)
+            self.pause_calls.append(
+                {"message": message, "kill_tools": kill_tools, "reason": reason}
+            )
+
+        def stop(self):
+            self.is_running = False
+            self.stopped = True
+
+    async def fake_versions():
+        return {"versions": {}}
+
+    async def fake_broadcast(_channel, _payload):
+        return None
+
+    async def fake_readiness(_db, refreshed_device, *, logger=None):
+        refreshed_device.ip_address = "192.168.10.44"
+        return SimpleNamespace(
+            can_execute=False,
+            reason="unreachable",
+            pause_message="Waiting for reconnect",
+            probe_ports=[443],
+            missing_ip=False,
+        )
+
+    async def fake_finalize(_run_id: str):
+        return None
+
+    monkeypatch.setattr(test_engine_module, "async_session", lambda: DummySession())
+    monkeypatch.setattr(test_engine_module.tools_client, "versions", fake_versions)
+    monkeypatch.setattr(test_engine_module.manager, "broadcast", fake_broadcast)
+    monkeypatch.setattr(test_engine_module, "ensure_device_execution_readiness", fake_readiness)
+    monkeypatch.setattr(test_engine_module, "WobblyCableHandler", FakeCableHandler)
+
+    engine = TestEngine()
+
+    async def fake_load_run(_db, _run_id):
+        return run
+
+    async def fake_load_device(_db, _device_id):
+        return device
+
+    async def fake_load_template(_db, _template_id):
+        return template
+
+    async def fake_load_whitelist(_db, _whitelist_id):
+        return []
+
+    monkeypatch.setattr(engine, "_load_run", fake_load_run)
+    monkeypatch.setattr(engine, "_load_device", fake_load_device)
+    monkeypatch.setattr(engine, "_load_template", fake_load_template)
+    monkeypatch.setattr(engine, "_load_whitelist", fake_load_whitelist)
+    monkeypatch.setattr(engine, "_finalize_run", fake_finalize)
+
+    await engine.run("run-3")
+
+    assert len(created_handlers) == 1
+    handler = created_handlers[0]
+    assert handler.ip == "192.168.10.44"
+    assert handler.monitor_started is True
+    assert handler.pause_calls == [
+        {"message": "Waiting for reconnect", "kill_tools": False, "reason": "cable"}
+    ]
+    assert handler.stopped is True

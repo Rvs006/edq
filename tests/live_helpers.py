@@ -36,6 +36,10 @@ def unique_ip() -> str:
     return f"10.99.{random.randint(1, 254)}.{random.randint(1, 254)}"
 
 
+def unique_forwarded_for() -> str:
+    return f"10.250.{random.randint(1, 254)}.{random.randint(1, 254)}"
+
+
 async def _login(
     username: str,
     password: str,
@@ -44,11 +48,8 @@ async def _login(
 ) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as c:
         headers = {}
-        if forwarded_for is None and username.startswith("pwreset-"):
-            forwarded_for = (
-                f"10.250.{int(uuid.uuid4().hex[:2], 16) % 254 + 1}."
-                f"{int(uuid.uuid4().hex[2:4], 16) % 254 + 1}"
-            )
+        if forwarded_for is None:
+            forwarded_for = unique_forwarded_for()
         if forwarded_for:
             headers["X-Forwarded-For"] = forwarded_for
         resp = await c.post(

@@ -58,6 +58,26 @@ class WobblyCableHandler:
         """Hot-update the port list used for TCP reachability probes."""
         self.probe_ports = ports
 
+    def update_target(self, ip: str, probe_ports: list[int] | None = None) -> None:
+        """Hot-update the target IP (and optionally ports) while a run is paused.
+
+        This is a synchronous method called from async route handlers that
+        share the same event loop as ``monitor()``.  No lock is needed
+        because Python's GIL and asyncio's cooperative scheduling guarantee
+        that attribute assignments here cannot interleave with a running
+        coroutine — callers must NOT invoke this from a separate thread.
+        """
+        if ip and ip != self.ip:
+            logger.info(
+                "Updating cable handler target for run %s from %s to %s",
+                self.run_id,
+                self.ip,
+                ip,
+            )
+            self.ip = ip
+        if probe_ports is not None:
+            self.probe_ports = probe_ports
+
     async def check_connectivity(self, require_tcp: bool = True) -> bool:
         """Return True when the device is reachable.
 
@@ -110,7 +130,7 @@ class WobblyCableHandler:
                 now_mono = time.monotonic()
                 in_grace = now_mono < self._tcp_grace_until
 
-                any_reachable, tcp_reachable, probe_method = await self.check_connectivity_detailed()
+                any_reachable, tcp_reachable, _probe_method = await self.check_connectivity_detailed()
 
                 # Determine effective reachability.
                 # During paused/grace states, ICMP alone counts as reachable

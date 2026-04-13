@@ -23,7 +23,7 @@ from live_helpers import (
     BASE_URL, ADMIN_USER, ADMIN_PASS,
     ENGINEER_USER, ENGINEER_PASS,
     REVIEWER_USER, REVIEWER_PASS,
-    unique_ip, _login, _apply_auth,
+    unique_forwarded_for, unique_ip, _login, _apply_auth,
 )
 
 
@@ -50,6 +50,7 @@ def _make_client(auth: dict) -> httpx.AsyncClient:
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
+        c.headers["X-Forwarded-For"] = unique_forwarded_for()
         yield c
 
 
@@ -66,6 +67,7 @@ async def admin_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     auth = await _get_verified_auth(ADMIN_USER, ADMIN_PASS)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         _apply_auth(c, auth)
+        c.headers["X-Forwarded-For"] = unique_forwarded_for()
         yield c
 
 
@@ -82,6 +84,7 @@ async def engineer_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     auth = await _get_verified_auth(ENGINEER_USER, ENGINEER_PASS)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         _apply_auth(c, auth)
+        c.headers["X-Forwarded-For"] = unique_forwarded_for()
         yield c
 
 
@@ -98,6 +101,7 @@ async def reviewer_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     auth = await _get_verified_auth(REVIEWER_USER, REVIEWER_PASS)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         _apply_auth(c, auth)
+        c.headers["X-Forwarded-For"] = unique_forwarded_for()
         yield c
 
 

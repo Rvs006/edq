@@ -116,15 +116,22 @@ export default function ReportsPage() {
 
   const availableTemplates = templates || TEMPLATE_OPTIONS
 
-  const formatOptions: { key: ReportFormat; label: string; ext: string; icon: typeof FileSpreadsheet }[] = [
-    { key: 'excel', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet },
-    { key: 'csv', label: 'CSV', ext: '.csv', icon: FileSpreadsheet },
-  ]
   const formatGroups: FormatGroup[] = [
     {
-      title: 'Export Formats',
+      title: 'Spreadsheet Exports',
       description: 'Excel workbook (matches Electracom qualification template) and flat CSV export.',
-      formats: formatOptions,
+      formats: [
+        { key: 'excel', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet },
+        { key: 'csv', label: 'CSV', ext: '.csv', icon: FileSpreadsheet },
+      ],
+    },
+    {
+      title: 'Document Exports',
+      description: 'Narrative deliverables for client-ready Word and PDF report packages.',
+      formats: [
+        { key: 'word', label: 'Word', ext: '.docx', icon: FileText },
+        { key: 'pdf', label: 'PDF', ext: '.pdf', icon: FileDown },
+      ],
     },
   ]
 

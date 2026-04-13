@@ -92,9 +92,9 @@ async def test_generate_generic_excel_report(admin_client: httpx.AsyncClient, te
         workbook = load_workbook(BytesIO(download.content))
         try:
             assert workbook.sheetnames == [
-                "TEST SUMMARY",
-                "TESTPLAN",
-                "ADDITIONAL INFORMATION",
+                "General Test Information",
+                "Test Results",
+                "Additional Device Information",
             ]
         finally:
             workbook.close()

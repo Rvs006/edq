@@ -23,6 +23,13 @@ import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDia
 import type { TestResult } from '@/lib/types'
 import { isActiveTestRunStatus, toLocalDateString } from '@/lib/testContracts'
 import { normalizeTemplateName } from '@/lib/templateNames'
+import {
+  buildProgressSegments,
+  countCompletedResults,
+  getNextPendingManualResultId,
+  getPendingManualResultIds,
+  getRunningTestIdFromProgress,
+} from '@/lib/testRunDetailPage'
 import { summarizeRunProgress } from '@/lib/testUi'
 
 export default function TestRunDetailPage() {
@@ -131,12 +138,7 @@ export default function TestRunDetailPage() {
   }, [ws.reconnectCount, id, queryClient])
 
   const runningTestId = useMemo(() => {
-    if (!ws.lastProgress) return null
-    const msg = ws.lastProgress
-    if (msg.type === 'test_start') return msg.data.test_id || null
-    if (msg.type === 'test_progress' && msg.data.status === 'running')
-      return msg.data.test_id || null
-    return null
+    return getRunningTestIdFromProgress(ws.lastProgress)
   }, [ws.lastProgress])
 
   const sidebarResults: TestResultItem[] = useMemo(
@@ -190,7 +192,7 @@ export default function TestRunDetailPage() {
   }, [results, selectedTestId])
 
   const completedCount = useMemo(
-    () => (results as TestResult[]).filter((r) => r.verdict && r.verdict !== 'pending').length,
+    () => countCompletedResults(results as TestResult[]),
     [results]
   )
 
@@ -208,21 +210,7 @@ export default function TestRunDetailPage() {
   )
 
   const progressSegments = useMemo(() => {
-    const segs = { pass: 0, fail: 0, advisory: 0, info: 0, manual_pending: 0, pending: 0, running: 0 }
-    const manualStageActive = run?.status === 'awaiting_manual' || run?.status === 'awaiting_review'
-    const runIsExecuting =
-      run?.status === 'running' || run?.status === 'selecting_interface' || run?.status === 'syncing'
-    for (const r of results as TestResult[]) {
-      const v = r.verdict?.toLowerCase()
-      if (v === 'pass' || v === 'qualified_pass') segs.pass++
-      else if (v === 'fail' || v === 'error') segs.fail++
-      else if (v === 'advisory') segs.advisory++
-      else if (v === 'info' || v === 'na' || v === 'n/a') segs.info++
-      else if (r.tier === 'guided_manual' && manualStageActive) segs.manual_pending++
-      else if (runIsExecuting && runningTestId && r.test_id === runningTestId) segs.running++
-      else segs.pending++
-    }
-    return segs
+    return buildProgressSegments(results as TestResult[], runningTestId, run?.status)
   }, [results, runningTestId, run?.status])
 
   const handleStartTests = () => {
@@ -353,23 +341,7 @@ export default function TestRunDetailPage() {
   }
 
   const findNextPendingManual = useCallback(
-    (afterId: string) => {
-      const manualTests = (results as TestResult[]).filter(
-        (r) => r.tier === 'guided_manual'
-      )
-      const currentIdx = manualTests.findIndex((r) => r.id === afterId)
-      for (let i = currentIdx + 1; i < manualTests.length; i++) {
-        if (!manualTests[i].verdict || manualTests[i].verdict === 'pending') {
-          return manualTests[i].id
-        }
-      }
-      for (let i = 0; i < currentIdx; i++) {
-        if (!manualTests[i].verdict || manualTests[i].verdict === 'pending') {
-          return manualTests[i].id
-        }
-      }
-      return null
-    },
+    (afterId: string) => getNextPendingManualResultId(results as TestResult[], afterId),
     [results]
   )
 
@@ -444,17 +416,11 @@ export default function TestRunDetailPage() {
   const canSelfApprove =
     user?.role === 'admin' || (isOwner && (user?.role === 'engineer' || user?.role === 'reviewer'))
 
-  const pendingManualCount = useMemo(() => {
-    return (results as TestResult[]).filter(
-      (r) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending')
-    ).length
+  const pendingManualIds = useMemo(() => {
+    return getPendingManualResultIds(results as TestResult[])
   }, [results])
 
-  const pendingManualIds = useMemo(() => {
-    return (results as TestResult[])
-      .filter((r) => r.tier === 'guided_manual' && (!r.verdict || r.verdict === 'pending'))
-      .map((r) => r.id)
-  }, [results])
+  const pendingManualCount = pendingManualIds.length
 
   const firstPendingManualId = pendingManualIds[0] || null
 

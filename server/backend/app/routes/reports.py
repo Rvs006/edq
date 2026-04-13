@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -41,6 +42,10 @@ from app.utils.audit import log_action
 logger = logging.getLogger("edq.routes.reports")
 
 router = APIRouter()
+_REPORT_RUN_ID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
 
 
 class ReportRequest(BaseModel):
@@ -124,6 +129,13 @@ async def _load_run_context(data: ReportRequest, db: AsyncSession):
         whitelist_entries,
         branding_settings,
     )
+
+
+def _extract_report_run_id(filename: str) -> str | None:
+    match = _REPORT_RUN_ID_RE.search(filename)
+    if not match:
+        return None
+    return match.group(0)
 
 
 @router.post("/generate")
@@ -252,18 +264,16 @@ async def download_report(
     if not file_path_resolved.exists():
         raise HTTPException(status_code=404, detail="Report file not found")
 
-    # IDOR check: non-admin users may only download reports linked to their own test runs.
-    # Report filenames embed the test_run_id as the first UUID-shaped segment.
-    if user.role != UserRole.ADMIN:
-        import re as _re
-        _UUID_RE = _re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", _re.IGNORECASE)
-        run_id_match = _UUID_RE.search(safe_filename)
-        if run_id_match:
-            run_id = run_id_match.group(0)
-            tr_result = await db.execute(select(TestRun).where(TestRun.id == run_id))
-            tr = tr_result.scalar_one_or_none()
-            if tr and tr.engineer_id != user.id:
-                raise HTTPException(status_code=403, detail="Access denied")
+    run_id = _extract_report_run_id(safe_filename)
+    if run_id is None:
+        raise HTTPException(status_code=400, detail="Report filename is missing a run identifier")
+
+    tr_result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+    tr = tr_result.scalar_one_or_none()
+    if tr is None:
+        raise HTTPException(status_code=404, detail="Associated test run not found")
+    if user.role == UserRole.ENGINEER and tr.engineer_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     file_path_real = str(file_path_resolved)
 

@@ -15,23 +15,21 @@ from app.models.database import get_db
 from app.models.test_run import (
     TestRun,
     TestRunStatus,
-    is_paused_test_run_status,
     normalize_test_run_status,
 )
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.test_template import TestTemplate
-from app.models.device import Device, AddressingMode
+from app.models.device import Device
 from app.models.user import User
 from app.models.nessus_finding import NessusFinding
 from app.schemas.test import TestRunCreate, TestRunUpdate, TestRunResponse
 from app.security.auth import get_current_active_user
 from app.services.discovery_service import build_device_display_name
-from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
-from app.services.device_ip_discovery import discover_ip_for_mac
 from app.services.run_readiness import (
     build_run_readiness_summary,
     merge_readiness_into_metadata,
 )
+from app.services.test_run_connectivity import ensure_device_execution_readiness
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, is_run_executing, launch_test_run
 from app.services.wobbly_cable import get_cable_handler
@@ -179,65 +177,6 @@ async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int
     }
 
 
-async def _device_is_reachable(device: Device | None) -> bool:
-    """Return True when the device is reachable.
-
-    When the device has known open ports, at least one TCP service must
-    accept a connection. For newly-added devices with no port data,
-    ICMP is accepted as a reasonable fallback so the user is not
-    permanently blocked from starting or resuming test runs.
-    """
-    if device is None or not device.ip_address:
-        return False
-    known_ports = extract_probe_ports(device.open_ports)
-    _reachable, probe_method = await probe_device_connectivity(
-        device.ip_address,
-        known_ports,
-    )
-    if not probe_method:
-        return False
-    # If the device has scanned open-port data, require TCP connectivity
-    if device.open_ports:
-        return probe_method.startswith("tcp:")
-    # For devices with no port data yet (manually added, never scanned),
-    # accept ICMP so the user can start/resume tests. The test engine will
-    # discover ports during execution.
-    return True
-
-
-def _device_uses_dhcp(device: Device | None) -> bool:
-    if not device:
-        return False
-    mode = getattr(device.addressing_mode, "value", device.addressing_mode)
-    return mode == AddressingMode.DHCP.value
-
-
-async def _autodiscover_device_ip_if_needed(
-    db: AsyncSession,
-    device: Device | None,
-) -> bool:
-    if not device or device.ip_address or not _device_uses_dhcp(device) or not device.mac_address:
-        return False
-
-    discovery = await discover_ip_for_mac(db, device.mac_address)
-    if not discovery.discovered_ip:
-        return False
-
-    device.ip_address = discovery.discovered_ip
-    if discovery.vendor and not device.oui_vendor:
-        device.oui_vendor = discovery.vendor
-    if discovery.vendor and not device.manufacturer:
-        device.manufacturer = discovery.vendor
-    await db.flush()
-    await db.refresh(device)
-    logger.info(
-        "Auto-discovered DHCP device %s IP address as %s before starting/resuming run",
-        device.mac_address,
-        device.ip_address,
-    )
-    return True
-
-
 def _overall_verdict_from_summary(summary: dict[str, int | bool]) -> str | None:
     if summary["essential_failed"] or summary["failed"]:
         return "fail"
@@ -261,6 +200,29 @@ def _apply_summary_to_run(run: TestRun, summary: dict[str, int | bool]) -> None:
 def _calc_confidence(run: TestRun) -> int:
     """Calculate a 1-10 confidence score for a test run."""
     return build_run_readiness_summary(run)["score"]
+
+
+def _missing_ip_detail_for_action(action: str, dhcp_missing_ip: bool) -> str:
+    if not dhcp_missing_ip:
+        return "Device has no IP address"
+    if action == "resume":
+        return (
+            "DHCP device still has no discovered IP address. Reconnect it to the "
+            "target network or use Discover IP before resuming."
+        )
+    return (
+        "DHCP device has no discovered IP address yet. Use Discover IP or connect "
+        "it to the target network so EDQ can locate the lease."
+    )
+
+
+def _resume_block_detail(reason: str) -> str:
+    if reason == "service_unreachable":
+        return (
+            "Device is reachable but no supported service ports are open yet. "
+            "Resume once a service port becomes reachable."
+        )
+    return "Device is still unreachable. Reconnect the cable or device before resuming."
 
 
 @router.get("/", response_model=List[TestRunResponse])
@@ -487,22 +449,12 @@ async def start_test_run(
         raise HTTPException(status_code=409, detail="Test run is already executing")
 
     device = await db.get(Device, run.device_id)
-    await _autodiscover_device_ip_if_needed(db, device)
-    if device and not device.ip_address:
-        if _device_uses_dhcp(device):
-            raise HTTPException(
-                status_code=409,
-                detail="DHCP device has no discovered IP address yet. Use Discover IP or connect it to the target network so EDQ can locate the lease.",
-            )
-        raise HTTPException(status_code=422, detail="Device has no IP address")
-    if not await _device_is_reachable(device):
-        run.status = TestRunStatus.PAUSED_CABLE
-        await db.flush()
-        return {
-            "status": TestRunStatus.PAUSED_CABLE.value,
-            "message": "Device is not reachable. Tests are paused until the cable or device is reconnected.",
-            "run_id": run_id,
-        }
+    readiness = await ensure_device_execution_readiness(db, device, logger=logger)
+    if readiness.missing_ip:
+        raise HTTPException(
+            status_code=409 if readiness.dhcp_missing_ip else 422,
+            detail=_missing_ip_detail_for_action("start", readiness.dhcp_missing_ip),
+        )
 
     task = launch_test_run(run_id)
     if task is None:
@@ -642,30 +594,43 @@ async def resume_test_run(
             detail=f"Cannot resume run in '{run_status}' status. Must be paused.",
         )
 
+    handler = get_cable_handler(run_id)
+
     if run_status == TestRunStatus.PAUSED_CABLE.value:
         device = await db.get(Device, run.device_id)
-        await _autodiscover_device_ip_if_needed(db, device)
-        if device and not device.ip_address:
+        readiness = await ensure_device_execution_readiness(db, device, logger=logger)
+        if readiness.missing_ip:
             raise HTTPException(
                 status_code=409,
-                detail="DHCP device still has no discovered IP address. Reconnect it to the target network or use Discover IP before resuming.",
+                detail=_missing_ip_detail_for_action("resume", readiness.dhcp_missing_ip),
             )
-        if not await _device_is_reachable(device):
+        if handler and device and device.ip_address:
+            handler.update_target(device.ip_address, readiness.probe_ports)
+        if handler and is_run_executing(run_id) and not readiness.can_execute:
             raise HTTPException(
                 status_code=409,
-                detail="Device is still unreachable. Reconnect the cable or device before resuming.",
+                detail=_resume_block_detail(readiness.reason),
             )
+
+    # Sync the live cable handler so the monitor loop exits paused state
+    # and enters TCP grace mode (tolerates TCP failures for 45s).
+    if handler and is_run_executing(run_id):
+        run.status = TestRunStatus.RUNNING
+        await db.flush()
+        await db.refresh(run)
+        await handler.resume()
+        return {"status": "running", "message": "Test execution resumed", "run_id": run_id}
+
+    task = launch_test_run(run_id)
+    if task is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Test run was already started by another process",
+        )
 
     run.status = TestRunStatus.RUNNING
     await db.flush()
     await db.refresh(run)
-
-    # Sync the live cable handler so the monitor loop exits paused state
-    # and enters TCP grace mode (tolerates TCP failures for 45s).
-    handler = get_cable_handler(run_id)
-    if handler:
-        await handler.resume()
-
     return {"status": "running", "message": "Test execution resumed", "run_id": run_id}
 
 

@@ -9,6 +9,7 @@ from app.models.device import AddressingMode, Device
 from app.models.test_run import TestRun as RunModel, TestRunStatus as RunStatus
 from app.models.test_template import TestTemplate as TemplateModel
 from app.models.user import User
+from app.services.test_run_connectivity import ensure_device_execution_readiness
 from .conftest import register_and_login
 
 
@@ -55,7 +56,7 @@ async def _create_run(
 
 
 @pytest.mark.asyncio
-async def test_start_run_pauses_when_device_is_unreachable(
+async def test_start_run_launches_engine_when_device_is_unreachable(
     client: AsyncClient,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
@@ -74,19 +75,19 @@ async def test_start_run_pauses_when_device_is_unreachable(
         launched.append(run_id)
         return object()
 
-    monkeypatch.setattr("app.routes.test_runs.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
     monkeypatch.setattr("app.routes.test_runs.launch_test_run", fake_launch)
 
     resp = await client.post(f"/api/test-runs/{run_id}/start", headers=headers)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == RunStatus.PAUSED_CABLE.value
+    assert resp.json()["status"] == RunStatus.RUNNING.value
     assert launched == [run_id]
 
     db_session.expire_all()
     saved_run = await db_session.get(RunModel, run_id)
     assert saved_run is not None
-    assert saved_run.status == RunStatus.PAUSED_CABLE
+    assert saved_run.status == RunStatus.PENDING
 
 
 @pytest.mark.asyncio
@@ -103,7 +104,16 @@ async def test_resume_paused_cable_run_requires_device_reachability(
     async def fake_probe(_ip: str, _ports=None):
         return (False, None)
 
-    monkeypatch.setattr("app.routes.test_runs.probe_device_connectivity", fake_probe)
+    class DummyHandler:
+        def update_target(self, ip: str, probe_ports: list[int] | None = None) -> None:
+            return None
+
+        async def resume(self) -> None:
+            raise AssertionError("resume() should not be called while the device is still unreachable")
+
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.routes.test_runs.get_cable_handler", lambda _run_id: DummyHandler())
+    monkeypatch.setattr("app.routes.test_runs.is_run_executing", lambda _run_id: True)
 
     resp = await client.post(f"/api/test-runs/{run_id}/resume", headers=headers)
 
@@ -130,17 +140,122 @@ async def test_resume_paused_cable_run_succeeds_when_device_is_reachable(
     async def fake_probe(_ip: str, _ports=None):
         return (True, "tcp:443")
 
-    monkeypatch.setattr("app.routes.test_runs.probe_device_connectivity", fake_probe)
+    launched: list[str] = []
+
+    def fake_launch(run_id: str, test_plan_id: str | None = None):
+        launched.append(run_id)
+        return object()
+
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.routes.test_runs.get_cable_handler", lambda _run_id: None)
+    monkeypatch.setattr("app.routes.test_runs.is_run_executing", lambda _run_id: False)
+    monkeypatch.setattr("app.routes.test_runs.launch_test_run", fake_launch)
 
     resp = await client.post(f"/api/test-runs/{run_id}/resume", headers=headers)
 
     assert resp.status_code == 200
     assert resp.json()["status"] == RunStatus.RUNNING.value
+    assert launched == [run_id]
 
     db_session.expire_all()
     saved_run = await db_session.get(RunModel, run_id)
     assert saved_run is not None
     assert saved_run.status == RunStatus.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_resume_paused_cable_run_uses_live_handler_fast_path(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = await register_and_login(client, suffix="resumeLiveHandler")
+    user_id = await _get_user_id(db_session, "resumeLiveHandleruser")
+    run_id = await _create_run(db_session, user_id, status=RunStatus.PAUSED_CABLE)
+    await db_session.commit()
+
+    class DummyHandler:
+        def __init__(self):
+            self.resume_calls = 0
+            self.updated_targets: list[tuple[str, list[int] | None]] = []
+
+        def update_target(self, ip: str, probe_ports: list[int] | None = None) -> None:
+            self.updated_targets.append((ip, probe_ports))
+
+        async def resume(self) -> None:
+            self.resume_calls += 1
+
+    handler = DummyHandler()
+    launched: list[str] = []
+
+    async def fake_probe(_ip: str, _ports=None):
+        return (True, "tcp:443")
+
+    def fake_launch(run_id: str, test_plan_id: str | None = None):
+        launched.append(run_id)
+        return object()
+
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.routes.test_runs.get_cable_handler", lambda _run_id: handler)
+    monkeypatch.setattr("app.routes.test_runs.is_run_executing", lambda _run_id: True)
+    monkeypatch.setattr("app.routes.test_runs.launch_test_run", fake_launch)
+
+    resp = await client.post(f"/api/test-runs/{run_id}/resume", headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == RunStatus.RUNNING.value
+    assert launched == []
+    assert handler.resume_calls == 1
+    assert handler.updated_targets
+
+
+@pytest.mark.asyncio
+async def test_ensure_device_execution_readiness_refreshes_dhcp_stale_ip(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    device = Device(
+        ip_address="192.168.1.20",
+        mac_address="BC:6A:44:01:0A:96",
+        addressing_mode=AddressingMode.DHCP,
+        open_ports=[{"port": 443}],
+        category="unknown",
+        status="discovered",
+    )
+    db_session.add(device)
+    await db_session.flush()
+    await db_session.refresh(device)
+
+    probe_calls: list[str] = []
+
+    async def fake_probe(ip: str, _ports=None):
+        probe_calls.append(ip)
+        if ip == "192.168.1.20":
+            return (False, None)
+        if ip == "192.168.1.44":
+            return (True, "tcp:443")
+        raise AssertionError(f"Unexpected IP probe: {ip}")
+
+    async def fake_discover_ip(_db, mac_address: str):
+        from app.services.device_ip_discovery import DeviceIpDiscoveryResult
+
+        assert mac_address == "BC:6A:44:01:0A:96"
+        return DeviceIpDiscoveryResult(
+            discovered_ip="192.168.1.44",
+            vendor="Commend International GmbH",
+            scanned_subnets=["192.168.1.0/24"],
+            successful_scans=1,
+        )
+
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.services.test_run_connectivity.discover_ip_for_mac", fake_discover_ip)
+
+    readiness = await ensure_device_execution_readiness(db_session, device)
+
+    assert readiness.can_execute is True
+    assert readiness.reason == "ready"
+    assert probe_calls == ["192.168.1.20", "192.168.1.44"]
+    assert device.ip_address == "192.168.1.44"
 
 
 @pytest.mark.asyncio
@@ -194,8 +309,8 @@ async def test_start_run_discovers_ip_for_dhcp_device_before_launch(
         launched.append(run_id)
         return object()
 
-    monkeypatch.setattr("app.routes.test_runs.discover_ip_for_mac", fake_discover_ip)
-    monkeypatch.setattr("app.routes.test_runs.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.services.test_run_connectivity.discover_ip_for_mac", fake_discover_ip)
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
     monkeypatch.setattr("app.routes.test_runs.launch_test_run", fake_launch)
 
     resp = await client.post(f"/api/test-runs/{run.id}/start", headers=headers)
@@ -287,7 +402,7 @@ async def test_start_run_discovers_ip_from_neighbor_cache_for_dhcp_device(
     monkeypatch.setattr("app.services.device_ip_discovery.tools_client.detect_networks", fake_detect_networks)
     monkeypatch.setattr("app.services.device_ip_discovery.tools_client.nmap", fake_nmap)
     monkeypatch.setattr("app.services.device_ip_discovery.tools_client.neighbors", fake_neighbors)
-    monkeypatch.setattr("app.routes.test_runs.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
     monkeypatch.setattr("app.routes.test_runs.launch_test_run", fake_launch)
 
     resp = await client.post(f"/api/test-runs/{run.id}/start", headers=headers)

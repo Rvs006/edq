@@ -1,10 +1,13 @@
 """Authorization tests — IDOR prevention, role-based access, rate limiting."""
 
+from pathlib import Path
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.config import settings
 from .conftest import register_and_login
 from app.middleware.rate_limit import rate_limiter
 from app.models.device import Device
@@ -176,6 +179,24 @@ async def test_engineer_cannot_generate_report_for_other(client: AsyncClient, db
         json={"test_run_id": run_id, "report_type": "excel"},
         headers=headers_a,
     )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_engineer_cannot_download_report_for_other(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Engineer A cannot download Engineer B's report by guessing the filename."""
+    headers_a, run_id = await _setup_idor_scenario(client, db_session, "rptdl")
+    monkeypatch.setattr(settings, "REPORT_DIR", str(tmp_path))
+
+    filename = f"EDQ_Report_{run_id}_generic_20260413_120000.xlsx"
+    (tmp_path / filename).write_bytes(b"test report")
+
+    resp = await client.get(f"/api/reports/download/{filename}", headers=headers_a)
     assert resp.status_code == 403
 
 

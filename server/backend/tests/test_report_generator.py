@@ -109,12 +109,22 @@ async def test_generate_excel_report_preserves_generic_workbook_structure(tmp_pa
     workbook = load_workbook(output)
     try:
         assert workbook.sheetnames == [
-            "TEST SUMMARY",
-            "TESTPLAN",
-            "ADDITIONAL INFORMATION",
+            "General Test Information",
+            "Test Results",
+            "Additional Device Information",
         ]
     finally:
         workbook.close()
+
+
+def test_output_path_uses_full_run_uuid(tmp_path, monkeypatch):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+    run = _make_test_run()
+    run.id = "12345678-1234-1234-1234-123456789abc"
+
+    path = report_generator._output_path(run, "generic", ".xlsx")
+
+    assert "12345678-1234-1234-1234-123456789abc" in path.name
 
 
 @pytest.mark.asyncio

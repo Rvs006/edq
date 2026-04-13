@@ -3,6 +3,7 @@
 import asyncio
 import ipaddress
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -28,7 +29,7 @@ from app.services.device_ip_discovery import (
 )
 from app.services.tools_client import describe_tools_error, tools_client
 from app.services.test_library import get_test_by_id
-from app.services.test_engine import test_engine
+from app.services.test_run_launcher import launch_test_run
 from app.services.parsers.nmap_parser import nmap_parser
 from app.utils.audit import log_action
 from app.models.authorized_network import AuthorizedNetwork
@@ -40,11 +41,110 @@ logger = logging.getLogger("edq.routes.network_scan")
 
 router = APIRouter()
 
+# Track background monitor tasks so they aren't garbage-collected mid-flight.
+# NOTE: This in-memory task registry is only valid in a single-process backend.
+# If the application is deployed with multiple worker processes, each process
+# maintains its own _monitor_tasks dict and duplicate or missing monitor
+# sequencing can occur. Multi-worker deployments should replace this with a
+# shared coordination mechanism (Redis, database locks, external scheduler, etc.).
+_monitor_tasks: dict[str, asyncio.Task] = {}
+_starting_scan_ids: set[str] = set()
+
+
+def _parse_bool_env(value: str | None, env_name: str | None = None) -> bool | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in ("1", "true", "yes", "on"):
+        return True
+    if normalized in ("0", "false", "no", "off"):
+        return False
+
+    if value.strip() != "":
+        var_name = f" for {env_name}" if env_name else ""
+        logger.warning("Unrecognized boolean env value: '%s'%s", value, var_name)
+    return None
+
+
+def _current_process_cmdline() -> list[str]:
+    try:
+        with open("/proc/self/cmdline", "rb") as fp:
+            raw = fp.read().strip(b"\x00")
+        return [part.decode(errors="ignore") for part in raw.split(b"\x00") if part]
+    except OSError:
+        return []
+
+
+def _current_process_name() -> str | None:
+    try:
+        with open("/proc/self/comm", "r", encoding="utf-8") as fp:
+            return fp.read().strip()
+    except OSError:
+        return None
+
+
+def _is_multi_worker_mode() -> bool:
+    """Detect whether this process is running in a multi-worker backend.
+
+    Detection order:
+    1. Explicit override via EDQ_SINGLE_WORKER_MODE or EDQ_MULTI_WORKERS.
+    2. Gunicorn-specific runtime signals such as GUNICORN_ARBITER_PID.
+    3. Process inspection of /proc/self/comm and /proc/self/cmdline for "gunicorn".
+    4. WEB_CONCURRENCY heuristic as a fallback.
+    """
+    explicit_single = _parse_bool_env(os.getenv("EDQ_SINGLE_WORKER_MODE"), "EDQ_SINGLE_WORKER_MODE")
+    if explicit_single is not None:
+        return not explicit_single
+
+    explicit_multi = _parse_bool_env(os.getenv("EDQ_MULTI_WORKERS"), "EDQ_MULTI_WORKERS")
+    if explicit_multi is not None:
+        return explicit_multi
+
+    if os.getenv("GUNICORN_ARBITER_PID") is not None:
+        return True
+
+    process_name = _current_process_name()
+    if process_name and "gunicorn" in process_name.lower():
+        return True
+
+    cmdline = _current_process_cmdline()
+    if any("gunicorn" in part.lower() for part in cmdline):
+        return True
+
+    web_concurrency = os.getenv("WEB_CONCURRENCY")
+    if web_concurrency:
+        try:
+            return int(web_concurrency) > 1
+        except ValueError:
+            pass
+
+    return False
+
+
+def _reserve_batch_scan_start(scan_id: str) -> bool:
+    existing_monitor_task = _monitor_tasks.get(scan_id)
+    if existing_monitor_task is not None and not existing_monitor_task.done():
+        return False
+    if scan_id in _starting_scan_ids:
+        return False
+    _starting_scan_ids.add(scan_id)
+    return True
+
+
+def _release_batch_scan_start(scan_id: str) -> None:
+    _starting_scan_ids.discard(scan_id)
+
 CIDR_RE = re.compile(
     r"^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$"
 )
 
-_running_scan_tasks: dict[str, asyncio.Task] = {}
+_SETTLED_BATCH_RUN_STATUSES = {
+    TestRunStatus.AWAITING_MANUAL.value,
+    TestRunStatus.AWAITING_REVIEW.value,
+    TestRunStatus.COMPLETED.value,
+    TestRunStatus.FAILED.value,
+    TestRunStatus.CANCELLED.value,
+}
 
 
 class DiscoverRequest(BaseModel):
@@ -91,6 +191,13 @@ class NetworkScanResponse(BaseModel):
     created_by: str
     created_at: datetime
     completed_at: Optional[datetime] = None
+
+
+def _batch_runs_are_settled(run_ids: list[str], run_statuses: dict[str, str]) -> bool:
+    return len(run_statuses) == len(run_ids) and all(
+        status in _SETTLED_BATCH_RUN_STATUSES
+        for status in run_statuses.values()
+    )
 
 @router.get("/detect-networks")
 async def detect_networks(
@@ -273,6 +380,15 @@ async def start_batch_scan(
 ):
     check_rate_limit(request, max_requests=3, window_seconds=60, action="network_scan_start")
 
+    if _is_multi_worker_mode():
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Bulk network scan monitoring requires a single backend worker process. "
+                "Multi-worker deployments are not supported with in-memory task tracking."
+            ),
+        )
+
     # Validate device IPs against authorized networks — admins auto-authorize
     authorized = await get_active_networks(db)
     unauthorized_ips = [ip for ip in data.device_ips if not is_ip_authorized(ip, authorized)]
@@ -311,138 +427,165 @@ async def start_batch_scan(
     if not scan:
         raise HTTPException(status_code=404, detail="Network scan not found")
 
+    scan_id = scan.id
     if scan.status == NetworkScanStatus.SCANNING:
         raise HTTPException(status_code=409, detail="Scan is already running")
-
-    template = None
-    template_id = data.template_id
-    if template_id:
-        t_result = await db.execute(select(TestTemplate).where(TestTemplate.id == template_id))
-        template = t_result.scalar_one_or_none()
-        if not template:
-            raise HTTPException(status_code=404, detail="Template not found")
-    else:
-        t_result = await db.execute(
-            select(TestTemplate).where(TestTemplate.is_default == True).limit(1)
+    if not _reserve_batch_scan_start(scan_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A batch scan monitor is already active for this scan. "
+                "Duplicate start requests are not allowed while the scan is in progress."
+            ),
         )
-        template = t_result.scalar_one_or_none()
-        if not template:
-            t_result = await db.execute(select(TestTemplate).limit(1))
+
+    try:
+        template = None
+        template_id = data.template_id
+        if template_id:
+            t_result = await db.execute(select(TestTemplate).where(TestTemplate.id == template_id))
             template = t_result.scalar_one_or_none()
             if not template:
-                raise HTTPException(status_code=400, detail="No test template available")
-        template_id = template.id
-
-    raw_test_ids = data.test_ids or scan.selected_test_ids or (template.test_ids if template else [])
-    # Deduplicate while preserving order (guards against double-serialized or manually edited templates)
-    seen: set[str] = set()
-    test_ids: list[str] = []
-    for tid in raw_test_ids:
-        if tid not in seen:
-            seen.add(tid)
-            test_ids.append(tid)
-
-    # Build IP -> discovery data map for enriching new Device records
-    _discovered_map = {}
-    if scan.devices_found:
-        for dh in scan.devices_found:
-            if dh.get("ip"):
-                _discovered_map[dh["ip"]] = dh
-
-    run_ids = []
-    for ip in data.device_ips:
-        dev_result = await db.execute(select(Device).where(Device.ip_address == ip))
-        device = dev_result.scalar_one_or_none()
-        if not device:
-            disc = _discovered_map.get(ip, {})
-            device = Device(
-                ip_address=ip,
-                mac_address=disc.get("mac"),
-                manufacturer=disc.get("vendor"),
-                hostname=disc.get("hostname"),
-                status=DeviceStatus.DISCOVERED,
-                category=DeviceCategory.UNKNOWN,
-                last_seen_at=utcnow_naive(),
-            )
-            db.add(device)
-            await db.flush()
+                raise HTTPException(status_code=404, detail="Template not found")
         else:
-            # Update existing device with MAC if discovered
-            disc = _discovered_map.get(ip, {})
-            if not device.mac_address and disc.get("mac"):
-                device.mac_address = disc["mac"]
-            if disc.get("vendor") and not device.manufacturer:
-                device.manufacturer = disc["vendor"]
-            if disc.get("hostname") and not device.hostname:
-                device.hostname = disc["hostname"]
-            device.last_seen_at = utcnow_naive()
+            t_result = await db.execute(
+                select(TestTemplate).where(TestTemplate.is_default == True).limit(1)
+            )
+            template = t_result.scalar_one_or_none()
+            if not template:
+                t_result = await db.execute(select(TestTemplate).limit(1))
+                template = t_result.scalar_one_or_none()
+                if not template:
+                    raise HTTPException(status_code=400, detail="No test template available")
+            template_id = template.id
+
+        raw_test_ids = data.test_ids or scan.selected_test_ids or (template.test_ids if template else [])
+        # Deduplicate while preserving order (guards against double-serialized or manually edited templates)
+        seen: set[str] = set()
+        test_ids: list[str] = []
+        for tid in raw_test_ids:
+            if tid not in seen:
+                seen.add(tid)
+                test_ids.append(tid)
+
+        # Build IP -> discovery data map for enriching new Device records
+        _discovered_map = {}
+        if scan.devices_found:
+            for dh in scan.devices_found:
+                if dh.get("ip"):
+                    _discovered_map[dh["ip"]] = dh
+
+        run_ids = []
+        for ip in data.device_ips:
+            dev_result = await db.execute(select(Device).where(Device.ip_address == ip))
+            device = dev_result.scalar_one_or_none()
+            if not device:
+                disc = _discovered_map.get(ip, {})
+                device = Device(
+                    ip_address=ip,
+                    mac_address=disc.get("mac"),
+                    manufacturer=disc.get("vendor"),
+                    hostname=disc.get("hostname"),
+                    status=DeviceStatus.DISCOVERED,
+                    category=DeviceCategory.UNKNOWN,
+                    last_seen_at=utcnow_naive(),
+                )
+                db.add(device)
+                await db.flush()
+            else:
+                # Update existing device with MAC if discovered
+                disc = _discovered_map.get(ip, {})
+                if not device.mac_address and disc.get("mac"):
+                    device.mac_address = disc["mac"]
+                if disc.get("vendor") and not device.manufacturer:
+                    device.manufacturer = disc["vendor"]
+                if disc.get("hostname") and not device.hostname:
+                    device.hostname = disc["hostname"]
+                device.last_seen_at = utcnow_naive()
+                await db.flush()
+
+            test_run = TestRun(
+                device_id=device.id,
+                template_id=template_id,
+                engineer_id=user.id,
+                project_id=device.project_id,
+                connection_scenario=data.connection_scenario or scan.connection_scenario,
+                total_tests=len(test_ids),
+                status=TestRunStatus.PENDING,
+            )
+            db.add(test_run)
             await db.flush()
 
-        test_run = TestRun(
-            device_id=device.id,
-            template_id=template_id,
-            engineer_id=user.id,
-            project_id=device.project_id,
-            connection_scenario=data.connection_scenario or scan.connection_scenario,
-            total_tests=len(test_ids),
-            status=TestRunStatus.PENDING,
-        )
-        db.add(test_run)
-        await db.flush()
+            for tid in test_ids:
+                test_def = get_test_by_id(tid)
+                if test_def:
+                    tr = TestResult(
+                        test_run_id=test_run.id,
+                        test_id=tid,
+                        test_name=test_def["name"],
+                        tier=TestTier(test_def["tier"]),
+                        tool=test_def.get("tool"),
+                        verdict=TestVerdict.PENDING,
+                        is_essential="yes" if test_def.get("is_essential") else "no",
+                        compliance_map=test_def.get("compliance_map", []),
+                    )
+                    db.add(tr)
 
-        for tid in test_ids:
-            test_def = get_test_by_id(tid)
-            if test_def:
-                tr = TestResult(
-                    test_run_id=test_run.id,
-                    test_id=tid,
-                    test_name=test_def["name"],
-                    tier=TestTier(test_def["tier"]),
-                    tool=test_def.get("tool"),
-                    verdict=TestVerdict.PENDING,
-                    is_essential="yes" if test_def.get("is_essential") else "no",
-                    compliance_map=test_def.get("compliance_map", []),
+            await db.flush()
+            run_ids.append(test_run.id)
+
+        scan.run_ids = run_ids
+        scan.status = NetworkScanStatus.SCANNING
+        scan.selected_test_ids = test_ids
+        await db.flush()
+        await db.refresh(scan)
+        # Persist the batch before launching background tasks so SQLite does not
+        # hold an open writer transaction across asynchronous test execution.
+        await db.commit()
+        await db.refresh(scan)
+
+        launched_tasks: list[asyncio.Task] = []
+        for rid in run_ids:
+            task = launch_test_run(rid)
+            if task is None:
+                logger.warning(
+                    "Batch scan %s could not launch run %s because it is already executing",
+                    scan_id,
+                    rid,
                 )
-                db.add(tr)
+                continue
+            launched_tasks.append(task)
 
-        await db.flush()
-        run_ids.append(test_run.id)
+        def _on_monitor_done(task: asyncio.Task, *, _scan_id: str = scan_id) -> None:
+            _monitor_tasks.pop(_scan_id, None)
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc:
+                logger.error("Batch monitor for scan %s failed: %s", _scan_id, exc)
 
-    scan.run_ids = run_ids
-    scan.status = NetworkScanStatus.SCANNING
-    scan.selected_test_ids = test_ids
-    await db.flush()
-    await db.refresh(scan)
-    # Persist the batch before launching background tasks so SQLite does not
-    # hold an open writer transaction across asynchronous test execution.
-    await db.commit()
-    await db.refresh(scan)
+        monitor_task = asyncio.create_task(_monitor_batch(scan_id, run_ids, launched_tasks))
+        monitor_task.add_done_callback(_on_monitor_done)
+        _monitor_tasks[scan_id] = monitor_task
 
-    scan_id = scan.id
-    for rid in run_ids:
-        task = asyncio.create_task(test_engine.run(rid))
-        _running_scan_tasks[rid] = task
-        task.add_done_callback(lambda t, rid=rid: _running_scan_tasks.pop(rid, None))
+        await log_action(db, user, "network_scan.start", "network_scan", scan.id,
+                         {"device_count": len(data.device_ips), "test_count": len(test_ids)}, request)
 
-    asyncio.create_task(_monitor_batch(scan_id, run_ids))
-
-    await log_action(db, user, "network_scan.start", "network_scan", scan.id,
-                     {"device_count": len(data.device_ips), "test_count": len(test_ids)}, request)
-
-    return scan
+        return scan
+    finally:
+        _release_batch_scan_start(scan_id)
 
 
-async def _monitor_batch(scan_id: str, run_ids: list[str]) -> None:
+async def _monitor_batch(
+    scan_id: str,
+    run_ids: list[str],
+    launched_tasks: list[asyncio.Task] | None = None,
+) -> None:
     """Wait for all batch runs to settle, then update the aggregate scan status."""
     from app.models.database import async_session
 
-    tasks = [_running_scan_tasks.get(rid) for rid in run_ids if rid in _running_scan_tasks]
-    try:
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-    finally:
-        for rid in run_ids:
-            _running_scan_tasks.pop(rid, None)
+    if launched_tasks:
+        await asyncio.gather(*launched_tasks, return_exceptions=True)
 
     async with async_session() as db:
         result = await db.execute(select(NetworkScan).where(NetworkScan.id == scan_id))
@@ -455,12 +598,7 @@ async def _monitor_batch(scan_id: str, run_ids: list[str]) -> None:
                 row.id: normalize_test_run_status(row.status)
                 for row in run_status_result.all()
             }
-            terminal_statuses = {
-                TestRunStatus.COMPLETED.value,
-                TestRunStatus.FAILED.value,
-                TestRunStatus.CANCELLED.value,
-            }
-            if run_statuses and all(status in terminal_statuses for status in run_statuses.values()):
+            if run_statuses and _batch_runs_are_settled(run_ids, run_statuses):
                 scan.status = NetworkScanStatus.COMPLETE
                 scan.completed_at = utcnow_naive()
             else:

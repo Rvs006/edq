@@ -505,7 +505,7 @@ def _output_path(test_run: Any, template_key: str, extension: str) -> Path:
     output_dir = Path(settings.REPORT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    return output_dir / f"EDQ_Report_{str(test_run.id)[:8]}_{template_key}_{stamp}{extension}"
+    return output_dir / f"EDQ_Report_{test_run.id!s}_{template_key}_{stamp}{extension}"
 
 
 async def generate_excel_report(
@@ -582,9 +582,9 @@ async def generate_excel_report(
         from openpyxl import Workbook
 
         wb = Workbook()
-        wb.active.title = "TEST SUMMARY"
-        wb.create_sheet("TESTPLAN")
-        wb.create_sheet("ADDITIONAL INFORMATION")
+        wb.active.title = report.summary_section_title
+        wb.create_sheet(report.testplan_section_title)
+        wb.create_sheet(report.additional_section_title)
         wb.save(str(path))
 
     return str(path)

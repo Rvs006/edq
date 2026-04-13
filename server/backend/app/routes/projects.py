@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select, func, update
+from typing import Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
 from app.models.database import get_db
@@ -22,18 +22,18 @@ router = APIRouter()
 
 
 class ProjectCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    client_name: Optional[str] = None
-    location: Optional[str] = None
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=4000)
+    client_name: Optional[str] = Field(None, max_length=255)
+    location: Optional[str] = Field(None, max_length=255)
 
 
 class ProjectUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    client_name: Optional[str] = None
-    location: Optional[str] = None
-    status: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=4000)
+    client_name: Optional[str] = Field(None, max_length=255)
+    location: Optional[str] = Field(None, max_length=255)
+    status: Optional[Literal["active", "archived", "completed"]] = None
     is_archived: Optional[bool] = None
 
 
@@ -64,24 +64,49 @@ async def list_projects(
 ):
     query = select(Project)
     if not include_archived:
-        query = query.where(Project.is_archived == False)
+        query = query.where(Project.is_archived.is_(False))
     if status:
         query = query.where(Project.status == status)
 
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = count_result.scalar() or 0
 
-    result = await db.execute(query.order_by(Project.updated_at.desc()).offset(skip).limit(limit))
-    projects = result.scalars().all()
+    device_count_sq = (
+        select(Device.project_id.label("project_id"), func.count().label("device_count"))
+        .group_by(Device.project_id)
+        .subquery()
+    )
+    run_count_sq = (
+        select(TestRun.project_id.label("project_id"), func.count().label("test_run_count"))
+        .group_by(TestRun.project_id)
+        .subquery()
+    )
 
+    project_query = (
+        select(
+            Project,
+            func.coalesce(device_count_sq.c.device_count, 0).label("device_count"),
+            func.coalesce(run_count_sq.c.test_run_count, 0).label("test_run_count"),
+        )
+        .select_from(Project)
+        .outerjoin(device_count_sq, device_count_sq.c.project_id == Project.id)
+        .outerjoin(run_count_sq, run_count_sq.c.project_id == Project.id)
+    )
+
+    if not include_archived:
+        project_query = project_query.where(Project.is_archived.is_(False))
+    if status:
+        project_query = project_query.where(Project.status == status)
+
+    project_query = project_query.order_by(Project.updated_at.desc()).offset(skip).limit(limit)
+
+    result = await db.execute(project_query)
     items = []
-    for p in projects:
-        dev_count = await db.execute(select(func.count()).where(Device.project_id == p.id))
-        run_count = await db.execute(select(func.count()).where(TestRun.project_id == p.id))
+    for project, device_count, test_run_count in result.all():
         items.append({
-            **ProjectResponse.model_validate(p).model_dump(),
-            "device_count": dev_count.scalar() or 0,
-            "test_run_count": run_count.scalar() or 0,
+            **ProjectResponse.model_validate(project).model_dump(),
+            "device_count": device_count,
+            "test_run_count": test_run_count,
         })
 
     return {"items": items, "total": total, "skip": skip, "limit": limit}
@@ -145,10 +170,8 @@ async def update_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     raw = data.model_dump(exclude_unset=True)
-    updates = sanitize_dict(raw, ["name", "description", "client_name", "location"])
+    updates = sanitize_dict(raw, ["name", "description", "client_name", "location", "status"])
     # Preserve non-string fields that sanitize_dict may drop
-    if "status" in raw:
-        updates["status"] = raw["status"]
     if "is_archived" in raw:
         updates["is_archived"] = raw["is_archived"]
     for field, value in updates.items():
@@ -173,12 +196,16 @@ async def delete_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Unlink devices and test runs (don't delete them)
-    devices = await db.execute(select(Device).where(Device.project_id == project_id))
-    for d in devices.scalars().all():
-        d.project_id = None
-    runs = await db.execute(select(TestRun).where(TestRun.project_id == project_id))
-    for r in runs.scalars().all():
-        r.project_id = None
+    await db.execute(
+        update(Device)
+        .where(Device.project_id == project_id)
+        .values(project_id=None)
+    )
+    await db.execute(
+        update(TestRun)
+        .where(TestRun.project_id == project_id)
+        .values(project_id=None)
+    )
 
     await db.delete(project)
     await log_action(db, user, "project.delete", "project", project_id, {"name": project.name}, request)

@@ -117,10 +117,15 @@ async def register(data: RegisterRequest, request: Request, db: AsyncSession = D
 
 @router.post("/login")
 async def login(data: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
-    check_rate_limit(request, max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE, window_seconds=60, action="login")
-
     identity = data.username.strip()
     normalized_identity = identity.casefold()
+    check_rate_limit(
+        request,
+        max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE,
+        window_seconds=60,
+        action="login",
+        scope=normalized_identity,
+    )
     result = await db.execute(
         select(User).where(
             (func.lower(User.username) == normalized_identity)
@@ -231,8 +236,8 @@ async def refresh(
     # Verify JWT signature/expiry first
     try:
         verify_token(refresh_token_input, token_type="refresh")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    except Exception as err:
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from err
 
     # Validate against DB — revokes the old token (single-use rotation)
     user_id = await validate_and_rotate_refresh_token(db, refresh_token_input)

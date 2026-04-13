@@ -55,6 +55,8 @@ describe('ReportsPage', () => {
     renderWithProviders(<ReportsPage />)
     expect(screen.getByText('Spreadsheet Exports')).toBeInTheDocument()
     expect(screen.getByText('Document Exports')).toBeInTheDocument()
+    expect(screen.getByText('Word')).toBeInTheDocument()
+    expect(screen.getByText('PDF')).toBeInTheDocument()
   })
 
   it('shows template profile guidance for all formats', () => {

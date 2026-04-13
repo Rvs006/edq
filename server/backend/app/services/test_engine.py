@@ -39,6 +39,7 @@ from app.services.run_readiness import (
     build_run_readiness_summary,
     merge_readiness_into_metadata,
 )
+from app.services.test_run_connectivity import ensure_device_execution_readiness
 from app.services.wobbly_cable import WobblyCableHandler
 from app.services.test_library import get_test_by_id
 from app.services.device_fingerprinter import fingerprinter, FingerprintResult
@@ -158,6 +159,7 @@ class TestEngine:
         except Exception as e:
             logger.debug("Could not fetch tool versions: %s", e)
 
+        readiness = None
         async with async_session() as db:
             run = await self._load_run(db, test_run_id)
             if run is None:
@@ -170,7 +172,8 @@ class TestEngine:
                 await self._set_run_error(db, run, "Device not found")
                 return
 
-            if not device.ip_address:
+            readiness = await ensure_device_execution_readiness(db, device, logger=logger)
+            if readiness.missing_ip:
                 logger.error(
                     "Device %s has no IP address (DHCP device awaiting assignment) — cannot run tests",
                     device.id,
@@ -201,29 +204,24 @@ class TestEngine:
             await db.refresh(device)
             db.expunge(device)
 
-        probe_ports = extract_probe_ports(device.open_ports)
+        probe_ports = readiness.probe_ports
         cable_handler = WobblyCableHandler(
             device.ip_address,
             test_run_id,
             manager,
             probe_ports=probe_ports,
         )
-        # Strict pre-flight: require at least one TCP service port to accept a
+        # Apply the shared route/engine readiness decision before starting tests.
         # connection. ICMP alone isn't sufficient — a gateway/router on the
         # user's network may respond to ping at the target IP without actually
         # being the device under test. Tests need real services to exercise.
-        initial_reachable, probe_method = await probe_device_connectivity(
-            device.ip_address, probe_ports=probe_ports
-        )
-        has_tcp_service = bool(probe_method) and probe_method.startswith("tcp:")
         # For devices with no known open ports (manually added, never scanned),
         # accept ICMP as sufficient to start — the test engine will discover
         # actual ports during execution.
-        can_start = has_tcp_service or (initial_reachable and not device.open_ports)
         cable_task = asyncio.create_task(cable_handler.monitor())
         run_started_broadcasted = False
 
-        if can_start:
+        if readiness.can_execute:
             async with async_session() as db:
                 run = await db.get(TestRun, test_run_id)
                 if run:
@@ -238,16 +236,12 @@ class TestEngine:
             })
             run_started_broadcasted = True
         else:
-            if initial_reachable:
+            if readiness.reason == "service_unreachable":
                 logger.warning(
                     "Device %s responded to %s but has no open probeable service ports for run %s; pausing until it becomes testable",
                     device.ip_address,
-                    probe_method or "ping",
+                    readiness.probe_method or "ping",
                     test_run_id,
-                )
-                pause_message = (
-                    f"Device {device.ip_address} is reachable but no supported service "
-                    "ports are open yet. Testing is paused until a service port becomes reachable."
                 )
             else:
                 logger.warning(
@@ -255,12 +249,11 @@ class TestEngine:
                     device.ip_address,
                     test_run_id,
                 )
-                pause_message = (
+            await cable_handler.pause_for_disconnect(
+                message=readiness.pause_message or (
                     f"Target device {device.ip_address} is unreachable from this "
                     "network. Testing is paused until connectivity is restored."
-                )
-            await cable_handler.pause_for_disconnect(
-                message=pause_message,
+                ),
                 kill_tools=False,
             )
 
@@ -408,17 +401,19 @@ class TestEngine:
 
                 while True:
                     await self._wait_while_paused(test_run_id)
+                    current_device_ip = cable_handler.ip
+                    probe_ports = cable_handler.probe_ports
 
                     # Pre-test connectivity check: verify device is reachable
                     # before starting the test. This catches cable disconnects
                     # that happened between the monitor's poll interval.
                     pre_reachable, _ = await probe_device_connectivity(
-                        device.ip_address, probe_ports=probe_ports, tcp_timeout=2.0
+                        current_device_ip, probe_ports=probe_ports, tcp_timeout=2.0
                     )
                     if not pre_reachable:
                         logger.warning(
                             "Pre-test probe failed for %s before %s — waiting for cable handler",
-                            device.ip_address,
+                            current_device_ip,
                             test_result.test_id,
                         )
                         # Give the cable handler time to detect and pause
@@ -439,7 +434,7 @@ class TestEngine:
 
                     test_started_at = utcnow_naive()
                     verdict, comment, parsed, raw_out, duration = await self._run_single_test(
-                        test_def, device.ip_address, test_run_id, whitelist_entries
+                        test_def, current_device_ip, test_run_id, whitelist_entries
                     )
 
                     if not await self._is_run_paused_for_cable(test_run_id):

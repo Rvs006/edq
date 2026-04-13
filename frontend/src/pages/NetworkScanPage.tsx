@@ -8,6 +8,22 @@ import {
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { networkScanApi, templatesApi, authorizedNetworksApi } from '@/lib/api'
+import {
+  SCENARIO_PRESELECTS,
+  SCENARIOS,
+  ACTIVE_NETWORK_SCAN_STATUSES,
+  ACTIVE_TEST_RUN_STATUSES,
+  COMPLETED_TEST_RUN_STATUSES,
+  ERROR_TEST_RUN_STATUSES,
+  loadPersistedScanState,
+  normalizeNetworkScanStatus,
+  savePersistedScanState,
+  type DiscoveredDevice,
+  type DeviceViewMode,
+  type TestDetail,
+  type ScanResult,
+  type NetworkScanStep,
+} from '@/lib/networkScanPage'
 import { UNIVERSAL_TESTS, TEST_CATEGORIES } from '@/lib/universal-tests'
 import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import { useAuth } from '@/contexts/AuthContext'
@@ -15,104 +31,11 @@ import toast from 'react-hot-toast'
 
 const LiveTerminal = lazy(() => import('@/components/testing/LiveTerminal'))
 
-const SCENARIO_PRESELECTS: Record<string, string[]> = {
-  test_lab: ['U01', 'U02', 'U06', 'U07', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19', 'U34'],
-  direct: ['U01', 'U06', 'U08', 'U10', 'U16'],
-  site_network: ['U01', 'U02', 'U06', 'U08'],
-}
-
-const SCENARIOS = [
-  { value: 'test_lab', label: 'Test Lab', desc: 'Isolated test environment — full scan safe' },
-  { value: 'direct', label: 'Direct Connection', desc: 'Point-to-point with device — most scans safe' },
-  { value: 'site_network', label: 'Site Network', desc: 'Production network — limited scans recommended', warn: true },
-]
-
-type Step = 'configure' | 'review' | 'monitor' | 'results'
-
-interface DiscoveredDevice {
-  ip: string
-  mac: string | null
-  vendor: string | null
-  hostname: string | null
-  services?: string[]
-  open_ports?: number[]
-  os?: string | null
-  model?: string | null
-  http_server?: string | null
-}
-
-type DeviceViewMode = 'grid' | 'tree'
-
-interface TestDetail {
-  test_id: string
-  test_name: string
-  verdict: string
-  tool: string | null
-  duration_seconds: number | null
-  is_essential: string
-  tier: string
-  comment: string | null
-  raw_output: string | null
-  started_at: string | null
-  completed_at: string | null
-}
-
-interface ScanResult {
-  run_id: string
-  device_ip: string
-  device_id: string
-  device_name?: string | null
-  device_category: string | null
-  vendor: string | null
-  hostname: string | null
-  model?: string | null
-  status: string
-  progress_pct: number
-  total_tests: number
-  completed_tests: number
-  passed_tests: number
-  failed_tests: number
-  advisory_tests: number
-  overall_verdict: string | null
-  test_details: TestDetail[]
-}
-
-const ACTIVE_NETWORK_SCAN_STATUSES = new Set(['pending', 'discovering', 'scanning'])
-const ACTIVE_TEST_RUN_STATUSES = new Set(['pending', 'selecting_interface', 'syncing', 'running', 'paused_manual', 'paused_cable'])
-const COMPLETED_TEST_RUN_STATUSES = new Set(['completed', 'awaiting_manual', 'awaiting_review'])
-const ERROR_TEST_RUN_STATUSES = new Set(['failed', 'error', 'cancelled'])
-
-function normalizeStatus(status: string | null | undefined): string {
-  return String(status || '').toLowerCase()
-}
-
-// Persist active scan across page navigations so leaving and returning resumes monitoring
-function _loadScanState(): { scanId: string | null; step: Step } {
-  try {
-    const raw = sessionStorage.getItem('edq_active_scan')
-    if (raw) {
-      const s = JSON.parse(raw)
-      if (s.scanId && (s.step === 'review' || s.step === 'monitor' || s.step === 'results')) {
-        return { scanId: s.scanId, step: s.step }
-      }
-    }
-  } catch { /* ignore */ }
-  return { scanId: null, step: 'configure' }
-}
-
-function _saveScanState(scanId: string | null, step: Step) {
-  if (scanId && (step === 'review' || step === 'monitor' || step === 'results')) {
-    sessionStorage.setItem('edq_active_scan', JSON.stringify({ scanId, step }))
-  } else {
-    sessionStorage.removeItem('edq_active_scan')
-  }
-}
-
 export default function NetworkScanPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [savedState] = useState(() => _loadScanState())
-  const [step, setStep] = useState<Step>(savedState.step)
+  const [savedState] = useState(() => loadPersistedScanState())
+  const [step, setStep] = useState<NetworkScanStep>(savedState.step)
   const [cidr, setCidr] = useState('192.168.1.0/24')
   const [scenario, setScenario] = useState('test_lab')
   const [selectedTests, setSelectedTests] = useState<Set<string>>(new Set(SCENARIO_PRESELECTS.test_lab))
@@ -130,7 +53,7 @@ export default function NetworkScanPage() {
 
   // Persist scan state whenever it changes
   useEffect(() => {
-    _saveScanState(scanId, step)
+    savePersistedScanState(scanId, step)
   }, [scanId, step])
 
   const [authorizedNets, setAuthorizedNets] = useState<{ cidr: string; label: string | null }[]>([])
@@ -171,7 +94,7 @@ export default function NetworkScanPage() {
       .then((res) => {
         if (!active) return
         const scan = res.data
-        const restoredStatus = normalizeStatus(scan.status)
+        const restoredStatus = normalizeNetworkScanStatus(scan.status)
         const restoredDevices = Array.isArray(scan.devices_found) ? scan.devices_found : []
         if (scan.connection_scenario) setScenario(scan.connection_scenario)
         if (Array.isArray(scan.selected_test_ids) && scan.selected_test_ids.length > 0) {
@@ -230,7 +153,7 @@ export default function NetworkScanPage() {
         test_ids: Array.from(selectedTests),
       })
       const scan = res.data
-      const nextStatus = normalizeStatus(scan.status)
+      const nextStatus = normalizeNetworkScanStatus(scan.status)
       if (nextStatus === 'error') {
         setScanId(scan.id)
         setScanStatus(nextStatus)
@@ -263,7 +186,7 @@ export default function NetworkScanPage() {
         test_ids: Array.from(selectedTests),
         connection_scenario: scenario,
       })
-      setScanStatus(normalizeStatus(res.data.status) || 'scanning')
+      setScanStatus(normalizeNetworkScanStatus(res.data.status) || 'scanning')
       setStep('monitor')
       toast.success('Batch scan started')
     } catch (err: unknown) {
@@ -279,7 +202,7 @@ export default function NetworkScanPage() {
     const poll = async () => {
       try {
         const res = await networkScanApi.results(scanId)
-        const nextStatus = normalizeStatus(res.data.status)
+        const nextStatus = normalizeNetworkScanStatus(res.data.status)
         setResults(res.data.results || [])
         setScanStatus(nextStatus)
         setMonitorError(null)
@@ -398,8 +321,8 @@ export default function NetworkScanPage() {
   )
 }
 
-function StepIndicator({ current, hasError }: { current: Step; hasError?: boolean }) {
-  const steps: { key: Step; label: string }[] = [
+function StepIndicator({ current, hasError }: { current: NetworkScanStep; hasError?: boolean }) {
+  const steps: { key: NetworkScanStep; label: string }[] = [
     { key: 'configure', label: 'Configure' },
     { key: 'review', label: 'Review Devices' },
     { key: 'monitor', label: 'Scanning' },
@@ -980,7 +903,7 @@ function MonitorStep({ results, scanStatus, navigate, onNewScan, selectedTests }
   const totalTests = results.reduce((s, r) => s + r.total_tests, 0)
   const completedTests = results.reduce((s, r) => s + r.completed_tests, 0)
   const overallPct = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0
-  const normalizedScanStatus = normalizeStatus(scanStatus)
+  const normalizedScanStatus = normalizeNetworkScanStatus(scanStatus)
   const isRunning = ACTIVE_NETWORK_SCAN_STATUSES.has(normalizedScanStatus)
   const isError = normalizedScanStatus === 'error'
 
@@ -1076,7 +999,7 @@ function getTestRelevance(testId: string, deviceCategory: string | null): 'high'
 }
 
 function DeviceTestDashboard({ result, navigate, selectedTests }: { result: ScanResult; navigate: (path: string) => void; selectedTests: Set<string> }) {
-  const runStatus = normalizeStatus(result.status)
+  const runStatus = normalizeNetworkScanStatus(result.status)
   const isRunning = ACTIVE_TEST_RUN_STATUSES.has(runStatus)
   const [expanded, setExpanded] = useState(isRunning)
   const [expandedOutput, setExpandedOutput] = useState<string | null>(null)
@@ -1351,7 +1274,7 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
 }
 
 function StatusBadge({ status, verdict }: { status: string; verdict: string | null }) {
-  const normalizedStatus = normalizeStatus(status)
+  const normalizedStatus = normalizeNetworkScanStatus(status)
 
   if (normalizedStatus === 'completed') {
     if (verdict === 'pass') return <span className="badge bg-emerald-50 text-emerald-600 border border-emerald-200">Pass</span>
