@@ -280,6 +280,9 @@ async def initiate_discovery(
                 detail=describe_tools_error(exc, fallback="Device discovery failed"),
             )
 
+        xml_out = raw.get("stdout", "")
+        parsed = nmap_parser.parse_xml(xml_out) if xml_out else {}
+
         open_ports = parsed.get("open_ports", [])
         os_fp = parsed.get("os_fingerprint")
         mac = parsed.get("mac_address")

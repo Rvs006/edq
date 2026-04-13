@@ -1046,13 +1046,17 @@ async def delete_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    # Delete test results and test runs first (FK constraint)
+    # Delete all child records that reference this device (FK constraints)
+    from sqlalchemy import delete as sa_delete
+    from app.models.scan_schedule import ScanSchedule
+
     run_ids_q = await db.execute(select(TestRun.id).where(TestRun.device_id == device_id))
     run_ids = [r[0] for r in run_ids_q.all()]
     if run_ids:
-        from sqlalchemy import delete as sa_delete
         await db.execute(sa_delete(TestResult).where(TestResult.test_run_id.in_(run_ids)))
         await db.execute(sa_delete(TestRun).where(TestRun.device_id == device_id))
+
+    await db.execute(sa_delete(ScanSchedule).where(ScanSchedule.device_id == device_id))
 
     await db.delete(device)
     await db.flush()
