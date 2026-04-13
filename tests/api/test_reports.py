@@ -112,21 +112,24 @@ async def test_generate_csv_report(admin_client: httpx.AsyncClient, test_device:
             json={
                 "test_run_id": run_id,
                 "report_type": "csv",
+                "template_key": "pelco_camera",
             },
             headers=_report_headers(),
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["report_type"] == "csv"
+        assert body["template_key"] == "pelco_camera"
         assert body["filename"].endswith(".csv")
 
         download = await admin_client.get(f"{BASE}download/{body['filename']}")
         assert download.status_code == 200, download.text
         assert "text/csv" in download.headers.get("content-type", "")
         csv_body = download.text
-        assert "TEST SUMMARY" in csv_body
+        assert "TEST SYNOPSIS" in csv_body
         assert "TESTPLAN" in csv_body
-        assert "ADDITIONAL INFORMATION" in csv_body
+        assert "ADDITIONAL INFO" in csv_body
+        assert "Script Flag" in csv_body
     finally:
         await admin_client.delete(f"/api/test-templates/{template_id}")
 
@@ -141,14 +144,14 @@ async def test_generate_word_report_returns_template_key(admin_client: httpx.Asy
             json={
                 "test_run_id": run_id,
                 "report_type": "word",
-                "template_key": "generic",
+                "template_key": "pelco_camera",
             },
             headers=_report_headers(),
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["report_type"] == "word"
-        assert body["template_key"] == "generic"
+        assert body["template_key"] == "pelco_camera"
         assert body["filename"].endswith(".docx")
     finally:
         await admin_client.delete(f"/api/test-templates/{template_id}")
@@ -164,14 +167,14 @@ async def test_generate_pdf_report_returns_template_key(admin_client: httpx.Asyn
             json={
                 "test_run_id": run_id,
                 "report_type": "pdf",
-                "template_key": "generic",
+                "template_key": "pelco_camera",
             },
             headers=_report_headers(),
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["report_type"] == "pdf"
-        assert body["template_key"] == "generic"
+        assert body["template_key"] == "pelco_camera"
         assert body["filename"].endswith(".pdf")
     finally:
         await admin_client.delete(f"/api/test-templates/{template_id}")

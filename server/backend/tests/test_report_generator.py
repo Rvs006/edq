@@ -63,6 +63,39 @@ def test_generic_template_is_available():
     assert templates["generic"]["mapping_exists"] is True
 
 
+def test_build_report_document_uses_template_mapping_for_layout():
+    report = report_generator.build_report_document(
+        _make_test_run(),
+        [_make_test_result()],
+        template_key="pelco_camera",
+    )
+
+    assert report.summary_section_title == "TEST SYNOPSIS"
+    assert report.testplan_section_title == "TESTPLAN"
+    assert report.additional_section_title == "ADDITIONAL INFO"
+    assert report.summary_text_label == "Synopsis"
+    assert [key for key, _ in report.summary_fields] == [
+        "test_attempt",
+        "date_range",
+        "system",
+        "manufacturer",
+        "model",
+        "firmware",
+        "serial",
+        "tester_name",
+        "overall_result",
+    ]
+    assert [label for _, label in report.testplan_columns] == [
+        "Test Number",
+        "Brief Description",
+        "Test Description",
+        "Essential Pass",
+        "Test Result",
+        "Test Comments",
+        "Script Flag",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_generate_excel_report_preserves_generic_workbook_structure(tmp_path, monkeypatch):
     monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
@@ -94,16 +127,21 @@ async def test_generate_word_report_includes_template_profile_and_branding(tmp_p
     output = await report_generator.generate_word_report(
         _make_test_run(),
         [_make_test_result()],
-        template_key="generic",
+        template_key="pelco_camera",
         branding_settings=_make_branding(),
     )
 
     document = Document(output)
     full_text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    table_text = "\n".join(cell.text for table in document.tables for row in table.rows for cell in row.cells)
 
     assert "Verdent QA" in full_text
-    assert "Template Profile: Generic IP Device (Rev00 C00)" in full_text
+    assert "Template Profile: Pelco Camera (Rev 2)" in full_text
     assert "IP Device Qualification Report" in full_text
+    assert "TEST SYNOPSIS" in full_text
+    assert "ADDITIONAL INFO" in full_text
+    assert "Essential Pass" in table_text
+    assert "Script Flag" in table_text
 
 
 @pytest.mark.asyncio
@@ -115,7 +153,7 @@ async def test_generate_pdf_report_includes_template_profile_and_branding(tmp_pa
     output = await report_generator.generate_pdf_report(
         _make_test_run(),
         [_make_test_result()],
-        template_key="generic",
+        template_key="pelco_camera",
         branding_settings=_make_branding(),
     )
 
@@ -123,6 +161,11 @@ async def test_generate_pdf_report_includes_template_profile_and_branding(tmp_pa
     content = pdf_bytes.getvalue().decode("latin-1", errors="ignore")
 
     assert "IP DEVICE QUALIFICATION REPORT" in content
+    assert "Pelco Camera (Rev 2)" in content
+    assert "TEST SYNOPSIS" in content
+    assert "ADDITIONAL INFO" in content
+    assert "Essential Pass" in content
+    assert "Script Flag" in content
 
 
 @pytest.mark.asyncio
@@ -138,10 +181,15 @@ async def test_generate_csv_report_uses_template_profile_metadata(tmp_path, monk
 
     csv_text = Path(output).read_text(encoding="utf-8")
 
-    assert "TEST SUMMARY" in csv_text
+    assert "TEST SYNOPSIS" in csv_text
     assert "Template Profile" in csv_text
     assert "Device responded as expected." in csv_text
     assert "Readiness Status" in csv_text
+    assert "TESTPLAN" in csv_text
+    assert "ADDITIONAL INFO" in csv_text
+    assert "Synopsis" in csv_text
+    assert "Essential Pass" in csv_text
+    assert "Script Flag" in csv_text
 
 
 def test_build_report_document_includes_readiness_summary():

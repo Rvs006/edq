@@ -85,6 +85,21 @@ _SUMMARY_FIELDS = [
     ("tester_name", "Name Of Tester"),
     ("overall_result", "TEST RESULT"),
 ]
+_SUMMARY_LABELS = {
+    **dict(_SUMMARY_FIELDS),
+    "start_date": "Date Test Started",
+    "end_date": "Date Test Finished",
+}
+_TESTPLAN_COLUMN_LABELS = {
+    "test_number": "Test Number",
+    "brief_description": "Brief Description",
+    "test_description": "Test Description",
+    "essential_test": "Essential Test",
+    "essential_pass": "Essential Pass",
+    "test_result": "Test Result",
+    "test_comments": "Test Comments",
+    "script_flag": "Script Flag",
+}
 
 
 @dataclass
@@ -95,6 +110,7 @@ class ReportRow:
     essential_test: str
     test_result: str
     test_comments: str
+    script_flag: str = ""
     template_backed: bool = False
 
 
@@ -118,6 +134,12 @@ class ReportDocument:
     template_path: Path
     mapping: dict[str, Any]
     metadata: dict[str, str]
+    summary_section_title: str = "TEST SUMMARY"
+    testplan_section_title: str = "TESTPLAN"
+    additional_section_title: str = "ADDITIONAL INFORMATION"
+    summary_text_label: str = "Summary"
+    summary_fields: list[tuple[str, str]] = field(default_factory=list)
+    testplan_columns: list[tuple[str, str]] = field(default_factory=list)
     branding: ReportBranding = field(default_factory=ReportBranding)
     readiness_summary: dict[str, Any] = field(default_factory=dict)
     rows: list[ReportRow] = field(default_factory=list)
@@ -251,6 +273,53 @@ def _supporting_evidence_body(
     return "\n".join(parts)
 
 
+def _resolve_summary_fields(mapping: dict[str, Any]) -> list[tuple[str, str]]:
+    metadata_cells = mapping.get("metadata_cells") or {}
+    ordered_keys = [key for key in metadata_cells if key not in {"summary_text", "synopsis_text"}]
+    if not ordered_keys:
+        return list(_SUMMARY_FIELDS)
+    return [(key, _SUMMARY_LABELS.get(key, key.replace("_", " ").title())) for key in ordered_keys]
+
+
+def _resolve_testplan_columns(mapping: dict[str, Any]) -> list[tuple[str, str]]:
+    columns = mapping.get("testplan_columns") or {}
+    ordered_keys = [
+        "test_number",
+        "brief_description",
+        "test_description",
+        "essential_test",
+        "essential_pass",
+        "test_result",
+        "test_comments",
+        "script_flag",
+    ]
+    resolved: list[tuple[str, str]] = []
+    for key in ordered_keys:
+        if key not in columns:
+            continue
+        attribute = "essential_test" if key == "essential_pass" else key
+        resolved.append((attribute, _TESTPLAN_COLUMN_LABELS.get(key, key.replace("_", " ").title())))
+    if resolved:
+        return resolved
+    return [
+        ("test_number", "Test Number"),
+        ("brief_description", "Brief Description"),
+        ("test_description", "Test Description"),
+        ("essential_test", "Essential Test"),
+        ("test_result", "Test Result"),
+        ("test_comments", "Test Comments"),
+    ]
+
+
+def _resolve_summary_text_label(mapping: dict[str, Any]) -> str:
+    metadata_cells = mapping.get("metadata_cells") or {}
+    return "Synopsis" if "synopsis_text" in metadata_cells else "Summary"
+
+
+def _report_row_values(row: ReportRow, columns: list[tuple[str, str]]) -> list[str]:
+    return [str(getattr(row, attribute, "") or "") for attribute, _ in columns]
+
+
 def _pdf_safe_width(pdf: Any) -> float:
     return max(float(pdf.w) - float(pdf.l_margin) - float(pdf.r_margin), 20.0)
 
@@ -313,6 +382,12 @@ def build_report_document(
     branding = _resolve_branding(report_config, branding_settings)
     start, end = _report_window(test_run)
     resolved_readiness = readiness_summary or build_run_readiness_summary(test_run, filtered_results)
+    summary_section_title = str(mapping.get("synopsis_sheet") or "TEST SUMMARY")
+    testplan_section_title = str(mapping.get("testplan_sheet") or "TESTPLAN")
+    additional_section_title = str(mapping.get("additional_sheet") or "ADDITIONAL INFORMATION")
+    summary_text_label = _resolve_summary_text_label(mapping)
+    summary_fields = _resolve_summary_fields(mapping)
+    testplan_columns = _resolve_testplan_columns(mapping)
 
     device = getattr(test_run, "device", None)
     engineer = getattr(test_run, "engineer", None)
@@ -354,6 +429,7 @@ def build_report_document(
             brief_column = cols.get("brief_description") or cols.get("test_description")
             description_column = cols.get("test_description") or brief_column
             essential_column = cols.get("essential_test", cols.get("essential_pass"))
+            script_column = cols.get("script_flag")
             for row_index in range(start, start + count):
                 number = str(ws[f"{cols['test_number']}{row_index}"].value or "").strip()
                 source_ids = sources.get(number, [])
@@ -366,6 +442,7 @@ def build_report_document(
                         essential_test=str(ws[f"{essential_column}{row_index}"].value or "") if essential_column else "",
                         test_result=_VERDICT_MAP.get((_safe_attr(source, "verdict") or "").lower(), _safe_attr(source, "verdict").upper()) if source else "",
                         test_comments=_comment(source) if source else "",
+                        script_flag=str(ws[f"{script_column}{row_index}"].value or "") if script_column else "",
                         template_backed=True,
                     )
                 )
@@ -381,6 +458,7 @@ def build_report_document(
                     essential_test=_safe_attr(result, "is_essential").upper(),
                     test_result=_VERDICT_MAP.get((_safe_attr(result, "verdict") or "").lower(), _safe_attr(result, "verdict").upper()),
                     test_comments=_comment(result),
+                    script_flag="",
                 )
             )
 
@@ -396,6 +474,12 @@ def build_report_document(
         template_path=template_path,
         mapping=mapping,
         metadata=metadata,
+        summary_section_title=summary_section_title,
+        testplan_section_title=testplan_section_title,
+        additional_section_title=additional_section_title,
+        summary_text_label=summary_text_label,
+        summary_fields=summary_fields,
+        testplan_columns=testplan_columns,
         branding=branding,
         readiness_summary=resolved_readiness,
         rows=rows,
@@ -538,31 +622,31 @@ async def generate_word_report(
         doc.sections[0].footer.paragraphs[0].text = report.branding.footer_text
     doc.add_heading("IP Device Qualification Report", level=0)
     doc.add_paragraph(f"Template Profile: {TEMPLATE_INFO[report.template_key]['name']}")
-    doc.add_heading("TEST SUMMARY", level=1)
+    doc.add_heading(report.summary_section_title, level=1)
     table = doc.add_table(rows=0, cols=2)
-    for key, label in _SUMMARY_FIELDS:
+    for key, label in report.summary_fields:
         row = table.add_row()
         row.cells[0].text = label
         row.cells[1].text = str(report.metadata.get(key, ""))
-    doc.add_paragraph(report.metadata.get("summary_text", ""))
+    doc.add_paragraph(f"{report.summary_text_label}: {report.metadata.get('summary_text', '')}")
     doc.add_page_break()
-    doc.add_heading("TESTPLAN", level=1)
-    results_table = doc.add_table(rows=1, cols=6)
-    for idx, header in enumerate(["Test Number", "Brief Description", "Test Description", "Essential Test", "Test Result", "Test Comments"]):
+    doc.add_heading(report.testplan_section_title, level=1)
+    results_table = doc.add_table(rows=1, cols=len(report.testplan_columns))
+    for idx, (_, header) in enumerate(report.testplan_columns):
         results_table.rows[0].cells[idx].text = header
     for item in report.rows:
         row = results_table.add_row()
-        row.cells[0].text = item.test_number
-        row.cells[1].text = item.brief_description
-        row.cells[2].text = item.test_description
-        row.cells[3].text = item.essential_test
-        row.cells[4].text = item.test_result
-        row.cells[5].text = item.test_comments
+        for idx, value in enumerate(_report_row_values(item, report.testplan_columns)):
+            row.cells[idx].text = value
     doc.add_page_break()
-    doc.add_heading("ADDITIONAL INFORMATION", level=1)
+    doc.add_heading(report.additional_section_title, level=1)
+    additional_table = doc.add_table(rows=1, cols=2)
+    additional_table.rows[0].cells[0].text = "Section"
+    additional_table.rows[0].cells[1].text = "Content"
     for section in report.additional_sections:
-        doc.add_heading(section.title, level=2)
-        doc.add_paragraph(section.body)
+        row = additional_table.add_row()
+        row.cells[0].text = section.title
+        row.cells[1].text = section.body
     path = _output_path(test_run, template_key, ".docx")
     doc.save(str(path))
     return str(path)
@@ -623,29 +707,33 @@ async def _generate_pdf_via_fpdf(
     pdf.set_font("Helvetica", "", 10)
     pdf.cell(0, 6, f"Template Profile: {TEMPLATE_INFO[report.template_key]['name']}", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "TEST SUMMARY", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, report.summary_section_title, new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
-    for key, label in _SUMMARY_FIELDS:
+    for key, label in report.summary_fields:
         _write_pdf_lines(pdf, f"{label}: {str(report.metadata.get(key, ''))}", line_height=6, wrap_width=120)
     pdf.ln(2)
-    _write_pdf_lines(pdf, report.metadata.get("summary_text", ""), line_height=5, wrap_width=140)
+    _write_pdf_lines(pdf, f"{report.summary_text_label}: {report.metadata.get('summary_text', '')}", line_height=5, wrap_width=140)
     pdf.add_page(orientation="L")
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "TESTPLAN", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, report.testplan_section_title, new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "B", 8)
+    _write_pdf_lines(pdf, " | ".join(label for _, label in report.testplan_columns), line_height=5, wrap_width=180)
     pdf.set_font("Helvetica", "", 8)
     for row in report.rows:
         _write_pdf_lines(
             pdf,
-            f"{row.test_number} | {row.brief_description} | {row.test_result} | {row.test_comments}",
+            " | ".join(_report_row_values(row, report.testplan_columns)),
             line_height=5,
             wrap_width=180,
         )
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "ADDITIONAL INFORMATION", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, report.additional_section_title, new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "B", 10)
+    _write_pdf_lines(pdf, "Section | Content", line_height=5, wrap_width=140)
     pdf.set_font("Helvetica", "", 10)
     for section in report.additional_sections:
-        _write_pdf_lines(pdf, f"{section.title}\n{section.body}\n", line_height=5, wrap_width=140)
+        _write_pdf_lines(pdf, f"{section.title} | {section.body}", line_height=5, wrap_width=140)
     if report.branding.footer_text:
         _write_pdf_lines(pdf, report.branding.footer_text, line_height=5, wrap_width=140)
     path = _output_path(test_run, template_key, ".pdf")
@@ -721,7 +809,7 @@ async def generate_csv_report(
     path = _output_path(test_run, template_key, ".csv")
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["TEST SUMMARY"])
+        writer.writerow([report.summary_section_title])
         writer.writerow(["Field", "Value"])
         writer.writerow(["Template Profile", TEMPLATE_INFO[report.template_key]["name"]])
         writer.writerow(["Company Name", report.branding.company_name])
@@ -733,16 +821,16 @@ async def generate_csv_report(
         )
         if report.branding.footer_text:
             writer.writerow(["Footer Text", report.branding.footer_text])
-        for key, label in _SUMMARY_FIELDS:
+        for key, label in report.summary_fields:
             writer.writerow([label, report.metadata.get(key, "")])
-        writer.writerow(["Summary", report.metadata.get("summary_text", "")])
+        writer.writerow([report.summary_text_label, report.metadata.get("summary_text", "")])
         writer.writerow([])
-        writer.writerow(["TESTPLAN"])
-        writer.writerow(["Test Number", "Brief Description", "Test Description", "Essential Test", "Test Result", "Test Comments"])
+        writer.writerow([report.testplan_section_title])
+        writer.writerow([label for _, label in report.testplan_columns])
         for row in report.rows:
-            writer.writerow([row.test_number, row.brief_description, row.test_description, row.essential_test, row.test_result, row.test_comments])
+            writer.writerow(_report_row_values(row, report.testplan_columns))
         writer.writerow([])
-        writer.writerow(["ADDITIONAL INFORMATION"])
+        writer.writerow([report.additional_section_title])
         writer.writerow(["Section", "Content"])
         for section in report.additional_sections:
             writer.writerow([section.title, section.body])
