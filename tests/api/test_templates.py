@@ -36,18 +36,14 @@ async def test_get_template(admin_client: httpx.AsyncClient):
 
 
 async def test_create_template_as_reviewer(reviewer_client: httpx.AsyncClient):
-    """POST /api/test-templates/ as reviewer — may be 201 or 403 depending on role policy."""
+    """POST /api/test-templates/ as reviewer should be forbidden (admin-only)."""
     payload = {
         "name": f"Pytest Template {uuid.uuid4().hex[:6]}",
         "description": "Created by integration test",
         "test_ids": ["port-scan"],
     }
     resp = await reviewer_client.post(BASE, json=payload)
-    if resp.status_code == 403:
-        pytest.xfail("Reviewer role does not have permission to create templates (admin-only)")
-    assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert data["name"] == payload["name"]
+    assert resp.status_code == 403
 
 
 async def test_create_template_as_engineer(engineer_client: httpx.AsyncClient):

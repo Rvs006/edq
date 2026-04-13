@@ -132,6 +132,7 @@ async def create_project(
     await db.flush()
     await db.refresh(project)
     await log_action(db, user, "project.create", "project", project.id, {"name": data.name}, request)
+    await db.commit()
     return ProjectResponse.model_validate(project)
 
 
@@ -180,6 +181,7 @@ async def update_project(
     await db.flush()
     await db.refresh(project)
     await log_action(db, user, "project.update", "project", project.id, data.model_dump(exclude_unset=True), request)
+    await db.commit()
     return ProjectResponse.model_validate(project)
 
 
@@ -209,12 +211,14 @@ async def delete_project(
 
     await db.delete(project)
     await log_action(db, user, "project.delete", "project", project_id, {"name": project.name}, request)
+    await db.commit()
 
 
 @router.post("/{project_id}/devices")
 async def add_devices_to_project(
     project_id: str,
     device_ids: list[str],
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -231,4 +235,14 @@ async def add_devices_to_project(
             updated += 1
 
     await db.flush()
+    await log_action(
+        db,
+        user,
+        "project.devices_added",
+        "project",
+        project_id,
+        {"device_ids": device_ids, "updated": updated},
+        request,
+    )
+    await db.commit()
     return {"updated": updated}

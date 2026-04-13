@@ -113,9 +113,8 @@ async def test_hsts_header(client: httpx.AsyncClient):
         resp2 = await client.get("/")
         hsts = resp2.headers.get("strict-transport-security", "")
     if not hsts:
-        pytest.xfail(
-            "Strict-Transport-Security not set — expected in dev/HTTP mode"
-        )
+        assert BASE_URL.startswith("http://"), "HSTS header unexpectedly missing on non-HTTP base URL"
+        return
     assert "max-age" in hsts.lower(), (
         f"HSTS header missing max-age directive: '{hsts}'"
     )
