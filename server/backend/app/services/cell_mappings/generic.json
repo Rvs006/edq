@@ -1,8 +1,8 @@
 {
   "template_name": "generic_rev00_c00",
-  "synopsis_sheet": "TEST SUMMARY",
-  "testplan_sheet": "TESTPLAN",
-  "additional_sheet": "ADDITIONAL INFORMATION",
+  "synopsis_sheet": "General Test Information",
+  "testplan_sheet": "Test Results",
+  "additional_sheet": "Additional Device Information",
   "metadata_cells": {
     "test_attempt": "G7",
     "date_range": "G8",

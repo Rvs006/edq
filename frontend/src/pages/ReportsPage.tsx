@@ -118,20 +118,13 @@ export default function ReportsPage() {
 
   const formatOptions: { key: ReportFormat; label: string; ext: string; icon: typeof FileSpreadsheet }[] = [
     { key: 'excel', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet },
-    { key: 'word', label: 'Word', ext: '.docx', icon: FileText },
-    { key: 'pdf', label: 'PDF', ext: '.pdf', icon: FileDown },
     { key: 'csv', label: 'CSV', ext: '.csv', icon: FileSpreadsheet },
   ]
   const formatGroups: FormatGroup[] = [
     {
-      title: 'Spreadsheet Exports',
-      description: 'Canonical workbook and flat data exports using the same template profile.',
-      formats: formatOptions.filter((option) => option.key === 'excel' || option.key === 'csv'),
-    },
-    {
-      title: 'Document Exports',
-      description: 'Word and PDF outputs generated from the same run, template profile, and shared report model.',
-      formats: formatOptions.filter((option) => option.key === 'word' || option.key === 'pdf'),
+      title: 'Export Formats',
+      description: 'Excel workbook (matches Electracom qualification template) and flat CSV export.',
+      formats: formatOptions,
     },
   ]
 

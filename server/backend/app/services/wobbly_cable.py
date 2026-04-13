@@ -25,11 +25,11 @@ def get_cable_handler(run_id: str) -> "WobblyCableHandler | None":
 
 
 class WobblyCableHandler:
-    FAIL_THRESHOLD = 3
+    FAIL_THRESHOLD = 2
     RETRY_INTERVAL = 5
     STABILITY_WAIT = 8
     TIMEOUT_MINUTES = 5
-    PING_INTERVAL = 3
+    PING_INTERVAL = 2
     MAX_PING_INTERVAL = 30
     TCP_GRACE_SECONDS = 45
 

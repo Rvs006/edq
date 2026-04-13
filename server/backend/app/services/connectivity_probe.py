@@ -55,7 +55,7 @@ async def _tcp_probe(ip: str, port: int, timeout: float) -> tuple[int, bool]:
 async def probe_device_connectivity(
     ip: str,
     probe_ports: list[int] | None = None,
-    tcp_timeout: float = 3.0,
+    tcp_timeout: float = 2.0,
 ) -> tuple[bool, str | None]:
     """Return whether the target is reachable via ICMP or a quick TCP probe.
 

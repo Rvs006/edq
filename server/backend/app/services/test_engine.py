@@ -409,6 +409,24 @@ class TestEngine:
                 while True:
                     await self._wait_while_paused(test_run_id)
 
+                    # Pre-test connectivity check: verify device is reachable
+                    # before starting the test. This catches cable disconnects
+                    # that happened between the monitor's poll interval.
+                    pre_reachable, _ = await probe_device_connectivity(
+                        device.ip_address, probe_ports=probe_ports, tcp_timeout=2.0
+                    )
+                    if not pre_reachable:
+                        logger.warning(
+                            "Pre-test probe failed for %s before %s — waiting for cable handler",
+                            device.ip_address,
+                            test_result.test_id,
+                        )
+                        # Give the cable handler time to detect and pause
+                        await asyncio.sleep(4)
+                        if await self._is_run_paused_for_cable(test_run_id):
+                            await self._wait_while_paused(test_run_id)
+                            continue  # retry from top after cable resumes
+
                     await manager.broadcast(f"test-run:{test_run_id}", {
                         "type": "test_start",
                         "data": {
