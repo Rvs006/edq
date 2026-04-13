@@ -27,7 +27,7 @@ const mockAxios = {
 
 mockAxios.create.mockImplementation(() => mockAxios)
 
-vi.mock('axios', () => ({ default: mockAxios }))
+vi.mock('edq-http', () => ({ default: mockAxios }))
 
 describe('API module', () => {
   let apiModule: Awaited<typeof import('@/lib/api')>
@@ -107,6 +107,64 @@ describe('API module', () => {
     expect(response.data.engineer_id).toBe('engineer-1')
     expect(response.data.engineer_name).toBe('Engineer One')
     expect(response.data.status).toBe('completed')
+  })
+
+  it('normalizes awaiting-review test run status through the API wrapper', async () => {
+    const { testRunsApi } = apiModule
+    mockAxios.get.mockResolvedValueOnce({
+      data: {
+        id: 'run-2',
+        device_id: 'device-1',
+        engineer_id: 'engineer-1',
+        status: 'awaiting_review',
+        created_at: '2026-04-01T00:00:00Z',
+      },
+    })
+
+    const response = await testRunsApi.get('run-2')
+
+    expect(response.data.status).toBe('awaiting_review')
+  })
+
+  it('normalizes readiness summary on test run responses', async () => {
+    const { testRunsApi } = apiModule
+    mockAxios.get.mockResolvedValueOnce({
+      data: {
+        id: 'run-3',
+        device_id: 'device-1',
+        engineer_id: 'engineer-1',
+        status: 'completed',
+        confidence: 9,
+        readiness_summary: {
+          score: 9,
+          level: 'conditional',
+          label: 'Operational with advisories',
+          report_ready: true,
+          operational_ready: false,
+          blocking_issue_count: 0,
+          pending_manual_count: 0,
+          release_blocking_failure_count: 0,
+          review_required_issue_count: 0,
+          manual_evidence_pending_count: 0,
+          advisory_count: 1,
+          override_count: 0,
+          failed_test_count: 0,
+          completed_result_count: 12,
+          total_result_count: 12,
+          trust_tier_counts: { release_blocking: 4, review_required: 2 },
+          reasons: ['1 advisory finding should be called out in the report.'],
+          next_step: 'Issue the report with the advisory notes and follow-up actions captured.',
+          summary: 'Operational with advisories (9/10). 1 advisory finding should be called out in the report.',
+        },
+        created_at: '2026-04-01T00:00:00Z',
+      },
+    })
+
+    const response = await testRunsApi.get('run-3')
+
+    expect(response.data.readiness_summary?.score).toBe(9)
+    expect(response.data.readiness_summary?.report_ready).toBe(true)
+    expect(response.data.readiness_summary?.reasons[0]).toMatch(/advisory finding/i)
   })
 
   it('normalizes test result responses returned through the API wrapper', async () => {

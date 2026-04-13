@@ -5,7 +5,7 @@ import asyncio
 import httpx
 import pytest
 
-from tests.helpers import unique_ip
+from live_helpers import unique_ip
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.edge]
 

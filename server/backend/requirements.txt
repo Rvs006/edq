@@ -9,7 +9,6 @@ psycopg2-binary==2.9.11
 pydantic[email]==2.12.5
 pydantic-settings==2.13.1
 PyJWT[crypto]==2.12.1
-cryptography>=46.0.7
 nh3>=0.3.4
 bcrypt==5.0.0
 python-multipart==0.0.26
@@ -19,6 +18,7 @@ lxml>=5.0.0
 python-docx==1.2.0
 fpdf2==2.8.7
 websockets==16.0
+redis[hiredis]==6.4.0
 defusedxml==0.7.1
 python-dotenv==1.2.2
 alembic==1.18.4

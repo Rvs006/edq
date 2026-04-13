@@ -1,4 +1,4 @@
-import type { TestResult, TestRun, TestRunStatus } from './types'
+import type { ReadinessSummary, TestResult, TestRun, TestRunStatus } from './types'
 
 /**
  * Ensure a UTC timestamp string is parseable as UTC by the browser.
@@ -51,6 +51,46 @@ function asNullableNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null
 }
 
+function asBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : []
+}
+
+function normalizeReadinessSummary(raw: unknown): ReadinessSummary | null {
+  if (!isRecord(raw)) return null
+
+  const trustTierCounts = isRecord(raw.trust_tier_counts)
+    ? Object.fromEntries(
+        Object.entries(raw.trust_tier_counts).map(([key, value]) => [key, typeof value === 'number' ? value : Number(value || 0)]),
+      )
+    : {}
+
+  return {
+    score: asNullableNumber(raw.score) ?? 1,
+    level: asNullableString(raw.level) || 'incomplete',
+    label: asNullableString(raw.label) || 'Readiness unknown',
+    report_ready: asBoolean(raw.report_ready) ?? false,
+    operational_ready: asBoolean(raw.operational_ready) ?? false,
+    blocking_issue_count: asNullableNumber(raw.blocking_issue_count) ?? 0,
+    pending_manual_count: asNullableNumber(raw.pending_manual_count) ?? 0,
+    release_blocking_failure_count: asNullableNumber(raw.release_blocking_failure_count) ?? 0,
+    review_required_issue_count: asNullableNumber(raw.review_required_issue_count) ?? 0,
+    manual_evidence_pending_count: asNullableNumber(raw.manual_evidence_pending_count) ?? 0,
+    advisory_count: asNullableNumber(raw.advisory_count) ?? 0,
+    override_count: asNullableNumber(raw.override_count) ?? 0,
+    failed_test_count: asNullableNumber(raw.failed_test_count) ?? 0,
+    completed_result_count: asNullableNumber(raw.completed_result_count) ?? 0,
+    total_result_count: asNullableNumber(raw.total_result_count) ?? 0,
+    trust_tier_counts: trustTierCounts,
+    reasons: asStringArray(raw.reasons),
+    next_step: asNullableString(raw.next_step) || '',
+    summary: asNullableString(raw.summary) || '',
+  }
+}
+
 export function normalizeTestRunStatus(status: unknown): TestRunStatus {
   const raw = asNullableString(status)?.toLowerCase() || 'pending'
   return RUN_STATUS_ALIASES[raw] || (raw as TestRunStatus)
@@ -61,6 +101,15 @@ export function isActiveTestRunStatus(status: unknown): boolean {
 }
 
 export function normalizeTestRun(raw: Record<string, unknown>): TestRun {
+  const rawRunMetadata = isRecord(raw.run_metadata)
+    ? raw.run_metadata
+    : isRecord(raw.metadata)
+      ? raw.metadata
+      : null
+  const readinessSummary =
+    normalizeReadinessSummary(raw.readiness_summary)
+    || normalizeReadinessSummary(rawRunMetadata?.readiness_summary)
+
   return {
     id: String(raw.id || ''),
     device_id: String(raw.device_id || ''),
@@ -87,13 +136,10 @@ export function normalizeTestRun(raw: Record<string, unknown>): TestRun {
     synopsis: asNullableString(raw.synopsis),
     synopsis_status: asNullableString(raw.synopsis_status),
     connection_scenario: asNullableString(raw.connection_scenario),
-    run_metadata: isRecord(raw.run_metadata)
-      ? raw.run_metadata
-      : isRecord(raw.metadata)
-        ? raw.metadata
-        : null,
+    run_metadata: rawRunMetadata,
     created_at: String(raw.created_at || ''),
     confidence: asNullableNumber(raw.confidence),
+    readiness_summary: readinessSummary,
     started_at: asNullableString(raw.started_at),
     updated_at: asNullableString(raw.updated_at),
     completed_at: asNullableString(raw.completed_at),

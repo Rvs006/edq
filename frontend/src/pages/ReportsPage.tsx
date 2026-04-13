@@ -16,6 +16,12 @@ const TEMPLATE_OPTIONS = [
 
 type ReportFormat = 'excel' | 'word' | 'pdf' | 'csv'
 
+type FormatGroup = {
+  title: string
+  description: string
+  formats: { key: ReportFormat; label: string; ext: string; icon: typeof FileSpreadsheet }[]
+}
+
 export default function ReportsPage() {
   const [selectedRun, setSelectedRun] = useState('')
   const [reportType, setReportType] = useState<ReportFormat>('excel')
@@ -32,6 +38,9 @@ export default function ReportsPage() {
     queryKey: ['report-templates'],
     queryFn: () => reportsApi.templates().then(r => r.data),
   })
+
+  const selectedRunDetails = runs?.find((run: TestRun) => run.id === selectedRun) || null
+  const selectedReadiness = selectedRunDetails?.readiness_summary || null
 
   const triggerBlobDownload = (blobData: Blob, filename: string, mimeType: string) => {
     const blob = new Blob([blobData], { type: mimeType })
@@ -57,7 +66,7 @@ export default function ReportsPage() {
         test_run_id: selectedRun,
         report_type: reportType,
         include_synopsis: includeSynopsis,
-        template_key: reportType === 'excel' ? templateKey : undefined,
+        template_key: templateKey,
       })
       if (!data.filename && !data.download_url) {
         toast.error('Report generation returned no file. Check backend logs.')
@@ -113,12 +122,24 @@ export default function ReportsPage() {
     { key: 'pdf', label: 'PDF', ext: '.pdf', icon: FileDown },
     { key: 'csv', label: 'CSV', ext: '.csv', icon: FileSpreadsheet },
   ]
+  const formatGroups: FormatGroup[] = [
+    {
+      title: 'Spreadsheet Exports',
+      description: 'Canonical workbook and flat data exports using the same template profile.',
+      formats: formatOptions.filter((option) => option.key === 'excel' || option.key === 'csv'),
+    },
+    {
+      title: 'Document Exports',
+      description: 'Word and PDF outputs generated from the same run, template profile, and shared report model.',
+      formats: formatOptions.filter((option) => option.key === 'word' || option.key === 'pdf'),
+    },
+  ]
 
   return (
     <div className="page-container">
       <div className="mb-5">
         <h1 className="section-title">Reports</h1>
-        <p className="section-subtitle">Generate Excel, Word, PDF, and CSV qualification reports from test results</p>
+        <p className="section-subtitle">Generate spreadsheet and document qualification reports from the same run, template profile, and shared report model</p>
       </div>
 
       {isError && (
@@ -135,58 +156,76 @@ export default function ReportsPage() {
             <div>
               <label className="label">Test Run</label>
               <select value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)} aria-label="Select test run" className="input">
-                <option value="">Select a completed test run...</option>
+                <option value="">Select a report-ready test run...</option>
                 {runs?.map((run: TestRun) => (
                 <option key={run.id} value={run.id}>
-                    {getPreferredDeviceName(run)} &mdash; {run.passed_tests}/{run.total_tests} passed &mdash; {toLocalDateOnly(run.created_at)}
+                    {getPreferredDeviceName(run)} &mdash; {run.readiness_summary?.score ?? run.confidence ?? 1}/10 readiness &mdash; {toLocalDateOnly(run.created_at)}
                   </option>
                 ))}
               </select>
+              {selectedReadiness && (
+                <div className="mt-2">
+                  <Callout
+                    variant={selectedReadiness.report_ready ? 'success' : selectedReadiness.level === 'blocked' ? 'error' : 'warning'}
+                    title={`Readiness: ${selectedReadiness.label} (${selectedReadiness.score}/10)`}
+                  >
+                    {selectedReadiness.summary}
+                  </Callout>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="label flex items-center gap-2">
+                <LayoutTemplate className="w-4 h-4 text-zinc-400" />
+                Report Template Profile
+              </label>
+              <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} aria-label="Select report template" className="input">
+                {availableTemplates.map((t: ReportTemplate) => (
+                  <option key={t.key} value={t.key}>
+                    {t.name || t.label}
+                    {t.device_category ? ` (${t.device_category})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-zinc-500 mt-1">
+                The selected template profile now applies to Excel, CSV, Word, and PDF outputs.
+              </p>
             </div>
 
             <div>
               <label className="label">Report Format</label>
-              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                {formatOptions.map(({ key, label, ext, icon: Icon }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setReportType(key)}
-                    className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
-                      reportType === key
-                        ? 'border-brand-500 bg-brand-50 dark:bg-brand-950/30'
-                        : 'border-zinc-200 dark:border-slate-700/50 hover:border-zinc-300 dark:hover:border-slate-600'
-                    }`}
-                  >
-                    <Icon className={`w-6 h-6 ${reportType === key ? 'text-brand-500' : 'text-zinc-400'}`} />
-                    <div className="text-left">
-                      <p className="text-sm font-semibold text-zinc-900 dark:text-slate-100">{label}</p>
-                      <p className="text-xs text-zinc-500">{ext} format</p>
+              <div className="space-y-3">
+                {formatGroups.map((group) => (
+                  <div key={group.title} className="rounded-lg border border-zinc-200 dark:border-slate-700/50 p-3">
+                    <div className="mb-3">
+                      <p className="text-sm font-semibold text-zinc-900 dark:text-slate-100">{group.title}</p>
+                      <p className="text-xs text-zinc-500">{group.description}</p>
                     </div>
-                  </button>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {group.formats.map(({ key, label, ext, icon: Icon }) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setReportType(key)}
+                          className={`flex items-center gap-3 p-4 rounded-lg border transition-colors ${
+                            reportType === key
+                              ? 'border-brand-500 bg-brand-50 dark:bg-brand-950/30'
+                              : 'border-zinc-200 dark:border-slate-700/50 hover:border-zinc-300 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          <Icon className={`w-6 h-6 ${reportType === key ? 'text-brand-500' : 'text-zinc-400'}`} />
+                          <div className="text-left">
+                            <p className="text-sm font-semibold text-zinc-900 dark:text-slate-100">{label}</p>
+                            <p className="text-xs text-zinc-500">{ext} format</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
-
-            {reportType === 'excel' && (
-              <div>
-                <label className="label flex items-center gap-2">
-                  <LayoutTemplate className="w-4 h-4 text-zinc-400" />
-                  Report Template
-                </label>
-                <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} aria-label="Select report template" className="input">
-                  {availableTemplates.map((t: ReportTemplate) => (
-                    <option key={t.key} value={t.key}>
-                      {t.name || t.label}
-                      {t.device_category ? ` (${t.device_category})` : ''}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-zinc-500 mt-1">
-                  Excel exports use the canonical workbook template and preserve its three-sheet structure.
-                </p>
-              </div>
-            )}
 
             <div className="flex items-center gap-3">
               <input
@@ -201,7 +240,8 @@ export default function ReportsPage() {
               </label>
             </div>
 
-            <button type="button" onClick={handleGenerate} disabled={generating || !selectedRun}
+            <button type="button" onClick={handleGenerate} disabled={generating || !selectedRun || Boolean(selectedReadiness && !selectedReadiness.report_ready)}
+              title={selectedReadiness && !selectedReadiness.report_ready ? selectedReadiness.next_step : 'Generate official report'}
               className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 active:bg-green-800 transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-green-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
@@ -215,10 +255,9 @@ export default function ReportsPage() {
             <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Template Formats</h3>
             <div className="space-y-2">
               {[
-                { name: 'Generic C00', desc: 'Universal IP device template (43 worksheet rows mapped from 60 EDQ tests)' },
-                { name: 'Pelco Camera', desc: 'Camera qualification Rev 2 (31 tests)' },
-                { name: 'EasyIO Controller', desc: 'Controller report template aligned to the current EDQ workflow' },
-                { name: 'CSV Export', desc: 'Flat report data aligned to the same shared report model' },
+                { name: 'Generic C00', desc: 'Universal IP device workbook with mapped rows reused across every export format.' },
+                { name: 'Pelco Camera', desc: 'Camera qualification profile shared by Excel, CSV, Word, and PDF generation.' },
+                { name: 'EasyIO Controller', desc: 'Controller profile aligned to the current EDQ workflow across all output types.' },
               ].map(fw => (
                 <div key={fw.name} className="flex items-center gap-2 py-1">
                   <div className="w-2 h-2 rounded-full bg-brand-500" />
@@ -235,10 +274,13 @@ export default function ReportsPage() {
             <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Report Contents</h3>
             <ul className="space-y-2 text-sm text-zinc-600 dark:text-slate-400">
               {[
+                'Operational readiness score and trust summary',
                 'Shared report model across Excel, Word, PDF, and CSV',
+                'Selected template profile applied to all export types',
+                'Branding and footer metadata carried into report outputs',
                 'Executive summary with overall verdict',
                 'Device information and network details',
-                'Test-plan rows aligned to the canonical workbook',
+                'Template-backed test-plan rows when a workbook mapping exists',
                 'Detailed findings for FAIL and ADVISORY results',
                 'Tool versions and connection scenario',
                 'AI-generated narrative synopsis',

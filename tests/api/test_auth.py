@@ -5,8 +5,8 @@ import uuid
 import httpx
 import pytest
 
-from tests.auth_cache import invalidate_auth_cache
-from tests.helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login, _apply_auth
+from live_auth_cache import invalidate_auth_cache
+from live_helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login, _apply_auth
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
@@ -150,7 +150,7 @@ async def test_update_profile(admin_client: httpx.AsyncClient):
 # ---------------------------------------------------------------------------
 
 async def test_change_password_valid():
-    from tests.helpers import ENGINEER_USER, ENGINEER_PASS
+    from live_helpers import ENGINEER_USER, ENGINEER_PASS
     new_pass = "NewEng@2026!"
 
     # Login as engineer and change password
@@ -191,7 +191,7 @@ async def test_change_password_valid():
 
 async def test_change_password_wrong_old():
     # Use a fresh login to avoid token revocation cascades
-    from tests.helpers import ENGINEER_USER, ENGINEER_PASS
+    from live_helpers import ENGINEER_USER, ENGINEER_PASS
     auth = await _login(ENGINEER_USER, ENGINEER_PASS)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         _apply_auth(c, auth)
@@ -208,7 +208,7 @@ async def test_change_password_wrong_old():
 
 async def test_change_password_weak():
     # Use a fresh login to avoid token revocation cascades
-    from tests.helpers import ENGINEER_USER, ENGINEER_PASS
+    from live_helpers import ENGINEER_USER, ENGINEER_PASS
     auth = await _login(ENGINEER_USER, ENGINEER_PASS)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         _apply_auth(c, auth)

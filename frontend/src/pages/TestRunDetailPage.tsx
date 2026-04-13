@@ -196,19 +196,22 @@ export default function TestRunDetailPage() {
   const progressPct =
     results.length > 0 ? Math.round((completedCount / results.length) * 100) : 0
 
+  const readinessSummary = run?.readiness_summary ?? null
+
   const runProgressSummary = useMemo(
-    () => summarizeRunProgress(results as TestResult[], runningTestId),
-    [results, runningTestId]
+    () => summarizeRunProgress(results as TestResult[], runningTestId, run?.status),
+    [results, runningTestId, run?.status]
   )
 
   const progressSegments = useMemo(() => {
-    const segs = { pass: 0, fail: 0, advisory: 0, info: 0, pending: 0, running: 0 }
+    const segs = { pass: 0, fail: 0, advisory: 0, info: 0, manual_pending: 0, pending: 0, running: 0 }
     for (const r of results as TestResult[]) {
       const v = r.verdict?.toLowerCase()
       if (v === 'pass' || v === 'qualified_pass') segs.pass++
       else if (v === 'fail' || v === 'error') segs.fail++
       else if (v === 'advisory') segs.advisory++
       else if (v === 'info' || v === 'na' || v === 'n/a') segs.info++
+      else if (r.tier === 'guided_manual') segs.manual_pending++
       else if (runningTestId && r.test_id === runningTestId) segs.running++
       else segs.pending++
     }
@@ -447,6 +450,26 @@ export default function TestRunDetailPage() {
     return found?.id || null
   }, [results])
 
+  const readinessVariant = useMemo(() => {
+    if (!readinessSummary) return 'info' as const
+    if (readinessSummary.operational_ready) return 'success' as const
+    if (readinessSummary.level === 'blocked') return 'error' as const
+    if (
+      readinessSummary.level === 'awaiting_manual_evidence'
+      || readinessSummary.level === 'awaiting_review_signoff'
+      || readinessSummary.level === 'review_required'
+      || readinessSummary.level === 'conditional'
+    ) {
+      return 'warning' as const
+    }
+    return 'info' as const
+  }, [readinessSummary])
+
+  const reportBlockedReason = useMemo(() => {
+    if (!readinessSummary || readinessSummary.report_ready) return null
+    return readinessSummary.next_step || readinessSummary.summary || 'Report is not ready yet.'
+  }, [readinessSummary])
+
   if (runLoading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
@@ -566,6 +589,25 @@ export default function TestRunDetailPage() {
         </div>
       </div>
 
+      {readinessSummary && (
+        <div className="flex-shrink-0 px-4 pt-3">
+          <SmartPrompt variant={readinessVariant}>
+            <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+              <strong>
+                Readiness: {readinessSummary.label} ({readinessSummary.score}/10)
+              </strong>
+              <span>
+                Official report: {readinessSummary.report_ready ? 'ready' : 'blocked'}
+              </span>
+              <span>
+                Operational use: {readinessSummary.operational_ready ? 'ready' : 'needs review'}
+              </span>
+              <span>{readinessSummary.next_step}</span>
+            </span>
+          </SmartPrompt>
+        </div>
+      )}
+
       {fingerprint && (
         <div className="flex-shrink-0 px-4 pt-3">
           <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 border border-indigo-200 dark:border-indigo-800/50">
@@ -618,6 +660,16 @@ export default function TestRunDetailPage() {
           >
             <strong>{pendingManualCount} manual test{pendingManualCount > 1 ? 's' : ''} waiting for you.</strong>{' '}
             Open the amber clipboard items in the sidebar, read the explainer at the top of each test, perform the check on the real device, then save a verdict with notes.
+          </SmartPrompt>
+        </div>
+      )}
+
+      {readinessSummary && readinessSummary.reasons.length > 0 && (
+        <div className="flex-shrink-0 px-4 pt-3">
+          <SmartPrompt variant={readinessVariant}>
+            <span>
+              <strong>Trust summary:</strong> {readinessSummary.reasons.slice(0, 2).join(' ')}
+            </span>
           </SmartPrompt>
         </div>
       )}
@@ -708,6 +760,9 @@ export default function TestRunDetailPage() {
           runStatus={run.status}
           canSelfApprove={canSelfApprove}
           isOwner={isOwner}
+          pendingManualCount={pendingManualCount}
+          canGenerateReport={Boolean(readinessSummary?.report_ready)}
+          reportBlockedReason={reportBlockedReason}
           onStart={handleStartTests}
           onPause={handlePause}
           onResume={handleResume}

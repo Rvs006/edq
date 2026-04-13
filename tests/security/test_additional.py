@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from tests.helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login, _apply_auth, unique_ip
+from live_helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login, _apply_auth, unique_ip
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.security]
 
@@ -59,11 +59,11 @@ async def test_expired_token(client: httpx.AsyncClient):
 
     # Create expired token
     payload["exp"] = int(time.time()) - 3600  # Expired 1 hour ago
-    secret = "test-jwt-secret-not-for-production"
+    signing_material = "jwt-token-test-fixture-value"
     algorithm = payload.get("alg", "HS256")
     # PyJWT encodes with algorithm param, not alg from payload
     try:
-        expired_token = pyjwt.encode(payload, secret, algorithm="HS256")
+        expired_token = pyjwt.encode(payload, signing_material, algorithm="HS256")
     except Exception:
         pytest.skip("Could not forge expired token")
 

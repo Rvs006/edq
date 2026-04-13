@@ -1,6 +1,6 @@
 """Test Template management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -54,6 +54,8 @@ async def create_template(
     await db.flush()
     await db.refresh(template)
     await log_action(db, user, "create", "template", template.id, {"name": template.name}, request)
+    await db.commit()
+    await db.refresh(template)
     return template
 
 
@@ -106,10 +108,12 @@ async def update_template(
     await db.flush()
     await db.refresh(template)
     await log_action(db, user, "update", "template", template_id, {"fields": list(updates.keys())}, request)
+    await db.commit()
+    await db.refresh(template)
     return template
 
 
-@router.delete("/{template_id}", status_code=204)
+@router.delete("/{template_id}", status_code=204, response_class=Response)
 async def delete_template(
     template_id: str,
     request: Request,
@@ -122,3 +126,5 @@ async def delete_template(
         raise HTTPException(status_code=404, detail="Template not found")
     template.is_active = False
     await log_action(db, user, "delete", "template", template_id, {"name": template.name}, request)
+    await db.commit()
+    return Response(status_code=204)

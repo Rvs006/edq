@@ -7,6 +7,7 @@ import ReportsPage from '@/pages/ReportsPage'
 vi.mock('@/lib/api', () => ({
   reportsApi: {
     list: vi.fn().mockResolvedValue({ data: [] }),
+    templates: vi.fn().mockResolvedValue({ data: [] }),
     generate: vi.fn(),
     download: vi.fn(),
   },
@@ -48,5 +49,21 @@ describe('ReportsPage', () => {
   it('renders without crashing', () => {
     renderWithProviders(<ReportsPage />)
     expect(document.body).toBeTruthy()
+  })
+
+  it('groups exports into spreadsheet and document sections', () => {
+    renderWithProviders(<ReportsPage />)
+    expect(screen.getByText('Spreadsheet Exports')).toBeInTheDocument()
+    expect(screen.getByText('Document Exports')).toBeInTheDocument()
+  })
+
+  it('shows template profile guidance for all formats', () => {
+    renderWithProviders(<ReportsPage />)
+    expect(screen.getByText(/template profile now applies to Excel, CSV, Word, and PDF outputs/i)).toBeInTheDocument()
+  })
+
+  it('shows readiness content in the report contents list', () => {
+    renderWithProviders(<ReportsPage />)
+    expect(screen.getByText(/Operational readiness score and trust summary/i)).toBeInTheDocument()
   })
 })

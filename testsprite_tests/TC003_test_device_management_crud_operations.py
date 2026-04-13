@@ -2,7 +2,7 @@ import requests
 
 BASE_URL = "http://localhost:8000/api/v1"
 ADMIN_EMAIL = "admin"
-ADMIN_PASSWORD = "adminadmin"  # Password updated to meet minimum length requirement
+ADMIN_CREDENTIAL = "test-admin-password"
 
 
 def test_device_management_crud_operations():
@@ -11,7 +11,7 @@ def test_device_management_crud_operations():
     timeout = 30
 
     # 1. Login to get JWT cookie and CSRF token
-    login_payload = {"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    login_payload = {"email": ADMIN_EMAIL, "password": ADMIN_CREDENTIAL}
     login_resp = session.post(f"{BASE_URL}/auth/login", json=login_payload, timeout=timeout)
     assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
 

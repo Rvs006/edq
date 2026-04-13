@@ -4,7 +4,24 @@ Based on EDQ PRD v1.3 Section 9. Tests U01–U43, extended with U44–U60
 to match the Electracom qualification template.
 """
 
-UNIVERSAL_TESTS = [
+from typing import Literal, TypedDict
+
+
+TrustLevel = Literal["release_blocking", "review_required", "advisory", "manual_evidence"]
+
+
+class TestDefinition(TypedDict, total=False):
+    test_id: str
+    name: str
+    tier: str
+    tool: str | None
+    is_essential: bool
+    description: str
+    compliance_map: list[str]
+    platform_notes: str | None
+    trust_level: TrustLevel
+
+UNIVERSAL_TESTS: list[TestDefinition] = [
     {
         "test_id": "U01", "name": "Ping Response", "tier": "automatic", "tool": "nmap",
         "is_essential": True, "description": "Verify device responds to ICMP echo requests.",
@@ -315,6 +332,22 @@ UNIVERSAL_TESTS = [
     },
 ]
 
+
+def _default_trust_level(test: TestDefinition) -> TrustLevel:
+    tier = test.get("tier")
+    tool = (test.get("tool") or "").lower()
+    if tier == "guided_manual":
+        return "manual_evidence"
+    if tool in {"hydra", "nikto", "custom", "curl"}:
+        return "review_required"
+    if tool in {"nmap", "testssl", "ssh-audit"}:
+        return "release_blocking" if test.get("is_essential") else "advisory"
+    return "advisory"
+
+
+for _test in UNIVERSAL_TESTS:
+    _test.setdefault("trust_level", _default_trust_level(_test))
+
 # Default protocol whitelist (Electracom Default)
 DEFAULT_WHITELIST_ENTRIES = [
     {"port": 22, "protocol": "TCP", "service": "sFTP / SSH (RFC 4253/959)", "required_version": "SSHv2"},
@@ -331,7 +364,7 @@ DEFAULT_WHITELIST_ENTRIES = [
 ]
 
 
-def get_test_by_id(test_id: str) -> dict:
+def get_test_by_id(test_id: str) -> TestDefinition | None:
     """Get a test definition by its ID."""
     for test in UNIVERSAL_TESTS:
         if test["test_id"] == test_id:
@@ -339,21 +372,33 @@ def get_test_by_id(test_id: str) -> dict:
     return None
 
 
-def get_all_test_ids() -> list:
+def get_all_test_ids() -> list[str]:
     """Get all test IDs."""
     return [t["test_id"] for t in UNIVERSAL_TESTS]
 
 
-def get_essential_test_ids() -> list:
+def get_essential_test_ids() -> list[str]:
     """Get IDs of essential tests."""
     return [t["test_id"] for t in UNIVERSAL_TESTS if t["is_essential"]]
 
 
-def get_automatic_test_ids() -> list:
+def get_automatic_test_ids() -> list[str]:
     """Get IDs of automatic tests."""
     return [t["test_id"] for t in UNIVERSAL_TESTS if t["tier"] == "automatic"]
 
 
-def get_manual_test_ids() -> list:
+def get_manual_test_ids() -> list[str]:
     """Get IDs of guided manual tests."""
     return [t["test_id"] for t in UNIVERSAL_TESTS if t["tier"] == "guided_manual"]
+
+
+def get_trust_level_counts() -> dict[TrustLevel, int]:
+    counts: dict[TrustLevel, int] = {
+        "release_blocking": 0,
+        "review_required": 0,
+        "advisory": 0,
+        "manual_evidence": 0,
+    }
+    for test in UNIVERSAL_TESTS:
+        counts[test["trust_level"]] += 1
+    return counts

@@ -25,6 +25,8 @@ services:
       - DATABASE_URL=${DOCKER_DATABASE_URL:-postgresql+asyncpg://${DB_USER:-edq}:${POSTGRES_PASSWORD}@postgres:5432/${DB_NAME:-edq}}
       - DB_HOST=postgres
       - DB_PORT=5432
+      - REDIS_URL=${REDIS_URL:-}
+      - REDIS_REQUIRED=${REDIS_REQUIRED:-false}
       - TOOLS_SIDECAR_URL=${TOOLS_SIDECAR_URL:-http://localhost:8001}
       - TOOLS_API_KEY=${TOOLS_API_KEY}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
@@ -127,22 +129,22 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  # Redis — optional, enables distributed rate limiting and session persistence
-  # Uncomment to enable for multi-instance deployments
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: edq-redis
-  #   command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-edq-redis-secret}
-  #   volumes:
-  #     - edq-redis:/data
-  #   networks:
-  #     - edq-internal
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-edq-redis-secret}", "ping"]
-  #     interval: 15s
-  #     timeout: 5s
-  #     retries: 3
+  redis:
+    image: redis:7-alpine
+    container_name: edq-redis
+    profiles:
+      - redis
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save ""
+    volumes:
+      - edq-redis:/data
+    networks:
+      - edq-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
 volumes:
   edq-data:
@@ -153,8 +155,8 @@ volumes:
     driver: local
   edq-pgdata:
     driver: local
-  # edq-redis:
-  #   driver: local
+  edq-redis:
+    driver: local
 
 networks:
   # Backend needs outbound access to reach devices on the LAN for scanning

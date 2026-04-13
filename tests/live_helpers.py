@@ -33,7 +33,6 @@ REVIEWER_PASS = "Reviewer@2026!"
 
 
 def unique_ip() -> str:
-    """Generate a unique private IP in the 10.99.x.x range."""
     return f"10.99.{random.randint(1, 254)}.{random.randint(1, 254)}"
 
 
@@ -43,7 +42,6 @@ async def _login(
     *,
     forwarded_for: str | None = None,
 ) -> dict:
-    """Login and return dict with session_cookie, csrf_token, refresh_cookie."""
     async with httpx.AsyncClient(timeout=30.0) as c:
         headers = {}
         if forwarded_for is None and username.startswith("pwreset-"):
@@ -64,15 +62,14 @@ async def _login(
             "session_cookie": resp.cookies.get("edq_session", ""),
             "csrf_token": data.get("csrf_token", ""),
             "refresh_cookie": resp.cookies.get("edq_refresh", ""),
+            "csrf_cookie": resp.cookies.get("edq_csrf", data.get("csrf_token", "")),
             "user": data.get("user", {}),
         }
 
 
 def _apply_auth(client: httpx.AsyncClient, auth: dict) -> None:
-    """Apply session cookie, CSRF cookie+header to a client."""
     client.cookies.set("edq_session", auth["session_cookie"])
     if auth.get("refresh_cookie"):
         client.cookies.set("edq_refresh", auth["refresh_cookie"])
-    # CSRF middleware checks that edq_csrf cookie == X-CSRF-Token header
-    client.cookies.set("edq_csrf", auth["csrf_token"])
+    client.cookies.set("edq_csrf", auth.get("csrf_cookie") or auth["csrf_token"])
     client.headers["X-CSRF-Token"] = auth["csrf_token"]

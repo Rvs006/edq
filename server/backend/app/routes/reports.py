@@ -15,6 +15,8 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.models.database import get_db
+from app.models.branding import BrandingSettings
+from app.models.test_result import TestTier, TestVerdict
 from app.models.protocol_whitelist import ProtocolWhitelist
 from app.models.report_config import ReportConfig
 from app.models.test_result import TestResult
@@ -22,8 +24,7 @@ from app.models.test_run import TestRun
 from app.models.test_template import TestTemplate
 from app.models.user import User, UserRole
 from app.security.auth import get_current_active_user
-from app.middleware.rate_limit import check_rate_limit
-from app.utils.audit import log_action
+from app.middleware.rate_limit import check_rate_limit, check_user_rate_limit
 from app.services.report_generator import (
     generate_csv_report,
     generate_excel_report,
@@ -31,6 +32,11 @@ from app.services.report_generator import (
     generate_word_report,
     get_available_templates,
 )
+from app.services.run_readiness import (
+    build_run_readiness_summary,
+    get_report_readiness_block_message,
+)
+from app.utils.audit import log_action
 
 logger = logging.getLogger("edq.routes.reports")
 
@@ -107,7 +113,17 @@ async def _load_run_context(data: ReportRequest, db: AsyncSession):
                     entries = None
             whitelist_entries = entries
 
-    return test_run, test_results, report_config, enabled_test_ids, whitelist_entries
+    branding_result = await db.execute(select(BrandingSettings).limit(1))
+    branding_settings = branding_result.scalar_one_or_none()
+
+    return (
+        test_run,
+        test_results,
+        report_config,
+        enabled_test_ids,
+        whitelist_entries,
+        branding_settings,
+    )
 
 
 @router.post("/generate")
@@ -118,7 +134,14 @@ async def generate_report(
     user: User = Depends(get_current_active_user),
 ):
     """Generate a report for a test run."""
-    check_rate_limit(request, max_requests=5, window_seconds=60, action="report_generate")
+    check_rate_limit(request, max_requests=120, window_seconds=60, action="report_generate")
+    check_user_rate_limit(
+        request,
+        str(user.id),
+        max_requests=60,
+        window_seconds=60,
+        action="report_generate",
+    )
 
     # IDOR check: verify the user has access to this test run
     tr_result = await db.execute(select(TestRun).where(TestRun.id == data.test_run_id))
@@ -128,9 +151,15 @@ async def generate_report(
     if user.role == UserRole.ENGINEER and tr.engineer_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    test_run, test_results, report_config, enabled_test_ids, whitelist_entries = (
+    test_run, test_results, report_config, enabled_test_ids, whitelist_entries, branding_settings = (
         await _load_run_context(data, db)
     )
+    readiness_summary = build_run_readiness_summary(test_run, test_results)
+    if not readiness_summary["report_ready"]:
+        raise HTTPException(
+            status_code=409,
+            detail=get_report_readiness_block_message(readiness_summary),
+        )
 
     try:
         if data.report_type == "excel":
@@ -140,6 +169,10 @@ async def generate_report(
                 report_config,
                 template_key=data.template_key,
                 enabled_test_ids=enabled_test_ids,
+                whitelist_entries=whitelist_entries,
+                include_synopsis=data.include_synopsis,
+                branding_settings=branding_settings,
+                readiness_summary=readiness_summary,
             )
         elif data.report_type == "word":
             file_path = await generate_word_report(
@@ -149,6 +182,9 @@ async def generate_report(
                 include_synopsis=data.include_synopsis,
                 enabled_test_ids=enabled_test_ids,
                 whitelist_entries=whitelist_entries,
+                template_key=data.template_key,
+                branding_settings=branding_settings,
+                readiness_summary=readiness_summary,
             )
         elif data.report_type == "pdf":
             file_path = await generate_pdf_report(
@@ -158,6 +194,9 @@ async def generate_report(
                 include_synopsis=data.include_synopsis,
                 enabled_test_ids=enabled_test_ids,
                 whitelist_entries=whitelist_entries,
+                template_key=data.template_key,
+                branding_settings=branding_settings,
+                readiness_summary=readiness_summary,
             )
         elif data.report_type == "csv":
             file_path = await generate_csv_report(
@@ -167,6 +206,9 @@ async def generate_report(
                 include_synopsis=data.include_synopsis,
                 enabled_test_ids=enabled_test_ids,
                 whitelist_entries=whitelist_entries,
+                template_key=data.template_key,
+                branding_settings=branding_settings,
+                readiness_summary=readiness_summary,
             )
         else:
             raise HTTPException(
@@ -178,8 +220,9 @@ async def generate_report(
         return {
             "filename": filename,
             "report_type": data.report_type,
-            "template_key": data.template_key if data.report_type == "excel" else None,
+            "template_key": data.template_key,
             "download_url": f"/api/reports/download/{filename}",
+            "readiness_summary": readiness_summary,
             "message": "Report generated successfully",
         }
     except RuntimeError as exc:

@@ -12,6 +12,10 @@ from app.models.test_result import TestResult, TestTier, TestVerdict
 from app.models.test_run import TestRun, TestRunStatus, normalize_test_run_status
 from app.models.user import User, UserRole
 from app.routes.test_runs import _get_authorized_test_run
+from app.services.run_readiness import (
+    build_run_readiness_summary,
+    merge_readiness_into_metadata,
+)
 from app.schemas.test import (
     TestResultOverrideRequest,
     TestResultResponse,
@@ -64,32 +68,26 @@ def _overall_verdict(passed: int, failed: int, advisory: int, essential_failed: 
 
 
 async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
-    # Use SQL aggregation instead of loading all result rows into Python
     result = await db.execute(
-        select(
-            func.count(case((TestResult.verdict == TestVerdict.PASS, 1))).label("passed"),
-            func.count(case((TestResult.verdict == TestVerdict.FAIL, 1))).label("failed"),
-            func.count(case((TestResult.verdict == TestVerdict.ADVISORY, 1))).label("advisory"),
-            func.count(case((TestResult.verdict == TestVerdict.NA, 1))).label("na"),
-            func.count(case((TestResult.verdict == TestVerdict.ERROR, 1))).label("errors"),
-            func.count(case((and_(
-                TestResult.verdict == TestVerdict.PENDING,
-                TestResult.tier == TestTier.GUIDED_MANUAL,
-            ), 1))).label("pending_manual"),
-            func.count(case((and_(
-                TestResult.verdict == TestVerdict.FAIL,
-                TestResult.is_essential == "yes",
-            ), 1))).label("essential_failed"),
-        ).where(TestResult.test_run_id == run.id)
+        select(TestResult).where(TestResult.test_run_id == run.id).order_by(TestResult.test_id)
     )
-    row = result.one()
-    passed = row.passed
-    failed = row.failed
-    advisory = row.advisory
-    na = row.na
-    errors = row.errors
-    pending_manual = row.pending_manual
-    essential_failed = row.essential_failed > 0
+    all_results = list(result.scalars().all())
+
+    passed = sum(1 for item in all_results if item.verdict == TestVerdict.PASS)
+    failed = sum(1 for item in all_results if item.verdict == TestVerdict.FAIL)
+    advisory = sum(1 for item in all_results if item.verdict == TestVerdict.ADVISORY)
+    na = sum(1 for item in all_results if item.verdict == TestVerdict.NA)
+    errors = sum(1 for item in all_results if item.verdict == TestVerdict.ERROR)
+    pending_manual = sum(
+        1
+        for item in all_results
+        if item.verdict == TestVerdict.PENDING and item.tier == TestTier.GUIDED_MANUAL
+    )
+    essential_failed = any(
+        item
+        for item in all_results
+        if item.verdict == TestVerdict.FAIL and item.is_essential == "yes"
+    )
 
     run.passed_tests = passed
     run.failed_tests = failed
@@ -111,22 +109,25 @@ async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
         TestRunStatus.FAILED.value,
     }
     if current_status in active_statuses:
-        return
-
-    if pending_manual:
+        pass
+    elif pending_manual:
         run.status = TestRunStatus.AWAITING_MANUAL
         run.completed_at = None
         run.overall_verdict = None
-        return
-
-    if current_status == TestRunStatus.AWAITING_REVIEW.value:
+    elif current_status == TestRunStatus.AWAITING_REVIEW.value:
         run.status = TestRunStatus.AWAITING_REVIEW
     else:
         run.status = TestRunStatus.COMPLETED
 
-    if run.completed_at is None:
+    if current_status not in active_statuses and run.completed_at is None:
         run.completed_at = utcnow_naive()
-    run.overall_verdict = _overall_verdict(passed, failed, advisory, essential_failed)
+    if current_status not in active_statuses:
+        run.overall_verdict = _overall_verdict(passed, failed, advisory, essential_failed)
+
+    run.run_metadata = merge_readiness_into_metadata(
+        run.run_metadata,
+        build_run_readiness_summary(run, all_results),
+    )
 
 
 @router.get("/", response_model=List[TestResultResponse])
@@ -217,7 +218,7 @@ async def update_result(
         test_result.duration_seconds = updates["duration_seconds"]
 
     await _refresh_parent_run(db, test_run)
-    await db.flush()
+    await db.commit()
     await db.refresh(test_result)
     await log_action(db, user, "update", "test_result", result_id, {"fields": list(updates.keys())}, request)
     return test_result
@@ -253,7 +254,7 @@ async def override_result(
     test_result.completed_at = now
 
     await _refresh_parent_run(db, test_run)
-    await db.flush()
+    await db.commit()
     await db.refresh(test_result)
     await log_action(
         db,

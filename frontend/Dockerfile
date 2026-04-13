@@ -24,12 +24,23 @@ ENV VITE_SOURCEMAP=${VITE_SOURCEMAP}
 COPY package.json pnpm-lock.yaml* package-lock.json* ./
 RUN corepack enable 2>/dev/null; \
     if [ -f pnpm-lock.yaml ]; then \
-      pnpm install --frozen-lockfile; \
-    elif [ -f package-lock.json ]; then \
-      npm ci; \
-    else \
-      npm install; \
-    fi
+      pnpm config set fetch-retries 5; \
+      pnpm config set fetch-retry-factor 2; \
+    fi; \
+    attempts=0; \
+    until [ "$attempts" -ge 3 ]; do \
+      attempts=$((attempts + 1)); \
+      if [ -f pnpm-lock.yaml ]; then \
+        pnpm install --frozen-lockfile && break; \
+      elif [ -f package-lock.json ]; then \
+        npm ci && break; \
+      else \
+        npm install && break; \
+      fi; \
+      echo "Dependency install failed on attempt ${attempts}; retrying..."; \
+      sleep 15; \
+    done; \
+    if [ "$attempts" -ge 3 ]; then exit 1; fi
 
 COPY . .
 RUN if command -v pnpm >/dev/null 2>&1 && [ -f pnpm-lock.yaml ]; then \

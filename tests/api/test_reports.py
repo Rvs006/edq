@@ -12,6 +12,12 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 BASE = "/api/reports/"
 
 
+def _report_headers() -> dict[str, str]:
+    octet_a = int(uuid.uuid4().hex[:2], 16) % 254 + 1
+    octet_b = int(uuid.uuid4().hex[2:4], 16) % 254 + 1
+    return {"X-Forwarded-For": f"10.250.{octet_a}.{octet_b}"}
+
+
 async def _create_template(admin_client: httpx.AsyncClient) -> str:
     resp = await admin_client.post(
         "/api/test-templates/",
@@ -71,6 +77,7 @@ async def test_generate_generic_excel_report(admin_client: httpx.AsyncClient, te
                 "report_type": "excel",
                 "template_key": "generic",
             },
+            headers=_report_headers(),
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -106,6 +113,7 @@ async def test_generate_csv_report(admin_client: httpx.AsyncClient, test_device:
                 "test_run_id": run_id,
                 "report_type": "csv",
             },
+            headers=_report_headers(),
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -123,12 +131,123 @@ async def test_generate_csv_report(admin_client: httpx.AsyncClient, test_device:
         await admin_client.delete(f"/api/test-templates/{template_id}")
 
 
+async def test_generate_word_report_returns_template_key(admin_client: httpx.AsyncClient, test_device: dict):
+    template_id = await _create_template(admin_client)
+    try:
+        run_id = await _create_completed_run(admin_client, test_device["id"], template_id)
+
+        resp = await admin_client.post(
+            f"{BASE}generate",
+            json={
+                "test_run_id": run_id,
+                "report_type": "word",
+                "template_key": "generic",
+            },
+            headers=_report_headers(),
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["report_type"] == "word"
+        assert body["template_key"] == "generic"
+        assert body["filename"].endswith(".docx")
+    finally:
+        await admin_client.delete(f"/api/test-templates/{template_id}")
+
+
+async def test_generate_pdf_report_returns_template_key(admin_client: httpx.AsyncClient, test_device: dict):
+    template_id = await _create_template(admin_client)
+    try:
+        run_id = await _create_completed_run(admin_client, test_device["id"], template_id)
+
+        resp = await admin_client.post(
+            f"{BASE}generate",
+            json={
+                "test_run_id": run_id,
+                "report_type": "pdf",
+                "template_key": "generic",
+            },
+            headers=_report_headers(),
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["report_type"] == "pdf"
+        assert body["template_key"] == "generic"
+        assert body["filename"].endswith(".pdf")
+    finally:
+        await admin_client.delete(f"/api/test-templates/{template_id}")
+
+
+async def test_generate_report_rejects_pending_manual_results(admin_client: httpx.AsyncClient, test_device: dict):
+    resp = await admin_client.post(
+        "/api/test-templates/",
+        json={
+            "name": f"report-manual-{uuid.uuid4().hex[:6]}",
+            "description": "Manual-only template for pending manual report rejection",
+            "test_ids": ["U20"],
+            "device_category": "camera",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    template_id = resp.json()["id"]
+    try:
+        run_resp = await admin_client.post(
+            "/api/test-runs/",
+            json={
+                "device_id": test_device["id"],
+                "template_id": template_id,
+                "connection_scenario": "direct",
+            },
+        )
+        assert run_resp.status_code == 201, run_resp.text
+        run_id = run_resp.json()["id"]
+
+        resp = await admin_client.post(
+            f"{BASE}generate",
+            json={
+                "test_run_id": run_id,
+                "report_type": "excel",
+                "template_key": "generic",
+            },
+            headers=_report_headers(),
+        )
+
+        assert resp.status_code == 409, resp.text
+        assert "manual tests are still pending" in resp.json()["detail"].lower()
+    finally:
+        await admin_client.delete(f"/api/test-templates/{template_id}")
+
+
+async def test_generate_report_rejects_awaiting_review_runs(admin_client: httpx.AsyncClient, test_device: dict):
+    template_id = await _create_template(admin_client)
+    try:
+        run_id = await _create_completed_run(admin_client, test_device["id"], template_id)
+
+        review_resp = await admin_client.post(f"/api/test-runs/{run_id}/request-review")
+        assert review_resp.status_code == 200, review_resp.text
+
+        resp = await admin_client.post(
+            f"{BASE}generate",
+            json={
+                "test_run_id": run_id,
+                "report_type": "excel",
+                "template_key": "generic",
+            },
+            headers=_report_headers(),
+        )
+
+        assert resp.status_code == 409, resp.text
+        assert "reviewer sign-off" in resp.json()["detail"].lower()
+    finally:
+        await admin_client.delete(f"/api/test-templates/{template_id}")
+
+
 async def test_generate_report_invalid_run(admin_client: httpx.AsyncClient):
     """POST /api/reports/generate with a fake test_run_id returns 404."""
     fake_id = str(uuid.uuid4())
     resp = await admin_client.post(
         f"{BASE}generate",
         json={"test_run_id": fake_id},
+        headers=_report_headers(),
     )
     assert resp.status_code == 404, (
         f"Expected 404 for fake test_run_id, got {resp.status_code}: {resp.text}"

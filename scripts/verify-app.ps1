@@ -124,6 +124,18 @@ function Invoke-Check {
     }
 }
 
+function Convert-ToWebSocketUrl {
+    param([string]$Url)
+
+    if ($Url.StartsWith("https://")) {
+        return "wss://" + $Url.Substring(8).TrimEnd('/')
+    }
+    if ($Url.StartsWith("http://")) {
+        return "ws://" + $Url.Substring(7).TrimEnd('/')
+    }
+    throw "Unsupported base URL for WebSocket conversion: $Url"
+}
+
 $resolvedPassword = Resolve-AdminPassword
 if (-not $resolvedPassword -or $resolvedPassword.StartsWith("CHANGE_ME") -or $resolvedPassword.StartsWith("change-me")) {
     throw "Admin password is still a placeholder. Update the root .env file first."
@@ -222,8 +234,44 @@ Invoke-Check "Static assets (JS)" {
 
 Write-Host ""
 Write-Host "--- WebSocket ---"
-Write-Host ("  {0,-35} SKIP  {1}" -f "WebSocket upgrade", "Requires manual or dedicated WS tooling") -ForegroundColor Yellow
-$script:Skip++
+Invoke-Check "WebSocket upgrade" {
+    $loginPayload = @{ username = $AdminUser; password = $resolvedPassword } | ConvertTo-Json -Compress
+    $loginResponse = Invoke-RestMethod -Uri "$apiUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginPayload -WebSession $session
+    if (-not $loginResponse.csrf_token) {
+        throw "Missing csrf token after websocket login."
+    }
+
+    $wsCookie = $session.Cookies.GetCookies($resolvedBaseUrl)["edq_session"]
+    if (-not $wsCookie -or -not $wsCookie.Value) {
+        throw "Missing edq_session cookie for websocket verification."
+    }
+
+    $runsResponse = Invoke-RestMethod -Uri "$apiUrl/test-runs/" -Method Get -WebSession $session
+    $runs = @($runsResponse)
+    if (-not $runs -or $runs.Count -eq 0) {
+        throw "No test runs available for websocket verification."
+    }
+
+    $runId = [string]$runs[0].id
+    $wsUrl = "$(Convert-ToWebSocketUrl $resolvedBaseUrl)/api/ws/test-run/$runId"
+
+    $socket = [System.Net.WebSockets.ClientWebSocket]::new()
+    try {
+        $socket.Options.SetRequestHeader("Origin", $resolvedBaseUrl.TrimEnd('/'))
+        $socket.Options.SetRequestHeader("Cookie", "edq_session=$($wsCookie.Value)")
+        $socket.ConnectAsync([Uri]$wsUrl, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+        if ($socket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+            throw "WebSocket did not open."
+        }
+        "connected to run $runId"
+    }
+    finally {
+        if ($socket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
+            $socket.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "verify", [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+        }
+        $socket.Dispose()
+    }
+}
 
 Write-Host ""
 Write-Host "====================================="

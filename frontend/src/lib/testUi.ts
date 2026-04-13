@@ -4,6 +4,7 @@ export type RunProgressLabel =
   | 'Preparing run'
   | 'Automatic checks in progress'
   | 'Manual review remaining'
+  | 'Ready for review'
   | 'Completed'
 
 export function summarizeRunProgress(
@@ -13,6 +14,7 @@ export function summarizeRunProgress(
     duration_seconds?: number | null
   }>,
   runningTestId: string | null,
+  runStatus?: string | null,
 ) {
   const total = results.length
   const completed = results.filter((result) => result.verdict && result.verdict !== 'pending').length
@@ -24,7 +26,9 @@ export function summarizeRunProgress(
   ).length
 
   let progressLabel: RunProgressLabel = 'Preparing run'
-  if (total > 0 && completed >= total) {
+  if (runStatus === 'awaiting_review') {
+    progressLabel = 'Ready for review'
+  } else if (total > 0 && completed >= total) {
     progressLabel = 'Completed'
   } else if (manualPending > 0 && automaticPending === 0) {
     progressLabel = 'Manual review remaining'
@@ -35,6 +39,8 @@ export function summarizeRunProgress(
   let detailText = ''
   if (total === 0) {
     detailText = 'Tests will appear here after the session starts.'
+  } else if (progressLabel === 'Ready for review') {
+    detailText = 'All tests have verdicts and the run is waiting for review approval.'
   } else if (progressLabel === 'Completed') {
     detailText = 'All tests have a result. Review any fail or advisory items before reporting.'
   } else if (progressLabel === 'Manual review remaining') {

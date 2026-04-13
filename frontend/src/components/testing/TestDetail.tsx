@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { ChevronDown, ChevronUp, Terminal, FileSearch, Pencil, ShieldAlert } from 'lucide-react'
 import ManualTestForm from './ManualTestForm'
 import VerdictBadge from '@/components/common/VerdictBadge'
@@ -55,6 +55,10 @@ export default function TestDetail({
   const [overrideVerdict, setOverrideVerdict] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
   const [notesValue, setNotesValue] = useState(result.engineer_notes || '')
+
+  useEffect(() => {
+    setNotesValue(result.engineer_notes || '')
+  }, [result.engineer_notes])
 
   const canOverride = userRole === 'admin' || userRole === 'reviewer'
   const isManual = result.tier === 'guided_manual'

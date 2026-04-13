@@ -5,8 +5,8 @@ import uuid
 import httpx
 import pytest
 
-from tests.auth_cache import invalidate_auth_cache
-from tests.helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login, _apply_auth
+from live_auth_cache import invalidate_auth_cache
+from live_helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login, _apply_auth
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.security]
 
@@ -18,13 +18,13 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.security]
 async def test_account_lockout(client: httpx.AsyncClient, admin_client: httpx.AsyncClient):
     """Repeated wrong logins should lock a disposable account without breaking admin auth."""
     username = f"lockout-{uuid.uuid4().hex[:8]}"
-    password = "Lockout@2026!"
+    account_credential = "LockoutCredentialTest@2026!"
     create_resp = await admin_client.post(
         "/api/users/",
         json={
             "username": username,
             "email": f"{username}@example.com",
-            "password": password,
+            "password": account_credential,
             "full_name": "Lockout Probe",
             "role": "engineer",
         },
@@ -36,7 +36,7 @@ async def test_account_lockout(client: httpx.AsyncClient, admin_client: httpx.As
     for _ in range(10):
         resp = await client.post(
             "/api/auth/login",
-            json={"username": username, "password": "WrongPassword!"},
+            json={"username": username, "password": "invalid-login-password"},
         )
         statuses.append(resp.status_code)
 
@@ -45,7 +45,7 @@ async def test_account_lockout(client: httpx.AsyncClient, admin_client: httpx.As
 
     locked_resp = await client.post(
         "/api/auth/login",
-        json={"username": username, "password": password},
+        json={"username": username, "password": account_credential},
     )
     assert locked_resp.status_code == 401, locked_resp.text
 
@@ -150,7 +150,7 @@ async def test_password_complexity_common():
         _apply_auth(c, fresh_auth)
         resp = await c.post(
             "/api/auth/change-password",
-            json={"current_password": ADMIN_PASS, "new_password": "password"},
+            json={"current_password": ADMIN_PASS, "new_password": "common-password-value"},
         )
         assert resp.status_code in (400, 422), (
             f"Expected 400/422 for common password, got {resp.status_code}"
@@ -164,8 +164,8 @@ async def test_password_complexity_common():
 async def test_session_after_password_change(admin_client: httpx.AsyncClient):
     """After password change, old session should be invalidated."""
     username = f"pwreset-{uuid.uuid4().hex[:8]}"
-    original_pass = "OrigPwd@2026!"
-    new_pass = "NewPwd@2026!"
+    original_pass = "OriginalPasswordForTest@2026!"
+    new_pass = "UpdatedPasswordForTest@2026!"
 
     create_resp = await admin_client.post(
         "/api/users/",

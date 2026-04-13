@@ -11,6 +11,7 @@ const config: Record<string, { label: string; className: string; icon: React.Ele
   'n/a': { label: 'N/A', className: 'badge-na', icon: MinusCircle },
   info: { label: 'Info', className: 'badge-info', icon: Info },
   pending: { label: 'Pending', className: 'badge-pending', icon: Clock },
+  error: { label: 'Error', className: 'badge-fail', icon: XCircle },
   skipped_safe_mode: { label: 'Skipped', className: 'badge-na', icon: ShieldOff },
 }
 

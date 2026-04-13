@@ -7,7 +7,7 @@ Otherwise falls back to a local sliding-window implementation.
 import logging
 import time
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, Protocol
 
 from fastapi import HTTPException, Request, status
 
@@ -29,6 +29,10 @@ class _Bucket:
             return False
         self.timestamps.append(now)
         return True
+
+
+class RateLimiter(Protocol):
+    def check(self, key: str, max_requests: int, window_seconds: int = 60) -> bool: ...
 
 
 class InMemoryRateLimiter:
@@ -76,6 +80,7 @@ class RedisRateLimiter:
     def __init__(self, redis_url: str) -> None:
         import redis
         self._redis = redis.from_url(redis_url, decode_responses=True)
+        self._redis.ping()
         self._script = self._redis.register_script(self._LUA_SCRIPT)
         logger.info("Rate limiter using Redis: %s", redis_url.split("@")[-1])
 
@@ -89,19 +94,28 @@ class RedisRateLimiter:
         return bool(result)
 
 
-def _create_rate_limiter():
+def _create_rate_limiter() -> RateLimiter:
     """Create the appropriate rate limiter based on configuration."""
     from app.config import settings
     if settings.REDIS_URL:
         try:
             limiter = RedisRateLimiter(settings.REDIS_URL)
             return limiter
-        except Exception:
+        except Exception as exc:
+            if settings.REDIS_REQUIRED:
+                raise RuntimeError("REDIS_REQUIRED=true but Redis is unavailable") from exc
             logger.warning("Failed to connect to Redis, falling back to in-memory rate limiter")
     return InMemoryRateLimiter()
 
 
-rate_limiter = _create_rate_limiter()
+rate_limiter: RateLimiter = _create_rate_limiter()
+
+
+def reset_rate_limiter() -> RateLimiter:
+    """Rebuild the global limiter after runtime config changes."""
+    global rate_limiter
+    rate_limiter = _create_rate_limiter()
+    return rate_limiter
 
 
 # IPs that are trusted to set X-Forwarded-For (nginx in Docker resolves as 172.x.x.x)

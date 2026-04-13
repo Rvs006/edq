@@ -164,6 +164,8 @@ pytest-cache-files-*
 .venv-wsl/
 server/backend/.venv/
 server/backend/.venv-wsl/
+server/backend/pytest-cache-files-*/
+server/backend/pytest-cache-files-*
 frontend/vite.config.js
 frontend/vite.config.d.ts
 
@@ -195,6 +197,11 @@ NEXT_SESSION_PROMPT.md
 .gemini/
 .mcp.json
 ruvector.db
+*.pem
+*.key
+*.p12
+.DS_Store
+Thumbs.db
 
 # Root-level MCP/tooling deps (not part of EDQ)
 /package.json
