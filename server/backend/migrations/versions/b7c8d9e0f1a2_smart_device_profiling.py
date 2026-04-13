@@ -1,6 +1,6 @@
 """smart_device_profiling
 
-Add auto_generated column to device_profiles and create Universal template.
+Add auto_generated column to device_profiles and create aligned default template.
 
 Revision ID: b7c8d9e0f1a2
 Revises: a1b2c3d4e5f6
@@ -9,7 +9,6 @@ Create Date: 2026-03-30 10:00:00.000000
 """
 from typing import Sequence, Union
 from datetime import datetime, timezone
-import uuid
 
 from alembic import op
 import sqlalchemy as sa
@@ -33,15 +32,12 @@ ALL_TEST_IDS = [
 
 
 def upgrade() -> None:
-    # 1. Add auto_generated column to device_profiles
     with op.batch_alter_table('device_profiles', schema=None) as batch_op:
         batch_op.add_column(sa.Column('auto_generated', sa.Boolean(), nullable=True, server_default=sa.false()))
 
-    # 2. Mark existing templates as non-default
     connection = op.get_bind()
     connection.execute(sa.text("UPDATE test_templates SET is_default = :value"), {"value": False})
 
-    # 3. Create the Universal template with all 43 tests
     test_templates = sa.table(
         "test_templates",
         sa.column("id", sa.String(36)),
@@ -62,8 +58,8 @@ def upgrade() -> None:
         connection.execute(
             test_templates.insert().values(
                 id=UNIVERSAL_TEMPLATE_ID,
-                name="Universal (Smart Profiling)",
-                description="All 43 tests — the device fingerprinter automatically skips tests that don't apply to the detected device type.",
+                name="Full Security Assessment",
+                description="Legacy default template placeholder. Runtime seed aligns this template to current full test library.",
                 version="2.0",
                 test_ids=ALL_TEST_IDS,
                 is_default=True,
@@ -72,14 +68,27 @@ def upgrade() -> None:
                 updated_at=now,
             )
         )
+    else:
+        connection.execute(
+            sa.text(
+                "UPDATE test_templates "
+                "SET name = :name, description = :description, is_default = :is_default, updated_at = :updated_at "
+                "WHERE id = :id"
+            ),
+            {
+                "id": UNIVERSAL_TEMPLATE_ID,
+                "name": "Full Security Assessment",
+                "description": "Legacy default template placeholder. Runtime seed aligns this template to current full test library.",
+                "is_default": True,
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
 
 
 def downgrade() -> None:
-    # Remove universal template
     op.execute(
         sa.text("DELETE FROM test_templates WHERE id = :id").bindparams(id=UNIVERSAL_TEMPLATE_ID)
     )
 
-    # Remove auto_generated column
     with op.batch_alter_table('device_profiles', schema=None) as batch_op:
         batch_op.drop_column('auto_generated')

@@ -87,16 +87,16 @@ describe('TestRunDetailPage', () => {
       const found =
         screen.queryByText(/Device dev-1/i) ||
         screen.queryByText(/Started/i) ||
-        screen.queryByText(/Quick guide:/i)
+        screen.queryByText(/Operational with advisories/i)
       expect(found).toBeInTheDocument()
     }, { timeout: 3000 })
   })
 
-  it('shows guidance instead of a misleading time-left estimate', async () => {
+  it('shows compact summary instead of a misleading time-left estimate', async () => {
     renderWithProviders(<TestRunDetailPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/Quick guide:/i)).toBeInTheDocument()
+      expect(screen.getAllByText(/Operational with advisories \(9\/10\)/i).length).toBeGreaterThan(0)
     })
 
     expect(screen.queryByText(/left$/i)).not.toBeInTheDocument()
@@ -106,10 +106,10 @@ describe('TestRunDetailPage', () => {
     renderWithProviders(<TestRunDetailPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/Readiness: Operational with advisories \(9\/10\)/i)).toBeInTheDocument()
+      expect(screen.getAllByText(/Operational with advisories \(9\/10\)/i).length).toBeGreaterThan(0)
     })
 
-    expect(screen.getByText(/Official report: ready/i)).toBeInTheDocument()
+    expect(screen.getByText(/Report ready/i)).toBeInTheDocument()
   })
 
   it('shows loading state initially', () => {

@@ -258,7 +258,19 @@ def _pdf_safe_width(pdf: Any) -> float:
 def _pdf_safe_text(value: str) -> str:
     text = str(value or "")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    return text.replace("|", " - ")
+    text = text.replace("|", " - ")
+    text = (
+        text.replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .replace("\u2022", "-")
+        .replace("\u2026", "...")
+        .replace("\u00a0", " ")
+    )
+    return text.encode("latin-1", "replace").decode("latin-1")
 
 
 def _pdf_wrapped_lines(value: str, width: int = 140) -> list[str]:
@@ -278,7 +290,7 @@ def _write_pdf_lines(pdf: Any, value: str, line_height: float = 5, wrap_width: i
     width = _pdf_safe_width(pdf)
     for line in _pdf_wrapped_lines(value, width=wrap_width):
         pdf.set_x(pdf.l_margin)
-        pdf.cell(width, line_height, line or " ", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(width, line_height, _pdf_safe_text(line or " "), new_x="LMARGIN", new_y="NEXT")
 
 
 def build_report_document(

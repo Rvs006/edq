@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef, forwardRef } from 'r
 import { Search, ChevronDown, ChevronRight, Loader2, HelpCircle } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { summarizeRunProgress } from '@/lib/testUi'
+import { getTestExplainer } from '@/components/common/TestExplainer'
 
 export interface TestResultItem {
   id: string
@@ -25,15 +26,15 @@ interface TestSidebarProps {
 }
 
 const verdictIcons: Record<string, { icon: string; color: string }> = {
-  pass: { icon: '\u2705', color: 'text-green-600' },
-  fail: { icon: '\u274C', color: 'text-red-600' },
-  advisory: { icon: '\u26A0\uFE0F', color: 'text-amber-600' },
-  info: { icon: '\u2139\uFE0F', color: 'text-cyan-600' },
-  'n/a': { icon: '\u2298', color: 'text-zinc-400' },
-  na: { icon: '\u2298', color: 'text-zinc-400' },
-  skipped_safe_mode: { icon: '\uD83D\uDD12', color: 'text-zinc-400' },
-  skipped_scenario: { icon: '\u26A1', color: 'text-yellow-500' },
-  pending: { icon: '\u23F3', color: 'text-blue-400' },
+  pass: { icon: '✅', color: 'text-green-600' },
+  fail: { icon: '❌', color: 'text-red-600' },
+  advisory: { icon: '⚠️', color: 'text-amber-600' },
+  info: { icon: 'ℹ️', color: 'text-cyan-600' },
+  'n/a': { icon: '⊘', color: 'text-zinc-400' },
+  na: { icon: '⊘', color: 'text-zinc-400' },
+  skipped_safe_mode: { icon: '🔒', color: 'text-zinc-400' },
+  skipped_scenario: { icon: '⚡', color: 'text-yellow-500' },
+  pending: { icon: '⏳', color: 'text-blue-400' },
 }
 
 type DisplayState = 'waiting' | 'running' | 'done' | 'manual_pending'
@@ -53,15 +54,15 @@ function isScenarioSkipped(result: TestResultItem): boolean {
 function getStatusDisplay(result: TestResultItem, isRunning: boolean) {
   if (isRunning) return { icon: null, color: 'text-blue-500', isSpinner: true }
   if (result.verdict && result.verdict !== 'pending') {
-    // Scenario-skipped tests get yellow highlight
     if (isScenarioSkipped(result)) {
-      return { icon: '\u26A1', color: 'text-yellow-500', isSpinner: false }
+      return { icon: '⚡', color: 'text-yellow-500', isSpinner: false }
     }
-    const v = verdictIcons[result.verdict.toLowerCase()] || verdictIcons.pending
-    return { icon: v.icon, color: v.color, isSpinner: false }
+    const value = verdictIcons[result.verdict.toLowerCase()] || verdictIcons.pending
+    return { icon: value.icon, color: value.color, isSpinner: false }
   }
-  if (result.tier === 'guided_manual' && (!result.verdict || result.verdict === 'pending'))
-    return { icon: '\uD83D\uDCCB', color: 'text-amber-500', isSpinner: false }
+  if (result.tier === 'guided_manual' && (!result.verdict || result.verdict === 'pending')) {
+    return { icon: '📋', color: 'text-amber-500', isSpinner: false }
+  }
   return { icon: null, color: 'text-zinc-300', isSpinner: false }
 }
 
@@ -81,21 +82,21 @@ export default function TestSidebar({
   const { autoTests, manualTests } = useMemo(() => {
     const auto: TestResultItem[] = []
     const manual: TestResultItem[] = []
-    for (const r of results) {
-      if (r.tier === 'guided_manual') manual.push(r)
-      else auto.push(r)
+    for (const result of results) {
+      if (result.tier === 'guided_manual') manual.push(result)
+      else auto.push(result)
     }
     return { autoTests: auto, manualTests: manual }
   }, [results])
 
   const filterTests = (tests: TestResultItem[]) => {
     if (!searchQuery.trim()) return tests
-    const q = searchQuery.toLowerCase()
+    const query = searchQuery.toLowerCase()
     return tests.filter(
-      (t) =>
-        t.test_id.toLowerCase().includes(q) ||
-        t.test_name.toLowerCase().includes(q) ||
-        (t.tool && t.tool.toLowerCase().includes(q))
+      (test) =>
+        test.test_id.toLowerCase().includes(query) ||
+        test.test_name.toLowerCase().includes(query) ||
+        (test.tool && test.tool.toLowerCase().includes(query))
     )
   }
 
@@ -110,18 +111,17 @@ export default function TestSidebar({
 
   const queuePositions = useMemo(() => {
     const positions: Record<string, number> = {}
-    const autoWaiting = autoTests.filter(t => !t.verdict || t.verdict === 'pending')
-    const runningIdx = runningTestId ? autoWaiting.findIndex(t => t.test_id === runningTestId) : -1
-    let pos = 1
-    for (let i = 0; i < autoWaiting.length; i++) {
-      if (autoWaiting[i].test_id === runningTestId) continue
-      if (runningIdx >= 0 && i < runningIdx) continue
-      positions[autoWaiting[i].test_id] = pos++
+    const autoWaiting = autoTests.filter(test => !test.verdict || test.verdict === 'pending')
+    const runningIndex = runningTestId ? autoWaiting.findIndex(test => test.test_id === runningTestId) : -1
+    let position = 1
+    for (let index = 0; index < autoWaiting.length; index++) {
+      if (autoWaiting[index].test_id === runningTestId) continue
+      if (runningIndex >= 0 && index < runningIndex) continue
+      positions[autoWaiting[index].test_id] = position++
     }
     return positions
   }, [autoTests, runningTestId])
 
-  // Auto-scroll to running test
   useEffect(() => {
     if (runningItemRef.current && scrollContainerRef.current) {
       runningItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -129,15 +129,16 @@ export default function TestSidebar({
   }, [runningTestId])
 
   const handleKeyNav = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.key !== 'j' && e.key !== 'k') return
-      e.preventDefault()
-      const currentIdx = allFiltered.findIndex((t) => t.id === selectedTestId)
-      let nextIdx: number
-      if (e.key === 'j') nextIdx = currentIdx < allFiltered.length - 1 ? currentIdx + 1 : 0
-      else nextIdx = currentIdx > 0 ? currentIdx - 1 : allFiltered.length - 1
-      if (allFiltered[nextIdx]) onSelectTest(allFiltered[nextIdx].id)
+    (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
+      if (event.key !== 'j' && event.key !== 'k') return
+      event.preventDefault()
+      const currentIndex = allFiltered.findIndex((test) => test.id === selectedTestId)
+      const nextIndex =
+        event.key === 'j'
+          ? currentIndex < allFiltered.length - 1 ? currentIndex + 1 : 0
+          : currentIndex > 0 ? currentIndex - 1 : allFiltered.length - 1
+      if (allFiltered[nextIndex]) onSelectTest(allFiltered[nextIndex].id)
     },
     [allFiltered, selectedTestId, onSelectTest]
   )
@@ -160,7 +161,6 @@ export default function TestSidebar({
           </div>
         </div>
 
-        {/* Overall progress bar */}
         <div className="w-full h-1.5 bg-zinc-100 dark:bg-slate-700 rounded-full overflow-hidden">
           <motion.div
             className="h-full bg-gradient-to-r from-brand-500 to-blue-500 rounded-full"
@@ -175,7 +175,7 @@ export default function TestSidebar({
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Filter tests..."
             className="w-full pl-8 pr-3 py-1.5 text-xs bg-zinc-50 dark:bg-slate-800 border border-zinc-200 dark:border-slate-600 rounded-md
                        text-zinc-700 dark:text-slate-200 placeholder-zinc-400 dark:placeholder-slate-500
@@ -191,7 +191,7 @@ export default function TestSidebar({
                 How to read this list
               </p>
               <p className="text-[11px] text-zinc-500 dark:text-slate-400 leading-relaxed mt-0.5">
-                {detailText} Blue means running, amber clipboard means manual action needed, and green/red show completed results.
+                {detailText} Blue means running, amber clipboard means manual action needed, and verdict badges show completed results.
               </p>
             </div>
           </div>
@@ -200,28 +200,28 @@ export default function TestSidebar({
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         <SidebarSection title="Automatic Tests" count={filteredAuto.length} collapsed={autoCollapsed} onToggle={() => setAutoCollapsed(!autoCollapsed)}>
-          {filteredAuto.map((t) => (
+          {filteredAuto.map((test) => (
             <SidebarItem
-              key={t.id}
-              ref={t.test_id === runningTestId ? runningItemRef : undefined}
-              result={t}
-              isSelected={t.id === selectedTestId}
-              isRunning={t.test_id === runningTestId}
-              queuePosition={queuePositions[t.test_id] || null}
-              onClick={() => onSelectTest(t.id)}
+              key={test.id}
+              ref={test.test_id === runningTestId ? runningItemRef : undefined}
+              result={test}
+              isSelected={test.id === selectedTestId}
+              isRunning={test.test_id === runningTestId}
+              queuePosition={queuePositions[test.test_id] || null}
+              onClick={() => onSelectTest(test.id)}
             />
           ))}
         </SidebarSection>
         <SidebarSection title="Manual Tests" count={filteredManual.length} collapsed={manualCollapsed} onToggle={() => setManualCollapsed(!manualCollapsed)}>
-          {filteredManual.map((t) => (
+          {filteredManual.map((test) => (
             <SidebarItem
-              key={t.id}
-              ref={t.test_id === runningTestId ? runningItemRef : undefined}
-              result={t}
-              isSelected={t.id === selectedTestId}
-              isRunning={t.test_id === runningTestId}
+              key={test.id}
+              ref={test.test_id === runningTestId ? runningItemRef : undefined}
+              result={test}
+              isSelected={test.id === selectedTestId}
+              isRunning={test.test_id === runningTestId}
               queuePosition={null}
-              onClick={() => onSelectTest(t.id)}
+              onClick={() => onSelectTest(test.id)}
             />
           ))}
         </SidebarSection>
@@ -254,11 +254,20 @@ const SidebarItem = forwardRef<HTMLButtonElement, {
 }>(function SidebarItem({ result, isRunning, isSelected, queuePosition, onClick }, ref) {
   const display = getStatusDisplay(result, isRunning)
   const state = getDisplayState(result, isRunning)
+  const explainer = getTestExplainer(result.test_id)
+  const hoverText = [
+    `${result.test_id} - ${result.test_name}`,
+    explainer?.what || '',
+    result.tool ? `Tool: ${result.tool}` : '',
+    result.tier === 'guided_manual' ? 'Manual test' : 'Automatic test',
+  ].filter(Boolean).join(' | ')
 
   return (
     <button
       ref={ref}
       onClick={onClick}
+      title={hoverText}
+      aria-label={hoverText}
       className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-all group relative
         ${isSelected ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-300' : ''}
         ${isRunning ? 'bg-blue-50/60 dark:bg-blue-950/30' : ''}
@@ -274,8 +283,6 @@ const SidebarItem = forwardRef<HTMLButtonElement, {
           <Loader2 className="w-4 h-4 animate-spin text-blue-500 mx-auto" />
         ) : display.icon ? (
           <span>{display.icon}</span>
-        ) : queuePosition && queuePosition <= 20 ? (
-          <span className="block w-4 h-4 rounded-full border border-zinc-300 dark:border-slate-600 text-[9px] font-bold text-zinc-400 dark:text-slate-500 leading-[14px] mx-auto">{queuePosition}</span>
         ) : (
           <span className="block w-2 h-2 rounded-full bg-zinc-200 dark:bg-slate-600 mx-auto" />
         )}
@@ -288,6 +295,16 @@ const SidebarItem = forwardRef<HTMLButtonElement, {
             {result.test_name}
           </span>
         </div>
+        {explainer?.what && (
+          <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-slate-400 line-clamp-2">
+            {explainer.what}
+          </p>
+        )}
+        {!display.icon && queuePosition && queuePosition <= 20 && (
+          <p className="mt-0.5 text-[10px] text-zinc-400 dark:text-slate-500">
+            Queue position {queuePosition}
+          </p>
+        )}
         {isRunning && (
           <div className="mt-1 h-1 w-full bg-blue-100 dark:bg-blue-900/50 rounded-full overflow-hidden">
             <motion.div

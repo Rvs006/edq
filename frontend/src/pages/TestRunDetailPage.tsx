@@ -22,6 +22,7 @@ import SessionControls from '@/components/testing/SessionControls'
 import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDialog'
 import type { TestResult } from '@/lib/types'
 import { isActiveTestRunStatus, toLocalDateString } from '@/lib/testContracts'
+import { normalizeTemplateName } from '@/lib/templateNames'
 import { summarizeRunProgress } from '@/lib/testUi'
 
 export default function TestRunDetailPage() {
@@ -197,6 +198,9 @@ export default function TestRunDetailPage() {
     results.length > 0 ? Math.round((completedCount / results.length) * 100) : 0
 
   const readinessSummary = run?.readiness_summary ?? null
+  const displayTotalCount = Math.max(run?.total_tests || 0, results.length)
+  const displayCompletedCount = Math.min(completedCount, displayTotalCount)
+  const displayTemplateName = normalizeTemplateName(run?.template_name)
 
   const runProgressSummary = useMemo(
     () => summarizeRunProgress(results as TestResult[], runningTestId, run?.status),
@@ -470,6 +474,24 @@ export default function TestRunDetailPage() {
     return readinessSummary.next_step || readinessSummary.summary || 'Report is not ready yet.'
   }, [readinessSummary])
 
+  const compactSummaryItems = useMemo(() => {
+    const items: string[] = []
+    if (displayTemplateName) items.push(displayTemplateName)
+    if (run?.device_ip) items.push(run.device_ip)
+    if (run?.connection_scenario) items.push(run.connection_scenario.replace(/_/g, ' '))
+    if (run?.started_at) items.push(`Started ${toLocalDateString(run.started_at)}`)
+    if (readinessSummary) items.push(`${readinessSummary.label} (${readinessSummary.score}/10)`)
+    return items
+  }, [displayTemplateName, run?.device_ip, run?.connection_scenario, run?.started_at, readinessSummary])
+
+  const compactSummaryText = useMemo(() => {
+    if (pendingManualCount > 0) {
+      return `${pendingManualCount} manual test${pendingManualCount > 1 ? 's' : ''} still need evidence.`
+    }
+    if (readinessSummary?.summary) return readinessSummary.summary
+    return runProgressSummary.detailText
+  }, [pendingManualCount, readinessSummary, runProgressSummary.detailText])
+
   if (runLoading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
@@ -541,10 +563,10 @@ export default function TestRunDetailPage() {
                   {run.device_ip}
                 </span>
               )}
-              {run.template_name && (
+              {displayTemplateName && (
                 <span className="flex items-center gap-1">
                   <FileText className="w-3 h-3" />
-                  {run.template_name}
+                  {displayTemplateName}
                 </span>
               )}
               {run.connection_scenario && (
@@ -571,7 +593,7 @@ export default function TestRunDetailPage() {
         <div className="flex items-center gap-3">
           <div className="flex-1">
             <SegmentedProgressBar
-              total={results.length}
+              total={displayTotalCount}
               segments={progressSegments}
             />
             <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] text-zinc-500 dark:text-slate-400">
@@ -584,99 +606,60 @@ export default function TestRunDetailPage() {
             deviceName={run.device_name || `device-${run.device_id?.slice(0, 8)}`}
           />
           <span className="text-xs font-mono text-zinc-500 flex-shrink-0" aria-live="polite">
-            {run.progress_pct ?? progressPct}% ({completedCount}/{results.length})
+            {run.progress_pct ?? progressPct}% ({displayCompletedCount}/{displayTotalCount})
           </span>
         </div>
       </div>
 
-      {readinessSummary && (
-        <div className="flex-shrink-0 px-4 pt-3">
-          <SmartPrompt variant={readinessVariant}>
-            <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
-              <strong>
-                Readiness: {readinessSummary.label} ({readinessSummary.score}/10)
-              </strong>
-              <span>
-                Official report: {readinessSummary.report_ready ? 'ready' : 'blocked'}
-              </span>
-              <span>
-                Operational use: {readinessSummary.operational_ready ? 'ready' : 'needs review'}
-              </span>
-              <span>{readinessSummary.next_step}</span>
-            </span>
-          </SmartPrompt>
-        </div>
-      )}
-
-      {fingerprint && (
-        <div className="flex-shrink-0 px-4 pt-3">
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 border border-indigo-200 dark:border-indigo-800/50">
-            <div className="w-9 h-9 rounded-lg bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center flex-shrink-0">
-              <Fingerprint className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-indigo-900 dark:text-indigo-200 capitalize">
-                  {fingerprint.category?.replace(/_/g, ' ') || 'Unknown'}
+      <div className="flex-shrink-0 px-4 pt-3">
+        <SmartPrompt
+          variant={readinessVariant}
+          action={
+            firstPendingManualId
+              ? {
+                  label: 'Next manual',
+                  onClick: () => setSelectedTestId(firstPendingManualId),
+                }
+              : undefined
+          }
+        >
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <strong className="text-sm">{compactSummaryText}</strong>
+              {compactSummaryItems.map((item) => (
+                <span key={item} className="rounded-full bg-black/5 dark:bg-white/5 px-2 py-0.5">
+                  {item}
                 </span>
-                {fingerprint.matched_profile_name && (
-                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400">
-                    Profile: {fingerprint.matched_profile_name}
-                  </span>
-                )}
-              </div>
-              {fingerprint.skip_test_ids?.length > 0 && (
-                <p className="text-xs text-indigo-700/70 dark:text-indigo-300/60 mt-0.5 truncate">
-                  <Zap className="w-3 h-3 inline mr-0.5" />
-                  Skipped {fingerprint.skip_test_ids.length} tests: {fingerprint.skip_test_ids.join(', ')}
-                </p>
+              ))}
+              {readinessSummary && (
+                <span className="rounded-full bg-black/5 dark:bg-white/5 px-2 py-0.5">
+                  Report {readinessSummary.report_ready ? 'ready' : 'blocked'}
+                </span>
               )}
             </div>
-            {!fingerprint.matched_profile_id && fingerprint.category !== 'unknown' && (
-              <button
-                onClick={handleSaveProfile}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors flex-shrink-0"
-              >
-                <Save className="w-3 h-3" />
-                Save Profile
-              </button>
+            {fingerprint && (
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-2 py-0.5">
+                  <Fingerprint className="w-3 h-3" />
+                  {fingerprint.category?.replace(/_/g, ' ') || 'Unknown'}
+                </span>
+                {fingerprint.matched_profile_name && <span>Profile: {fingerprint.matched_profile_name}</span>}
+                {fingerprint.skip_test_ids?.length > 0 && (
+                  <span>Skipped {fingerprint.skip_test_ids.length} tests</span>
+                )}
+                {!fingerprint.matched_profile_id && fingerprint.category !== 'unknown' && (
+                  <button
+                    onClick={handleSaveProfile}
+                    className="inline-flex items-center gap-1 rounded-full bg-indigo-600 px-2 py-0.5 text-white hover:bg-indigo-700"
+                    title="Save current fingerprint as reusable profile"
+                  >
+                    <Save className="w-3 h-3" />
+                    Save profile
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        </div>
-      )}
-
-      {pendingManualCount > 0 && run.status !== 'pending' && run.status !== 'failed' && (
-        <div className="flex-shrink-0 px-4 pt-3">
-          <SmartPrompt
-            variant="warning"
-            action={
-              firstPendingManualId
-                ? {
-                    label: 'Go to first',
-                    onClick: () => setSelectedTestId(firstPendingManualId),
-                  }
-                : undefined
-            }
-          >
-            <strong>{pendingManualCount} manual test{pendingManualCount > 1 ? 's' : ''} waiting for you.</strong>{' '}
-            Open the amber clipboard items in the sidebar, read the explainer at the top of each test, perform the check on the real device, then save a verdict with notes.
-          </SmartPrompt>
-        </div>
-      )}
-
-      {readinessSummary && readinessSummary.reasons.length > 0 && (
-        <div className="flex-shrink-0 px-4 pt-3">
-          <SmartPrompt variant={readinessVariant}>
-            <span>
-              <strong>Trust summary:</strong> {readinessSummary.reasons.slice(0, 2).join(' ')}
-            </span>
-          </SmartPrompt>
-        </div>
-      )}
-
-      <div className="flex-shrink-0 px-4 pt-3">
-        <SmartPrompt variant="info">
-          <strong>Quick guide:</strong> start with the left sidebar, use each test’s explainer to understand what “pass” means, and add notes whenever a result needs context for review or reporting.
         </SmartPrompt>
       </div>
 
@@ -694,7 +677,7 @@ export default function TestRunDetailPage() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex min-h-0 relative">
+      <div className="flex-1 flex min-h-0 relative overflow-hidden">
         {sidebarOpen && (
           <div
             className="fixed inset-0 bg-black/30 z-30 lg:hidden"
@@ -702,7 +685,7 @@ export default function TestRunDetailPage() {
           />
         )}
         <div
-          className={`absolute lg:relative z-40 lg:z-auto h-full w-[280px] flex-shrink-0
+          className={`absolute lg:relative z-40 lg:z-auto h-full w-[340px] max-w-[90vw] flex-shrink-0
             transition-transform duration-200
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
         >
@@ -718,7 +701,7 @@ export default function TestRunDetailPage() {
           />
         </div>
 
-        <div className="flex-1 min-w-0 bg-white dark:bg-dark-card">
+        <div className="flex-1 min-w-0 bg-white dark:bg-dark-card overflow-hidden">
           {selectedResult ? (
             <TestDetail
               key={selectedResult.id}

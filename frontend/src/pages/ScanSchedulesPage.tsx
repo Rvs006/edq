@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { scanSchedulesApi, devicesApi, templatesApi } from '@/lib/api'
 import type { ScanSchedule, Device, TestTemplate } from '@/lib/types'
+import { normalizeTemplateName } from '@/lib/templateNames'
 import { toLocalDateString } from '@/lib/testContracts'
 import {
   Clock, Plus, Trash2, Pause, Play, Loader2, AlertCircle,
@@ -134,7 +135,7 @@ function CreateScheduleDialog({
                 <option value="">Select a template...</option>
                 {templates.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.name} ({t.test_ids.length} tests)
+                      {normalizeTemplateName(t.name) || t.name} ({t.test_ids.length} tests)
                   </option>
                 ))}
               </select>
