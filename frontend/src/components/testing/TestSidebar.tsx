@@ -20,6 +20,7 @@ interface TestSidebarProps {
   results: TestResultItem[]
   selectedTestId: string | null
   runningTestId: string | null
+  runStatus?: string | null
   onSelectTest: (id: string) => void
   className?: string
 }
@@ -38,10 +39,17 @@ const verdictIcons: Record<string, { icon: string; color: string }> = {
 
 type DisplayState = 'waiting' | 'running' | 'done' | 'manual_pending'
 
-function getDisplayState(result: TestResultItem, isRunning: boolean): DisplayState {
+function isManualPending(result: TestResultItem, runStatus?: string | null): boolean {
+  if (result.tier !== 'guided_manual') return false
+  if (result.verdict && result.verdict !== 'pending') return false
+  const normalizedStatus = (runStatus || '').toLowerCase()
+  return normalizedStatus === 'awaiting_manual' || normalizedStatus === 'awaiting_review'
+}
+
+function getDisplayState(result: TestResultItem, isRunning: boolean, runStatus?: string | null): DisplayState {
   if (isRunning) return 'running'
   if (result.verdict && result.verdict !== 'pending') return 'done'
-  if (result.tier === 'guided_manual' && (!result.verdict || result.verdict === 'pending')) return 'manual_pending'
+  if (isManualPending(result, runStatus)) return 'manual_pending'
   return 'waiting'
 }
 
@@ -50,7 +58,7 @@ function isScenarioSkipped(result: TestResultItem): boolean {
     !!(result.comment && (result.comment.startsWith('Skipped') || result.comment.includes('not applicable in')))
 }
 
-function getStatusDisplay(result: TestResultItem, isRunning: boolean) {
+function getStatusDisplay(result: TestResultItem, isRunning: boolean, runStatus?: string | null) {
   if (isRunning) return { icon: null, color: 'text-blue-500', isSpinner: true }
   if (result.verdict && result.verdict !== 'pending') {
     if (isScenarioSkipped(result)) {
@@ -59,7 +67,7 @@ function getStatusDisplay(result: TestResultItem, isRunning: boolean) {
     const value = verdictIcons[result.verdict.toLowerCase()] || verdictIcons.pending
     return { icon: value.icon, color: value.color, isSpinner: false }
   }
-  if (result.tier === 'guided_manual' && (!result.verdict || result.verdict === 'pending')) {
+  if (isManualPending(result, runStatus)) {
     return { icon: '📋', color: 'text-amber-500', isSpinner: false }
   }
   return { icon: null, color: 'text-zinc-300', isSpinner: false }
@@ -69,6 +77,7 @@ export default function TestSidebar({
   results,
   selectedTestId,
   runningTestId,
+  runStatus,
   onSelectTest,
   className = '',
 }: TestSidebarProps) {
@@ -104,8 +113,8 @@ export default function TestSidebar({
   const allFiltered = useMemo(() => [...filteredAuto, ...filteredManual], [filteredAuto, filteredManual])
 
   const { completed: completedCount, progressLabel, detailText } = useMemo(
-    () => summarizeRunProgress(results, runningTestId),
-    [results, runningTestId]
+    () => summarizeRunProgress(results, runningTestId, runStatus),
+    [results, runningTestId, runStatus]
   )
 
   const queuePositions = useMemo(() => {
@@ -194,6 +203,7 @@ export default function TestSidebar({
               result={test}
               isSelected={test.id === selectedTestId}
               isRunning={test.test_id === runningTestId}
+              runStatus={runStatus}
               queuePosition={queuePositions[test.test_id] || null}
               onClick={() => onSelectTest(test.id)}
             />
@@ -207,6 +217,7 @@ export default function TestSidebar({
               result={test}
               isSelected={test.id === selectedTestId}
               isRunning={test.test_id === runningTestId}
+              runStatus={runStatus}
               queuePosition={null}
               onClick={() => onSelectTest(test.id)}
             />
@@ -237,10 +248,10 @@ function SidebarSection({ title, count, collapsed, onToggle, children }: {
 }
 
 const SidebarItem = forwardRef<HTMLButtonElement, {
-  result: TestResultItem; isSelected: boolean; isRunning: boolean; queuePosition: number | null; onClick: () => void
-}>(function SidebarItem({ result, isRunning, isSelected, queuePosition, onClick }, ref) {
-  const display = getStatusDisplay(result, isRunning)
-  const state = getDisplayState(result, isRunning)
+  result: TestResultItem; isSelected: boolean; isRunning: boolean; runStatus?: string | null; queuePosition: number | null; onClick: () => void
+}>(function SidebarItem({ result, isRunning, isSelected, runStatus, queuePosition, onClick }, ref) {
+  const display = getStatusDisplay(result, isRunning, runStatus)
+  const state = getDisplayState(result, isRunning, runStatus)
   const hoverText = [
     `${result.test_id} - ${result.test_name}`,
     result.tool ? `Tool: ${result.tool}` : '',

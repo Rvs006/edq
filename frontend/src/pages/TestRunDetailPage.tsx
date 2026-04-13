@@ -209,18 +209,21 @@ export default function TestRunDetailPage() {
 
   const progressSegments = useMemo(() => {
     const segs = { pass: 0, fail: 0, advisory: 0, info: 0, manual_pending: 0, pending: 0, running: 0 }
+    const manualStageActive = run?.status === 'awaiting_manual' || run?.status === 'awaiting_review'
+    const runIsExecuting =
+      run?.status === 'running' || run?.status === 'selecting_interface' || run?.status === 'syncing'
     for (const r of results as TestResult[]) {
       const v = r.verdict?.toLowerCase()
       if (v === 'pass' || v === 'qualified_pass') segs.pass++
       else if (v === 'fail' || v === 'error') segs.fail++
       else if (v === 'advisory') segs.advisory++
       else if (v === 'info' || v === 'na' || v === 'n/a') segs.info++
-      else if (r.tier === 'guided_manual') segs.manual_pending++
-      else if (runningTestId && r.test_id === runningTestId) segs.running++
+      else if (r.tier === 'guided_manual' && manualStageActive) segs.manual_pending++
+      else if (runIsExecuting && runningTestId && r.test_id === runningTestId) segs.running++
       else segs.pending++
     }
     return segs
-  }, [results, runningTestId])
+  }, [results, runningTestId, run?.status])
 
   const handleStartTests = () => {
     setScenarioDialogOpen(true)
@@ -489,12 +492,12 @@ export default function TestRunDetailPage() {
   }, [readinessSummary])
 
   const compactSummaryText = useMemo(() => {
-    if (pendingManualCount > 0) {
+    if (run?.status === 'awaiting_manual' && pendingManualCount > 0) {
       return `${pendingManualCount} manual test${pendingManualCount > 1 ? 's' : ''} still need evidence.`
     }
     if (readinessSummary?.summary) return readinessSummary.summary
     return runProgressSummary.detailText
-  }, [pendingManualCount, readinessSummary, runProgressSummary.detailText])
+  }, [pendingManualCount, readinessSummary, run?.status, runProgressSummary.detailText])
 
   if (runLoading) {
     return (
@@ -518,8 +521,11 @@ export default function TestRunDetailPage() {
     )
   }
 
+  const runIsExecuting =
+    run.status === 'running' || run.status === 'selecting_interface' || run.status === 'syncing'
+
   const liveOutput =
-    selectedResult && runningTestId === selectedResult.test_id
+    selectedResult && runIsExecuting && runningTestId === selectedResult.test_id
       ? ws.terminalOutput[selectedResult.test_id] || ''
       : ''
 
@@ -696,7 +702,8 @@ export default function TestRunDetailPage() {
           <TestSidebar
             results={sidebarResults}
             selectedTestId={selectedTestId}
-            runningTestId={runningTestId}
+            runningTestId={runIsExecuting ? runningTestId : null}
+            runStatus={run.status}
             onSelectTest={(testId) => {
               setSelectedTestId(testId)
               setSidebarOpen(false)
@@ -711,7 +718,8 @@ export default function TestRunDetailPage() {
               key={selectedResult.id}
               result={selectedResult}
               liveOutput={liveOutput}
-              isRunning={runningTestId === selectedResult.test_id}
+              isRunning={runIsExecuting && runningTestId === selectedResult.test_id}
+              runStatus={run.status}
               userRole={user?.role || 'engineer'}
               onSubmitManual={handleSubmitManual}
               onOverride={handleOverride}
@@ -765,7 +773,7 @@ export default function TestRunDetailPage() {
           onRequestReview={handleRequestReview}
           isActioning={isActioning}
           runningTestName={
-            runningTestId
+            runIsExecuting && runningTestId
               ? (results as TestResult[]).find((r) => r.test_id === runningTestId)?.test_name || runningTestId
               : null
           }
