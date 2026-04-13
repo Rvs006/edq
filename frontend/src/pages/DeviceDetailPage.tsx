@@ -285,8 +285,8 @@ export default function DeviceDetailPage() {
         )}
         {autoDetectMutation.isError && (
           <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" />
-            Auto-detect failed. Make sure the tools sidecar is running and the device is reachable.
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {getApiErrorMessage(autoDetectMutation.error, 'Auto-detect failed. Check the cable is connected and the device is powered on.')}
           </div>
         )}
         {isDhcpWithoutIp && (
