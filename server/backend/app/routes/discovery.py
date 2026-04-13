@@ -265,6 +265,28 @@ async def initiate_discovery(
         xml_out = raw.get("stdout", "")
         parsed = nmap_parser.parse_xml(xml_out) if xml_out else {}
 
+        # Check if nmap actually found the host as "up".  When the device
+        # is disconnected nmap either reports no hosts or reports the host
+        # with status "down".  In both cases we should NOT upsert — the
+        # device is unreachable and should not appear in discovery results.
+        host_is_up = False
+        for h in parsed.get("hosts", []):
+            if h.get("ip") == data.ip_address and h.get("status") == "up":
+                host_is_up = True
+                break
+
+        if not host_is_up and not is_reachable:
+            # Neither pre-flight probe nor nmap confirmed the host is alive.
+            await log_action(db, user, "discovery.scan", "discovery", data.ip_address,
+                             {"devices_found": 0, "reason": "unreachable"}, request)
+            return {
+                "status": "complete",
+                "target": data.ip_address,
+                "devices_found": 0,
+                "devices": [],
+                "message": f"Device {data.ip_address} is unreachable. No device was found at this address.",
+            }
+
         open_ports = parsed.get("open_ports", [])
         os_fp = parsed.get("os_fingerprint")
         mac = parsed.get("mac_address")
