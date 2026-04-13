@@ -88,8 +88,7 @@ export default function LiveTerminal({ output, className = '' }: LiveTerminalPro
   return (
     <div
       ref={termRef}
-      className={`rounded-lg overflow-hidden border border-zinc-700/50 ${className}`}
-      style={{ minHeight: 200 }}
+      className={`rounded-lg overflow-hidden border border-zinc-700/50 min-h-[200px] ${className}`}
     />
   )
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { useMutation } from '@tanstack/react-query'
 import { devicesApi, getApiErrorMessage } from '@/lib/api'
 import { Route, Loader2, AlertTriangle, Server, Globe, ArrowDown } from 'lucide-react'
@@ -160,9 +161,10 @@ export default function NetworkPath({ deviceId, deviceIp }: { deviceId: string; 
                       {/* Latency bar */}
                       <div className="flex items-center gap-2 mt-1">
                         <div className="flex-1 h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden max-w-[200px]">
-                          <div
+                          <motion.div
                             className={`h-full rounded-full transition-all ${getHopBarColor(hop.rtt_ms)}`}
-                            style={{ width: `${getHopBarWidth(hop.rtt_ms, maxRtt)}%` }}
+                            animate={{ width: `${getHopBarWidth(hop.rtt_ms, maxRtt)}%` }}
+                            transition={{ type: 'tween', duration: 0.2 }}
                           />
                         </div>
                         <span className={`text-xs font-medium tabular-nums ${getHopLatencyColor(hop.rtt_ms)}`}>

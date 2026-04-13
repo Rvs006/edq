@@ -34,6 +34,7 @@ interface TestDetailProps {
   result: TestResultDetail
   liveOutput: string
   isRunning: boolean
+  runStatus?: string | null
   userRole: string
   onSubmitManual: (resultId: string, verdict: string, notes: string) => Promise<void>
   onOverride: (resultId: string, verdict: string, reason: string) => Promise<void>
@@ -46,6 +47,7 @@ export default function TestDetail({
   result,
   liveOutput,
   isRunning,
+  runStatus,
   userRole,
   onSubmitManual,
   onOverride,
@@ -64,8 +66,16 @@ export default function TestDetail({
 
   const canOverride = userRole === 'admin' || userRole === 'reviewer'
   const isManual = result.tier === 'guided_manual'
+  const isPendingManual = !result.verdict || result.verdict === 'pending'
+  const manualUnlocked = isManual && (!isPendingManual || runStatus === 'awaiting_manual')
   const termOutput = liveOutput || result.raw_output || ''
   const structuredOutput = result.findings || result.parsed_data
+  const manualLockedMessage =
+    runStatus === 'paused_cable'
+      ? 'Manual assessment stays locked until the device is reachable and automatic checks can run.'
+      : runStatus === 'paused_manual'
+        ? 'This session is paused. Resume it to continue toward the manual checks.'
+        : 'Manual assessment unlocks after the automatic checks finish.'
 
   const tierLabel =
     result.tier === 'automatic' ? 'Automatic' : result.tier === 'guided_manual' ? 'Manual' : 'Auto N/A'
@@ -190,24 +200,32 @@ export default function TestDetail({
               <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                 Manual Assessment
               </h3>
-              {manualProgress && (
+              {manualUnlocked && manualProgress && (
                 <span className="ml-auto text-[10px] font-mono text-amber-600 dark:text-amber-400">
                   {manualProgress.current}/{manualProgress.total} remaining
                 </span>
               )}
             </div>
-            <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-              Pick the verdict that best matches what you observed. Use <strong>Advisory</strong> when it works but still needs attention, and <strong>N/A</strong> only when the test genuinely does not apply to this device.
-            </div>
-            <ManualTestForm
-              testId={result.id}
-              testNumber={result.test_id}
-              testName={result.test_name}
-              currentVerdict={result.verdict}
-              currentNotes={result.engineer_notes}
-              onSubmit={(verdict, notes) => onSubmitManual(result.id, verdict, notes)}
-              isSubmitting={isSubmitting}
-            />
+            {manualUnlocked ? (
+              <>
+                <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                  Pick the verdict that best matches what you observed. Use <strong>Advisory</strong> when it works but still needs attention, and <strong>N/A</strong> only when the test genuinely does not apply to this device.
+                </div>
+                <ManualTestForm
+                  testId={result.id}
+                  testNumber={result.test_id}
+                  testName={result.test_name}
+                  currentVerdict={result.verdict}
+                  currentNotes={result.engineer_notes}
+                  onSubmit={(verdict, notes) => onSubmitManual(result.id, verdict, notes)}
+                  isSubmitting={isSubmitting}
+                />
+              </>
+            ) : (
+              <div className="rounded-lg border border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-900/40 px-3 py-2 text-xs text-zinc-600 dark:text-slate-300">
+                {manualLockedMessage}
+              </div>
+            )}
           </div>
         )}
 
@@ -248,6 +266,8 @@ export default function TestDetail({
             {overrideOpen && (
               <div className="mt-3 p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800 space-y-3">
                 <select
+                  aria-label="Select override verdict"
+                  title="Select override verdict"
                   value={overrideVerdict}
                   onChange={(e) => setOverrideVerdict(e.target.value)}
                   className="input text-sm"

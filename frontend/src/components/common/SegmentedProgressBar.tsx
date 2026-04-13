@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion'
+
 interface SegmentedProgressBarProps {
   total: number
   segments: {
@@ -32,10 +34,11 @@ export default function SegmentedProgressBar({ total, segments, className = '' }
       <div className="flex h-2.5 rounded-full overflow-hidden bg-zinc-100 gap-px">
         {segmentConfig.map(seg =>
           seg.count > 0 ? (
-            <div
+            <motion.div
               key={seg.key}
               className={`${seg.color} transition-all duration-500 ease-out first:rounded-l-full last:rounded-r-full`}
-              style={{ width: pct(seg.count) }}
+              animate={{ width: pct(seg.count) }}
+              transition={{ type: 'tween', duration: 0.2 }}
               title={`${seg.label}: ${seg.count}`}
             />
           ) : null

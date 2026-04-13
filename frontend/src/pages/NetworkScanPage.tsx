@@ -702,7 +702,7 @@ function ScanAnimation({ cidr }: { cidr: string }) {
       <div className="relative w-28 h-28 mb-6">
         {/* Outer pulsing rings */}
         <div className="absolute inset-0 rounded-full border-2 border-blue-200 dark:border-blue-900 animate-ping opacity-20" />
-        <div className="absolute inset-2 rounded-full border-2 border-blue-200 dark:border-blue-900 animate-ping opacity-20" style={{ animationDelay: '0.5s' }} />
+        <div className="absolute inset-2 rounded-full border-2 border-blue-200 dark:border-blue-900 animate-ping opacity-20 [animation-delay:0.5s]" />
         {/* Static ring */}
         <div className="absolute inset-0 rounded-full border-4 border-blue-200 dark:border-blue-900" />
         {/* Spinning arc */}
@@ -1007,9 +1007,10 @@ function MonitorStep({ results, scanStatus, navigate, onNewScan, selectedTests }
           <span className="text-sm font-medium text-brand-500">{overallPct}%</span>
         </div>
         <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2">
-          <div
+          <motion.div
             className={`h-2 rounded-full transition-all duration-500 ${isError ? 'bg-red-500' : 'bg-brand-500'}`}
-            style={{ width: `${overallPct}%` }}
+            animate={{ width: `${overallPct}%` }}
+            transition={{ type: 'tween', duration: 0.2 }}
           />
         </div>
       </div>
@@ -1144,9 +1145,10 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
         </div>
         {subtitle && <p className="text-xs text-zinc-500 mb-2 ml-6">{subtitle}</p>}
         <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-1.5 mb-2">
-          <div
+          <motion.div
             className={`h-1.5 rounded-full transition-all duration-500 ${isError ? 'bg-red-400' : isComplete ? 'bg-emerald-400' : 'bg-brand-500'}`}
-            style={{ width: `${pct}%` }}
+            animate={{ width: `${pct}%` }}
+            transition={{ type: 'tween', duration: 0.2 }}
           />
         </div>
         <div className="flex items-center gap-3 text-[11px] text-zinc-500">
