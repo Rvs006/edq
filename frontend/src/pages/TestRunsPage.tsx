@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { testRunsApi, devicesApi, templatesApi, getApiErrorMessage } from '@/lib/api'
 import type { TestRun, Device, TestTemplate } from '@/lib/types'
+import { normalizeTemplateName } from '@/lib/templateNames'
 import {
   Play, Plus, Loader2, X, Activity, RotateCcw, AlertTriangle,
   Clock, Pause, Eye, CheckCircle2, XCircle, Ban,
@@ -276,7 +277,7 @@ export default function TestRunsPage() {
                         </Link>
                       </td>
                       <td className="py-3 px-4 text-xs text-zinc-500 hidden md:table-cell">
-                        {run.template_name || '—'}
+                            {normalizeTemplateName(run.template_name) || '—'}
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-1.5">
@@ -449,7 +450,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
               <option value="">Select a template...</option>
               {templates?.map((t: TestTemplate) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} ({t.test_ids?.length || 0} tests){t.is_default ? ' — Recommended' : ''}
+                        {normalizeTemplateName(t.name) || 'Unnamed template'} ({t.test_ids?.length || 0} tests){t.is_default ? ' — Recommended' : ''}
                 </option>
               ))}
             </select>

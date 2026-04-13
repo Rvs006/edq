@@ -498,12 +498,6 @@ async def start_test_run(
     if not await _device_is_reachable(device):
         run.status = TestRunStatus.PAUSED_CABLE
         await db.flush()
-        task = launch_test_run(run_id)
-        if task is None:
-            raise HTTPException(
-                status_code=409,
-                detail="Test run was already started by another process",
-            )
         return {
             "status": TestRunStatus.PAUSED_CABLE.value,
             "message": "Device is not reachable. Tests are paused until the cable or device is reconnected.",

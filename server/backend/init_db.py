@@ -346,10 +346,18 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
     all_test_ids = [t["test_id"] for t in UNIVERSAL_TESTS]
     essential_ids = [t["test_id"] for t in UNIVERSAL_TESTS if t.get("is_essential")]
 
-    full_tmpl = db.query(TestTemplate).filter(TestTemplate.name == "Full Security Assessment").first()
+    full_templates = db.query(TestTemplate).filter(
+        TestTemplate.name.in_(["Full Security Assessment", "Universal (Smart Profiling)"])
+    ).order_by(TestTemplate.created_at.asc()).all()
+    full_tmpl = full_templates[0] if full_templates else None
+    for duplicate in full_templates[1:]:
+        db.delete(duplicate)
+
     if full_tmpl:
+        full_tmpl.name = "Full Security Assessment"
         full_tmpl.test_ids = all_test_ids
         full_tmpl.description = f"Complete {len(all_test_ids)}-test qualification suite covering all security domains"
+        full_tmpl.is_default = True
     else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
@@ -415,14 +423,17 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
     print("Seeded 'EasyIO Controller Assessment' template")
 
     # Extended Qualification template — matches Electracom Excel qualification template
-    ext_template = db.query(TestTemplate).filter(TestTemplate.name == "Extended Qualification (Dylan Template)").first()
+    ext_template = db.query(TestTemplate).filter(
+        TestTemplate.name.in_(["Extended Qualification (Dylan Template)", "Extended Qualification"])
+    ).first()
     if ext_template:
+        ext_template.name = "Extended Qualification"
         ext_template.test_ids = all_test_ids
         ext_template.description = f"Full {len(all_test_ids)}-test qualification matching the Electracom Excel template including Wi-Fi, PoE, MQTT detailed, and SOAK tests."
     else:
         ext_template = TestTemplate(
             id=str(uuid.uuid4()),
-            name="Extended Qualification (Dylan Template)",
+            name="Extended Qualification",
             description=f"Full {len(all_test_ids)}-test qualification matching the Electracom Excel template including Wi-Fi, PoE, MQTT detailed, and SOAK tests.",
             test_ids=all_test_ids,
             whitelist_id=whitelist.id,
@@ -431,7 +442,7 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
             created_by=admin.id,
         )
         db.add(ext_template)
-    print(f"Seeded 'Extended Qualification (Dylan Template)' template with {len(all_test_ids)} tests")
+    print(f"Seeded 'Extended Qualification' template with {len(all_test_ids)} tests")
 
     db.flush()
 

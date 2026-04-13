@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { templatesApi } from '@/lib/api'
 import type { TestTemplate, TestLibraryItem } from '@/lib/types'
+import { normalizeTemplateName } from '@/lib/templateNames'
 import { FileText, Plus, Pencil, Trash2, Loader2, X, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAuth } from '@/contexts/AuthContext'
@@ -125,7 +126,7 @@ export default function TemplatesPage() {
               <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
                 {templates.map((t: TestTemplate) => (
                   <tr key={t.id} className="hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
-                    <td className="py-3 px-4 font-medium text-zinc-900 dark:text-slate-100">{t.name}</td>
+                    <td className="py-3 px-4 font-medium text-zinc-900 dark:text-slate-100">{normalizeTemplateName(t.name) || t.name}</td>
                     <td className="py-3 px-4 text-zinc-500 dark:text-slate-400 text-xs hidden sm:table-cell">{t.description || '\u2014'}</td>
                     <td className="py-3 px-4">
                       <span className="badge text-[10px] bg-zinc-100 text-zinc-600">{t.test_ids?.length || 0} tests</span>
@@ -138,10 +139,10 @@ export default function TemplatesPage() {
                       <div className="flex items-center gap-1">
                         {canManageTemplates && (
                           <>
-                            <button type="button" onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit" aria-label={`Edit ${t.name}`}>
+                        <button type="button" onClick={() => setEditingTemplate(t)} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-slate-800" title="Edit" aria-label={`Edit ${normalizeTemplateName(t.name) || t.name}`}>
                               <Pencil className="w-3.5 h-3.5 text-zinc-500" />
                             </button>
-                            <button type="button" onClick={() => setDeleteTarget({ id: t.id, name: t.name })} className="p-1.5 rounded hover:bg-red-50" title="Delete" aria-label={`Delete ${t.name}`}>
+                        <button type="button" onClick={() => setDeleteTarget({ id: t.id, name: normalizeTemplateName(t.name) || t.name })} className="p-1.5 rounded hover:bg-red-50" title="Delete" aria-label={`Delete ${normalizeTemplateName(t.name) || t.name}`}>
                               <Trash2 className="w-3.5 h-3.5 text-red-500" />
                             </button>
                           </>

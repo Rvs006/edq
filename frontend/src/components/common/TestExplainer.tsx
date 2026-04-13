@@ -272,9 +272,13 @@ const TEST_EXPLAINERS: Record<string, { what: string; why: string; pass: string;
   },
 }
 
+export function getTestExplainer(testNumber: string) {
+  return TEST_EXPLAINERS[testNumber]
+}
+
 export default function TestExplainer({ testNumber, testName, description, passCriteria, toolUsed, tier, className = '' }: TestExplainerProps) {
   const [expanded, setExpanded] = useState(false)
-  const explainer = TEST_EXPLAINERS[testNumber]
+  const explainer = getTestExplainer(testNumber)
 
   const what = description || explainer?.what
   const pass = passCriteria || explainer?.pass

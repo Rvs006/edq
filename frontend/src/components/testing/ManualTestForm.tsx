@@ -15,8 +15,14 @@ const verdictOptions = [
   { value: 'pass', label: 'PASS', icon: CheckCircle2, color: 'bg-green-500 hover:bg-green-600 text-white', activeRing: 'ring-green-500/30' },
   { value: 'fail', label: 'FAIL', icon: XCircle, color: 'bg-red-500 hover:bg-red-600 text-white', activeRing: 'ring-red-500/30' },
   { value: 'advisory', label: 'ADVISORY', icon: AlertTriangle, color: 'bg-amber-500 hover:bg-amber-600 text-white', activeRing: 'ring-amber-500/30' },
-  { value: 'n/a', label: 'N/A', icon: MinusCircle, color: 'bg-zinc-400 hover:bg-zinc-500 text-white', activeRing: 'ring-zinc-400/30' },
+  { value: 'na', label: 'N/A', icon: MinusCircle, color: 'bg-zinc-400 hover:bg-zinc-500 text-white', activeRing: 'ring-zinc-400/30' },
 ]
+
+function normalizeVerdict(verdict: string | null | undefined): string | null {
+  if (!verdict) return null
+  const normalized = verdict.toLowerCase()
+  return normalized === 'n/a' ? 'na' : normalized
+}
 
 export default function ManualTestForm({
   testId,
@@ -28,14 +34,14 @@ export default function ManualTestForm({
   isSubmitting,
 }: ManualTestFormProps) {
   const [selectedVerdict, setSelectedVerdict] = useState<string | null>(
-    currentVerdict && currentVerdict !== 'pending' ? currentVerdict.toLowerCase() : null
+    currentVerdict && currentVerdict !== 'pending' ? normalizeVerdict(currentVerdict) : null
   )
   const [notes, setNotes] = useState(currentNotes || '')
   const [submitted, setSubmitted] = useState(false)
 
   useEffect(() => {
     setSelectedVerdict(
-      currentVerdict && currentVerdict !== 'pending' ? currentVerdict.toLowerCase() : null
+      currentVerdict && currentVerdict !== 'pending' ? normalizeVerdict(currentVerdict) : null
     )
   }, [currentVerdict])
 
@@ -51,7 +57,7 @@ export default function ManualTestForm({
   }
 
   const hasChanges =
-    selectedVerdict !== (currentVerdict?.toLowerCase() || null) ||
+    selectedVerdict !== (normalizeVerdict(currentVerdict) || null) ||
     notes !== (currentNotes || '')
 
   return (
