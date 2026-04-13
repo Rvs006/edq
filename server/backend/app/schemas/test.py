@@ -70,6 +70,28 @@ class TestRunUpdate(BaseModel):
     synopsis_status: Optional[str] = None
 
 
+class ReadinessSummaryResponse(BaseModel):
+    score: int = Field(..., ge=1, le=10)
+    level: str
+    label: str
+    report_ready: bool
+    operational_ready: bool
+    blocking_issue_count: int
+    pending_manual_count: int
+    release_blocking_failure_count: int
+    review_required_issue_count: int
+    manual_evidence_pending_count: int
+    advisory_count: int
+    override_count: int
+    failed_test_count: int
+    completed_result_count: int
+    total_result_count: int
+    trust_tier_counts: dict[str, int]
+    reasons: List[str]
+    next_step: str
+    summary: str
+
+
 class TestRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,6 +124,7 @@ class TestRunResponse(BaseModel):
     completed_at: Optional[datetime] = None
     run_metadata: Optional[Any] = None
     confidence: int = 1
+    readiness_summary: Optional[ReadinessSummaryResponse] = None
     created_at: datetime
     updated_at: datetime
 

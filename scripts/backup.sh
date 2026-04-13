@@ -12,7 +12,14 @@ echo "[EDQ Backup] Starting backup at $TIMESTAMP"
 DB_URL=$(docker compose exec -T backend python -c "from app.config import settings; print(settings.DATABASE_URL)" | tr -d '\r')
 
 if [[ "$DB_URL" == postgresql* ]]; then
-  docker compose exec -T postgres sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$BACKUP_DIR/edq_${TIMESTAMP}.sql"
+  docker compose exec -T postgres sh -lc '
+    tmpfile=$(mktemp)
+    trap "rm -f \"$tmpfile\"" EXIT
+    printf "%s:%s:%s:%s:%s\n" localhost 5432 "$POSTGRES_DB" "$POSTGRES_USER" "$POSTGRES_PASSWORD" > "$tmpfile"
+    chmod 600 "$tmpfile"
+    export PGPASSFILE="$tmpfile"
+    pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+  ' > "$BACKUP_DIR/edq_${TIMESTAMP}.sql"
   echo "[EDQ Backup] PostgreSQL dump saved: $BACKUP_DIR/edq_${TIMESTAMP}.sql"
 else
   # Backup SQLite database using SQLite's online backup API for a consistent snapshot

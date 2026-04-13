@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from tests.helpers import BASE_URL, ADMIN_USER, ADMIN_PASS
+from live_helpers import BASE_URL, ADMIN_USER, ADMIN_PASS
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.security]
 

@@ -27,6 +27,27 @@ vi.mock('@/lib/api', () => ({
         started_at: '2026-01-01T10:00:00Z',
         completed_at: '2026-01-01T10:05:00Z',
         created_at: '2026-01-01T10:00:00Z',
+        readiness_summary: {
+          score: 9,
+          level: 'conditional',
+          label: 'Operational with advisories',
+          report_ready: true,
+          operational_ready: false,
+          blocking_issue_count: 0,
+          pending_manual_count: 0,
+          release_blocking_failure_count: 0,
+          review_required_issue_count: 0,
+          manual_evidence_pending_count: 0,
+          advisory_count: 1,
+          override_count: 0,
+          failed_test_count: 0,
+          completed_result_count: 12,
+          total_result_count: 12,
+          trust_tier_counts: { release_blocking: 4, review_required: 2, advisory: 3, manual_evidence: 3 },
+          reasons: ['1 advisory finding should be called out in the report.'],
+          next_step: 'Issue the report with the advisory notes and follow-up actions captured.',
+          summary: 'Operational with advisories (9/10). 1 advisory finding should be called out in the report.',
+        },
         device: { ip_address: '192.168.1.100', hostname: 'cam-lobby' },
         template: { name: 'Full Security Scan' },
       },
@@ -79,6 +100,16 @@ describe('TestRunDetailPage', () => {
     })
 
     expect(screen.queryByText(/left$/i)).not.toBeInTheDocument()
+  })
+
+  it('shows readiness summary when available', async () => {
+    renderWithProviders(<TestRunDetailPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Readiness: Operational with advisories \(9\/10\)/i)).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/Official report: ready/i)).toBeInTheDocument()
   })
 
   it('shows loading state initially', () => {

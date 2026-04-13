@@ -11,7 +11,7 @@ try:
 except ImportError:
     websockets = None  # type: ignore[assignment]
 
-from tests.helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login
+from live_helpers import BASE_URL, ADMIN_USER, ADMIN_PASS, _login
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.websocket, pytest.mark.timeout(10)]
 

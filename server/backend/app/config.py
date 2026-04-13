@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
     LOGIN_RATE_LIMIT_PER_MINUTE: int = 15
     REDIS_URL: str = ""
+    REDIS_REQUIRED: bool = False
     ACCOUNT_LOCKOUT_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15
 

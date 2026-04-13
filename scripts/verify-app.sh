@@ -116,7 +116,62 @@ check "Static assets (JS)" bash -c "curl -sf '$BASE_URL/' | python3 -c \"import 
 
 echo ""
 echo "--- WebSocket ---"
-skip "WebSocket upgrade" "Requires wscat for full test"
+check "WebSocket upgrade" bash -c "
+python3 - <<'PY'
+import json
+import os
+import sys
+import urllib.request
+
+import websockets.sync.client
+
+base_url = os.environ.get('EDQ_URL') or '${BASE_URL}'
+api_url = f\"{base_url.rstrip('/')}/api\"
+admin_user = os.environ['EDQ_LOGIN_USER']
+admin_pass = os.environ['EDQ_LOGIN_PASS']
+
+login_request = urllib.request.Request(
+    f\"{api_url}/auth/login\",
+    data=json.dumps({\"username\": admin_user, \"password\": admin_pass}).encode(),
+    headers={\"Content-Type\": \"application/json\"},
+    method=\"POST\",
+)
+with urllib.request.urlopen(login_request, timeout=10) as resp:
+    payload = json.loads(resp.read().decode())
+    cookies = resp.headers.get_all('Set-Cookie') or []
+    if not payload.get('csrf_token'):
+        raise SystemExit('missing csrf token')
+
+session_cookie = None
+for header in cookies:
+    for part in header.split(';'):
+        part = part.strip()
+        if part.startswith('edq_session='):
+            session_cookie = part
+            break
+    if session_cookie:
+        break
+if not session_cookie:
+    raise SystemExit('missing edq_session cookie')
+
+with urllib.request.urlopen(f\"{api_url}/test-runs/\", timeout=10) as resp:
+    runs = json.loads(resp.read().decode())
+if not runs:
+    raise SystemExit('no test runs available')
+run_id = runs[0]['id']
+
+ws_url = base_url.rstrip('/').replace('http://', 'ws://').replace('https://', 'wss://') + f'/api/ws/test-run/{run_id}'
+with websockets.sync.client.connect(
+    ws_url,
+    additional_headers={
+        'Origin': base_url.rstrip('/'),
+        'Cookie': session_cookie,
+    },
+    open_timeout=10,
+) as ws:
+    print(f'connected to run {run_id}')
+PY
+"
 
 echo ""
 echo "====================================="

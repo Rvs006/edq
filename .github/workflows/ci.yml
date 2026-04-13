@@ -6,12 +6,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions: read-all
+
 jobs:
   audit-report:
     runs-on: ubuntu-latest
+    permissions: read-all
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.13"
       - name: Generate audit report
@@ -26,7 +29,7 @@ jobs:
           python scripts/audit/emit_job_summary.py --report reports/audit/ci/audit-report.json >> "$GITHUB_STEP_SUMMARY"
       - name: Upload audit artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: audit-report
           path: |
@@ -36,9 +39,10 @@ jobs:
   backend-verify:
     runs-on: ubuntu-latest
     needs: audit-report
+    permissions: read-all
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - uses: actions/setup-python@a309ff8d65b6e75b540449e92b4886f43607fa02
         with:
           python-version: "3.13"
       - run: |
@@ -49,12 +53,13 @@ jobs:
   frontend-verify:
     runs-on: ubuntu-latest
     needs: audit-report
+    permissions: read-all
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - uses: pnpm/action-setup@a8198c4bff370c8506180b035930dea56dbd5288
         with:
           version: 10
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version: 24
           cache: pnpm
@@ -62,14 +67,15 @@ jobs:
       - run: |
           cd frontend
           pnpm install --frozen-lockfile
-          pnpm exec tsc --noEmit
+          pnpm exec tsc -p tsconfig.json --noEmit
           pnpm exec vitest run src/test/LoginPage.test.tsx src/__tests__/AppRoutes.test.tsx src/__tests__/DeviceDetailPage.test.tsx
 
   docker-build:
     runs-on: ubuntu-latest
     needs: [audit-report, backend-verify, frontend-verify]
+    permissions: read-all
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       - run: docker compose build
         env:
           INITIAL_ADMIN_PASSWORD: ci-test-admin-password

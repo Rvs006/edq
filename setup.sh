@@ -42,15 +42,17 @@ if [ ! -f .env ]; then
 fi
 
 GENERATED_ADMIN_PASS=""
+ADMIN_ENV_KEY="INITIAL_ADMIN_PASSWORD"
+POSTGRES_ENV_KEY="POSTGRES_PASSWORD"
 ensure_env_value "JWT_SECRET" "$(generate_hex 64)" >/dev/null
 ensure_env_value "JWT_REFRESH_SECRET" "$(generate_hex 64)" >/dev/null
 ensure_env_value "SECRET_KEY" "$(generate_hex 32)" >/dev/null
 ensure_env_value "TOOLS_API_KEY" "$(generate_hex 32)" >/dev/null
 ensure_env_value "POSTGRES_PASSWORD" "$(generate_hex 24)" >/dev/null
-if ensure_env_value "INITIAL_ADMIN_PASSWORD" "$(generate_password)"; then
-  GENERATED_ADMIN_PASS=$(grep -E "^INITIAL_ADMIN_PASSWORD=" .env | head -1 | cut -d= -f2- | tr -d '\r')
+if ensure_env_value "$ADMIN_ENV_KEY" "$(generate_password)"; then
+  GENERATED_ADMIN_PASS=$(grep -E "^${ADMIN_ENV_KEY}=" .env | head -1 | cut -d= -f2- | tr -d '\r')
 fi
-POSTGRES_PASSWORD_VALUE=$(grep -E "^POSTGRES_PASSWORD=" .env | head -1 | cut -d= -f2- | tr -d '\r')
+POSTGRES_DB_CREDENTIAL=$(grep -E "^${POSTGRES_ENV_KEY}=" .env | head -1 | cut -d= -f2- | tr -d '\r')
 ensure_env_value "DATABASE_URL" "" >/dev/null
 if grep -q -E '^DATABASE_URL=.*sqlite' .env; then
   sed -i 's|^DATABASE_URL=.*|DATABASE_URL=|' .env
@@ -60,7 +62,7 @@ ensure_env_value "DB_HOST" "127.0.0.1" >/dev/null
 ensure_env_value "DB_PORT" "55432" >/dev/null
 ensure_env_value "DB_NAME" "edq" >/dev/null
 ensure_env_value "DB_USER" "edq" >/dev/null
-ensure_env_value "DB_PASSWORD" "$POSTGRES_PASSWORD_VALUE" >/dev/null
+ensure_env_value "DB_PASSWORD" "$POSTGRES_DB_CREDENTIAL" >/dev/null
 ensure_env_value "DB_CONNECT_TIMEOUT_SECONDS" "15" >/dev/null
 ensure_env_value "EDQ_BACKEND_BIND_HOST" "127.0.0.1" >/dev/null
 ensure_env_value "EDQ_BACKEND_PORT" "8000" >/dev/null

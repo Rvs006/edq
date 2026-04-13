@@ -2,7 +2,7 @@ import requests
 
 BASE_URL = "http://localhost:8000/api/v1"
 ADMIN_USERNAME = "admin@example.com"
-ADMIN_PASSWORD = "AdminPass123!"  # Updated to meet password policy
+ADMIN_CREDENTIAL = "test-admin-password"
 TIMEOUT = 30
 
 
@@ -11,7 +11,7 @@ def test_administration_and_audit_logging():
     try:
         # Step 1: Login as admin to get session cookies and CSRF token
         login_url = f"{BASE_URL}/auth/login"
-        login_payload = {"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
+        login_payload = {"username": ADMIN_USERNAME, "password": ADMIN_CREDENTIAL}
         login_resp = session.post(login_url, json=login_payload, timeout=TIMEOUT)
         assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
 
@@ -34,7 +34,7 @@ def test_administration_and_audit_logging():
         create_user_url = f"{BASE_URL}/admin/users"
         new_user_payload = {
             "username": "test_admin_user",
-            "password": "SecurePass123!",
+            "password": "test-user-password",
             "roles": ["admin"]
         }
         create_resp = session.post(create_user_url, json=new_user_payload, headers=csrf_header, timeout=TIMEOUT)

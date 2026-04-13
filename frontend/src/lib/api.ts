@@ -1,4 +1,4 @@
-import axios, { type AxiosResponse } from 'axios'
+import axios, { type AxiosResponse } from 'edq-http'
 import type {
   Device, TestRun, TestResult, TestTemplate, TestLibraryItem,
   TestPlan, Whitelist, AuditLogEntry, PaginatedResponse, UserProfile,

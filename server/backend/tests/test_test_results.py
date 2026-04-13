@@ -1,5 +1,6 @@
 """Regression tests for test-result authorization and reviewer overrides."""
 
+import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -137,3 +138,60 @@ async def test_reviewer_can_override_and_engineer_cannot(
     assert body["is_overridden"] is True
     assert body["override_reason"] == "Manual verification failed"
     assert body["overridden_by_username"]
+
+
+@pytest.mark.asyncio
+async def test_manual_result_update_moves_run_to_completed_when_all_manual_items_done(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    suffix = f"manualDone{uuid.uuid4().hex[:6]}"
+    headers = await register_and_login(client, suffix=suffix)
+    engineer_id = await _get_user_id(db_session, f"{suffix}user")
+    device_id = await _create_device(db_session)
+    template = TemplateModel(name=f"{suffix}-template", test_ids=["U20"], version="1.0")
+    db_session.add(template)
+    await db_session.flush()
+    await db_session.refresh(template)
+
+    run = RunModel(
+        device_id=device_id,
+        template_id=template.id,
+        engineer_id=engineer_id,
+        connection_scenario="direct",
+        total_tests=1,
+        completed_tests=0,
+        status=RunStatus.AWAITING_MANUAL,
+    )
+    db_session.add(run)
+    await db_session.flush()
+    await db_session.refresh(run)
+
+    result = ResultModel(
+        test_run_id=run.id,
+        test_id="U20",
+        test_name="Network Disconnection Behaviour",
+        tier=ResultTier.GUIDED_MANUAL,
+        tool=None,
+        verdict=ResultVerdict.PENDING,
+        is_essential="no",
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(result)
+    await db_session.commit()
+
+    update_resp = await client.patch(
+        f"/api/test-results/{result.id}",
+        json={"verdict": "pass", "engineer_notes": "Recovered after reconnect."},
+        headers=headers,
+    )
+    assert update_resp.status_code == 200, update_resp.text
+
+    run_id = run.id
+    complete_resp = await client.post(f"/api/test-runs/{run_id}/complete", headers=headers)
+    assert complete_resp.status_code == 200, complete_resp.text
+    body = complete_resp.json()
+    assert body["status"] == "completed"
+    assert body["overall_verdict"] == "pass"
+    assert body["completed_tests"] == 1
+    assert body["progress_pct"] == 100.0

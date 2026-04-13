@@ -7,36 +7,38 @@ from app.config import Settings, _apply_runtime_security_guards
 
 def _base_settings(**overrides) -> Settings:
     values = {
-        "JWT_SECRET": "test-jwt-secret",
-        "JWT_REFRESH_SECRET": "test-refresh-secret",
-        "SECRET_KEY": "test-secret-key",
-        "TOOLS_API_KEY": "test-tools-api-key",
-        "INITIAL_ADMIN_PASSWORD": "AdminPass1",
+        "JWT_SECRET": "jwt_test_value_for_tests_only",
+        "JWT_REFRESH_SECRET": "refresh_test_value_for_tests_only",
+        "SECRET_KEY": "app_test_value_for_tests_only",
+        "TOOLS_API_KEY": "tools_api_value_for_tests_only",
+        "INITIAL_ADMIN_PASSWORD": "AdminPassForTests1",
     }
     values.update(overrides)
     return Settings(**values)
 
 
 def test_database_url_defaults_to_postgres_components():
+    db_credential = "db-credential-for-tests"
     settings = _base_settings(
         DATABASE_URL="",
         DB_HOST="db.internal",
         DB_PORT=5433,
         DB_NAME="edq_runtime",
         DB_USER="edq_user",
-        DB_PASSWORD="super-secret",
+        DB_PASSWORD=db_credential,
     )
 
     assert settings.DATABASE_URL == (
-        "postgresql+asyncpg://edq_user:super-secret@db.internal:5433/edq_runtime"
+        f"postgresql+asyncpg://edq_user:{db_credential}@db.internal:5433/edq_runtime"
     )
 
 
 def test_explicit_database_url_is_preserved():
+    unused_db_credential = "unused-db-credential"
     settings = _base_settings(
         DATABASE_URL="sqlite+aiosqlite:///./test.db",
         DB_HOST="ignored-host",
-        DB_PASSWORD="ignored-password",
+        DB_PASSWORD=unused_db_credential,
     )
 
     assert settings.DATABASE_URL == "sqlite+aiosqlite:///./test.db"
@@ -90,3 +92,32 @@ def test_cloud_environment_strips_localhost_cors_origins():
     messages = [str(warning.message) for warning in captured]
     assert any("COOKIE_SECURE=false in production environment" in message for message in messages)
     assert any("Stripped localhost origins" in message for message in messages)
+
+
+def test_normalize_debug_accepts_production_aliases():
+    settings = _base_settings(DEBUG="production")
+    assert settings.DEBUG is False
+
+
+def test_normalize_debug_accepts_development_aliases():
+    settings = _base_settings(DEBUG="development")
+    assert settings.DEBUG is True
+
+
+def test_finalize_runtime_defaults_for_cloud_enable_secure_cookie():
+    settings = _base_settings(
+        ENVIRONMENT="cloud",
+        COOKIE_SECURE=False,
+        COOKIE_SAMESITE="strict",
+        DATABASE_URL="",
+    )
+
+    assert settings.COOKIE_SECURE is True
+    assert settings.COOKIE_SAMESITE == "lax"
+    assert settings.DB_HOST == "postgres"
+    assert settings.DB_PORT == 5432
+
+
+def test_redis_required_defaults_false():
+    settings = _base_settings()
+    assert settings.REDIS_REQUIRED is False

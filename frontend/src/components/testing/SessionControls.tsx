@@ -8,6 +8,9 @@ interface SessionControlsProps {
   runStatus: string
   canSelfApprove: boolean
   isOwner: boolean
+  pendingManualCount: number
+  canGenerateReport?: boolean
+  reportBlockedReason?: string | null
   onStart: () => void
   onPause: () => void
   onResume: () => void
@@ -28,6 +31,9 @@ export default function SessionControls({
   runStatus,
   canSelfApprove,
   isOwner,
+  pendingManualCount,
+  canGenerateReport = true,
+  reportBlockedReason = null,
   onStart,
   onPause,
   onResume,
@@ -137,7 +143,12 @@ export default function SessionControls({
 
         <div className="flex items-center gap-2">
           {(isComplete || isAwaitingReview || isAwaitingManual) && (
-            <button onClick={onGenerateReport} className="btn-secondary text-sm">
+            <button
+              onClick={onGenerateReport}
+              disabled={pendingManualCount > 0 || !canGenerateReport}
+              className="btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title={pendingManualCount > 0 || !canGenerateReport ? (reportBlockedReason || 'Report is not ready yet') : 'Generate official report'}
+            >
               <FileBarChart className="w-4 h-4" />
               Generate Report
             </button>
@@ -145,12 +156,12 @@ export default function SessionControls({
 
           {(isComplete || isAwaitingReview) && canSelfApprove && (
             <>
-              <button onClick={onApprove} disabled={isActioning} className="btn-primary text-sm">
+              <button onClick={onApprove} disabled={isActioning || pendingManualCount > 0} className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed">
                 {isActioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                 {isAwaitingReview ? 'Approve' : 'Approve All'}
               </button>
               {!isAwaitingReview && (
-                <button onClick={onRequestReview} disabled={isActioning} className="btn-secondary text-sm" title="Submit for peer review">
+                <button onClick={onRequestReview} disabled={isActioning || pendingManualCount > 0} className="btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed" title="Submit for peer review">
                   <Send className="w-4 h-4" />
                   <span className="hidden sm:inline">Request Review</span>
                 </button>

@@ -28,6 +28,10 @@ from app.security.auth import get_current_active_user
 from app.services.discovery_service import build_device_display_name
 from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
 from app.services.device_ip_discovery import discover_ip_for_mac
+from app.services.run_readiness import (
+    build_run_readiness_summary,
+    merge_readiness_into_metadata,
+)
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, is_run_executing, launch_test_run
 from app.services.wobbly_cable import get_cable_handler
@@ -96,8 +100,9 @@ def _enrich_run_from_loaded(run: TestRun) -> dict:
         (engineer.full_name or engineer.username) if engineer else None
     )
 
-    # Confidence score (1-10)
-    data["confidence"] = _calc_confidence(run)
+    readiness_summary = build_run_readiness_summary(run)
+    data["confidence"] = readiness_summary["score"]
+    data["readiness_summary"] = readiness_summary
 
     return data
 
@@ -255,31 +260,7 @@ def _apply_summary_to_run(run: TestRun, summary: dict[str, int | bool]) -> None:
 
 def _calc_confidence(run: TestRun) -> int:
     """Calculate a 1-10 confidence score for a test run."""
-    total = run.total_tests or 0
-    completed = run.completed_tests or 0
-    passed = run.passed_tests or 0
-    failed = run.failed_tests or 0
-    advisory = run.advisory_tests or 0
-
-    if total == 0:
-        return 1
-
-    # Completion ratio (40% weight) — how many tests finished
-    completion = completed / total
-
-    # Pass rate of completed (30% weight)
-    pass_rate = passed / completed if completed > 0 else 0
-
-    # Low failure penalty (20% weight) — fewer failures = higher confidence
-    fail_rate = failed / total
-    low_fail = 1.0 - fail_rate
-
-    # Advisory moderation (10% weight) — advisories are partial concerns
-    advisory_rate = advisory / total
-    advisory_score = 1.0 - (advisory_rate * 0.5)
-
-    raw = (completion * 0.4) + (pass_rate * 0.3) + (low_fail * 0.2) + (advisory_score * 0.1)
-    return max(1, min(10, round(raw * 10)))
+    return build_run_readiness_summary(run)["score"]
 
 
 @router.get("/", response_model=List[TestRunResponse])
@@ -353,13 +334,15 @@ async def check_duplicate_runs(
 
     runs_info = []
     for r in existing:
+        readiness_summary = build_run_readiness_summary(r)
         runs_info.append({
             "id": r.id,
             "status": normalize_test_run_status(r.status),
             "overall_verdict": r.overall_verdict,
             "completed_tests": r.completed_tests,
             "total_tests": r.total_tests,
-            "confidence": _calc_confidence(r),
+            "confidence": readiness_summary["score"],
+            "readiness_summary": readiness_summary,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         })
@@ -383,7 +366,12 @@ async def create_test_run(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    template_result = await db.execute(select(TestTemplate).where(TestTemplate.id == data.template_id))
+    template_result = await db.execute(
+        select(TestTemplate).where(
+            TestTemplate.id == data.template_id,
+            TestTemplate.is_active == True,
+        )
+    )
     template = template_result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -706,9 +694,16 @@ async def complete_test_run(
     run.status = TestRunStatus.COMPLETED
     run.completed_at = utcnow_naive()
     run.overall_verdict = _overall_verdict_from_summary(summary)
+    results = await db.execute(
+        select(TestResult).where(TestResult.test_run_id == run_id).order_by(TestResult.test_id)
+    )
+    all_results = list(results.scalars().all())
+    run.run_metadata = merge_readiness_into_metadata(
+        run.run_metadata,
+        build_run_readiness_summary(run, all_results),
+    )
 
-    await db.flush()
-    await db.refresh(run)
+    await db.commit()
     return await _enrich_run(run, db)
 
 
@@ -731,8 +726,15 @@ async def request_review_for_test_run(
     run.status = TestRunStatus.AWAITING_REVIEW
     run.completed_at = utcnow_naive()
     run.overall_verdict = _overall_verdict_from_summary(summary)
-    await db.flush()
-    await db.refresh(run)
+    results = await db.execute(
+        select(TestResult).where(TestResult.test_run_id == run_id).order_by(TestResult.test_id)
+    )
+    all_results = list(results.scalars().all())
+    run.run_metadata = merge_readiness_into_metadata(
+        run.run_metadata,
+        build_run_readiness_summary(run, all_results),
+    )
+    await db.commit()
     return await _enrich_run(run, db)
 
 

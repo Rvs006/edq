@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CheckCircle2, XCircle, AlertTriangle, MinusCircle, Loader2, ArrowRight } from 'lucide-react'
 
 interface ManualTestFormProps {
@@ -32,6 +32,16 @@ export default function ManualTestForm({
   )
   const [notes, setNotes] = useState(currentNotes || '')
   const [submitted, setSubmitted] = useState(false)
+
+  useEffect(() => {
+    setSelectedVerdict(
+      currentVerdict && currentVerdict !== 'pending' ? currentVerdict.toLowerCase() : null
+    )
+  }, [currentVerdict])
+
+  useEffect(() => {
+    setNotes(currentNotes || '')
+  }, [currentNotes])
 
   const handleSubmit = async () => {
     if (!selectedVerdict) return

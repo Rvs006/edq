@@ -2,6 +2,8 @@
 
 import asyncio
 import os
+import sys
+from pathlib import Path
 from typing import AsyncGenerator
 
 import pytest
@@ -23,9 +25,13 @@ os.environ["ALLOW_REGISTRATION"] = "true"
 os.environ["COOKIE_SECURE"] = "false"
 os.environ["DEBUG"] = "true"
 
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
 from app.models.database import Base, get_db
 from app.main import create_app
-from app.middleware.rate_limit import rate_limiter
+from app.middleware import rate_limit as rate_limit_module
 from app.models.user import User, UserRole
 from app.services.tools_client import tools_client
 
@@ -90,8 +96,9 @@ async def client(db_engine) -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides.clear()
     await tools_client.close()
-    # Clear rate limiter state between tests
-    rate_limiter._buckets.clear()
+    limiter = getattr(rate_limit_module, "rate_limiter", None)
+    if hasattr(limiter, "_buckets"):
+        limiter._buckets.clear()
 
 
 async def register_and_login(

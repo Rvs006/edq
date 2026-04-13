@@ -8,12 +8,14 @@ import logging
 import os
 import re
 import subprocess
+import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from app.config import settings
+from app.services.run_readiness import build_run_readiness_summary
 from app.utils.datetime import as_utc, utcnow_naive
 
 logger = logging.getLogger(__name__)
@@ -103,11 +105,21 @@ class ReportSection:
 
 
 @dataclass
+class ReportBranding:
+    company_name: str = ""
+    primary_color: str = ""
+    footer_text: str = ""
+    logo_path: str = ""
+
+
+@dataclass
 class ReportDocument:
     template_key: str
     template_path: Path
     mapping: dict[str, Any]
     metadata: dict[str, str]
+    branding: ReportBranding = field(default_factory=ReportBranding)
+    readiness_summary: dict[str, Any] = field(default_factory=dict)
     rows: list[ReportRow] = field(default_factory=list)
     additional_sections: list[ReportSection] = field(default_factory=list)
 
@@ -128,9 +140,56 @@ def _load_mapping(template_key: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
-def _format_date_range(test_run: Any) -> str:
+def _json_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _resolve_branding(report_config: Any = None, branding_settings: Any = None) -> ReportBranding:
+    config_branding = _json_dict(getattr(report_config, "branding", None))
+    company_name = (
+        _safe_attr(branding_settings, "company_name")
+        or _safe_attr(report_config, "client_name")
+        or str(config_branding.get("company_name") or "")
+        or settings.APP_NAME
+    )
+    primary_color = (
+        _safe_attr(branding_settings, "primary_color")
+        or str(config_branding.get("primary_color") or "")
+        or "#2563eb"
+    )
+    footer_text = (
+        _safe_attr(branding_settings, "footer_text")
+        or str(config_branding.get("footer_text") or "")
+    )
+    logo_path = (
+        _safe_attr(branding_settings, "logo_path")
+        or _safe_attr(report_config, "logo_path")
+        or str(config_branding.get("logo_path") or "")
+    )
+    return ReportBranding(
+        company_name=company_name,
+        primary_color=primary_color,
+        footer_text=footer_text,
+        logo_path=logo_path,
+    )
+
+
+def _report_window(test_run: Any) -> tuple[Any, Any]:
     start = getattr(test_run, "started_at", None) or getattr(test_run, "created_at", None)
     end = getattr(test_run, "completed_at", None) or utcnow_naive()
+    return start, end
+
+
+def _format_date_range(test_run: Any) -> str:
+    start, end = _report_window(test_run)
     return f"{start.strftime('%d/%m/%Y') if start else ''} - {end.strftime('%d/%m/%Y') if end else ''}".strip(" -")
 
 
@@ -151,15 +210,75 @@ def _comment(result: Any) -> str:
     return " ".join(part for part in parts if part).strip()
 
 
-def _summary_text(test_run: Any, metadata: dict[str, str], include_synopsis: bool) -> str:
+def _summary_text(
+    test_run: Any,
+    metadata: dict[str, str],
+    include_synopsis: bool,
+    readiness_summary: dict[str, Any],
+) -> str:
     synopsis = (getattr(test_run, "synopsis", None) or "").replace("[AI-DRAFTED] ", "").strip()
+    readiness_line = (
+        f" Readiness status: {readiness_summary.get('label', 'Unknown')} "
+        f"({readiness_summary.get('score', 1)}/10)."
+    )
     if include_synopsis and synopsis:
-        return synopsis
-    return (
+        return f"{synopsis.rstrip('.')}.{readiness_line}" if not synopsis.endswith(".") else f"{synopsis}{readiness_line}"
+    summary = (
         f"Qualification testing for {metadata.get('manufacturer') or 'Unknown manufacturer'} "
         f"{metadata.get('model') or 'Unknown model'} completed with an overall result of "
         f"{metadata.get('overall_result') or 'INCOMPLETE'}."
     )
+    return f"{summary}{readiness_line}"
+
+
+def _supporting_evidence_body(
+    test_run: Any,
+    branding: ReportBranding,
+    readiness_summary: dict[str, Any],
+) -> str:
+    parts = [
+        f"Readiness Status: {readiness_summary.get('label', 'Unknown')} ({readiness_summary.get('score', 1)}/10)",
+        f"Official Report Ready: {'Yes' if readiness_summary.get('report_ready') else 'No'}",
+        f"Operationally Ready: {'Yes' if readiness_summary.get('operational_ready') else 'No'}",
+        f"Next Step: {readiness_summary.get('next_step', 'Review the remaining findings.')}",
+        "Key Reasons:",
+    ]
+    for reason in readiness_summary.get("reasons", [])[:4]:
+        parts.append(f"- {reason}")
+    parts.append(f"Connection Scenario: {_safe_attr(test_run, 'connection_scenario', 'direct')}")
+    if branding.footer_text:
+        parts.append(f"Report Footer: {branding.footer_text}")
+    return "\n".join(parts)
+
+
+def _pdf_safe_width(pdf: Any) -> float:
+    return max(float(pdf.w) - float(pdf.l_margin) - float(pdf.r_margin), 20.0)
+
+
+def _pdf_safe_text(value: str) -> str:
+    text = str(value or "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace("|", " - ")
+
+
+def _pdf_wrapped_lines(value: str, width: int = 140) -> list[str]:
+    lines: list[str] = []
+    for paragraph in _pdf_safe_text(value).split("\n"):
+        wrapped = textwrap.wrap(
+            paragraph,
+            width=width,
+            break_long_words=True,
+            break_on_hyphens=True,
+        )
+        lines.extend(wrapped or [""])
+    return lines or [""]
+
+
+def _write_pdf_lines(pdf: Any, value: str, line_height: float = 5, wrap_width: int = 140) -> None:
+    width = _pdf_safe_width(pdf)
+    for line in _pdf_wrapped_lines(value, width=wrap_width):
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(width, line_height, line or " ", new_x="LMARGIN", new_y="NEXT")
 
 
 def build_report_document(
@@ -170,6 +289,8 @@ def build_report_document(
     enabled_test_ids: Optional[list[str]] = None,
     whitelist_entries: Optional[list[Any]] = None,
     include_synopsis: bool = False,
+    branding_settings: Any = None,
+    readiness_summary: Optional[dict[str, Any]] = None,
 ) -> ReportDocument:
     del whitelist_entries
     if template_key not in TEMPLATE_FILES:
@@ -177,14 +298,19 @@ def build_report_document(
     filtered_results = [r for r in test_results if not enabled_test_ids or getattr(r, "test_id", None) in set(enabled_test_ids)]
     mapping = _load_mapping(template_key)
     template_path = _TEMPLATES_DIR / TEMPLATE_FILES[template_key]
+    branding = _resolve_branding(report_config, branding_settings)
+    start, end = _report_window(test_run)
+    resolved_readiness = readiness_summary or build_run_readiness_summary(test_run, filtered_results)
 
     device = getattr(test_run, "device", None)
     engineer = getattr(test_run, "engineer", None)
     metadata = {
         "test_attempt": "1",
         "date_range": _format_date_range(test_run),
+        "start_date": start.strftime("%d/%m/%Y") if start else "",
+        "end_date": end.strftime("%d/%m/%Y") if end else "",
         "system": _safe_attr(device, "category").replace("_", " ").title(),
-        "system_owner": _safe_attr(report_config, "client_name"),
+        "system_owner": _safe_attr(report_config, "client_name") or branding.company_name,
         "manufacturer": _safe_attr(device, "manufacturer"),
         "model": _safe_attr(device, "model"),
         "firmware": _safe_attr(device, "firmware_version"),
@@ -193,10 +319,16 @@ def build_report_document(
         "overall_result": _overall_result(test_run),
         "summary_text": "",
     }
-    metadata["summary_text"] = _summary_text(test_run, metadata, include_synopsis)
+    metadata["summary_text"] = _summary_text(
+        test_run,
+        metadata,
+        include_synopsis,
+        resolved_readiness,
+    )
+    metadata["synopsis_text"] = metadata["summary_text"]
 
     rows: list[ReportRow] = []
-    if template_key == "generic" and template_path.exists() and mapping:
+    if template_path.exists() and mapping and mapping.get("row_sources"):
         from openpyxl import load_workbook
 
         wb = load_workbook(str(template_path), read_only=True, data_only=False)
@@ -207,6 +339,9 @@ def build_report_document(
             count = mapping["testplan_row_count"]
             result_by_id = {str(getattr(r, "test_id", "")): r for r in filtered_results}
             sources = mapping.get("row_sources", {})
+            brief_column = cols.get("brief_description") or cols.get("test_description")
+            description_column = cols.get("test_description") or brief_column
+            essential_column = cols.get("essential_test", cols.get("essential_pass"))
             for row_index in range(start, start + count):
                 number = str(ws[f"{cols['test_number']}{row_index}"].value or "").strip()
                 source_ids = sources.get(number, [])
@@ -214,9 +349,9 @@ def build_report_document(
                 rows.append(
                     ReportRow(
                         test_number=number,
-                        brief_description=str(ws[f"{cols['brief_description']}{row_index}"].value or ""),
-                        test_description=str(ws[f"{cols['test_description']}{row_index}"].value or ""),
-                        essential_test=str(ws[f"{cols.get('essential_test', cols.get('essential_pass'))}{row_index}"].value or ""),
+                        brief_description=str(ws[f"{brief_column}{row_index}"].value or "") if brief_column else "",
+                        test_description=str(ws[f"{description_column}{row_index}"].value or "") if description_column else "",
+                        essential_test=str(ws[f"{essential_column}{row_index}"].value or "") if essential_column else "",
                         test_result=_VERDICT_MAP.get((_safe_attr(source, "verdict") or "").lower(), _safe_attr(source, "verdict").upper()) if source else "",
                         test_comments=_comment(source) if source else "",
                         template_backed=True,
@@ -239,9 +374,21 @@ def build_report_document(
 
     additional_sections = [
         ReportSection("Executive Summary", metadata["summary_text"]),
-        ReportSection("Supporting Evidence and Findings", f"Connection Scenario: {_safe_attr(test_run, 'connection_scenario', 'direct')}"),
+        ReportSection(
+            "Readiness and Supporting Evidence",
+            _supporting_evidence_body(test_run, branding, resolved_readiness),
+        ),
     ]
-    return ReportDocument(template_key=template_key, template_path=template_path, mapping=mapping, metadata=metadata, rows=rows, additional_sections=additional_sections)
+    return ReportDocument(
+        template_key=template_key,
+        template_path=template_path,
+        mapping=mapping,
+        metadata=metadata,
+        branding=branding,
+        readiness_summary=resolved_readiness,
+        rows=rows,
+        additional_sections=additional_sections,
+    )
 
 
 def get_available_templates() -> list[dict[str, Any]]:
@@ -273,10 +420,22 @@ async def generate_excel_report(
     enabled_test_ids: Optional[list[str]] = None,
     whitelist_entries: Optional[list[Any]] = None,
     include_synopsis: bool = False,
+    branding_settings: Any = None,
+    readiness_summary: Optional[dict[str, Any]] = None,
 ) -> str:
     import asyncio
 
-    report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
+    report = build_report_document(
+        test_run,
+        test_results,
+        report_config,
+        template_key,
+        enabled_test_ids,
+        whitelist_entries,
+        include_synopsis,
+        branding_settings,
+        readiness_summary,
+    )
     path = _output_path(test_run, template_key, ".xlsx")
 
     if report.template_path.exists() and report.mapping:
@@ -309,16 +468,16 @@ async def generate_excel_report(
             sheet_updates[testplan_sheet] = testplan_cells
 
         # ADDITIONAL INFORMATION sections
-        additional_sheet = report.mapping["additional_sheet"]
-        add_cells_map = report.mapping.get("additional_cells", {})
+        additional_sheet = report.mapping.get("additional_sheet")
+        add_cells_map = report.mapping.get("additional_cells") or {}
         additional_cells: dict[str, str | None] = {}
-        if report.additional_sections:
+        if report.additional_sections and add_cells_map.get("section_1_title") and add_cells_map.get("section_1_body"):
             additional_cells[add_cells_map["section_1_title"]] = report.additional_sections[0].title
             additional_cells[add_cells_map["section_1_body"]] = report.additional_sections[0].body
-        if len(report.additional_sections) > 1:
+        if len(report.additional_sections) > 1 and add_cells_map.get("section_2_title") and add_cells_map.get("section_2_body"):
             additional_cells[add_cells_map["section_2_title"]] = report.additional_sections[1].title
             additional_cells[add_cells_map["section_2_body"]] = report.additional_sections[1].body
-        if additional_cells:
+        if additional_sheet and additional_cells:
             sheet_updates[additional_sheet] = additional_cells
 
         await asyncio.to_thread(patch_xlsx, report.template_path, path, sheet_updates)
@@ -343,12 +502,30 @@ async def generate_word_report(
     enabled_test_ids: Optional[list[str]] = None,
     whitelist_entries: Optional[list[Any]] = None,
     template_key: str = "generic",
+    branding_settings: Any = None,
+    readiness_summary: Optional[dict[str, Any]] = None,
 ) -> str:
     from docx import Document
 
-    report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
+    report = build_report_document(
+        test_run,
+        test_results,
+        report_config,
+        template_key,
+        enabled_test_ids,
+        whitelist_entries,
+        include_synopsis,
+        branding_settings,
+        readiness_summary,
+    )
     doc = Document()
+    if report.branding.company_name:
+        doc.sections[0].header.paragraphs[0].text = report.branding.company_name
+        doc.add_paragraph(report.branding.company_name)
+    if report.branding.footer_text:
+        doc.sections[0].footer.paragraphs[0].text = report.branding.footer_text
     doc.add_heading("IP Device Qualification Report", level=0)
+    doc.add_paragraph(f"Template Profile: {TEMPLATE_INFO[report.template_key]['name']}")
     doc.add_heading("TEST SUMMARY", level=1)
     table = doc.add_table(rows=0, cols=2)
     for key, label in _SUMMARY_FIELDS:
@@ -405,35 +582,60 @@ async def _generate_pdf_via_fpdf(
     enabled_test_ids: Optional[list[str]] = None,
     whitelist_entries: Optional[list[Any]] = None,
     template_key: str = "generic",
+    branding_settings: Any = None,
+    readiness_summary: Optional[dict[str, Any]] = None,
 ) -> str:
     from fpdf import FPDF
 
-    report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
+    report = build_report_document(
+        test_run,
+        test_results,
+        report_config,
+        template_key,
+        enabled_test_ids,
+        whitelist_entries,
+        include_synopsis,
+        branding_settings,
+        readiness_summary,
+    )
     pdf = FPDF()
+    if hasattr(pdf, "set_compression"):
+        pdf.set_compression(False)
     pdf.set_auto_page_break(auto=True, margin=10)
     pdf.add_page()
+    if report.branding.company_name:
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 8, report.branding.company_name, new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 10, "IP DEVICE QUALIFICATION REPORT", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Template Profile: {TEMPLATE_INFO[report.template_key]['name']}", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 8, "TEST SUMMARY", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
     for key, label in _SUMMARY_FIELDS:
-        pdf.cell(60, 6, f"{label}:")
-        pdf.cell(0, 6, str(report.metadata.get(key, "")), new_x="LMARGIN", new_y="NEXT")
+        _write_pdf_lines(pdf, f"{label}: {str(report.metadata.get(key, ''))}", line_height=6, wrap_width=120)
     pdf.ln(2)
-    pdf.multi_cell(0, 5, report.metadata.get("summary_text", ""))
+    _write_pdf_lines(pdf, report.metadata.get("summary_text", ""), line_height=5, wrap_width=140)
     pdf.add_page(orientation="L")
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 8, "TESTPLAN", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 8)
     for row in report.rows:
-        pdf.multi_cell(0, 5, f"{row.test_number} | {row.brief_description} | {row.test_result} | {row.test_comments}")
+        _write_pdf_lines(
+            pdf,
+            f"{row.test_number} | {row.brief_description} | {row.test_result} | {row.test_comments}",
+            line_height=5,
+            wrap_width=180,
+        )
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 8, "ADDITIONAL INFORMATION", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
     for section in report.additional_sections:
-        pdf.multi_cell(0, 5, f"{section.title}\n{section.body}\n")
+        _write_pdf_lines(pdf, f"{section.title}\n{section.body}\n", line_height=5, wrap_width=140)
+    if report.branding.footer_text:
+        _write_pdf_lines(pdf, report.branding.footer_text, line_height=5, wrap_width=140)
     path = _output_path(test_run, template_key, ".pdf")
     pdf.output(str(path))
     return str(path)
@@ -447,17 +649,39 @@ async def generate_pdf_report(
     enabled_test_ids: Optional[list[str]] = None,
     whitelist_entries: Optional[list[Any]] = None,
     template_key: str = "generic",
+    branding_settings: Any = None,
+    readiness_summary: Optional[dict[str, Any]] = None,
 ) -> str:
     use_libreoffice = os.getenv("EDQ_USE_LIBREOFFICE", "").lower() in ("1", "true", "yes")
 
     if use_libreoffice:
         try:
-            docx_path = await generate_word_report(test_run, test_results, report_config, include_synopsis, enabled_test_ids, whitelist_entries, template_key)
+            docx_path = await generate_word_report(
+                test_run,
+                test_results,
+                report_config,
+                include_synopsis,
+                enabled_test_ids,
+                whitelist_entries,
+                template_key,
+                branding_settings,
+                readiness_summary,
+            )
             return await _generate_pdf_via_libreoffice(docx_path)
         except Exception:
             logger.warning("LibreOffice PDF conversion failed, falling back to fpdf2")
 
-    return await _generate_pdf_via_fpdf(test_run, test_results, report_config, include_synopsis, enabled_test_ids, whitelist_entries, template_key)
+    return await _generate_pdf_via_fpdf(
+        test_run,
+        test_results,
+        report_config,
+        include_synopsis,
+        enabled_test_ids,
+        whitelist_entries,
+        template_key,
+        branding_settings,
+        readiness_summary,
+    )
 
 
 async def generate_csv_report(
@@ -468,13 +692,35 @@ async def generate_csv_report(
     enabled_test_ids: Optional[list[str]] = None,
     whitelist_entries: Optional[list[Any]] = None,
     template_key: str = "generic",
+    branding_settings: Any = None,
+    readiness_summary: Optional[dict[str, Any]] = None,
 ) -> str:
-    report = build_report_document(test_run, test_results, report_config, template_key, enabled_test_ids, whitelist_entries, include_synopsis)
+    report = build_report_document(
+        test_run,
+        test_results,
+        report_config,
+        template_key,
+        enabled_test_ids,
+        whitelist_entries,
+        include_synopsis,
+        branding_settings,
+        readiness_summary,
+    )
     path = _output_path(test_run, template_key, ".csv")
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["TEST SUMMARY"])
         writer.writerow(["Field", "Value"])
+        writer.writerow(["Template Profile", TEMPLATE_INFO[report.template_key]["name"]])
+        writer.writerow(["Company Name", report.branding.company_name])
+        writer.writerow(
+            [
+                "Readiness Status",
+                f"{report.readiness_summary.get('label', 'Unknown')} ({report.readiness_summary.get('score', 1)}/10)",
+            ]
+        )
+        if report.branding.footer_text:
+            writer.writerow(["Footer Text", report.branding.footer_text])
         for key, label in _SUMMARY_FIELDS:
             writer.writerow([label, report.metadata.get(key, "")])
         writer.writerow(["Summary", report.metadata.get("summary_text", "")])

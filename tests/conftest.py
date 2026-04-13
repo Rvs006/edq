@@ -5,20 +5,37 @@ Auth is cookie-based: login sets edq_session (JWT) and edq_csrf cookies.
 Mutating requests must include X-CSRF-Token header.
 """
 
+import sys
 import uuid
+from pathlib import Path
 from typing import AsyncGenerator
 
 import httpx
 import pytest
 import pytest_asyncio
 
-from tests.auth_cache import get_cached_auth
-from tests.helpers import (
+TEST_ROOT = Path(__file__).resolve().parent
+if str(TEST_ROOT) not in sys.path:
+    sys.path.insert(0, str(TEST_ROOT))
+
+from live_auth_cache import get_cached_auth
+from live_helpers import (
     BASE_URL, ADMIN_USER, ADMIN_PASS,
     ENGINEER_USER, ENGINEER_PASS,
     REVIEWER_USER, REVIEWER_PASS,
     unique_ip, _login, _apply_auth,
 )
+
+
+async def _get_verified_auth(username: str, password: str) -> dict:
+    auth = await get_cached_auth(username, password)
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
+        _apply_auth(c, auth)
+        resp = await c.get("/api/auth/me")
+    if resp.status_code == 401:
+        auth = await get_cached_auth(username, password, force_refresh=True)
+    return auth
+
 
 def _make_client(auth: dict) -> httpx.AsyncClient:
     """Create an httpx.AsyncClient pre-configured with auth."""
@@ -41,12 +58,12 @@ async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
 # ---------------------------------------------------------------------------
 @pytest_asyncio.fixture
 async def admin_auth() -> dict:
-    return await get_cached_auth(ADMIN_USER, ADMIN_PASS)
+    return await _get_verified_auth(ADMIN_USER, ADMIN_PASS)
 
 
 @pytest_asyncio.fixture
 async def admin_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    auth = await get_cached_auth(ADMIN_USER, ADMIN_PASS)
+    auth = await _get_verified_auth(ADMIN_USER, ADMIN_PASS)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         _apply_auth(c, auth)
         yield c
@@ -57,12 +74,12 @@ async def admin_client() -> AsyncGenerator[httpx.AsyncClient, None]:
 # ---------------------------------------------------------------------------
 @pytest_asyncio.fixture
 async def engineer_auth() -> dict:
-    return await get_cached_auth(ENGINEER_USER, ENGINEER_PASS)
+    return await _get_verified_auth(ENGINEER_USER, ENGINEER_PASS)
 
 
 @pytest_asyncio.fixture
 async def engineer_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    auth = await get_cached_auth(ENGINEER_USER, ENGINEER_PASS)
+    auth = await _get_verified_auth(ENGINEER_USER, ENGINEER_PASS)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         _apply_auth(c, auth)
         yield c
@@ -73,12 +90,12 @@ async def engineer_client() -> AsyncGenerator[httpx.AsyncClient, None]:
 # ---------------------------------------------------------------------------
 @pytest_asyncio.fixture
 async def reviewer_auth() -> dict:
-    return await get_cached_auth(REVIEWER_USER, REVIEWER_PASS)
+    return await _get_verified_auth(REVIEWER_USER, REVIEWER_PASS)
 
 
 @pytest_asyncio.fixture
 async def reviewer_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    auth = await get_cached_auth(REVIEWER_USER, REVIEWER_PASS)
+    auth = await _get_verified_auth(REVIEWER_USER, REVIEWER_PASS)
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         _apply_auth(c, auth)
         yield c

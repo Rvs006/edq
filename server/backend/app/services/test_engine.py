@@ -35,6 +35,10 @@ from app.services.parsers.hydra_parser import hydra_parser
 from app.services.evaluation import evaluate_result
 from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
 from app.services.mac_vendor import resolve_mac_vendor
+from app.services.run_readiness import (
+    build_run_readiness_summary,
+    merge_readiness_into_metadata,
+)
 from app.services.wobbly_cable import WobblyCableHandler
 from app.services.test_library import get_test_by_id
 from app.services.device_fingerprinter import fingerprinter, FingerprintResult
@@ -98,6 +102,36 @@ def _infer_os_from_services(open_ports: list[dict[str, Any]]) -> str | None:
 
 class TestEngine:
     """Orchestrates the full test execution lifecycle for a test run."""
+
+    @staticmethod
+    def _progress_for(total: int, completed: int) -> float:
+        if total <= 0:
+            return 0.0
+        return round((completed / total) * 100, 1)
+
+    async def _persist_run_progress(
+        self,
+        run_id: str,
+        *,
+        completed_tests: int,
+        total_tests: int,
+        status: TestRunStatus | None = None,
+        run_metadata: dict[str, Any] | None = None,
+        started_at: datetime | None = None,
+    ) -> None:
+        async with async_session() as db:
+            run_row = await db.get(TestRun, run_id)
+            if not run_row:
+                return
+            run_row.completed_tests = completed_tests
+            run_row.progress_pct = self._progress_for(total_tests, completed_tests)
+            if status is not None:
+                run_row.status = status
+            if started_at is not None and not run_row.started_at:
+                run_row.started_at = started_at
+            if run_metadata is not None:
+                run_row.run_metadata = run_metadata
+            await db.commit()
 
     async def run(self, test_run_id: str, test_plan_id: str | None = None) -> None:
         """Execute all tests for a test run, streaming progress via WebSocket.
@@ -322,12 +356,11 @@ class TestEngine:
                         },
                     })
 
-                    async with async_session() as db:
-                        run_row = await db.get(TestRun, test_run_id)
-                        if run_row:
-                            run_row.completed_tests = completed
-                            run_row.progress_pct = round(((i + 1) / total) * 100, 1) if total else 0
-                            await db.commit()
+                    await self._persist_run_progress(
+                        test_run_id,
+                        completed_tests=completed,
+                        total_tests=total,
+                    )
                     continue
 
                 await self._wait_while_paused(test_run_id)
@@ -346,11 +379,19 @@ class TestEngine:
                         effective_tier = cfg["tier_override"]
 
                 if effective_tier == "guided_manual":
+                    completed += 1
                     async with async_session() as db:
                         result_row = await db.get(TestResult, test_result.id)
                         if result_row and result_row.verdict == TestVerdict.PENDING:
                             result_row.comment = "Awaiting engineer input"
                             await db.commit()
+
+                    await self._persist_run_progress(
+                        test_run_id,
+                        completed_tests=completed,
+                        total_tests=total,
+                        status=TestRunStatus.AWAITING_MANUAL,
+                    )
 
                     await manager.broadcast(f"test-run:{test_run_id}", {
                         "type": "test_complete",
@@ -360,7 +401,7 @@ class TestEngine:
                             "status": TestRunStatus.AWAITING_MANUAL.value,
                             "verdict": "pending",
                             "tier": "guided_manual",
-                            "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
+                            "progress_pct": self._progress_for(total, completed),
                         },
                     })
                     continue
@@ -374,7 +415,7 @@ class TestEngine:
                             "test_id": test_result.test_id,
                             "test_name": test_result.test_name,
                             "status": "running",
-                            "progress_pct": round((i / total) * 100, 1) if total else 0,
+                            "progress_pct": self._progress_for(total, completed),
                         },
                     })
 
@@ -424,16 +465,16 @@ class TestEngine:
                         "status": "completed",
                         "verdict": verdict,
                         "comment": comment,
-                        "progress_pct": round(((i + 1) / total) * 100, 1) if total else 0,
+                        "progress_pct": self._progress_for(total, completed),
                     },
                 })
 
-                async with async_session() as db:
-                    run_row = await db.get(TestRun, test_run_id)
-                    if run_row:
-                        run_row.completed_tests = completed
-                        run_row.progress_pct = round(((i + 1) / total) * 100, 1) if total else 0
-                        await db.commit()
+                await self._persist_run_progress(
+                    test_run_id,
+                    completed_tests=completed,
+                    total_tests=total,
+                    status=TestRunStatus.RUNNING,
+                )
 
         except asyncio.CancelledError:
             logger.info("Test engine cancelled for run %s", test_run_id)
@@ -1244,6 +1285,33 @@ class TestEngine:
             run.advisory_tests = advisory
             run.na_tests = na
             run.completed_tests = passed + failed + advisory + na + errors
+            run.progress_pct = 100.0 if run.total_tests else 0.0
+            metadata = run.run_metadata if isinstance(run.run_metadata, dict) else {}
+            metadata["trust_tier_counts"] = {
+                "release_blocking": sum(
+                    1
+                    for r in all_results
+                    if (get_test_by_id(r.test_id) or {}).get("trust_level") == "release_blocking"
+                ),
+                "review_required": sum(
+                    1
+                    for r in all_results
+                    if (get_test_by_id(r.test_id) or {}).get("trust_level") == "review_required"
+                ),
+                "advisory": sum(
+                    1
+                    for r in all_results
+                    if (get_test_by_id(r.test_id) or {}).get("trust_level") == "advisory"
+                ),
+                "manual_evidence": sum(
+                    1
+                    for r in all_results
+                    if (get_test_by_id(r.test_id) or {}).get("trust_level") == "manual_evidence"
+                ),
+            }
+            metadata["pending_manual_count"] = pending_manual
+            metadata["completed_result_count"] = run.completed_tests
+            run.run_metadata = metadata
 
             if pending_manual > 0:
                 run.status = TestRunStatus.AWAITING_MANUAL
@@ -1261,7 +1329,11 @@ class TestEngine:
                 else:
                     run.overall_verdict = TestRunVerdict.PASS
 
-            run.progress_pct = 100.0
+            run.run_metadata = merge_readiness_into_metadata(
+                run.run_metadata,
+                build_run_readiness_summary(run, all_results),
+            )
+
             await db.commit()
 
             # Capture values while the ORM object is still bound to the session

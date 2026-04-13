@@ -41,6 +41,7 @@ Windows notes:
 - Do not create `server/backend/.env`.
 - For local backend development, keep `TOOLS_SIDECAR_URL=http://127.0.0.1:8001`.
 - The default local database path is PostgreSQL on `127.0.0.1:55432`. Override `DATABASE_URL` only if you intentionally want a different database.
+- Redis is optional locally. If you want shared-environment rate limiting behavior, start Docker with `--profile redis` and set `REDIS_URL=redis://127.0.0.1:6379/0`.
 
 ## Install Dependencies
 

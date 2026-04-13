@@ -13,6 +13,28 @@ export type TestRunStatus =
   | 'failed'
   | 'cancelled'
 
+export interface ReadinessSummary {
+  score: number
+  level: string
+  label: string
+  report_ready: boolean
+  operational_ready: boolean
+  blocking_issue_count: number
+  pending_manual_count: number
+  release_blocking_failure_count: number
+  review_required_issue_count: number
+  manual_evidence_pending_count: number
+  advisory_count: number
+  override_count: number
+  failed_test_count: number
+  completed_result_count: number
+  total_result_count: number
+  trust_tier_counts: Record<string, number>
+  reasons: string[]
+  next_step: string
+  summary: string
+}
+
 export interface Device {
   id: string
   ip_address: string | null
@@ -77,6 +99,7 @@ export interface TestRun {
   run_metadata: Record<string, unknown> | null
   created_at: string
   confidence: number | null
+  readiness_summary: ReadinessSummary | null
   started_at: string | null
   updated_at: string | null
   completed_at: string | null

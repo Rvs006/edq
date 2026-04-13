@@ -1,11 +1,13 @@
 """Tests for rate limiting on import, report, and scan endpoints."""
 
 import io
+import uuid
 
 import pytest
 from httpx import AsyncClient
 
 from ..conftest import register_and_login
+from app.middleware.rate_limit import rate_limiter
 
 
 @pytest.mark.asyncio
@@ -42,16 +44,18 @@ async def test_report_rate_limit(client: AsyncClient):
     After adding rate limiting (max_requests=5, window=60s, action=report_generate),
     exceeding the limit should return 429.
     """
+    rate_limiter._buckets.clear()
     headers = await register_and_login(client, suffix="report_rl")
 
     statuses = []
-    for _ in range(8):
+    payload = {
+        "test_run_id": str(uuid.uuid4()),
+        "report_type": "excel",
+    }
+    for _ in range(65):
         resp = await client.post(
             "/api/reports/generate",
-            json={
-                "test_run_id": "nonexistent-run-id",
-                "report_type": "excel",
-            },
+            json=payload,
             headers=headers,
         )
         statuses.append(resp.status_code)
