@@ -3,7 +3,7 @@
 Caveman Memory Compression Orchestrator
 
 Usage:
-    python scripts/compress.py <filepath>
+    python -m scripts <filepath>
 """
 
 import os
@@ -28,6 +28,7 @@ from .detect import should_compress
 from .validate import validate
 
 MAX_RETRIES = 2
+MAX_FILE_SIZE = 500_000  # 500KB
 
 
 # ---------- Claude Calls ----------
@@ -110,13 +111,16 @@ Return ONLY the fixed compressed file. No explanation.
 """
 
 
+def get_backup_path(filepath: Path) -> Path:
+    return filepath.with_name(filepath.stem + ".original.md")
+
+
 # ---------- Core Logic ----------
 
 
 def compress_file(filepath: Path) -> bool:
     # Resolve and validate path
     filepath = filepath.resolve()
-    MAX_FILE_SIZE = 500_000  # 500KB
     if not filepath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
     if filepath.stat().st_size > MAX_FILE_SIZE:
@@ -129,7 +133,7 @@ def compress_file(filepath: Path) -> bool:
         return False
 
     original_text = filepath.read_text(errors="ignore")
-    backup_path = filepath.with_name(filepath.stem + ".original.md")
+    backup_path = get_backup_path(filepath)
 
     # Check if backup already exists to prevent accidental overwriting
     if backup_path.exists():

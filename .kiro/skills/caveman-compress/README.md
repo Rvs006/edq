@@ -25,7 +25,7 @@ CLAUDE.md          ← compressed (Claude reads this — fewer tokens every sess
 CLAUDE.original.md ← human-readable backup (you edit this)
 ```
 
-Original never lost. You can read and edit `.original.md`. Run skill again to re-compress after edits.
+Original never lost. You can read and edit `.original.md`. Re-run after edits only after you remove or rename the existing `.original.md` backup.
 
 ## Benchmarks
 
@@ -40,7 +40,7 @@ Real results on real project files:
 | `mixed-with-code.md` | 888 | 560 | **36.9%** |
 | **Average** | **898** | **481** | **46%** |
 
-All validations passed ✅ — headings, code blocks, URLs, file paths preserved exactly.
+All validations passed ✅ — code blocks and URLs preserved exactly. Heading/path mismatches are warnings, not hard failures.
 
 ## Before / After
 
@@ -124,7 +124,7 @@ write compressed → CLAUDE.md
 write original   → CLAUDE.original.md
 ```
 
-Only two things use tokens: initial compression + targeted fix if validation fails. Everything else is local Python.
+Validation preserves code blocks and URLs exactly. Heading/path mismatches stay warnings. Only two things use tokens: initial compression + targeted fix if validation fails. Everything else is local Python.
 
 ## What Is Preserved
 
@@ -136,9 +136,11 @@ Caveman compress natural language. It never touch:
 - File paths (`/src/components/...`)
 - Commands (`npm install`, `git commit`)
 - Technical terms, library names, API names
-- Headings (exact text preserved)
+- Headings (validated; mismatches warn)
 - Tables (structure preserved, cell text compressed)
 - Dates, version numbers, numeric values
+
+Existing `*.original.md` backups are never overwritten. Remove or rename the backup before re-running on an edited file.
 
 ## Why This Matter
 

@@ -4,7 +4,8 @@ description: >
   Compress natural language memory files (CLAUDE.md, todos, preferences) into caveman format
   to save input tokens. Preserves all technical substance, code, URLs, and structure.
   Compressed version overwrites the original file. Human-readable backup saved as FILE.original.md.
-  Trigger: /caveman:compress <filepath> or "compress memory file"
+  Re-runs are blocked while FILE.original.md already exists. Trigger: /caveman:compress <filepath>
+  or "compress memory file"
 ---
 
 # Caveman Compress
@@ -31,6 +32,8 @@ cd caveman-compress && python3 -m scripts <absolute_filepath>
 - validate output (no tokens)
 - if errors: cherry-pick fix with Claude (targeted fixes only, no recompression)
 - retry up to 2 times
+- preserve code blocks and URLs exactly; heading/path mismatches are warnings
+- abort before writing if `<filename>.original.md` already exists; user must remove or rename it to re-run after edits
 - if still failing after 2 retries: report error to user, leave original file untouched
 
 4. Return result to user
@@ -57,7 +60,7 @@ cd caveman-compress && python3 -m scripts <absolute_filepath>
 - Environment variables (`$HOME`, `NODE_ENV`)
 
 ### Preserve Structure
-- All markdown headings (keep exact heading text, compress body below)
+- All markdown headings (keep them aligned when possible; validation warns on mismatches)
 - Bullet point hierarchy (keep nesting level)
 - Numbered lists (keep numbering)
 - Tables (compress cell text, keep structure)
@@ -108,4 +111,5 @@ Compressed:
 - If file has mixed content (prose + code), compress ONLY the prose sections
 - If unsure whether something is code or prose, leave it unchanged
 - Original file is backed up as FILE.original.md before overwriting
+- If FILE.original.md already exists, stop and ask user to remove or rename it before re-running
 - Never compress FILE.original.md (skip it)
