@@ -70,13 +70,23 @@ async def test_report_rate_limit(client: AsyncClient):
 async def test_scan_rate_limit(client: AsyncClient):
     """The network scan endpoint should enforce rate limiting.
 
-    After adding rate limiting (max_requests=3, window=60s, action=network_discover),
-    exceeding the limit should return 429.
+    Uses two buckets: DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE (per-client) and
+    DISCOVERY_RATE_LIMIT_PER_MINUTE (per-target-scope). Exceeding the global
+    cap must return 429 regardless of whether each target would have been
+    authorized.
     """
+    from app.config import settings
+
+    rate_limiter._buckets.clear()
     headers = await register_and_login(client, suffix="scan_rl")
 
+    # Fire enough requests to exceed the global cap. Each iteration uses the
+    # same CIDR, so the per-scope bucket also trips; the global cap is higher
+    # so it always hits last. Add a safety margin of +5.
+    attempts = settings.DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE + 5
+
     statuses = []
-    for _ in range(6):
+    for _ in range(attempts):
         resp = await client.post(
             "/api/network-scan/discover",
             json={"cidr": "192.168.1.0/24", "connection_scenario": "test_lab", "test_ids": []},
