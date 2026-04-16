@@ -4,6 +4,46 @@ This is a curated change history for EDQ. It is intentionally grouped by meaning
 
 The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summarize notable changes after that point.
 
+## 2026-04-16
+
+### Reachability AND-gate and ghost-ARP defense
+
+- Discovery now requires both a fresh TCP/ICMP probe and nmap's ARP-bypass ping to agree the host is up before running a full scan. Eliminates false "device found" results for up to several minutes after a cable is unplugged.
+- Manual device creation now runs the same reachability probe and surfaces `reachability_verified` + `probe_source` in the create response and audit log; `last_seen_at` is set only when the probe succeeded.
+- Batch scans now pre-filter targets through the same probe and return `skipped_unreachable` so the UI can show how many IPs were dropped.
+- `connectivity_probe` tuned: ICMP latency floor lowered to 50μs (was 1 ms, was rejecting legitimate fast-LAN replies); nmap tiebreaker shrunk to top-50 with a 5 s host-timeout so ghost-host cost halves.
+- Discovery rate limiting now uses two buckets per client: `DISCOVERY_RATE_LIMIT_PER_MINUTE` (per target scope) and `DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE` (per client, across all targets) to prevent sweep-style abuse.
+
+### Dockerfile and toolchain fixes
+
+- Fixed a broken single-line `FROM ... AS tools-builder # ...RUN git clone` in `server/backend/Dockerfile` that was silently swallowing the testssl.sh clone. Stage 1 produced an empty `/opt/testssl`; downstream TLS tests were running without their tool.
+- Added `procps` and `dnsutils` so `testssl.sh` runtime dependencies resolve, plus `libjson-perl` and `libxml-writer-perl` so nikto loads its required Perl modules.
+
+### Test engine hardening
+
+- Generic web-server products (`nginx`, `apache`, `microsoft-iis`, etc.) are no longer written into `device.model` or `device.hostname`. A new word-boundary regex replaces the prior `startswith` match that was falsely catching `nginxcontroller` and similar.
+- Device fingerprinter now accepts both legacy and seeded profile key names (`port_hints`, `oui_vendors`, `service_hints`).
+- Tools sidecar now allows nmap host-discovery probe flags (`-PE`, `-PP`, `-PM`, `-PS`, `-PA`, `-PU`, `-PY`) with a validated port-suffix regex that blocks shell-injection via the suffix.
+
+### Dependency bumps (safe minor/patch)
+
+- `fastapi` 0.135.3 → 0.136.0
+- `pydantic` 2.12.5 → 2.13.1
+- `sentry-sdk` 2.57.0 → 2.58.0
+- `react-router-dom` 7.14.0 → 7.14.1
+- `@sentry/react` 10.48.0 → 10.49.0
+- `@tanstack/react-query` 5.97.0 → 5.99.0
+
+### Repo hygiene
+
+- Removed `update.bat`; replaced with the four documented git + docker commands in `ENGINEER_UPDATES.md`.
+- Removed `GEMINI.md`; consolidated AI-agent guidance into `CLAUDE.md` with `AGENTS.md` as a pointer.
+- Refreshed `CLAUDE.md`, `README.md`, and `ENGINEER_UPDATES.md` to reflect the current stack (Python 3.13, PostgreSQL 17, node:24, reachability AND-gate).
+
+### New tests
+
+- `test_discovery_reachability`, `test_discovery_subnet_ghost`, `test_network_scan_batch_ghost`, `test_devices_manual_add_reachability`, `test_nmap_parser_reachability` — regression guards for the reachability and ghost-host paths.
+
 ## 2026-04-09
 
 ### CI And Quality Fixes

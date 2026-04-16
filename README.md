@@ -195,8 +195,11 @@ Generated outputs are written to:
 | [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md) | Update-only workflow for existing local installs |
 | [DEPLOY.md](DEPLOY.md) | Shared and production deployment guidance |
 | [SECURITY.md](SECURITY.md) | Current security model, secret handling, and operational controls |
+| [SECURITY_TOOLING.md](SECURITY_TOOLING.md) | ShieldMyRepo + security scanner reference |
+| [REDIS.md](REDIS.md) | Optional Redis profile for shared-env rate limiting |
 | [CHANGELOG.md](CHANGELOG.md) | Curated history of major changes after the original v1.0 baseline |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and contribution notes |
+| [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) | Guidance for AI coding agents working in this repo |
 
 ## Current Operational Notes
 
@@ -207,6 +210,7 @@ Generated outputs are written to:
 - Optional frontend telemetry is controlled by `VITE_*` build-time variables such as `VITE_CLIENT_ERROR_ENDPOINT` and `VITE_SENTRY_ENABLED`; if unset, the frontend keeps using the local client-error beacon path with safe defaults.
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.
+- Single-IP discovery uses an AND-gate reachability check: a target must answer **both** a fresh TCP/ICMP probe and nmap's ARP-bypass ping before the full scan runs. This prevents stale-ARP ghost results on recently unplugged devices.
 - Frontend and backend development can run locally outside Docker; the tools sidecar remains Docker-backed on Windows. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
 - Historical product and engineering specs remain in `docs/` as archive material only and should not be treated as the current operational guide.
 

@@ -10,24 +10,34 @@ Use this guide only if EDQ is already installed and you just need the latest off
 
 ## Fastest Update
 
-Windows:
+From the repo root, run these four commands in order:
+
+Windows PowerShell:
 
 ```powershell
-.\update.bat
+git fetch origin
+git switch main
+git pull --ff-only origin main
+docker compose up --build -d
 ```
 
 macOS or Linux:
 
 ```bash
-./update.sh
+git fetch origin
+git switch main
+git pull --ff-only origin main
+docker compose up --build -d
 ```
 
-These scripts:
+What each step does:
 
-1. fetch the latest code from GitHub
-2. switch to `main`
-3. pull the latest official changes
-4. rebuild and restart the containers
+1. `git fetch origin` — downloads the latest refs without touching your working tree
+2. `git switch main` — moves you to the release branch (fails if you have uncommitted changes; resolve first)
+3. `git pull --ff-only origin main` — fast-forwards your `main` to the latest official commit; aborts if you have diverged
+4. `docker compose up --build -d` — rebuilds any changed images and restarts containers in the background
+
+No local scripts are required. A previous `update.bat`/`update.sh` helper has been removed; the four commands above are the supported path.
 
 ## After Updating
 
@@ -56,3 +66,4 @@ Then open `http://localhost:3000`.
 - If Git reports local changes, stop and clean up your work before updating.
 - If Docker rebuild fails, inspect `docker compose logs` and retry.
 - If login fails after update, confirm the root `.env` still contains the correct `INITIAL_ADMIN_PASSWORD`.
+- If a test run stays in the `Paused Cable` state, the target IP did not answer both probes of the reachability AND-gate. Verify the cable and power, then retry.

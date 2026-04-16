@@ -9,10 +9,10 @@ EDQ (Electracom Device Qualifier) is a local-first qualification app for smart b
 ## Architecture
 
 **Default deployment uses three services** orchestrated via Docker Compose:
-- **frontend** — React 19 SPA served by nginx. Proxies `/api/` and `/ws/` to the backend.
-- **backend** — FastAPI (Python 3.12, async SQLAlchemy, PostgreSQL). All routes under `/api/v1/`.
-- **postgres** — PostgreSQL 16 primary database.
-- **tools sidecar** — starts inside the backend container by default (gunicorn on `127.0.0.1:8001`). It still runs the scanning toolchain (nmap, testssl.sh, hydra, nikto) and requires Linux capabilities.
+- **frontend** — React 19 SPA built by Vite (node:24-alpine) and served by nginx:alpine. Proxies `/api/` and `/ws/` to the backend.
+- **backend** — FastAPI on python:3.13-slim (async SQLAlchemy, PostgreSQL). All routes under `/api/v1/`.
+- **postgres** — PostgreSQL 17 (postgres:17-alpine) primary database.
+- **tools sidecar** — starts inside the backend container by default (gunicorn on `127.0.0.1:8001`). Runs the scanning toolchain (nmap, testssl.sh, hydra, nikto, ssh-audit, snmpwalk) and requires Linux capabilities.
 
 **Electron** (`electron/`) is a desktop wrapper that manages Docker Compose lifecycle; it is not a dev launcher.
 
@@ -25,12 +25,14 @@ EDQ (Electracom Device Qualifier) is a local-first qualification app for smart b
 - Auth: JWT access token (cookie `edq_session`, 1h) + refresh token (30d) with family revocation. CSRF via `X-CSRF-Token` header on mutating methods. 2FA and OIDC/SSO supported. Set `ENVIRONMENT` for consistent auth behavior across deployments.
 - Roles: admin, reviewer, engineer. Policy enforcement in route dependencies.
 - MAC addresses: best-effort data. nmap only reports MAC on the same L2 segment; in Docker, MAC is typically `null` due to NAT boundary. The `nmap_parser.parse_host_discovery()` handles this gracefully.
+- Reachability gate (discovery + device create): uses an **AND-gate** in `connectivity_probe.probe_device_connectivity()` — both a fresh TCP/ICMP probe **and** nmap's ARP-bypass ping must agree the host is up before a single-IP scan proceeds. Prevents stale-ARP "ghost" results on unplugged devices. Same probe feeds manual device creation (`reachability_verified` in the create response) and batch scans (`skipped_unreachable` in the response).
+- Rate limiting on discovery/scan endpoints uses two buckets per client: `DISCOVERY_RATE_LIMIT_PER_MINUTE` (per target scope) and `DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE` (per client, across all targets) to prevent sweep-style abuse.
 - Background jobs: APScheduler (scan_scheduler), periodic token cleanup, started in FastAPI lifespan.
 - Database seeds idempotently on startup via `init_db.py`.
 - Route mounting: all routers prefixed `/api/v1/`. A `LegacyAPIRewriteMiddleware` transparently rewrites `/api/*` → `/api/v1/*` for backward compat.
 - Migrations: Alembic (`server/backend/migrations/`). Run from `server/backend/`: `alembic upgrade head`, `alembic revision --autogenerate -m "description"`.
 - `entrypoint.sh` starts both the tools sidecar (gunicorn on :8001) and the backend (uvicorn on :8000) in a single container for simplified deployment.
-- Services include: CVE auto-correlation (`cve_correlator.py`), device fingerprinting, Nessus import parsing, report generation, scan scheduling.
+- Services include: CVE auto-correlation (`cve_correlator.py`), device fingerprinting, Nessus import parsing, report generation, scan scheduling, connectivity probing.
 
 ### Key frontend patterns
 - State: TanStack React Query for server state, React context for auth/theme.
@@ -64,7 +66,7 @@ pnpm build                            # Production build to dist/
 ### Backend development
 ```bash
 cd server/backend
-python -m venv .venv                  # Create venv (Python 3.12)
+python -m venv .venv                  # Create venv (Python 3.13)
 .venv/Scripts/python.exe -m pip install -r requirements-dev.txt   # Windows
 source .venv/bin/activate && pip install -r requirements-dev.txt  # Linux/Mac
 
@@ -108,7 +110,23 @@ pytest tests -k "test_login" -v       # Single test by name
 
 ## Documentation
 
-Operational docs live at repo root: `INSTALL.md`, `LOCAL_DEVELOPMENT.md`, `DEPLOY.md`, `SECURITY.md`, `ENGINEER_UPDATES.md`. Files in `docs/` are historical specs for reference only.
+Operational docs live at repo root:
+
+| File | Audience | Purpose |
+|---|---|---|
+| `README.md` | Everyone | Orientation + quickstart |
+| `INSTALL.md` | New engineers | First-time install of the Docker stack |
+| `LOCAL_DEVELOPMENT.md` | Contributors | Non-Docker dev loop (vite + uvicorn) |
+| `DEPLOY.md` | Ops | Production deploy, TLS, backup |
+| `ENGINEER_UPDATES.md` | Engineers with EDQ already installed | Pull latest `main`, rebuild |
+| `SECURITY.md` | Everyone | Threat model, reporting vulns |
+| `SECURITY_TOOLING.md` | Ops | Scanner / dependency audit tooling |
+| `CONTRIBUTING.md` | Contributors | Branch, commit, PR flow |
+| `CHANGELOG.md` | Everyone | Release history |
+| `REDIS.md` | Ops | Optional Redis for shared rate-limit state |
+| `AGENTS.md` | AI agents (all) | Pointer to `CLAUDE.md` |
+
+Files in `docs/` are historical specs for reference only.
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph

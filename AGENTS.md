@@ -1,38 +1,14 @@
-<!-- code-review-graph MCP tools -->
-## MCP Tools: code-review-graph
+# Agent Instructions
 
-**IMPORTANT: This project has a knowledge graph. ALWAYS use the
-code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase.** The graph is faster, cheaper (fewer tokens), and gives
-you structural context (callers, dependents, test coverage) that file
-scanning cannot.
+This repository uses [CLAUDE.md](./CLAUDE.md) as the single source of truth for AI-agent guidance. All coding agents (Claude Code, GitHub Copilot Workspace, Cursor, Aider, OpenAI Codex, Devin, etc.) should follow the rules and tool guidance in that file.
 
-### When to use graph tools FIRST
+Key points lifted from `CLAUDE.md`:
 
-- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
-- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
-- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
-- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview` + `list_communities`
+- Architecture: Docker Compose stack (frontend + backend + postgres). Electron is a desktop wrapper, not a dev launcher.
+- Backend: FastAPI + async SQLAlchemy + PostgreSQL, all routes under `/api/v1/`.
+- Frontend: React 19 + Vite + Tailwind + TanStack Query + Radix UI.
+- Tests: pytest for backend, Vitest for frontend. No linter configured.
+- Env: root `.env` is the single source of config. Do not create `server/backend/.env`.
+- Knowledge graph: use the `code-review-graph` MCP tools for structural exploration before falling back to `Grep`/`Read`.
 
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
-
-### Key Tools
-
-| Tool | Use when |
-|------|----------|
-| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
-| `get_review_context` | Need source snippets for review — token-efficient |
-| `get_impact_radius` | Understanding blast radius of a change |
-| `get_affected_flows` | Finding which execution paths are impacted |
-| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
-| `semantic_search_nodes` | Finding functions/classes by name or keyword |
-| `get_architecture_overview` | Understanding high-level codebase structure |
-| `refactor_tool` | Planning renames, finding dead code |
-
-### Workflow
-
-1. The graph auto-updates on file changes (via hooks).
-2. Use `detect_changes` for code review.
-3. Use `get_affected_flows` to understand impact.
-4. Use `query_graph` pattern="tests_for" to check coverage.
+See [CLAUDE.md](./CLAUDE.md) for the full guide.

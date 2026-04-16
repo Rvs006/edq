@@ -174,12 +174,16 @@ docker compose logs -f backend
 docker compose logs -f frontend
 ```
 
-Update an existing install:
+Update an existing install (all platforms):
 
-- Windows: `.\update.bat`
-- macOS or Linux: `./update.sh`
+```bash
+git fetch origin
+git switch main
+git pull --ff-only origin main
+docker compose up --build -d
+```
 
-Update-only guide: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
+Update-only guide with after-update checks: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
 
 ## Troubleshooting
 
