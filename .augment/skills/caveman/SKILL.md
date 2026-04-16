@@ -27,7 +27,7 @@ Yes: "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
 
 ## Intensity
 
-| Level | What change |
+| Level | What changes |
 |-------|------------|
 | **lite** | No filler/hedging. Keep articles + full sentences. Professional but tight |
 | **full** | Drop articles, fragments OK, short synonyms. Classic caveman |
@@ -64,4 +64,4 @@ Example — destructive op:
 
 ## Boundaries
 
-Code/commits/PRs: write normal. "stop caveman" or "normal mode": revert. Level persist until changed or session end.
+Code/commits/PRs: write normal. "stop caveman" or "normal mode": revert. Level persists until changed or session end.

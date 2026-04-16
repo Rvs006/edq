@@ -12,9 +12,9 @@
 
 A Claude Code skill that compresses your project memory files (`CLAUDE.md`, todos, preferences) into caveman format — so every session loads fewer tokens automatically.
 
-Claude read `CLAUDE.md` on every session start. If file big, cost big. Caveman make file small. Cost go down forever.
+Claude reads `CLAUDE.md` on every session start. If file big, cost big. Caveman make file small. Cost go down forever.
 
-## What It Do
+## What It Does
 
 ```
 /caveman:compress CLAUDE.md
@@ -67,7 +67,7 @@ All validations passed ✅ — code blocks and URLs preserved exactly. Heading/p
 
 ## Security
 
-`caveman-compress` is flagged as Snyk High Risk due to subprocess and file I/O patterns detected by static analysis. This is a false positive — see [SECURITY.md](./SECURITY.md) for a full explanation of what the skill does and does not do.
+`caveman-compress` is flagged as Snyk High Risk due to subprocess and file I/O patterns detected by static analysis. See [SECURITY.md](./SECURITY.md) for the full rationale and scope.
 
 ## Install
 
@@ -103,7 +103,7 @@ Examples:
 | `.py`, `.js`, `.ts`, `.json`, `.yaml` | ❌ Skip (code/config) |
 | `*.original.md` | ❌ Skip (backup files) |
 
-## How It Work
+## How It Works
 
 ```
 /caveman:compress CLAUDE.md
@@ -142,7 +142,7 @@ Caveman compress natural language. It never touch:
 
 Existing `*.original.md` backups are never overwritten. Remove or rename the backup before re-running on an edited file.
 
-## Why This Matter
+## Why This Matters
 
 `CLAUDE.md` loads on **every session start**. A 1000-token project memory file costs tokens every single time you open a project. Over 100 sessions that's 100,000 tokens of overhead — just for context you already wrote.
 
