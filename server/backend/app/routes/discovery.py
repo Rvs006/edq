@@ -555,8 +555,8 @@ async def register_discovered_device(
             detail=(
                 "Host not reachable from backend; refusing to register unverified "
                 "device. If this is an agent report from a remote network segment, "
-                "include X-Agent-Key and use the agent-registration path (TODO — "
-                "not yet implemented)."
+                "include X-Agent-Key and use the dedicated agent-registration "
+                "path."
             ),
         )
 

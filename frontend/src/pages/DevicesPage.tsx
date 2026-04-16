@@ -13,6 +13,7 @@ import Callout from '@/components/common/Callout'
 import TopologyMap from '@/components/devices/TopologyMap'
 import LatencySparkline from '@/components/devices/LatencySparkline'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
+import { hasDiscoverySignal } from '@/lib/discoverySignals'
 import { useAuth } from '@/contexts/AuthContext'
 
 const CATEGORIES = ['camera', 'controller', 'intercom', 'access_panel', 'lighting', 'hvac', 'iot_sensor', 'meter', 'unknown']
@@ -598,10 +599,6 @@ function DiscoverModal({ onClose, projectId }: { onClose: () => void; projectId?
       </div>
     </div>
   )
-}
-
-export function hasDiscoverySignal(dev: Pick<DiscoveredDevice, 'open_ports' | 'mac_address' | 'hostname'>): boolean {
-  return (dev.open_ports?.length ?? 0) > 0 || !!dev.mac_address || !!dev.hostname
 }
 
 function isValidIp(ip: string): boolean {

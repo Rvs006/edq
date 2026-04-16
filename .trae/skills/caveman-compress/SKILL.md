@@ -103,7 +103,7 @@ Compressed:
 
 ## Boundaries
 
-- ONLY compress natural language files (.md, .txt, extensionless)
+- ONLY compress natural language files (.md, .txt, .markdown, .rst, and extensionless natural-language files)
 - NEVER modify: .py, .js, .ts, .json, .yaml, .yml, .toml, .env, .lock, .css, .html, .xml, .sql, .sh
 - If file has mixed content (prose + code), compress ONLY the prose sections
 - If unsure whether something is code or prose, leave it unchanged

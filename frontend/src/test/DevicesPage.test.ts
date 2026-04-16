@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { hasDiscoverySignal } from '@/pages/DevicesPage'
+import { hasDiscoverySignal } from '@/lib/discoverySignals'
 
 describe('hasDiscoverySignal', () => {
   it('is false when no ports, no mac, no hostname', () => {
