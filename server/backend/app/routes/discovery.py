@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.database import get_db
 from app.models.device import Device, DeviceCategory, DeviceStatus
 from app.models.project import Project
@@ -135,6 +136,10 @@ async def _upsert_device(
     auto_manufacturer = guess_manufacturer(vendor, open_ports or []) or vendor
     auto_model = guess_model(open_ports or [], os_fp)
 
+    # Only promote status / bump last_seen_at when the probe produced
+    # at least one piece of positive evidence the device is actually there.
+    positive_signal = bool(mac) or bool(open_ports) or bool(os_fp) or bool(hostname)
+
     if is_new:
         device = Device(
             ip_address=ip,
@@ -149,7 +154,7 @@ async def _upsert_device(
             manufacturer=auto_manufacturer,
             model=auto_model,
             project_id=project_id,
-            last_seen_at=utcnow_naive(),
+            last_seen_at=utcnow_naive() if positive_signal else None,
         )
         db.add(device)
         try:
@@ -184,8 +189,9 @@ async def _upsert_device(
         if project_id and not device.project_id:
             device.project_id = project_id
         device.category = category
-        device.status = DeviceStatus.IDENTIFIED
-        device.last_seen_at = utcnow_naive()
+        if positive_signal:
+            device.status = DeviceStatus.IDENTIFIED
+            device.last_seen_at = utcnow_naive()
         await db.flush()
 
     await db.refresh(device)
@@ -213,14 +219,27 @@ async def initiate_discovery(
     - ip_address provided: full service detection + OS fingerprint (-sV -O -p-)
     - subnet provided: ping sweep (-sn) to list live hosts
     """
-    check_rate_limit(request, max_requests=3, window_seconds=60, action="discovery_scan")
-
     project_id = await _validate_project_id(db, data.project_id)
     target = data.ip_address or data.subnet
     if not target:
         raise HTTPException(status_code=400, detail="Provide either ip_address or subnet")
+    # Global cap first (no scope) to bound sweep-style abuse across many targets.
+    check_rate_limit(
+        request,
+        max_requests=settings.DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE,
+        window_seconds=60,
+        action="discovery_scan_global",
+    )
+    check_rate_limit(
+        request,
+        max_requests=settings.DISCOVERY_RATE_LIMIT_PER_MINUTE,
+        window_seconds=60,
+        action="discovery_scan",
+        scope=target,
+    )
 
     discovered_devices: List[Dict[str, Any]] = []
+    unreachable_skipped = 0
 
     if data.ip_address:
         # Strict pre-flight: flush ARP cache for this IP, then do a fresh
@@ -233,11 +252,27 @@ async def initiate_discovery(
         try:
             arp_flush_scan = await tools_client.nmap(
                 data.ip_address,
-                ["--send-ip", "-sn", "-n", "--max-retries", "1", "--host-timeout", "3s", "-oX", "-"],
-                timeout=8,
+                [
+                    "--send-ip",
+                    "-sn",
+                    "-n",
+                    "-PE",
+                    "-PS22,80,135,443,445,3389,8080",
+                    "-PA80,443",
+                    "--max-retries",
+                    "2",
+                    "--host-timeout",
+                    "8s",
+                    "-oX",
+                    "-",
+                ],
+                timeout=12,
             )
-            arp_hosts = nmap_parser.parse_host_discovery(arp_flush_scan.get("stdout", ""))
-            arp_host_alive = any(h.get("ip") == data.ip_address for h in arp_hosts)
+            arp_parsed = nmap_parser.parse_xml(arp_flush_scan.get("stdout", ""))
+            arp_host_alive = any(
+                h.get("ip") == data.ip_address and h.get("status") == "up"
+                for h in arp_parsed.get("hosts", [])
+            )
         except Exception:
             arp_host_alive = False
 
@@ -246,23 +281,68 @@ async def initiate_discovery(
                 probe_device_connectivity(data.ip_address),
                 timeout=6.0,
             )
-        except (asyncio.TimeoutError, Exception) as exc:
-            logger.warning("Connectivity pre-check failed for %s: %s", data.ip_address, exc)
+        except asyncio.TimeoutError:
+            logger.warning("Connectivity pre-check timed out for %s", data.ip_address)
+            is_reachable = False
+            probe_source = None
+        except Exception:
+            logger.exception("Connectivity pre-check crashed for %s", data.ip_address)
             is_reachable = False
             probe_source = None
 
-        if not is_reachable and not arp_host_alive:
-            # Device is unreachable on both TCP/ICMP probes AND nmap's
-            # ARP-bypass ping.  Do NOT proceed with full scan.
-            logger.info("Device %s is unreachable — skipping nmap scan", data.ip_address)
+        # Trust TCP-level reachability (requires a real SYN-ACK from the
+        # target's OS) or nmap -sn confirmation. Do NOT trust ICMP-only —
+        # in Docker NAT, stale ARP caches + proxy-ARP by routers/gateways
+        # can make ICMP ping succeed for an unplugged device for minutes.
+        # Strong reachability signals:
+        #  - "tcp:<port>"         — open service, device's OS answered SYN-ACK
+        #  - "tcp_refused:<port>" — device's TCP stack sent RST (alive, firewalled port)
+        #  - "icmp:<N>ms"         — ICMP reply with real LAN latency (>=1ms),
+        #                           proves real network hop (not localhost loopback)
+        tcp_reachable = bool(
+            is_reachable
+            and probe_source
+            and (
+                str(probe_source).startswith("tcp")
+                or str(probe_source).startswith("icmp:")
+            )
+        )
+        # AND-gate: BOTH signals (TCP/ICMP probe AND nmap ARP-bypass ping)
+        # must agree the host is up before we proceed to a full scan.
+        # Rationale: a stale ARP entry can make nmap -sn show "up" for
+        # minutes after a cable is pulled; requiring a fresh probe to also
+        # confirm eliminates ghost results.
+        if not tcp_reachable or not arp_host_alive:
+            if not tcp_reachable and not arp_host_alive:
+                reason = "unreachable"
+            elif not tcp_reachable:
+                reason = "probe_down_arp_up"
+            else:
+                reason = "probe_up_arp_down"
+            if is_reachable and str(probe_source or "") == "icmp":
+                message = (
+                    f"Device {data.ip_address} only answered ICMP. This is not "
+                    "trustworthy in Docker/NAT environments (stale ARP can make a "
+                    "removed device appear to reply). Check the cable and power."
+                )
+            else:
+                message = (
+                    f"Device {data.ip_address} is not reachable. "
+                    "Check that the cable is connected and the device is powered on."
+                )
+            logger.info(
+                "Device %s failed reachability gate (%s) — skipping nmap scan",
+                data.ip_address,
+                reason,
+            )
             await log_action(db, user, "discovery.scan", "discovery", data.ip_address,
-                             {"devices_found": 0, "reason": "unreachable"}, request)
+                             {"devices_found": 0, "reason": reason}, request)
             return {
                 "status": "complete",
                 "target": data.ip_address,
                 "devices_found": 0,
                 "devices": [],
-                "message": f"Device {data.ip_address} is not reachable. Check that the cable is connected and the device is powered on.",
+                "message": message,
             }
 
         logger.debug("Connectivity pre-check confirmed %s via %s", data.ip_address, probe_source)
@@ -346,7 +426,36 @@ async def initiate_discovery(
 
         hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
 
-        for host in hosts:
+        probe_sem = asyncio.Semaphore(8)
+
+        async def _gated_probe(ip: str) -> bool:
+            async with probe_sem:
+                try:
+                    reachable, _source = await asyncio.wait_for(
+                        probe_device_connectivity(ip),
+                        timeout=6.0,
+                    )
+                    return bool(reachable)
+                except asyncio.TimeoutError:
+                    logger.warning("Subnet probe timed out for %s", ip)
+                    return False
+                except Exception:
+                    logger.exception("Subnet probe crashed for %s", ip)
+                    return False
+
+        probe_results = await asyncio.gather(
+            *(_gated_probe(host["ip"]) for host in hosts)
+        ) if hosts else []
+
+        for host, is_reachable in zip(hosts, probe_results):
+            if not is_reachable:
+                unreachable_skipped += 1
+                logger.info(
+                    "Subnet discovery skipping ghost host %s (probe unreachable)",
+                    host.get("ip"),
+                )
+                continue
+
             device, is_new = await _upsert_device(
                 db,
                 ip=host["ip"],
@@ -383,13 +492,15 @@ async def initiate_discovery(
             })
 
     await log_action(db, user, "discovery.scan", "discovery", target,
-                     {"devices_found": len(discovered_devices)}, request)
+                     {"devices_found": len(discovered_devices),
+                      "unreachable_skipped": unreachable_skipped}, request)
 
     return {
         "status": "complete",
         "target": target,
         "devices_found": len(discovered_devices),
         "devices": discovered_devices,
+        "unreachable_skipped": unreachable_skipped,
     }
 
 
@@ -425,6 +536,29 @@ async def register_discovered_device(
         await log_action(db, user, "discovery.register_device", "device", device.id,
                          {"ip_address": data.ip_address, "updated": True}, request)
         return {"device_id": device.id, "message": "Device updated with new discovery data"}
+
+    try:
+        is_reachable, _probe_source = await asyncio.wait_for(
+            probe_device_connectivity(data.ip_address),
+            timeout=6.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Register-device probe timed out for %s", data.ip_address)
+        is_reachable = False
+    except Exception:
+        logger.exception("Register-device probe crashed for %s", data.ip_address)
+        is_reachable = False
+
+    if not is_reachable:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Host not reachable from backend; refusing to register unverified "
+                "device. If this is an agent report from a remote network segment, "
+                "include X-Agent-Key and use the agent-registration path (TODO — "
+                "not yet implemented)."
+            ),
+        )
 
     device = Device(
         ip_address=data.ip_address,

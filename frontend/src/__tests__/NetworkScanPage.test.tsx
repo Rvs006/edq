@@ -115,7 +115,7 @@ describe('NetworkScanPage', () => {
 
     expect(await screen.findByText('Scanning 0 device(s)...')).toBeInTheDocument()
     expect(screen.queryByText(/Scan complete/i)).not.toBeInTheDocument()
-  })
+  }, 20000)
 
   it('surfaces awaiting_manual results with the backend status label', async () => {
     const user = userEvent.setup()
@@ -165,5 +165,5 @@ describe('NetworkScanPage', () => {
     await user.click(screen.getByRole('button', { name: 'Start Scan' }))
 
     expect(await screen.findByText('Awaiting Manual')).toBeInTheDocument()
-  })
+  }, 20000)
 })

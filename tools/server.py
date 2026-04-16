@@ -148,6 +148,9 @@ ALLOWED_FLAGS = {
         "--script", "-F", "-n", "-R", "-6", "--max-rate", "-", "-oX",
         "--min-rate", "--max-retries", "--defeat-rst-ratelimit", "--send-ip", "-PR", "-e",
         "--host-timeout", "--traceroute", "--osscan-guess",
+        # Host-discovery probe types — needed to reliably find devices whose
+        # firewalls drop default nmap probes but still answer ICMP / specific TCP ports.
+        "-PE", "-PP", "-PM", "-PS", "-PA", "-PU", "-PY",
     },
     "hydra": {
         "-l", "-L", "-p", "-P", "-s", "-t", "-f", "-V", "-v", "-e",
@@ -447,11 +450,29 @@ def _validate_args_for_tool(args: list, tool_name: str) -> list:
     allowed = ALLOWED_FLAGS.get(tool_name)
     if not allowed:
         return sanitised
+    # nmap host-discovery probe flags that accept an inline port-list suffix
+    # (e.g. "-PS22,80,443"). Strip the suffix before checking the allowlist.
+    _NMAP_PROBE_PREFIXES = ("-PS", "-PA", "-PU", "-PY") if tool_name == "nmap" else ()
+    # Port-list suffix must be digits, commas, and hyphens only (ranges OK).
+    _PORT_SUFFIX_RE = re.compile(r"^[0-9,\-]+$")
     i = 0
     while i < len(sanitised):
         arg = sanitised[i]
         if arg.startswith("-"):
             flag = arg.split("=")[0]
+            # Normalize probe-with-ports form to bare flag for allowlist check
+            for prefix in _NMAP_PROBE_PREFIXES:
+                if flag.startswith(prefix) and len(flag) > len(prefix):
+                    suffix = flag[len(prefix):]
+                    if not _PORT_SUFFIX_RE.match(suffix):
+                        app.logger.warning(
+                            "Blocked probe suffix '%s' for tool %s", suffix, tool_name
+                        )
+                        raise ValueError(
+                            f"Invalid port-list suffix for {prefix}: '{suffix}'"
+                        )
+                    flag = prefix
+                    break
             if flag not in allowed:
                 app.logger.warning("Blocked flag '%s' for tool %s", flag, tool_name)
                 raise ValueError(f"Flag '{flag}' is not allowed for {tool_name}")

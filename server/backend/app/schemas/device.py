@@ -157,6 +157,11 @@ class DeviceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+
+class DeviceCreateResponse(DeviceResponse):
+    reachability_verified: bool = False
+
+
 class DiscoveryRequest(BaseModel):
     subnet: Optional[str] = Field(None, max_length=43)  # e.g. "192.168.1.0/24"
     ip_address: Optional[str] = Field(None, max_length=45)

@@ -426,10 +426,20 @@ function DiscoverModal({ onClose, projectId }: { onClose: () => void; projectId?
         ? { ip_address: trimmedTarget, project_id: projectId }
         : { subnet: trimmedTarget, project_id: projectId }
       const resp = await discoveryApi.scan(payload)
-      setResults(resp.data.devices || [])
+      const devices = resp.data.devices || []
+      setResults(devices)
       await queryClient.invalidateQueries({ queryKey: ['devices'] })
       await queryClient.refetchQueries({ queryKey: ['devices'], type: 'active' })
-      toast.success(`Found ${resp.data.devices_found} device(s)`)
+      const skipped = resp.data.unreachable_skipped ?? 0
+      if (devices.length === 0) {
+        toast(mode === 'ip'
+          ? 'No device responded at that address'
+          : 'No devices responded on that subnet')
+      } else if (skipped > 0) {
+        toast.success(`Found ${devices.length} device(s) — skipped ${skipped} unreachable`)
+      } else {
+        toast.success(`Found ${devices.length} device(s)`)
+      }
     } catch (err: unknown) {
       const fallback = toolsHealthy
         ? 'Discovery failed. Check the address, subnet, and network path.'
@@ -538,32 +548,41 @@ function DiscoverModal({ onClose, projectId }: { onClose: () => void; projectId?
                 <h3 className="text-sm font-medium text-zinc-700 dark:text-slate-300">Discovered Devices</h3>
                 <span className="text-xs text-zinc-400">Click a result to open it</span>
               </div>
-              {results.map((dev) => (
-                <button
-                  key={dev.id}
-                  type="button"
-                  onClick={() => {
-                    onClose()
-                    navigate(`/devices/${dev.id}`)
-                  }}
-                  className="w-full text-left flex items-center gap-3 p-3 bg-zinc-50 dark:bg-slate-800 rounded-lg border border-zinc-100 dark:border-slate-700/50 hover:border-brand-300 dark:hover:border-brand-700 transition-colors"
-                >
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${dev.is_new ? 'bg-emerald-500' : 'bg-blue-500'}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-zinc-800 dark:text-slate-200 truncate">
-                      {getPreferredDeviceName(dev)}
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      {`${getDeviceMetaSummary(dev, { includeIp: true }) || dev.ip_address} - ${dev.category}`}
-                    </p>
-                  </div>
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                    dev.is_new ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300'
-                  }`}>
-                    {dev.is_new ? 'New' : 'Updated'}
-                  </span>
-                </button>
-              ))}
+              {results.map((dev) => {
+                const signal = hasDiscoverySignal(dev)
+                const dotClass = dev.is_new ? 'bg-emerald-500' : 'bg-blue-500'
+                return (
+                  <button
+                    key={dev.id}
+                    type="button"
+                    onClick={() => {
+                      onClose()
+                      navigate(`/devices/${dev.id}`)
+                    }}
+                    className="w-full text-left flex items-center gap-3 p-3 bg-zinc-50 dark:bg-slate-800 rounded-lg border border-zinc-100 dark:border-slate-700/50 hover:border-brand-300 dark:hover:border-brand-700 transition-colors"
+                  >
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-zinc-800 dark:text-slate-200 truncate">
+                        {getPreferredDeviceName(dev)}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {`${getDeviceMetaSummary(dev, { includeIp: true }) || dev.ip_address} - ${dev.category}`}
+                      </p>
+                    </div>
+                    {dev.is_new && (
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-300">
+                        New
+                      </span>
+                    )}
+                    {!signal && (
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 dark:bg-slate-700 dark:text-slate-300" title="Device responded to probes but detailed fingerprint was limited (common in Docker NAT environments).">
+                        Limited info
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
 
@@ -579,6 +598,10 @@ function DiscoverModal({ onClose, projectId }: { onClose: () => void; projectId?
       </div>
     </div>
   )
+}
+
+export function hasDiscoverySignal(dev: Pick<DiscoveredDevice, 'open_ports' | 'mac_address' | 'hostname'>): boolean {
+  return (dev.open_ports?.length ?? 0) > 0 || !!dev.mac_address || !!dev.hostname
 }
 
 function isValidIp(ip: string): boolean {
@@ -645,9 +668,13 @@ function AddDeviceModal({ onClose, projectId }: { onClose: () => void; projectId
       if (projectId) {
         payload.project_id = projectId
       }
-      await devicesApi.create(payload as Parameters<typeof devicesApi.create>[0])
+      const createResp = await devicesApi.create(payload as Parameters<typeof devicesApi.create>[0])
       queryClient.invalidateQueries({ queryKey: ['devices'] })
-      toast.success('Device added successfully')
+      if (createResp.data?.reachability_verified === false) {
+        toast('Device added — host did not respond to reachability probes')
+      } else {
+        toast.success('Device added successfully')
+      }
       onClose()
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response?.status

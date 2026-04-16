@@ -2,7 +2,7 @@ import axios, { type AxiosResponse } from 'edq-http'
 import type {
   Device, TestRun, TestResult, TestTemplate, TestLibraryItem,
   TestPlan, Whitelist, AuditLogEntry, PaginatedResponse, UserProfile,
-  DiscoveryScanResponse,
+  DiscoveryScanResponse, DeviceCreateResponse,
 } from './types'
 import {
   normalizeTestResult,
@@ -150,7 +150,7 @@ export const devicesApi = {
     notes?: string
     project_id?: string
     addressing_mode?: string
-  }) => api.post<Device>('/devices/', data),
+  }) => api.post<DeviceCreateResponse>('/devices/', data),
   update: (id: string, data: Partial<Device>) => api.patch<Device>(`/devices/${id}`, data),
   delete: (id: string) => api.delete(`/devices/${id}`),
   discoverIp: (id: string) => api.post<Device>(`/devices/${id}/discover-ip`),

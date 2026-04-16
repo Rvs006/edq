@@ -279,14 +279,19 @@ export interface DiscoveredDevice {
   category: string
   status?: string
   is_new: boolean
+  reachability_verified?: boolean
   project_id?: string | null
 }
+
+export type DeviceCreateResponse = Device & { reachability_verified?: boolean }
 
 export interface DiscoveryScanResponse {
   status: string
   target: string
   devices_found: number
   devices: DiscoveredDevice[]
+  unreachable_skipped?: number
+  message?: string
 }
 
 export interface ReportTemplate {

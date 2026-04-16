@@ -1,5 +1,6 @@
 """Device management routes."""
 
+import asyncio
 import csv
 import io
 import ipaddress
@@ -17,18 +18,19 @@ from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, Field
 
 from app.models.database import get_db
-from app.models.device import Device
+from app.models.device import Device, DeviceStatus
 from app.models.project import Project
 from app.models.user import User
 from app.models.test_run import TestRun, TestRunStatus
 from app.models.test_result import TestResult, TestVerdict
-from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse
+from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse, DeviceCreateResponse
 from app.security.auth import get_current_active_user, require_role
 from app.utils.sanitize import sanitize_dict, strip_html
 from app.utils.audit import log_action
-from app.utils.datetime import as_utc
+from app.utils.datetime import as_utc, utcnow_naive
 from app.services.parsers.nmap_parser import nmap_parser
 from app.services.device_ip_discovery import discover_ip_for_mac
+from app.services.connectivity_probe import probe_device_connectivity
 from app.services.tools_client import describe_tools_error, get_tools_error_status, tools_client
 from app.middleware.rate_limit import check_rate_limit
 from app.routes.authorized_networks import get_active_networks
@@ -318,7 +320,7 @@ async def compare_devices(
     }
 
 
-@router.post("/", response_model=DeviceResponse, status_code=201)
+@router.post("/", response_model=DeviceCreateResponse, status_code=201)
 async def create_device(
     data: DeviceCreate,
     request: Request,
@@ -398,7 +400,26 @@ async def create_device(
     if project_id is not None:
         payload["project_id"] = project_id
 
+    explicit_status = clean.get("status")
+
+    reachable = False
+    probe_source: str | None = None
+    if data.ip_address:
+        try:
+            reachable, probe_source = await asyncio.wait_for(
+                probe_device_connectivity(data.ip_address),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Reachability probe timed out for %s", data.ip_address)
+        except Exception:
+            logger.exception("Reachability probe crashed for %s", data.ip_address)
+
     device = Device(**payload)
+    if not explicit_status:
+        device.status = DeviceStatus.DISCOVERED
+    device.last_seen_at = utcnow_naive() if reachable else None
+
     db.add(device)
     try:
         await db.flush()
@@ -406,8 +427,27 @@ async def create_device(
         await db.rollback()
         raise HTTPException(status_code=409, detail="A device with this IP or MAC address already exists")
     await db.refresh(device)
-    await log_action(db, user, "create", "device", device.id, {"ip": device.ip_address, "mac": device.mac_address, "addressing_mode": data.addressing_mode}, request)
-    return device
+    # `probe_source` format is non-PII: fixed vocabulary of protocol tags
+    # ("tcp:<port>", "tcp_refused:<port>", "icmp:<ms>ms", "icmp_only_untrusted")
+    # plus IP (already logged above). No user-supplied payloads flow here.
+    await log_action(
+        db,
+        user,
+        "create",
+        "device",
+        device.id,
+        {
+            "ip": device.ip_address,
+            "mac": device.mac_address,
+            "addressing_mode": data.addressing_mode,
+            "reachability_verified": reachable,
+            "probe_source": probe_source,
+        },
+        request,
+    )
+    response = DeviceCreateResponse.model_validate(device)
+    response.reachability_verified = reachable
+    return response
 
 
 # ---------------------------------------------------------------------------

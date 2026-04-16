@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.config import settings
 from app.models.database import get_db
 from app.models.network_scan import NetworkScan, NetworkScanStatus
 from app.models.device import Device, DeviceStatus, DeviceCategory
@@ -27,6 +28,7 @@ from app.services.device_ip_discovery import (
     enrich_hosts_with_neighbor_entries,
     get_neighbor_entries,
 )
+from app.services.connectivity_probe import probe_device_connectivity
 from app.services.tools_client import describe_tools_error, tools_client
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import launch_test_run
@@ -191,6 +193,7 @@ class NetworkScanResponse(BaseModel):
     created_by: str
     created_at: datetime
     completed_at: Optional[datetime] = None
+    skipped_unreachable: Optional[List[str]] = None
 
 
 def _batch_runs_are_settled(run_ids: list[str], run_statuses: dict[str, str]) -> bool:
@@ -241,10 +244,21 @@ async def discover_devices(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    check_rate_limit(request, max_requests=3, window_seconds=60, action="network_discover")
-
     if not CIDR_RE.match(data.cidr):
         raise HTTPException(status_code=400, detail="Invalid CIDR format. Expected e.g. 192.168.1.0/24")
+    check_rate_limit(
+        request,
+        max_requests=settings.DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE,
+        window_seconds=60,
+        action="network_discover_global",
+    )
+    check_rate_limit(
+        request,
+        max_requests=settings.DISCOVERY_RATE_LIMIT_PER_MINUTE,
+        window_seconds=60,
+        action="network_discover",
+        scope=data.cidr,
+    )
 
     try:
         ipaddress.ip_network(data.cidr, strict=False)
@@ -378,7 +392,19 @@ async def start_batch_scan(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    check_rate_limit(request, max_requests=3, window_seconds=60, action="network_scan_start")
+    check_rate_limit(
+        request,
+        max_requests=settings.DISCOVERY_GLOBAL_RATE_LIMIT_PER_MINUTE,
+        window_seconds=60,
+        action="network_scan_start_global",
+    )
+    check_rate_limit(
+        request,
+        max_requests=settings.DISCOVERY_RATE_LIMIT_PER_MINUTE,
+        window_seconds=60,
+        action="network_scan_start",
+        scope=data.scan_id,
+    )
 
     if _is_multi_worker_mode():
         raise HTTPException(
@@ -475,8 +501,44 @@ async def start_batch_scan(
                 if dh.get("ip"):
                     _discovered_map[dh["ip"]] = dh
 
+        probe_semaphore = asyncio.Semaphore(8)
+
+        async def _probe_one(ip: str) -> tuple[str, bool]:
+            async with probe_semaphore:
+                reachable, _source = await probe_device_connectivity(ip)
+                return (ip, reachable)
+
+        probe_results = await asyncio.gather(
+            *(_probe_one(ip) for ip in data.device_ips),
+            return_exceptions=True,
+        )
+        reachable_ips: set[str] = set()
+        skipped_unreachable: list[str] = []
+        for idx, result in enumerate(probe_results):
+            ip = data.device_ips[idx]
+            if isinstance(result, tuple) and result[1]:
+                reachable_ips.add(result[0])
+            elif isinstance(result, BaseException):
+                logger.warning(
+                    "Batch scan %s probe for %s crashed: %r",
+                    scan.id, ip, result,
+                )
+                skipped_unreachable.append(ip)
+            else:
+                skipped_unreachable.append(ip)
+
+        if skipped_unreachable:
+            logger.info(
+                "Batch scan %s skipping %d unreachable IP(s): %s",
+                scan.id,
+                len(skipped_unreachable),
+                skipped_unreachable,
+            )
+
         run_ids = []
         for ip in data.device_ips:
+            if ip not in reachable_ips:
+                continue
             dev_result = await db.execute(select(Device).where(Device.ip_address == ip))
             device = dev_result.scalar_one_or_none()
             if not device:
@@ -571,7 +633,9 @@ async def start_batch_scan(
         await log_action(db, user, "network_scan.start", "network_scan", scan.id,
                          {"device_count": len(data.device_ips), "test_count": len(test_ids)}, request)
 
-        return scan
+        response = NetworkScanResponse.model_validate(scan).model_dump()
+        response["skipped_unreachable"] = skipped_unreachable
+        return response
     finally:
         _release_batch_scan_start(scan_id)
 

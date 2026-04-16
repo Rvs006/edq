@@ -49,6 +49,35 @@ from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.test_engine")
 
+# Generic web-server / HTTP-stack product names. These describe the device's
+# HOSTING SOFTWARE, not the device itself — e.g. an EasyIO controller runs
+# nginx, an Axis camera runs its own embedded webserver, etc. Never write
+# these into `device.hostname` or `device.model`.
+_GENERIC_SERVER_PRODUCTS = frozenset({
+    "nginx", "apache", "apache httpd", "httpd", "lighttpd",
+    "microsoft-iis", "iis", "openresty", "caddy", "gunicorn",
+    "cloudflare", "cloudfront", "akamai", "varnish",
+    "microsoft-httpapi", "microsoft httpapi",
+    "werkzeug", "tornado", "twisted",
+})
+
+# Regex matching any generic server name at the start of a string, followed
+# by a word boundary (space, slash, end-of-string, etc.). Prevents false
+# matches like "nginxcontroller" while catching "nginx/1.24 (Ubuntu)".
+_GENERIC_SERVER_PREFIX_RE = re.compile(
+    r"^\s*(?:" + "|".join(re.escape(p) for p in _GENERIC_SERVER_PRODUCTS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_generic_server(product: str, version: str) -> bool:
+    """True if product/version describes a generic web stack (nginx, apache, ...)."""
+    if product and product.strip().lower() in _GENERIC_SERVER_PRODUCTS:
+        return True
+    if version and _GENERIC_SERVER_PREFIX_RE.match(version):
+        return True
+    return False
+
 # Bounded caches — max 50 entries each; old entries are evicted automatically.
 # Cleaned per-run in the finally block, but bounded to prevent leaks from crashes.
 _MAX_CACHE_SIZE = 50
@@ -579,8 +608,18 @@ class TestEngine:
                 version = (p.get("version") or "").strip()
                 product = (p.get("product") or "").strip()
 
-                # Use HTTP server header as model hint
-                if service in ("http", "https") and version and not device_row.model and not guessed_model:
+                is_generic_server = _is_generic_server(product, version)
+
+                # Use HTTP server header as model hint (but never a generic
+                # server like nginx/apache — that's a hosting stack, not a
+                # device model)
+                if (
+                    service in ("http", "https")
+                    and version
+                    and not device_row.model
+                    and not guessed_model
+                    and not is_generic_server
+                ):
                     device_row.model = version
                     changed = True
 
@@ -591,10 +630,12 @@ class TestEngine:
                         device_row.firmware_version = fw_match.group(0)
                         changed = True
 
-                # Use product name as hostname fallback
-                if product and not device_row.hostname:
-                    device_row.hostname = product
-                    changed = True
+                # NOTE: we no longer copy `product` into `device.hostname`.
+                # The previous behavior was writing "nginx" / "apache" /
+                # "Microsoft-HTTPAPI" into hostname, which then got shown as
+                # the device's display name. Hostname must come from nmap's
+                # <hostname> element or reverse-DNS — not from an HTTP
+                # Server: header.
 
             # Update open_ports with service info if we have richer data
             if ports:
@@ -615,10 +656,18 @@ class TestEngine:
                 changed = True
 
         elif test_id == "U36":
-            # Banner grabbing — look for model/version info in banners
+            # Banner grabbing — look for model/version info in banners.
+            # Skip generic web-server / proxy products (nginx, apache, etc.)
+            # — they describe the hosting stack, not the device.
             for p in parsed.get("open_ports", []):
                 version = (p.get("version") or "").strip()
-                if version and not device_row.model:
+                product = (p.get("product") or "").strip()
+
+                if (
+                    version
+                    and not device_row.model
+                    and not _is_generic_server(product, version)
+                ):
                     device_row.model = version
                     changed = True
                     break

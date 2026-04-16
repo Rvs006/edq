@@ -64,6 +64,12 @@ class NmapParser:
             if status is not None:
                 host_data["status"] = status.get("state", "unknown")
 
+            # Skip hosts that are not explicitly "up" — dead hosts must not
+            # appear in the returned result, otherwise EDQ would report a
+            # device as found after its cable is unplugged.
+            if host_data["status"] != "up":
+                continue
+
             for addr in host_elem.findall("address"):
                 addr_type = addr.get("addrtype", "")
                 if addr_type == "ipv4" or addr_type == "ipv6":
@@ -167,25 +173,37 @@ class NmapParser:
 
     def parse_host_discovery(self, stdout: str) -> list[dict[str, Any]]:
         """Parse nmap -sn stdout for discovered hosts (IP, MAC, vendor, hostname)."""
+        import re
+
         hosts: list[dict[str, Any]] = []
         current_ip = None
         current_mac = None
         current_vendor = None
         current_hostname = None
+        current_is_up = False
+        current_is_down = False
+
+        port_line_re = re.compile(r"^\d+/(?:tcp|udp)\s+\S+\s+\S+")
+
+        def finalize():
+            # Append pending host only if marked up and not explicitly down.
+            if current_ip and current_is_up and not current_is_down:
+                hosts.append({
+                    "ip": current_ip,
+                    "mac": current_mac,
+                    "vendor": current_vendor,
+                    "hostname": current_hostname,
+                })
 
         for line in stdout.splitlines():
             line = line.strip()
             if "Nmap scan report for" in line:
-                if current_ip:
-                    hosts.append({
-                        "ip": current_ip,
-                        "mac": current_mac,
-                        "vendor": current_vendor,
-                        "hostname": current_hostname,
-                    })
+                finalize()
                 current_mac = None
                 current_vendor = None
                 current_hostname = None
+                current_is_up = False
+                current_is_down = False
 
                 parts = line.replace("Nmap scan report for ", "")
                 if "(" in parts and ")" in parts:
@@ -197,6 +215,12 @@ class NmapParser:
                     current_ip = parts.strip()
                     current_hostname = None
 
+            elif "Host is up" in line:
+                current_is_up = True
+
+            elif "Host seems down" in line or "0 hosts up" in line:
+                current_is_down = True
+
             elif "MAC Address:" in line:
                 mac_part = line.replace("MAC Address: ", "")
                 if " " in mac_part:
@@ -204,15 +228,14 @@ class NmapParser:
                     current_vendor = mac_part.split("(", 1)[1].rstrip(")") if "(" in mac_part else None
                 else:
                     current_mac = mac_part.strip()
+                # MAC Address line corroborates the host is reachable
+                current_is_up = True
 
-        if current_ip:
-            hosts.append({
-                "ip": current_ip,
-                "mac": current_mac,
-                "vendor": current_vendor,
-                "hostname": current_hostname,
-            })
+            elif port_line_re.match(line):
+                # An open-port line (e.g. "80/tcp open http") also corroborates.
+                current_is_up = True
 
+        finalize()
         return hosts
 
     def parse_arp_cache(self, stdout: str) -> dict[str, Any]:

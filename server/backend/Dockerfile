@@ -1,8 +1,7 @@
 # ---------- Stage 1: clone testssl.sh ----------
-FROM ubuntu:24.04 AS tools-builder
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# Use alpine/git (git + ca-certificates baked in) instead of ubuntu:24.04 +
+# apt-get. Avoids dependency on Ubuntu mirrors and cuts image layer count.
+FROM alpine/git:2.52.0 AS tools-builder
 # Pin to v3.2.3 release tag. For maximum security, pin to the commit SHA.
 RUN git clone --depth 1 --branch v3.2.3 https://github.com/drwetter/testssl.sh.git /opt/testssl && \
     chmod +x /opt/testssl/testssl.sh
@@ -45,7 +44,11 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     ca-certificates \
     perl \
     libnet-ssleay-perl \
+    libjson-perl \
+    libxml-writer-perl \
     snmp \
+    procps \
+    dnsutils \
     && setcap cap_net_raw,cap_net_admin+ep /usr/bin/nmap \
     && rm -rf /var/lib/apt/lists/*
 

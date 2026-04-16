@@ -80,9 +80,15 @@ export default function DeviceDetailPage() {
 
   const autoDetectMutation = useMutation({
     mutationFn: () => discoveryApi.scan({ ip_address: device!.ip_address! }),
-    onSuccess: () => {
+    onSuccess: (resp) => {
       queryClient.invalidateQueries({ queryKey: ['device', id] })
-      toast.success('Device scan complete')
+      const found = resp.data.devices?.length ?? 0
+      if (found > 0) {
+        toast.success('Device scan complete')
+      } else {
+        const msg = resp.data.message || 'No device responded at that IP address. Check the cable, power, and network path.'
+        toast(msg)
+      }
     },
     onError: (err: unknown) => {
       const message = getApiErrorMessage(err, 'Auto-detect failed. The device may be unreachable — check your network connection.')

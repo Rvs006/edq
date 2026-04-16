@@ -220,7 +220,10 @@ class DeviceFingerprinter:
 
             score = 0
 
-            # Port signature matching
+            # Port signature matching. Support both "required_ports" +
+            # "optional_ports" and "port_hints" (the key name used by
+            # init_db.py seeded profiles). port_hints are treated as a
+            # weaker signal (any match counts, 1 point each).
             required_ports = set(rules.get("required_ports", []))
             if required_ports and required_ports.issubset(open_ports):
                 score += len(required_ports) * 2
@@ -229,13 +232,20 @@ class DeviceFingerprinter:
             if optional_ports:
                 score += len(optional_ports & open_ports)
 
-            # Vendor matching
+            port_hints = set(rules.get("port_hints", []))
+            if port_hints:
+                score += len(port_hints & open_ports)
+
+            # Vendor matching. Support both "vendors" and "oui_vendors"
+            # (seeded key). oui_vendors are matched the same way.
             vendor_patterns = [v.lower() for v in rules.get("vendors", [])]
+            vendor_patterns += [v.lower() for v in rules.get("oui_vendors", [])]
             if vendor_patterns and any(v in vendor_lower for v in vendor_patterns):
                 score += 5
 
-            # Service matching
+            # Service matching. Support both "services" and "service_hints".
             service_patterns = [s.lower() for s in rules.get("services", [])]
+            service_patterns += [s.lower() for s in rules.get("service_hints", [])]
             if service_patterns:
                 svc_values = {s.lower() for s in services.values()}
                 if any(sp in sv for sp in service_patterns for sv in svc_values):
