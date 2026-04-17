@@ -58,9 +58,20 @@ check() {
   local label="$1"
   shift
   printf "  %-35s " "$label"
-  if result=$("$@" 2>/dev/null); then
+  # Run without -e inheritance so we can inspect the exit code.
+  # Exit code 77 = skip (check is legitimately not exercisable on a fresh
+  # install — e.g. the WebSocket probe when there are no test runs yet).
+  local result rc
+  set +e
+  result=$("$@" 2>/dev/null)
+  rc=$?
+  set -e
+  if [ $rc -eq 0 ]; then
     echo -e "\033[32mOK\033[0m  $result"
     PASS=$((PASS + 1))
+  elif [ $rc -eq 77 ]; then
+    echo -e "\033[33mSKIP\033[0m  ${result:-no precondition}"
+    SKIP=$((SKIP + 1))
   else
     echo -e "\033[31mFAIL\033[0m"
     FAIL=$((FAIL + 1))
@@ -157,7 +168,10 @@ if not session_cookie:
 with urllib.request.urlopen(f\"{api_url}/test-runs/\", timeout=10) as resp:
     runs = json.loads(resp.read().decode())
 if not runs:
-    raise SystemExit('no test runs available')
+    # Fresh install has no runs yet — legitimate precondition absence,
+    # not a failure. Exit 77 = skip (caller recognizes the convention).
+    print('no test runs yet (create one, then re-run verify)')
+    raise SystemExit(77)
 run_id = runs[0]['id']
 
 ws_url = base_url.rstrip('/').replace('http://', 'ws://').replace('https://', 'wss://') + f'/api/ws/test-run/{run_id}'

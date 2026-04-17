@@ -113,12 +113,29 @@ function Invoke-Check {
     Write-Host ("  {0,-35} " -f $Label) -NoNewline
     try {
         $result = & $Body
+        # Check-body can opt into a "skip" outcome by returning/throwing a
+        # string prefixed with "SKIP:". Used for preconditions that are
+        # legitimately absent on a fresh install (e.g. no test runs yet
+        # to exercise the WebSocket).
+        if ($result -is [string] -and $result.StartsWith("SKIP:")) {
+            $reason = $result.Substring(5).TrimStart()
+            Write-Host ("SKIP {0}" -f $reason) -ForegroundColor Yellow
+            $script:Skip++
+            return
+        }
         Write-Host ("OK  {0}" -f $result) -ForegroundColor Green
         $script:Pass++
     } catch {
+        $msg = if ($_.Exception.Message) { $_.Exception.Message } else { "" }
+        if ($msg.StartsWith("SKIP:")) {
+            $reason = $msg.Substring(5).TrimStart()
+            Write-Host ("SKIP {0}" -f $reason) -ForegroundColor Yellow
+            $script:Skip++
+            return
+        }
         Write-Host "FAIL" -ForegroundColor Red
-        if ($_.Exception.Message) {
-            Write-Host ("      {0}" -f $_.Exception.Message) -ForegroundColor DarkGray
+        if ($msg) {
+            Write-Host ("      {0}" -f $msg) -ForegroundColor DarkGray
         }
         $script:Fail++
     }
@@ -249,7 +266,10 @@ Invoke-Check "WebSocket upgrade" {
     $runsResponse = Invoke-RestMethod -Uri "$apiUrl/test-runs/" -Method Get -WebSession $session
     $runs = @($runsResponse)
     if (-not $runs -or $runs.Count -eq 0) {
-        throw "No test runs available for websocket verification."
+        # Fresh install has no runs yet — not a failure, just nothing to
+        # exercise. The WebSocket server itself is reachable (backend is
+        # healthy); this check revisits once the first test run exists.
+        return "SKIP: no test runs yet (create one, then re-run verify)"
     }
 
     $runId = [string]$runs[0].id
