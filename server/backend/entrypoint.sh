@@ -40,6 +40,28 @@ if [ "$ready" -ne 1 ]; then
     exit 1
 fi
 
+# Authenticated self-test: verify backend's TOOLS_API_KEY actually works
+# against the sidecar. Catches env-drift/key-mismatch deployments at boot
+# instead of letting them silently mark "Security Tools: Unavailable" in
+# the UI 30+ seconds after login.
+if [ -n "${TOOLS_API_KEY:-}" ]; then
+    auth_probe=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "X-API-Key: ${TOOLS_API_KEY}" \
+        http://localhost:8001/versions 2>/dev/null || true)
+    if [ "$auth_probe" != "200" ]; then
+        echo "[EDQ] WARNING: authenticated /versions probe returned HTTP ${auth_probe:-<none>}."
+        echo "[EDQ] The tools sidecar is running but the backend cannot auth to it."
+        echo "[EDQ] Most likely the TOOLS_API_KEY in .env is empty or differs from"
+        echo "[EDQ] what the sidecar loaded at startup. Rebuild with:"
+        echo "[EDQ]   docker compose down && docker compose build --no-cache backend && docker compose up -d"
+        # Non-fatal: container stays up so the UI can still render manual
+        # tests and show the diagnostic banner. An env-mismatch should not
+        # brick the whole stack — engineers still get to log in and fix it.
+    else
+        echo "[EDQ] Authenticated /versions probe OK (backend <-> sidecar auth verified)"
+    fi
+fi
+
 cd /app
 echo "[EDQ] Waiting for database connectivity"
 python - <<'PY'

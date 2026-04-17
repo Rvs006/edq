@@ -213,6 +213,36 @@ Typical causes:
 - Docker did not finish building the image
 - another local config file was created and caused confusion
 
+### "Service Issue" banner / Security Tools: Unavailable
+
+Symptom: the app loads, login works, Frontend/Backend/Database all report healthy, but the **Security Tools** row in the status panel shows **Unavailable** with the message *"Security tools are unreachable. Automated tests will not run."*
+
+Cause: the tools sidecar (nmap, testssl.sh, hydra, nikto, ssh-audit, snmpwalk) lives inside the backend container. The main FastAPI process is up, but the sidecar process either:
+
+- died at startup (missing tool / bad Perl module / permission issue), or
+- is running with a different `TOOLS_API_KEY` than the backend expects (env-drift), or
+- started from a **cached Docker image layer** from a previously failed install.
+
+Fix — clean rebuild with `--no-cache`:
+
+```bash
+docker compose down
+docker compose build --no-cache backend
+docker compose up -d
+```
+
+The `--no-cache` flag is the important one — it forces Docker to re-apt-install `procps`, `libjson-perl`, etc. that the sidecar needs. `setup.bat` and `setup.sh` now do this automatically when they detect an existing `edq-backend` image, but you can always invoke it manually.
+
+Verification after rebuild:
+
+```bash
+docker exec edq-backend curl -sf http://localhost:8001/health
+```
+
+Expected: `{"status":"healthy","tools":{"hydra":true,"nikto":true,"nmap":true,"snmpwalk":true,"ssh_audit":true,"testssl":true}}`
+
+If any tool reports `false`, the rebuild did not complete — try again with `docker compose down -v` first (this wipes the database; only do it if you have no data to preserve).
+
 ### Login fails on localhost
 
 Confirm:

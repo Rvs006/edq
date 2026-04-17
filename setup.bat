@@ -56,6 +56,23 @@ if not exist data (
 )
 
 echo Starting EDQ...
+REM Detect a previous install (existing edq-backend image). If found,
+REM force a --no-cache rebuild to avoid carrying forward broken cached
+REM layers from an earlier failed install. Uses ~2 extra minutes but
+REM eliminates the "Security Tools: Unavailable" class of first-install
+REM issues caused by stale image layers.
+set "FORCE_REBUILD=0"
+for /f %%I in ('docker image ls -q edq-backend 2^>nul') do set "FORCE_REBUILD=1"
+if "%FORCE_REBUILD%"=="1" (
+  echo Detected existing edq-backend image. Rebuilding with --no-cache to
+  echo avoid stale cached layers. This takes an extra ~2 minutes but
+  echo prevents the "Security Tools: Unavailable" failure mode.
+  docker compose build --no-cache backend
+  if errorlevel 1 (
+    echo ERROR: backend rebuild failed. See output above.
+    exit /b 1
+  )
+)
 docker compose up --build -d
 
 echo.

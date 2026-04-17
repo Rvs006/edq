@@ -124,6 +124,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     backendHealthy,
     databaseHealthy,
     toolsHealthy,
+    toolsMessage,
     lastChecked,
   } = useOnlineStatus()
   const systemOk = frontendHealthy && backendHealthy && databaseHealthy && toolsHealthy
@@ -453,9 +454,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </p>
                       )}
                       {!toolsHealthy && backendHealthy && (
-                        <p className="text-[11px] text-amber-600 mt-2 leading-tight">
-                          Security tools are unreachable. Automated tests will not run.
-                        </p>
+                        <div className="mt-2 space-y-1">
+                          <p className="text-[11px] text-amber-600 leading-tight">
+                            {toolsMessage || 'Security tools are unreachable. Automated tests will not run.'}
+                          </p>
+                          <p className="text-[10px] text-zinc-500 dark:text-slate-500 leading-tight">
+                            Fix: <code className="font-mono text-[10px]">docker compose down &amp;&amp; docker compose build --no-cache backend &amp;&amp; docker compose up -d</code>
+                          </p>
+                        </div>
                       )}
                       {!backendHealthy && (
                         <p className="text-[11px] text-red-600 mt-2 leading-tight">

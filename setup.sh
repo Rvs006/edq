@@ -83,6 +83,16 @@ PUBLIC_PORT_VALUE=$(grep -E "^EDQ_PUBLIC_PORT=" .env | head -1 | cut -d= -f2- | 
 PUBLIC_PORT_VALUE=${PUBLIC_PORT_VALUE:-3000}
 
 echo "Starting EDQ..."
+# Detect a previous install (existing edq-backend image). If found,
+# force a --no-cache rebuild to avoid carrying forward broken cached
+# layers from an earlier failed install. Adds ~2 min but eliminates
+# the "Security Tools: Unavailable" class of first-install issues
+# caused by stale image layers.
+if [ -n "$(docker image ls -q edq-backend 2>/dev/null)" ]; then
+  echo "Detected existing edq-backend image. Rebuilding with --no-cache to"
+  echo "avoid stale cached layers (~2 min)."
+  docker compose build --no-cache backend
+fi
 docker compose up --build -d
 
 echo ""
