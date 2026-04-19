@@ -18,7 +18,8 @@ EDQ (Electracom Device Qualifier) is a local-first qualification app for smart b
 
 **Docker Compose variants:**
 - `docker-compose.yml` — default (PostgreSQL + backend + frontend).
-- `docker-compose.tls.yml` — TLS via Caddy reverse proxy (`docker compose -f docker-compose.yml -f docker-compose.tls.yml up`). Uses `Caddyfile` at repo root.
+- `docker-compose.prod.yml` — built-in nginx TLS bootstrap with certbot for the documented production flow.
+- `docker-compose.tls.yml` — optional Caddy reverse-proxy TLS overlay (`docker compose -f docker-compose.yml -f docker-compose.tls.yml up`). Uses `Caddyfile` at repo root.
 
 ### Key backend patterns
 - Route handlers stay thin; business logic lives in `server/backend/app/services/`.

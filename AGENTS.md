@@ -2,13 +2,12 @@
 
 This repository uses [CLAUDE.md](./CLAUDE.md) as the single source of truth for AI-agent guidance. All coding agents (Claude Code, GitHub Copilot Workspace, Cursor, Aider, OpenAI Codex, Devin, etc.) should follow the rules and tool guidance in that file.
 
-Key points lifted from `CLAUDE.md`:
+Read `CLAUDE.md` first for:
 
-- Architecture: Docker Compose stack (frontend + backend + postgres). Electron is a desktop wrapper, not a dev launcher.
-- Backend: FastAPI + async SQLAlchemy + PostgreSQL, all routes under `/api/v1/`.
-- Frontend: React 19 + Vite + Tailwind + TanStack Query + Radix UI.
-- Tests: pytest for backend, Vitest for frontend. No linter configured.
-- Env: root `.env` is the single source of config. Do not create `server/backend/.env`.
-- Knowledge graph: use the `code-review-graph` MCP tools for structural exploration before falling back to `Grep`/`Read`.
+- project architecture and current Docker Compose variants
+- backend and frontend conventions
+- test commands and verification workflow
+- environment and configuration rules
+- repository-specific agent workflow notes
 
-See [CLAUDE.md](./CLAUDE.md) for the full guide.
+Do not duplicate or override guidance here. Keep this file as a pointer so the detailed instructions only need to stay current in one place.

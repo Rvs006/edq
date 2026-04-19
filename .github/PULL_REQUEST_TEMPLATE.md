@@ -8,9 +8,9 @@ Brief description of changes.
 - [ ] Documentation update
 
 ## Testing
-- [ ] Tested locally with `docker compose up`
-- [ ] API endpoints verified
-- [ ] Frontend pages render correctly
+- [ ] Smoke-tested with `./scripts/verify-app.sh` or `.\scripts\verify-app.ps1`
+- [ ] API behavior verified with the relevant check or `./scripts/e2e-test.sh`
+- [ ] Frontend behavior or page render verified locally
 
 ## Screenshots
 If applicable, add screenshots or screen recordings to demonstrate the changes.

@@ -96,7 +96,7 @@ Impact:
 Recommended restart:
 
 ```bash
-docker compose restart backend tools
+docker compose restart backend
 ```
 
 ### Initial admin password

@@ -10,7 +10,7 @@ It replaces fragmented terminal work, spreadsheet transcription, and manual repo
 
 1. Register or discover a device.
 2. Auto-profile the device and load the right qualification setup.
-3. Run 43 universal checks: 29 automated and 14 guided manual.
+3. Run 60 EDQ tests: 29 automated and 31 guided manual.
 4. Review findings, overrides, and audit history.
 5. Generate Excel, Word, PDF, or CSV deliverables.
 
@@ -97,6 +97,8 @@ Windows PowerShell:
 5. Change the password after first login
 
 If you rotate the admin password before rerunning smoke scripts, pass the current password with `EDQ_ADMIN_PASS`, `-AdminPass`, or the matching PowerShell parameter. The root `.env` keeps the initial seed password only.
+
+For more detailed local setup, update, and deployment workflows, use [INSTALL.md](INSTALL.md), [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md), and [DEPLOY.md](DEPLOY.md).
 
 ## Security Scanning
 

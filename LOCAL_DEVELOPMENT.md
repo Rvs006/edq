@@ -24,9 +24,9 @@ If you need automated scan flows locally, keep the Docker-backed `backend` conta
 
 ## Prerequisites
 
-- Node.js 22 or newer
+- Node.js 22 or newer for local development; the current Docker image line uses Node 24
 - `pnpm` 10.x preferred for the frontend
-- Python 3.12 preferred for the backend
+- Python 3.12 or newer for the backend; the current Docker image line uses Python 3.13
 - Git
 - Docker Desktop if you want the scan tooling available during local development
 
