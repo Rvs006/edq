@@ -96,7 +96,7 @@ Impact:
 Recommended restart:
 
 ```bash
-docker compose restart backend tools
+docker compose restart backend
 ```
 
 ### Initial admin password
@@ -129,7 +129,7 @@ Compromised admin password:
 Compromised tools key:
 
 1. rotate `TOOLS_API_KEY`
-2. restart backend and tools
+2. restart the `backend` container so the co-located tools sidecar picks up the new key
 3. review logs around scan activity
 
 ## Production Hardening Checklist

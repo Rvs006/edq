@@ -91,7 +91,7 @@ pytest tests -k "test_login" -v       # Single test by name
 - Backend tests use pytest-asyncio with in-memory SQLite. Fixtures in `server/backend/tests/conftest.py`.
 - Additional E2E-style suites live in root `tests/` and are intended to run against a live app instance using `tests/pytest.ini`; they are not a substitute for the backend unit/integration suite in `server/backend/tests/`.
 - Security-specific tests in `server/backend/tests/security/` cover auth, headers, injection, and rate limiting.
-- Frontend tests use Vitest. Setup in `frontend/src/test/setup.ts`. Test files co-located in `frontend/src/test/`.
+- Frontend tests use Vitest. Setup in `frontend/src/test/setup.ts`. Tests currently live in `frontend/src/test/`, `frontend/src/__tests__/`, and nearby `*.test.*` files.
 - No linting/formatting tools are configured (no ESLint, Prettier, flake8, or ruff). CI runs tests only.
 
 ## Environment
@@ -119,7 +119,7 @@ Operational docs live at repo root:
 | `LOCAL_DEVELOPMENT.md` | Contributors | Non-Docker dev loop (vite + uvicorn) |
 | `DEPLOY.md` | Ops | Production deploy, TLS, backup |
 | `ENGINEER_UPDATES.md` | Engineers with EDQ already installed | Pull latest `main`, rebuild |
-| `SECURITY.md` | Everyone | Threat model, reporting vulns |
+| `SECURITY.md` | Everyone | Current security model, secret handling, and operational controls |
 | `SECURITY_TOOLING.md` | Ops | Scanner / dependency audit tooling |
 | `CONTRIBUTING.md` | Contributors | Branch, commit, PR flow |
 | `CHANGELOG.md` | Everyone | Release history |

@@ -113,10 +113,6 @@ ShieldMyRepo uses a standard letter grade scale:
 Run a full local scan from the repo root with either:
 
 ```bash
-npm run security:scan
-```
-
-```bash
 ./scripts/security-scan.sh
 ```
 
@@ -125,10 +121,6 @@ npm run security:scan
 ```
 
 To regenerate JSON only:
-
-```bash
-npm run security:scan:json
-```
 
 ```bash
 ./scripts/security-scan.sh json
@@ -144,17 +136,7 @@ Check local ShieldMyRepo health with:
 .\scripts\security-doctor.ps1
 ```
 
-Run the full local security flow (doctor -> scan -> doctor) with:
-
-```bash
-npm run security:all
-```
-
-```bash
-npm run security:all:sh
-```
-
-On Windows you can also run the repo-root launcher:
+Run the full local security flow (doctor -> scan -> doctor) with the Windows repo-root launcher:
 
 ```powershell
 .\security-all.cmd --no-pause
@@ -169,12 +151,6 @@ You also have dedicated Windows launchers:
 .\security-scan.cmd --no-pause
 .\security-all.cmd --no-pause
 .\security-update.cmd --no-pause
-```
-
-You can also update the global ShieldMyRepo install with:
-
-```powershell
-npm run security:update
 ```
 
 For the complete security tooling reference, see [SECURITY_TOOLING.md](SECURITY_TOOLING.md).

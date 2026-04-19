@@ -301,7 +301,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               isActive={isActive}
               onClose={() => setSidebarOpen(false)}
               user={user}
-              logout={logout}
               sections={sections}
             />
           </aside>
@@ -311,7 +310,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <SidebarContent
           isActive={isActive}
           user={user}
-          logout={logout}
           sections={sections}
         />
       </aside>
@@ -541,13 +539,11 @@ function SidebarContent({
   isActive,
   onClose,
   user,
-  logout,
   sections,
 }: {
   isActive: (href: string) => boolean
   onClose?: () => void
   user: { full_name?: string | null; username?: string; role?: string } | null
-  logout: () => void
   sections: NavSection[]
 }) {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
