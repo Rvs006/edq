@@ -37,6 +37,7 @@ from app.utils.audit import log_action
 from app.models.authorized_network import AuthorizedNetwork
 from app.models.user import UserRole
 from app.routes.authorized_networks import get_active_networks, is_target_authorized, is_ip_authorized
+from app.utils.collections import ordered_unique
 from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.routes.network_scan")
@@ -486,13 +487,7 @@ async def start_batch_scan(
             template_id = template.id
 
         raw_test_ids = data.test_ids or scan.selected_test_ids or (template.test_ids if template else [])
-        # Deduplicate while preserving order (guards against double-serialized or manually edited templates)
-        seen: set[str] = set()
-        test_ids: list[str] = []
-        for tid in raw_test_ids:
-            if tid not in seen:
-                seen.add(tid)
-                test_ids.append(tid)
+        test_ids = ordered_unique(raw_test_ids)
 
         # Build IP -> discovery data map for enriching new Device records
         _discovered_map = {}
