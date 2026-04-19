@@ -6,6 +6,8 @@ import {
   normalizeTestRun,
   normalizeTestRunProgressMessage,
   normalizeTestRunStatus,
+  toLocalDateOnly,
+  toLocalDateString,
 } from '@/lib/testContracts'
 
 describe('testContracts', () => {
@@ -82,5 +84,29 @@ describe('testContracts', () => {
         test_number: 'U07',
       },
     })
+  })
+
+  it('treats naive UTC timestamps as UTC for local date-time formatting', () => {
+    const utcTimestamp = '2026-04-01T12:34:56'
+    const expected = new Date(`${utcTimestamp}Z`).toLocaleString('en-GB', { timeZone: 'Europe/London' })
+
+    expect(toLocalDateString(utcTimestamp)).toBe(expected)
+    expect(toLocalDateString(`${utcTimestamp}Z`)).toBe(expected)
+  })
+
+  it('preserves explicit timezone information when formatting dates', () => {
+    const utcTimestamp = '2026-04-01T12:34:56-05:00'
+    const expected = new Date(utcTimestamp).toLocaleDateString('en-GB', {
+      timeZone: 'Europe/London',
+      day: 'numeric',
+      month: 'short',
+    })
+
+    expect(toLocalDateOnly(utcTimestamp, { day: 'numeric', month: 'short' })).toBe(expected)
+  })
+
+  it('returns an empty string for missing timestamps', () => {
+    expect(toLocalDateString(null)).toBe('')
+    expect(toLocalDateOnly(undefined)).toBe('')
   })
 })
