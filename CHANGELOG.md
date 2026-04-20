@@ -36,7 +36,7 @@ The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summariz
 
 ### Repo hygiene
 
-- Removed `update.bat`; replaced with the four documented git + docker commands in `ENGINEER_UPDATES.md`.
+- Removed the stale `update.bat` and `update.sh` helpers; the four documented git + docker commands in `ENGINEER_UPDATES.md` are the supported path.
 - Removed `GEMINI.md`; consolidated AI-agent guidance into `CLAUDE.md` with `AGENTS.md` as a pointer.
 - Refreshed `CLAUDE.md`, `README.md`, and `ENGINEER_UPDATES.md` to reflect the current stack (Python 3.13, PostgreSQL 17, node:24, reachability AND-gate).
 
