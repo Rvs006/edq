@@ -91,12 +91,12 @@ Impact:
 
 Impact:
 
-- backend-to-tools requests fail until both services use the same key
+- backend-to-tools requests fail until the backend process is using the rotated key for its co-located tools sidecar integration
 
 Recommended restart:
 
 ```bash
-docker compose restart backend tools
+docker compose restart backend
 ```
 
 ### Initial admin password
@@ -129,7 +129,7 @@ Compromised admin password:
 Compromised tools key:
 
 1. rotate `TOOLS_API_KEY`
-2. restart backend and tools
+2. restart backend
 3. review logs around scan activity
 
 ## Production Hardening Checklist
