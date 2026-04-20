@@ -163,7 +163,95 @@ def _patch_sheet_xml(xml_bytes: bytes, cell_updates: dict[str, str | None]) -> b
             cell_ref = f"{col_letter}{row_num}"
             _set_cell_value(row_el, cell_ref, col_idx, value)
 
+        _refresh_row_spans(row_el)
+
+    _refresh_sheet_dimension(root, sheet_data)
+
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _refresh_row_spans(row_el: Any) -> None:
+    """Recompute the `spans` attribute on a row after cell inserts.
+
+    Excel flags a cell at column 8 inside a row declared ``spans="2:7"``
+    and raises the "We found a problem with some content" repair dialog.
+    Expand the upper bound to cover every cell currently on the row.
+    """
+    cols = []
+    for c in row_el.findall(f"{{{_NS}}}c"):
+        ref = c.get("r", "")
+        m = _CELL_REF_RE.match(ref)
+        if m:
+            cols.append(_col_to_index(m.group(1).upper()))
+    if not cols:
+        return
+    low = min(cols)
+    high = max(cols)
+    existing = row_el.get("spans")
+    if existing and ":" in existing:
+        try:
+            e_low, e_high = (int(x) for x in existing.split(":", 1))
+            low = min(low, e_low)
+            high = max(high, e_high)
+        except ValueError:
+            pass
+    row_el.set("spans", f"{low}:{high}")
+
+
+def _refresh_sheet_dimension(root: Any, sheet_data: Any) -> None:
+    """Recompute `<dimension ref="A1:Zn"/>` to cover all cells in sheetData.
+
+    Excel compares the declared dimension against actual cell references.
+    Writes beyond the declared range trigger repair dialogs on open.
+    """
+    dim = root.find(f"{{{_NS}}}dimension")
+    if dim is None:
+        return
+
+    min_col = min_row = None
+    max_col = max_row = 0
+    for c in sheet_data.iter(f"{{{_NS}}}c"):
+        ref = c.get("r", "")
+        m = _CELL_REF_RE.match(ref)
+        if not m:
+            continue
+        col_idx = _col_to_index(m.group(1).upper())
+        row_idx = int(m.group(2))
+        if min_col is None or col_idx < min_col:
+            min_col = col_idx
+        if min_row is None or row_idx < min_row:
+            min_row = row_idx
+        if col_idx > max_col:
+            max_col = col_idx
+        if row_idx > max_row:
+            max_row = row_idx
+
+    if min_col is None:
+        return
+
+    existing = dim.get("ref", "")
+    m = re.match(r"^([A-Z]+)(\d+):([A-Z]+)(\d+)$", existing)
+    if m:
+        e_min_col = _col_to_index(m.group(1))
+        e_min_row = int(m.group(2))
+        e_max_col = _col_to_index(m.group(3))
+        e_max_row = int(m.group(4))
+        min_col = min(min_col, e_min_col)
+        min_row = min(min_row, e_min_row)
+        max_col = max(max_col, e_max_col)
+        max_row = max(max_row, e_max_row)
+
+    dim.set("ref", f"{_index_to_col(min_col)}{min_row}:{_index_to_col(max_col)}{max_row}")
+
+
+def _index_to_col(idx: int) -> str:
+    """Convert 1-based column index to letter (1 -> A, 26 -> Z, 27 -> AA)."""
+    letters = ""
+    n = idx
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        letters = chr(ord("A") + rem) + letters
+    return letters
 
 
 def _insert_row_sorted(sheet_data: Any, new_row: Any, row_num: int) -> None:
