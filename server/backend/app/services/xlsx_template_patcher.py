@@ -249,6 +249,20 @@ def _insert_cell_sorted(row_el: Any, new_cell: Any, col_idx: int) -> None:
         row_el.append(new_cell)
 
 
+_STRAY_ENTRY_PREFIXES = ("[trash]/", "[Trash]/", "trash/")
+
+
+def _is_stray_zip_entry(name: str) -> bool:
+    """Detect ZIP entries that are not part of the OOXML package.
+
+    Excel leaves a ``[trash]/`` folder inside saved workbooks containing
+    deleted-cell metadata. These entries are not declared in
+    ``[Content_Types].xml`` and trigger Excel's "We found a problem with
+    some content" repair dialog on open. Strip them during patching.
+    """
+    return any(name.startswith(p) for p in _STRAY_ENTRY_PREFIXES)
+
+
 def patch_xlsx(
     template_path: Path,
     output_path: Path,
@@ -313,6 +327,9 @@ def patch_xlsx(
         try:
             with zipfile.ZipFile(tmp_path, "w") as dst_zip:
                 for item in src_zip.infolist():
+                    if _is_stray_zip_entry(item.filename):
+                        logger.info("Stripping stray entry %s", item.filename)
+                        continue
                     data = src_zip.read(item.filename)
 
                     if item.filename in xml_to_updates:
