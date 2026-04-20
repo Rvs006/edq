@@ -30,8 +30,10 @@
     "test_description": "D",
     "essential_test": "E",
     "test_result": "F",
-    "test_comments": "G"
+    "test_comments": "G",
+    "engineer_notes": "H"
   },
+  "testplan_header_row": 10,
   "row_sources": {
     "1": ["U03"],
     "2": ["U44"],

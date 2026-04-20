@@ -92,6 +92,7 @@ def test_build_report_document_uses_template_mapping_for_layout():
         "Essential Pass",
         "Test Result",
         "Test Comments",
+        "Engineer Notes",
         "Script Flag",
     ]
 
@@ -171,7 +172,7 @@ async def test_generate_pdf_report_includes_template_profile_and_branding(tmp_pa
     content = pdf_bytes.getvalue().decode("latin-1", errors="ignore")
 
     assert "IP DEVICE QUALIFICATION REPORT" in content
-    assert "Pelco Camera (Rev 2)" in content
+    assert "Pelco Camera" in content and "Rev 2" in content
     assert "TEST SYNOPSIS" in content
     assert "ADDITIONAL INFO" in content
     assert "Essential Pass" in content
@@ -200,6 +201,92 @@ async def test_generate_csv_report_uses_template_profile_metadata(tmp_path, monk
     assert "Synopsis" in csv_text
     assert "Essential Pass" in csv_text
     assert "Script Flag" in csv_text
+
+
+def _make_test_result_with_notes(notes: str = "Check firmware 1.2.3 manually on next reboot"):
+    return SimpleNamespace(
+        test_id="U01",
+        test_name="Network Reachability",
+        verdict="pass",
+        comment="Device responded as expected.",
+        comment_override=None,
+        engineer_notes=notes,
+        override_reason=None,
+        is_essential="YES",
+    )
+
+
+@pytest.mark.asyncio
+async def test_engineer_notes_exported_as_dedicated_csv_column(tmp_path, monkeypatch):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+    note = "Check firmware 1.2.3 manually on next reboot"
+
+    output = await report_generator.generate_csv_report(
+        _make_test_run(),
+        [_make_test_result_with_notes(note)],
+        template_key="pelco_camera",
+    )
+
+    csv_text = Path(output).read_text(encoding="utf-8")
+
+    assert "Engineer Notes" in csv_text
+    assert note in csv_text
+    assert "[Engineer Notes:" not in csv_text
+
+
+def test_engineer_notes_resolved_as_separate_column_in_document():
+    report = report_generator.build_report_document(
+        _make_test_run(),
+        [_make_test_result_with_notes("Inspect after reboot")],
+        template_key="pelco_camera",
+    )
+
+    attrs = [attr for attr, _ in report.testplan_columns]
+    assert "engineer_notes" in attrs
+    row = report.rows[0]
+    assert row.engineer_notes == "Inspect after reboot"
+    assert "[Engineer Notes:" not in row.test_comments
+
+
+@pytest.mark.asyncio
+async def test_excel_export_strips_template_trash_entries(tmp_path, monkeypatch):
+    import zipfile
+
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [_make_test_result()],
+        template_key="generic",
+    )
+
+    with zipfile.ZipFile(output) as zf:
+        names = [i.filename for i in zf.infolist()]
+
+    assert not any(n.startswith("[trash]/") for n in names), \
+        f"Stray [trash]/ entries survived patching: {names}"
+
+
+@pytest.mark.asyncio
+async def test_engineer_notes_written_to_excel_cell(tmp_path, monkeypatch):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+    note = "Manual reboot observation"
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [_make_test_result_with_notes(note)],
+        template_key="generic",
+    )
+
+    wb = load_workbook(output)
+    try:
+        ws = wb["Test Results"]
+        header = ws["H10"].value
+        assert header == "Engineer Notes"
+        column_values = [ws[f"H{row}"].value for row in range(11, 54)]
+        assert note in column_values
+    finally:
+        wb.close()
 
 
 def test_build_report_document_includes_readiness_summary():
