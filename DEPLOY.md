@@ -12,7 +12,7 @@ EDQ runs as three containers:
 - `backend`: FastAPI application plus the co-located tools sidecar
 - `postgres`: primary application database
 
-Optional production HTTPS support is provided through `docker-compose.prod.yml`.
+Production HTTPS support is provided through `docker-compose.prod.yml`. The repo also includes `docker-compose.tls.yml` as an alternative Caddy-based TLS overlay, but the production flow in this guide uses `docker-compose.prod.yml`.
 
 Tip: Set `ENVIRONMENT=cloud` in `.env` for production deployments — this auto-derives `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`, and Postgres defaults.
 

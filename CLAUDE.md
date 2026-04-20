@@ -10,15 +10,15 @@ EDQ (Electracom Device Qualifier) is a local-first qualification app for smart b
 
 **Default deployment uses three services** orchestrated via Docker Compose:
 - **frontend** — React 19 SPA built by Vite (node:24-alpine) and served by nginx:alpine. Proxies `/api/` and `/ws/` to the backend.
-- **backend** — FastAPI on python:3.13-slim (async SQLAlchemy, PostgreSQL). All routes under `/api/v1/`.
+- **backend** — FastAPI on python:3.13-slim (async SQLAlchemy, PostgreSQL). All routes under `/api/v1/`. This same container also starts the tools sidecar on port `8001`.
 - **postgres** — PostgreSQL 17 (postgres:17-alpine) primary database.
-- **tools sidecar** — starts inside the backend container by default (gunicorn on `127.0.0.1:8001`). Runs the scanning toolchain (nmap, testssl.sh, hydra, nikto, ssh-audit, snmpwalk) and requires Linux capabilities.
 
 **Electron** (`electron/`) is a desktop wrapper that manages Docker Compose lifecycle; it is not a dev launcher.
 
 **Docker Compose variants:**
 - `docker-compose.yml` — default (PostgreSQL + backend + frontend).
-- `docker-compose.tls.yml` — TLS via Caddy reverse proxy (`docker compose -f docker-compose.yml -f docker-compose.tls.yml up`). Uses `Caddyfile` at repo root.
+- `docker-compose.prod.yml` — built-in production HTTPS overlay for nginx + certbot (`docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`).
+- `docker-compose.tls.yml` — optional Caddy-based TLS overlay (`docker compose -f docker-compose.yml -f docker-compose.tls.yml up`). Uses `Caddyfile` at repo root.
 
 ### Key backend patterns
 - Route handlers stay thin; business logic lives in `server/backend/app/services/`.
@@ -31,7 +31,7 @@ EDQ (Electracom Device Qualifier) is a local-first qualification app for smart b
 - Database seeds idempotently on startup via `init_db.py`.
 - Route mounting: all routers prefixed `/api/v1/`. A `LegacyAPIRewriteMiddleware` transparently rewrites `/api/*` → `/api/v1/*` for backward compat.
 - Migrations: Alembic (`server/backend/migrations/`). Run from `server/backend/`: `alembic upgrade head`, `alembic revision --autogenerate -m "description"`.
-- `entrypoint.sh` starts both the tools sidecar (gunicorn on :8001) and the backend (uvicorn on :8000) in a single container for simplified deployment.
+- `entrypoint.sh` starts both the tools sidecar (gunicorn on `0.0.0.0:8001`) and the backend (uvicorn on `0.0.0.0:8000`) in the same container for simplified deployment.
 - Services include: CVE auto-correlation (`cve_correlator.py`), device fingerprinting, Nessus import parsing, report generation, scan scheduling, connectivity probing.
 
 ### Key frontend patterns

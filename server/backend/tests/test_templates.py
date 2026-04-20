@@ -32,6 +32,18 @@ async def test_create_template(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_create_template_deduplicates_test_ids_preserving_order(client: AsyncClient):
+    headers = await register_and_login(client, "tplcreatededup", role="admin")
+    resp = await client.post("/api/test-templates/", json={
+        "name": "Template With Duplicates",
+        "test_ids": ["U01", "U02", "U01", "U03", "U02"],
+    }, headers=headers)
+
+    assert resp.status_code == 201
+    assert resp.json()["test_ids"] == ["U01", "U02", "U03"]
+
+
+@pytest.mark.asyncio
 async def test_get_template(client: AsyncClient):
     """Get a single template by ID."""
     headers = await register_and_login(client, "tplget", role="admin")
@@ -71,6 +83,23 @@ async def test_update_template(client: AsyncClient):
     assert resp.status_code == 200
     assert resp.json()["name"] == "After Update"
     assert len(resp.json()["test_ids"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_update_template_deduplicates_test_ids_preserving_order(client: AsyncClient):
+    headers = await register_and_login(client, "tplupdatededup", role="admin")
+    create_resp = await client.post("/api/test-templates/", json={
+        "name": "Before Dedup Update",
+        "test_ids": ["U01"],
+    }, headers=headers)
+    template_id = create_resp.json()["id"]
+
+    resp = await client.patch(f"/api/test-templates/{template_id}", json={
+        "test_ids": ["U03", "U01", "U03", "U02", "U01"],
+    }, headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.json()["test_ids"] == ["U03", "U01", "U02"]
 
 
 @pytest.mark.asyncio

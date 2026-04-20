@@ -57,6 +57,8 @@ Persistent state is stored in Docker volumes for:
 
 The supported local configuration file is the repo-root `.env`.
 
+For HTTPS-enabled Docker deployments, use `docker-compose.prod.yml` for the built-in nginx + certbot production path or `docker-compose.tls.yml` for the optional Caddy overlay.
+
 ## Quick Start
 
 macOS or Linux:
