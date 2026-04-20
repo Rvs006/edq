@@ -249,6 +249,35 @@ def test_engineer_notes_resolved_as_separate_column_in_document():
 
 
 @pytest.mark.asyncio
+async def test_excel_export_refreshes_dimension_and_row_spans(tmp_path, monkeypatch):
+    import re
+    import zipfile
+
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [_make_test_result_with_notes("H-col regression fixture")],
+        template_key="generic",
+    )
+
+    with zipfile.ZipFile(output) as zf:
+        sheet = zf.read("xl/worksheets/sheet2.xml").decode()
+
+    dim = re.search(r'<dimension ref="([^"]+)"/>', sheet)
+    assert dim is not None
+    max_col = dim.group(1).split(":")[1]
+    assert re.match(r"^[H-Z]+\d+$", max_col), f"dimension not extended to H+: {dim.group(1)}"
+
+    for m in re.finditer(r'<row r="(\d+)" spans="(\d+):(\d+)"[^>]*>', sheet):
+        row_no, low, high = m.group(1), int(m.group(2)), int(m.group(3))
+        row_end = sheet.find("</row>", m.end())
+        body = sheet[m.end():row_end] if row_end > 0 else ""
+        if 'r="H' + row_no + '"' in body:
+            assert high >= 8, f"row {row_no} has H cell but spans={low}:{high}"
+
+
+@pytest.mark.asyncio
 async def test_excel_export_strips_template_trash_entries(tmp_path, monkeypatch):
     import zipfile
 
