@@ -98,6 +98,7 @@ _TESTPLAN_COLUMN_LABELS = {
     "essential_pass": "Essential Pass",
     "test_result": "Test Result",
     "test_comments": "Test Comments",
+    "engineer_notes": "Engineer Notes",
     "script_flag": "Script Flag",
 }
 
@@ -110,6 +111,7 @@ class ReportRow:
     essential_test: str
     test_result: str
     test_comments: str
+    engineer_notes: str = ""
     script_flag: str = ""
     template_backed: bool = False
 
@@ -223,13 +225,15 @@ def _overall_result(test_run: Any) -> str:
 
 def _comment(result: Any) -> str:
     parts = [getattr(result, "comment_override", None) or getattr(result, "comment", None) or ""]
-    notes = getattr(result, "engineer_notes", None)
-    if notes:
-        parts.append(f"[Engineer Notes: {notes}]")
     reason = getattr(result, "override_reason", None)
     if reason:
         parts.append(f"[Override: {reason}]")
     return " ".join(part for part in parts if part).strip()
+
+
+def _engineer_notes(result: Any) -> str:
+    notes = getattr(result, "engineer_notes", None)
+    return str(notes) if notes else ""
 
 
 def _summary_text(
@@ -291,6 +295,7 @@ def _resolve_testplan_columns(mapping: dict[str, Any]) -> list[tuple[str, str]]:
         "essential_pass",
         "test_result",
         "test_comments",
+        "engineer_notes",
         "script_flag",
     ]
     resolved: list[tuple[str, str]] = []
@@ -308,6 +313,7 @@ def _resolve_testplan_columns(mapping: dict[str, Any]) -> list[tuple[str, str]]:
         ("essential_test", "Essential Test"),
         ("test_result", "Test Result"),
         ("test_comments", "Test Comments"),
+        ("engineer_notes", "Engineer Notes"),
     ]
 
 
@@ -442,6 +448,7 @@ def build_report_document(
                         essential_test=str(ws[f"{essential_column}{row_index}"].value or "") if essential_column else "",
                         test_result=_VERDICT_MAP.get((_safe_attr(source, "verdict") or "").lower(), _safe_attr(source, "verdict").upper()) if source else "",
                         test_comments=_comment(source) if source else "",
+                        engineer_notes=_engineer_notes(source) if source else "",
                         script_flag=str(ws[f"{script_column}{row_index}"].value or "") if script_column else "",
                         template_backed=True,
                     )
@@ -458,6 +465,7 @@ def build_report_document(
                     essential_test=_safe_attr(result, "is_essential").upper(),
                     test_result=_VERDICT_MAP.get((_safe_attr(result, "verdict") or "").lower(), _safe_attr(result, "verdict").upper()),
                     test_comments=_comment(result),
+                    engineer_notes=_engineer_notes(result),
                     script_flag="",
                 )
             )
@@ -554,12 +562,19 @@ async def generate_excel_report(
         testplan_sheet = report.mapping["testplan_sheet"]
         cols = report.mapping["testplan_columns"]
         start = report.mapping["testplan_start_row"]
+        notes_col = cols.get("engineer_notes")
+        header_row = report.mapping.get("testplan_header_row")
         testplan_cells: dict[str, str | None] = {}
+        if notes_col and header_row:
+            testplan_cells[f"{notes_col}{header_row}"] = "Engineer Notes"
         for offset, row in enumerate(report.rows):
             result_val = _sanitize(row.test_result) or None
             comment_val = _sanitize(row.test_comments) or None
             testplan_cells[f"{cols['test_result']}{start + offset}"] = result_val
             testplan_cells[f"{cols['test_comments']}{start + offset}"] = comment_val
+            if notes_col:
+                notes_val = _sanitize(row.engineer_notes) or None
+                testplan_cells[f"{notes_col}{start + offset}"] = notes_val
         if testplan_cells:
             sheet_updates[testplan_sheet] = testplan_cells
 

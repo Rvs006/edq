@@ -24,8 +24,10 @@
     "essential_pass": "E",
     "test_result": "F",
     "test_comments": "G",
-    "script_flag": "H"
+    "script_flag": "H",
+    "engineer_notes": "I"
   },
+  "testplan_header_row": 12,
   "verdict_map": {
     "pass": "PASS",
     "qualified_pass": "QUALIFIED PASS",
