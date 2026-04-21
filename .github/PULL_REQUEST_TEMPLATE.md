@@ -8,7 +8,7 @@ Brief description of changes.
 - [ ] Documentation update
 
 ## Testing
-- [ ] Tested locally with `docker compose up`
+- [ ] Ran the repo verification flow (`scripts/verify-app.ps1`, `scripts/e2e-test.ps1`, `scripts/backend-test.ps1` as applicable)
 - [ ] API endpoints verified
 - [ ] Frontend pages render correctly
 

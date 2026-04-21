@@ -37,7 +37,7 @@ What each step does:
 3. `git pull --ff-only origin main` — fast-forwards your `main` to the latest official commit; aborts if you have diverged
 4. `docker compose up --build -d` — rebuilds any changed images and restarts containers in the background
 
-No local helper is required. If you already use `./update.sh`, it still exists as a convenience wrapper for the same fetch/switch/pull/rebuild flow, but the four commands above remain the supported, explicit path.
+No local helper is required. Run the four commands above directly; they are the supported, explicit update path.
 
 ## After Updating
 
