@@ -260,17 +260,8 @@ class SecurityHeadersMiddleware:
 
         await self.app(scope, receive, send_with_security_headers)
 
-
-# Only the public health probe benefits from short caching.
-_CACHEABLE_API_PATHS: set[str] = set()
-
-
 class APICacheControlMiddleware:
-    """Set smart Cache-Control headers for API responses.
-
-    Read-only endpoints get short caching; everything else gets no-store.
-    Replaces the removed SecurityHeadersMiddleware's blanket no-store.
-    """
+    """Set `Cache-Control: no-store` on API responses."""
 
     def __init__(self, app):
         self.app = app
@@ -285,20 +276,10 @@ class APICacheControlMiddleware:
             await self.app(scope, receive, send)
             return
 
-        method = scope.get("method", "GET")
-        is_cacheable = method == "GET" and path in _CACHEABLE_API_PATHS
-
         async def send_with_cache(message):
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
-                if is_cacheable:
-                    headers = _upsert_header(
-                        headers,
-                        b"cache-control",
-                        b"public, max-age=30, stale-while-revalidate=60",
-                    )
-                else:
-                    headers = _upsert_header(headers, b"cache-control", b"no-store")
+                headers = _upsert_header(headers, b"cache-control", b"no-store")
                 message["headers"] = headers
             await send(message)
 

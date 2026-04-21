@@ -102,17 +102,9 @@ If you rotate the admin password before rerunning smoke scripts, pass the curren
 
 ## Security Scanning
 
-EDQ includes a simple local ShieldMyRepo workflow for quick repo hygiene checks.
+EDQ includes a local ShieldMyRepo workflow for quick repo hygiene checks. For the full command matrix across npm, Bash, PowerShell, and Windows launchers, see [SECURITY_TOOLING.md](SECURITY_TOOLING.md).
 
-ShieldMyRepo uses a standard letter grade scale:
-
-- `A`: 90-100
-- `B`: 80-89
-- `C`: 70-79
-- `D`: 60-69
-- `F`: below 60
-
-Run a full local scan from the repo root with either:
+Most engineers only need one of these entry points from the repo root:
 
 ```bash
 ./scripts/security-scan.sh
@@ -156,8 +148,6 @@ You also have dedicated Windows launchers:
 ```
 
 For the complete security tooling reference, see [SECURITY_TOOLING.md](SECURITY_TOOLING.md).
-
-
 Generated outputs are written to:
 
 - `reports/shieldmyrepo-report.md`

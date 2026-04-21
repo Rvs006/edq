@@ -15,7 +15,6 @@ interface SystemStatus {
 
 export function useOnlineStatus(): SystemStatus {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
-  const [frontendHealthy] = useState(true)
   const [backendHealthy, setBackendHealthy] = useState(true)
   const [databaseHealthy, setDatabaseHealthy] = useState(true)
   const [toolsHealthy, setToolsHealthy] = useState(true)
@@ -66,7 +65,7 @@ export function useOnlineStatus(): SystemStatus {
 
   return {
     isOnline,
-    frontendHealthy,
+    frontendHealthy: true,
     backendHealthy,
     databaseHealthy,
     toolsHealthy,
