@@ -21,6 +21,9 @@ from app.utils.datetime import ensure_utc_naive, utcnow
 SESSION_COOKIE = "edq_session"
 CSRF_COOKIE = "edq_csrf"
 REFRESH_COOKIE = "edq_refresh"
+# These cookies authenticate a browser session to EDQ itself. They are
+# separate from OIDC provider tokens and from the optional server-side
+# AI synopsis provider credentials used by the backend.
 
 def _utcnow() -> datetime:
     return utcnow()

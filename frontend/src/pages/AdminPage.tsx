@@ -293,6 +293,12 @@ function SystemTab() {
   const systemInfo = info || {}
   const tools = systemInfo.tools || {}
   const hasTool = (key: string) => Boolean(tools[key] && tools[key] !== 'unavailable')
+  const aiProviderStatus =
+    systemInfo.ai_status === 'configured'
+      ? 'Configured'
+      : systemInfo.ai_status === 'invalid_configuration'
+        ? 'Configuration error'
+        : 'Not configured'
   const sections = [
     {
       title: 'Services',
@@ -308,7 +314,7 @@ function SystemTab() {
       items: [
         ['Version', systemInfo.version || systemInfo.app_version || '1.0.0'],
         ['Overall Status', systemInfo.status || 'unknown'],
-        ['AI Features', systemInfo.ai_enabled ? 'Enabled' : 'Disabled'],
+        ['AI Synopsis Provider', aiProviderStatus],
       ],
     },
     {
@@ -341,6 +347,16 @@ function SystemTab() {
           </div>
         ))}
       </div>
+      {systemInfo.ai_message && (
+        <div className="mt-4">
+          <Callout
+            variant={systemInfo.ai_status === 'invalid_configuration' ? 'warning' : 'info'}
+            title="AI synopsis configuration"
+          >
+            {systemInfo.ai_message}
+          </Callout>
+        </div>
+      )}
       {systemInfo.checked_at && (
         <p className="text-[11px] text-zinc-400 dark:text-slate-500 mt-3">
           Last checked: {toLocalDateString(systemInfo.checked_at)}

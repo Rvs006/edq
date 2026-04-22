@@ -68,4 +68,9 @@ describe('ReportsPage', () => {
     renderWithProviders(<ReportsPage />)
     expect(screen.getByText(/Operational readiness score and trust summary/i)).toBeInTheDocument()
   })
+
+  it('explains that synopsis drafting is server-side when no run is selected', () => {
+    renderWithProviders(<ReportsPage />)
+    expect(screen.getByText(/server-side provider settings/i)).toBeInTheDocument()
+  })
 })

@@ -41,6 +41,7 @@ export default function ReportsPage() {
 
   const selectedRunDetails = runs?.find((run: TestRun) => run.id === selectedRun) || null
   const selectedReadiness = selectedRunDetails?.readiness_summary || null
+  const selectedRunHasSynopsis = Boolean(selectedRunDetails?.synopsis?.trim())
 
   const triggerBlobDownload = (blobData: Blob, filename: string, mimeType: string) => {
     const blob = new Blob([blobData], { type: mimeType })
@@ -236,9 +237,16 @@ export default function ReportsPage() {
                 className="w-4 h-4 rounded border-zinc-300 text-brand-500 focus:ring-brand-500"
               />
               <label htmlFor="synopsis" className="text-sm text-zinc-700 dark:text-slate-300">
-                Include AI-generated synopsis (if available)
+                Include saved synopsis text (if present on this run)
               </label>
             </div>
+            <p className="text-xs text-zinc-500 -mt-2">
+              {selectedRun
+                ? selectedRunHasSynopsis
+                  ? 'This run already has synopsis text saved in EDQ and can include it in the report.'
+                  : 'No synopsis is currently saved for this run. Reports still generate normally without it. Synopsis drafting, when enabled, uses EDQ server-side provider settings rather than each user\'s Codex or Claude login.'
+                : 'Reports can include synopsis text only when it is already saved on the selected run. Any synopsis drafting uses EDQ server-side provider settings.'}
+            </p>
 
             <button type="button" onClick={handleGenerate} disabled={generating || !selectedRun || Boolean(selectedReadiness && !selectedReadiness.report_ready)}
               title={selectedReadiness && !selectedReadiness.report_ready ? selectedReadiness.next_step : 'Generate official report'}
@@ -283,7 +291,7 @@ export default function ReportsPage() {
                 'Template-backed test-plan rows when a workbook mapping exists',
                 'Detailed findings for FAIL and ADVISORY results',
                 'Tool versions and connection scenario',
-                'AI-generated narrative synopsis',
+                'Saved synopsis narrative when one exists on the run',
               ].map(item => (
                 <li key={item} className="flex items-start gap-2">
                   <span className="text-brand-500 mt-0.5">&bull;</span>

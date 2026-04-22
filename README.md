@@ -199,7 +199,7 @@ Generated outputs are written to:
 | [REDIS.md](REDIS.md) | Optional Redis profile for shared-env rate limiting |
 | [CHANGELOG.md](CHANGELOG.md) | Curated history of major changes after the original v1.0 baseline |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and contribution notes |
-| [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) | Guidance for AI coding agents working in this repo |
+| [AGENTS.md](AGENTS.md) | Canonical guidance for AI coding agents working in this repo |
 
 ## Current Operational Notes
 
@@ -208,6 +208,7 @@ Generated outputs are written to:
 - For shared environments, enable the Redis profile and set `REDIS_URL` so rate limiting is consistent across instances.
 - The default runtime database is PostgreSQL on `127.0.0.1:55432`; Docker overrides the backend container to use the internal `postgres` host on `5432`.
 - Optional frontend telemetry is controlled by `VITE_*` build-time variables such as `VITE_CLIENT_ERROR_ENDPOINT` and `VITE_SENTRY_ENABLED`; if unset, the frontend keeps using the local client-error beacon path with safe defaults.
+- The committed `.vscode` workspace is intentionally tool-agnostic. It preserves the Python interpreter path but does not provision Codex, Claude, or MCP wiring automatically. Use your own Codex extension or CLI setup, and keep optional agent-specific MCP config local.
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.
 - Single-IP discovery uses an AND-gate reachability check: a target must answer **both** a fresh TCP/ICMP probe and nmap's ARP-bypass ping before the full scan runs. This prevents stale-ARP ghost results on recently unplugged devices.

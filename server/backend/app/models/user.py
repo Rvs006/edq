@@ -47,7 +47,8 @@ class User(Base):
     totp_secret = Column(String(256), nullable=True)
     totp_provisional_secret = Column(String(256), nullable=True)
 
-    # OIDC / SSO (set when user authenticates via external identity provider)
+    # OIDC / SSO only. These fields link an EDQ user to an external identity
+    # provider and are unrelated to the runtime AI synopsis integration.
     oidc_provider = Column(String(64), nullable=True)   # e.g. "google", "microsoft", "keycloak"
     oidc_subject = Column(String(256), nullable=True)    # unique ID from the IdP
     oidc_email = Column(String(320), nullable=True)

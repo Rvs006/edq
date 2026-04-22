@@ -4,6 +4,14 @@ This is a curated change history for EDQ. It is intentionally grouped by meaning
 
 The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summarize notable changes after that point.
 
+## 2026-04-22
+
+### AI agent guidance migration
+
+- Promoted `AGENTS.md` to the canonical AI-agent guidance document for the repository.
+- Converted `CLAUDE.md` into a compatibility shim that points Claude-oriented tooling to `AGENTS.md`.
+- Updated contributor onboarding in `README.md` so the main documentation path is no longer Claude-first.
+
 ## 2026-04-16
 
 ### Reachability AND-gate and ghost-ARP defense
@@ -37,7 +45,7 @@ The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summariz
 ### Repo hygiene
 
 - Removed `update.bat`; replaced with the four documented git + docker commands in `ENGINEER_UPDATES.md`.
-- Removed `GEMINI.md`; consolidated AI-agent guidance into `CLAUDE.md` with `AGENTS.md` as a pointer.
+- Removed `GEMINI.md`; consolidated AI-agent guidance into the repo's agent-doc path at that time. This was later superseded by `AGENTS.md` becoming the canonical guide.
 - Refreshed `CLAUDE.md`, `README.md`, and `ENGINEER_UPDATES.md` to reflect the current stack (Python 3.13, PostgreSQL 17, node:24, reachability AND-gate).
 
 ### New tests
