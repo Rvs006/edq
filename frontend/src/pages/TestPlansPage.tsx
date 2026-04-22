@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { toLocalDateOnly } from '@/lib/testContracts'
 import { testPlansApi, templatesApi } from '@/lib/api'
-import { UNIVERSAL_TESTS } from '@/lib/universal-tests'
+import { ACTIVE_UNIVERSAL_TESTS } from '@/lib/universal-tests'
 import type { UniversalTest } from '@/lib/universal-tests'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
@@ -187,7 +187,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
   const [description, setDescription] = useState(plan?.description || '')
   const [configs, setConfigs] = useState<TestConfig[]>(() => {
     if (plan?.test_configs?.length) return plan.test_configs
-    return UNIVERSAL_TESTS.map(t => ({ test_id: t.id, enabled: true, tier_override: null, custom: null }))
+    return ACTIVE_UNIVERSAL_TESTS.map(t => ({ test_id: t.id, enabled: true, tier_override: null, custom: null }))
   })
   const [saving, setSaving] = useState(false)
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set(['Network']))
@@ -257,7 +257,7 @@ function TestPlanEditor({ plan, onSave, onCancel }: { plan: TestPlan | null; onS
 
   const getTestsForCategory = (cat: string) => {
     if (cat === 'Custom') return configs.filter(c => c.custom)
-    return UNIVERSAL_TESTS
+    return ACTIVE_UNIVERSAL_TESTS
       .filter(t => t.category === cat)
       .map(t => ({ test: t, config: configMap.get(t.id) }))
   }

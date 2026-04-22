@@ -1,0 +1,1466 @@
+{
+  "schema_version": "3.0",
+  "document_title": "IP Device Qualification Methodology",
+  "origin_document": "Sauter_-_680-AS_-_IP_Device_Qualification_Template_C00.xlsx — the Sauter/SAUTER AG template that codified this methodology for Smart Building MSI acceptance testing.",
+  "methodology_statement": "This document defines a GENERIC, DEVICE-AGNOSTIC IP device qualification methodology. The 43 tests below apply to ANY IP-connected device on a smart-building network — BMS controllers, IoT gateways, IP cameras, access-control panels, managed network switches, utility meters, lighting/lift gateways, sensors, actuators, intercoms, etc. The methodology originated as a Sauter workbook, but the tests themselves probe universal device properties (networking, cryptography, authentication, lifecycle). The EDQ (Electracom Device Qualifier) app must implement this methodology so that pointing it at ANY qualifying IP device produces a report equivalent to what a skilled manual tester would produce — not just the devices EDQ has been tuned against.",
+  "device_agnosticism_principle": "Every automated scanner, every manual test prompt, every verdict-scoring rule inside EDQ must be evaluated against the question: 'would this work the same way if the device were a completely different class of IP device?' A test that passes cleanly on a Sauter BMS controller but silently fails on an IP camera, misclassifies an access control panel's open ports, or returns FAIL on a sensor that simply doesn't speak MQTT, is a broken test regardless of how well it handles the Sauter case.",
+  "device_archetypes": {
+    "description": "The canonical device classes EDQ must handle. Each reference test below declares its applicability against these classes.",
+    "classes": {
+      "bms_controller": "BMS/BAS field controllers (Sauter, Trend, Distech, Schneider, Siemens, Honeywell, Tridium JACE). Typically BACnet-heavy, web GUI, no MQTT, no Wi-Fi, wired only.",
+      "iot_gateway": "Commercial or custom IoT gateway running MQTT/UDMI, often Linux-based, may have Wi-Fi, may bridge BMS data to cloud.",
+      "ip_camera": "ONVIF/RTSP camera, web GUI on custom port, distinctive port profile, may have PoE, may have SD card.",
+      "access_control_panel": "Door controllers speaking OSDP-over-IP, Wiegand-over-IP, or proprietary protocols. Often minimal web GUI, heavy on proprietary ports.",
+      "managed_network_switch": "Smart-building network infrastructure itself. SNMP-heavy, lots of ports open by design (management, telnet, SSH, HTTPS, SNMP, LLDP).",
+      "utility_meter": "Energy / water / gas meters speaking Modbus TCP, BACnet/IP, or M-Bus-over-IP. Minimal web GUI, heavy on industrial protocols.",
+      "lighting_lift_gateway": "DALI-over-IP, DMX-over-IP, lift/elevator controllers with proprietary protocols. Highly variable.",
+      "simple_sensor_actuator": "Low-function IP endpoint (Shelly relay, MQTT temperature sensor, PoE occupancy sensor). Minimal stack, may have no web GUI at all.",
+      "unknown": "Device EDQ's classifier cannot confidently place. Default behaviour must be SAFE — run everything possible, mark genuinely-inapplicable tests as N/A with 'unknown archetype' reason."
+    }
+  },
+  "result_vocabulary": {
+    "PASS": "The device passed the specific test with no issues.",
+    "FAIL": "The device failed the specific test. Reasons MUST be specified in the test comments.",
+    "ADVISORY": "Close to passing but further configuration is required to achieve compliance (e.g. HTTP open by default but can be disabled in the web GUI).",
+    "INFO": "Information-only test that may or may not affect overall pass/fail. Depending on the finding, an INFO test can still cause the device to fail.",
+    "N/A": "The test is not applicable to the device and was not conducted. EDQ MUST provide a human-readable reason when emitting N/A (e.g. 'device does not speak MQTT', 'device has no wireless radio', 'device is not classified as an IoT gateway')."
+  },
+  "essential_flag_values": [
+    "YES",
+    "YES (IoT GATEWAYS ONLY)",
+    "INFO"
+  ],
+  "metadata_contract": {
+    "required_header_fields": [
+      "test_attempt",
+      "date_started",
+      "date_finished",
+      "system",
+      "system_owner",
+      "manufacturer",
+      "model",
+      "firmware_version",
+      "serial_number",
+      "tester_name",
+      "overall_result",
+      "test_summary_narrative",
+      "device_archetype_classification",
+      "device_classifier_confidence"
+    ],
+    "required_per_test_fields": [
+      "test_number",
+      "brief_description",
+      "test_description",
+      "essential_flag",
+      "test_result",
+      "test_comments",
+      "na_reason_if_applicable"
+    ]
+  },
+  "device_classifier_requirements": {
+    "description": "Before any of the 43 tests runs, EDQ must classify the device into one of the archetypes above. The classifier's decisions drive which tests apply (especially 25-31 MQTT, 32-34 Wi-Fi, 35 PoE, 12 NTP, 6 Hostname Resolution) and how INFO-level findings are weighted.",
+    "expected_inputs": [
+      "MAC OUI / vendor lookup",
+      "Open-port fingerprint (e.g. 47808 UDP implies BACnet speaker, 554 TCP implies RTSP camera, 1883/8883 implies MQTT speaker)",
+      "HTTP / HTTPS banner and page title",
+      "BACnet vendor-id and model-name (via bacnet-info)",
+      "mDNS / SSDP / LLDP announcements",
+      "Explicit tester input (archetype override)"
+    ],
+    "expected_outputs": [
+      "archetype: one of the classes above",
+      "confidence: 0.0-1.0",
+      "evidence_trail: ordered list of signals that drove the decision",
+      "derived_capabilities: { is_iot_gateway: bool, has_wifi: bool, has_poe: bool, speaks_bacnet: bool, speaks_mqtt: bool, has_ssh: bool, has_web_gui: bool, ... }"
+    ],
+    "fail_safe_behaviour": "On low confidence or 'unknown' archetype, default to running ALL tests and emitting N/A-with-reason only where evidence is unambiguous (e.g. no open MQTT port → MQTT tests N/A). NEVER silently skip tests because the classifier is uncertain."
+  },
+  "tests": [
+    {
+      "test_number": 1,
+      "brief_description": "Initial Switch Connection",
+      "category": "Layer 1/2 — Physical",
+      "description": "When the device is plugged into a switch, it auto-negotiates a speed and supports full duplex. Confirm device also supports manual speed and duplex.",
+      "essential_flag": "YES",
+      "expected_evidence": "Negotiated speed, duplex mode, list of manual speeds successfully forced.",
+      "applicability": {
+        "applies_to": [
+          "bms_controller",
+          "iot_gateway",
+          "ip_camera",
+          "access_control_panel",
+          "managed_network_switch",
+          "utility_meter",
+          "lighting_lift_gateway",
+          "simple_sensor_actuator"
+        ],
+        "na_conditions": [
+          "device is wireless-only (rare in smart building)"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Implementation often assumes access to a managed-switch CLI or SNMP. Evaluate: does EDQ degrade gracefully if only a dumb switch is present, or is this test gated on switch integration?",
+      "typical_tooling": "managed switch CLI/SNMP, LLDP, ethtool on tester host",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "managed_switch_cli_or_snmp"
+        ],
+        "tester_inputs": [
+          "switch_port_id"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "switch_port_status_before_after",
+        "ethtool_output_or_lldp_capture"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 2,
+      "brief_description": "Static IP",
+      "category": "Layer 3 — IP",
+      "description": "Confirm that the device can have a static IPv4 address set.",
+      "essential_flag": "YES",
+      "expected_evidence": "Confirmation that static IPv4 is configurable.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device only supports DHCP with no static option (some simple sensors)"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Often tested by navigating a web GUI. Fails on devices that configure IP via vendor app, DIP switches, or CLI-only. EDQ must accept manual tester confirmation for devices without web GUI.",
+      "typical_tooling": "Device management interface, ICMP probe after change",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "device_management_interface_access"
+        ],
+        "tester_inputs": [
+          "proposed_static_ip"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "config_screenshot_or_api_response",
+        "icmp_probe_after_change"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 3,
+      "brief_description": "DHCP #1",
+      "category": "Layer 3 — IP",
+      "description": "Device accepts IP address and related data via DHCP.",
+      "essential_flag": "YES",
+      "expected_evidence": "DHCP lease observed; IP, subnet, gateway, DNS populated.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device has hardcoded IP only"
+        ]
+      },
+      "device_agnosticism_pitfalls": "None significant.",
+      "typical_tooling": "isc-dhcp-server, tcpdump port 67/68, arp/neigh table read",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "isolated_dhcp_server"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          2
+        ]
+      },
+      "evidence_artefacts_required": [
+        "dhcp_discover_offer_request_ack_pcap",
+        "dhcp_lease_record"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 4,
+      "brief_description": "DHCP #2",
+      "category": "Layer 3 — IP",
+      "description": "Device accepts a changed IP address from the DHCP server without needing a reboot or port toggle.",
+      "essential_flag": "YES",
+      "expected_evidence": "After DHCP range change, device renews lease on new range without manual intervention.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "test 3 is N/A"
+        ]
+      },
+      "device_agnosticism_pitfalls": "None significant.",
+      "typical_tooling": "DHCP server range change + continuous ICMP/ARP monitoring",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "isolated_dhcp_server"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          3
+        ]
+      },
+      "evidence_artefacts_required": [
+        "dhcp_range_change_timestamp",
+        "continuous_icmp_and_arp_log"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 5,
+      "brief_description": "DNS Support",
+      "category": "Layer 3 — IP",
+      "description": "Device supports DNS and both static and dynamic DNS addressing.",
+      "essential_flag": "YES",
+      "expected_evidence": "Whether static DNS, dynamic DNS, or both are supported.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device makes no outbound connections requiring name resolution"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Automated detection relies on observing DNS queries on the wire; passive devices (e.g. sensors that only respond, never initiate) will never emit a query and may be incorrectly marked N/A.",
+      "typical_tooling": "DNS server + capture of A-record lookups from device MAC/IP",
+      "destructive_level": "non_destructive_config",
+      "prerequisites": {
+        "environment": [
+          "dns_server_with_query_logging"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "dns_query_log",
+        "device_dns_config_screenshot"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 6,
+      "brief_description": "Hostname Resolution",
+      "category": "Layer 3 — IP",
+      "description": "Can M2M connections be made via hostname rather than IP (e.g. MQTT broker connection by FQDN)?",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "Whether server-target fields accept hostname, IP only, or both.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "device is not classified as an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: this must be AUTOMATICALLY marked N/A with reason 'not an IoT gateway' when the classifier says the device is not a gateway. Silently FAIL-ing on a BMS controller because it doesn't expose a hostname field is wrong.",
+      "typical_tooling": "Device configuration review; DNS server to confirm lookups",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [
+          "archetype_confirmation"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "config_field_inspection_note"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 7,
+      "brief_description": "Ping",
+      "category": "Layer 3 — IP",
+      "description": "Device responds to ICMP ping requests.",
+      "essential_flag": "YES",
+      "expected_evidence": "Successful ICMP echo reply; round-trip time.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device explicitly has ICMP disabled by policy (rare; some hardened cameras or ACS panels)"
+        ]
+      },
+      "device_agnosticism_pitfalls": "None significant.",
+      "typical_tooling": "ping / fping",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "icmp_request_reply_log"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 8,
+      "brief_description": "MAC Address",
+      "category": "Identity",
+      "description": "Note the MAC address(es) and confirm they are registered to a known manufacturer OUI.",
+      "essential_flag": "YES",
+      "expected_evidence": "All MACs (LAN, WAN, WLAN, etc.), vendor name, company address, OUI last-updated date.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "OUI lookup database must be current and COMPLETE — not a BMS-vendor shortlist. EDQ must resolve any IEEE-registered OUI (cameras, switches, meters, intercoms), not just building-controls vendors.",
+      "typical_tooling": "arp / ip neigh + IEEE OUI database lookup",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "ieee_oui_database_current"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "raw_arp_or_neigh_output",
+        "oui_lookup_response_with_date"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 9,
+      "brief_description": "IPv6 #1",
+      "category": "Layer 3 — IP",
+      "description": "Device supports IPv6 addressing.",
+      "essential_flag": "INFO",
+      "expected_evidence": "Whether IPv6 stack is present and reachable; link-local and/or global addresses observed.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "None significant.",
+      "typical_tooling": "ping6, ndp/ip -6 neigh, nmap -6",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "ping6_output",
+        "ipv6_neighbour_table"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 10,
+      "brief_description": "IPv6 #2",
+      "category": "Layer 3 — IP",
+      "description": "Device supports SLAAC and/or DHCPv6 for IPv6 addressing.",
+      "essential_flag": "INFO",
+      "expected_evidence": "Whether DHCPv6 lease was received and/or SLAAC address derived from RA.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "test 9 reveals no IPv6 stack"
+        ]
+      },
+      "device_agnosticism_pitfalls": "None significant.",
+      "typical_tooling": "dhcpd6, radvd, tcpdump ip6",
+      "destructive_level": "non_destructive_config",
+      "prerequisites": {
+        "environment": [
+          "dhcpv6_server_or_radvd"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          9
+        ]
+      },
+      "evidence_artefacts_required": [
+        "dhcpv6_or_ra_pcap"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 11,
+      "brief_description": "Network Reconnection",
+      "category": "Resilience",
+      "description": "Device automatically re-discovers the network when the cable is toggled (unplug/replug).",
+      "essential_flag": "YES",
+      "expected_evidence": "After link-down/link-up, device reachable again without manual intervention.",
+      "applicability": {
+        "applies_to": "all_wired",
+        "na_conditions": [
+          "wireless-only device"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Requires managed-switch integration for full automation. Degrade to manual tester confirmation if unavailable.",
+      "typical_tooling": "Managed switch port shut/no shut + ping monitor",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "managed_switch_port_control"
+        ],
+        "tester_inputs": [
+          "switch_port_id"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "switch_port_shut_noshut_timestamps",
+        "continuous_reachability_log"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 12,
+      "brief_description": "NTP",
+      "category": "Time",
+      "description": "Device synchronises to NTP at the highest version supported (ideally v4). Device allows static/dynamic NTP server addressing.",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "NTP version observed on wire, static vs dynamic NTP server configuration options.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "device is not classified as an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same pitfall as test 6 — must emit N/A with reason on non-gateways. Note: many BMS controllers DO use NTP; EDQ's team may want to run this as an additional INFO test on non-gateways rather than skipping it entirely.",
+      "typical_tooling": "tcpdump port 123, chrony/ntpd as server, device config review",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "ntp_server_with_query_logging"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "ntp_packet_capture",
+        "device_ntp_config_screenshot"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 13,
+      "brief_description": "Data Flow",
+      "category": "Traffic Analysis",
+      "description": "Record the device's data flow types, endpoints, and keep-alive traffic. There should be no unencrypted communications.",
+      "essential_flag": "YES",
+      "expected_evidence": "List of destinations, protocols, ports, and whether any traffic is cleartext.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: the traffic classifier must recognise protocols across ALL archetypes — BACnet, MQTT, RTSP/RTP, ONVIF, OSDP, Modbus TCP, SNMP, DALI-over-IP, proprietary. An implementation that classifies only BMS protocols will emit false 'unknown traffic' findings on cameras and access-control panels.",
+      "typical_tooling": "tcpdump, wireshark/tshark, zeek, protocol classification",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "port_mirror_or_inline_tap",
+          "protocol_classifier_covering_bacnet_mqtt_rtsp_onvif_osdp_modbus_snmp_dali_ip"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "pcap_file",
+        "classified_flow_table"
+      ],
+      "determinism_class": "probabilistic_traffic_dependent"
+    },
+    {
+      "test_number": 14,
+      "brief_description": "Secondary Device Access",
+      "category": "Attack Surface",
+      "description": "Check the device for secondary ports and/or any other means of creating a network/console connection (e.g. secondary Ethernet, USB, SD card, serial/console).",
+      "essential_flag": "INFO",
+      "expected_evidence": "Enumeration of every physical ingress: WAN port, USB, SD card, serial/console, etc.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "Manual inspection test. EDQ must prompt the tester with a consistent checklist — not rely on datasheet scraping that may be incomplete for niche products.",
+      "typical_tooling": "Physical device inspection + datasheet cross-reference",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [
+          "physical_inspection_confirmation",
+          "photos_of_ports"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "tester_checklist_response",
+        "photographs"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 15,
+      "brief_description": "Open Ports",
+      "category": "Attack Surface",
+      "description": "List the network ports currently open on the device, on every physical interface (LAN, WAN, secondary).",
+      "essential_flag": "INFO",
+      "expected_evidence": "Per-interface port/service table: port, protocol, state, service.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: many common smart-building ports sit OUTSIDE nmap's top-1000 default (e.g. 5627 Sauter CASE, 5353 mDNS, 47808 BACnet, 44443/44444 licence manager, 554 RTSP, proprietary access-control ports in the 5000-9000 range). EDQ's default scan profile must be a full 1-65535 TCP + curated UDP scan, or explicitly include a superset of known smart-building ports. 'Top 1000' is not device-agnostic.",
+      "typical_tooling": "nmap (full TCP SYN, curated UDP, service detection)",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "full_range_tcp_udp_scanner"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "nmap_xml_output",
+        "per_interface_port_table"
+      ],
+      "determinism_class": "probabilistic_udp_scan_may_miss"
+    },
+    {
+      "test_number": 16,
+      "brief_description": "Discouraged Ports",
+      "category": "Attack Surface",
+      "description": "From the open-ports list, identify any that are unencrypted, unused, or otherwise should be closed. Provide rationale or justification for each.",
+      "essential_flag": "YES",
+      "expected_evidence": "Per-port justification (e.g. HTTP used only for HTTPS redirect, proprietary config port, licence manager port).",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "Ruleset must not be hardcoded to BMS context. For example, managed network switches have SNMP (161), telnet (23), SSH (22), HTTPS (443) open by design — these should be flagged according to the DEVICE ARCHETYPE. What is discouraged on a BMS controller may be expected on a switch.",
+      "typical_tooling": "Ruleset classifying risky ports + tester-supplied justification field",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "archetype_aware_port_ruleset"
+        ],
+        "tester_inputs": [
+          "per_port_justification_if_any"
+        ],
+        "preceding_tests": [
+          15
+        ]
+      },
+      "evidence_artefacts_required": [
+        "ruleset_version_and_justification_table"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 17,
+      "brief_description": "TLS Version",
+      "category": "Cryptography",
+      "description": "Where TLS is used, list the lowest TLS version supported. Must be TLSv1.2 or above.",
+      "essential_flag": "YES",
+      "expected_evidence": "Highest and lowest TLS versions negotiated, per TLS-bearing port.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device exposes no TLS-bearing port"
+        ]
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: must scan EVERY TLS-bearing port, not just 443. Cameras use TLS on 8443, MQTTS on 8883, ONVIF on custom ports. EDQ must iterate ports discovered in test 15 and TLS-probe each.",
+      "typical_tooling": "sslyze, testssl.sh, nmap ssl-enum-ciphers",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "tls_scanner_sslyze_or_testssl"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          15
+        ]
+      },
+      "evidence_artefacts_required": [
+        "sslyze_or_testssl_json_per_tls_port"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 18,
+      "brief_description": "Ciphersuites",
+      "category": "Cryptography",
+      "description": "List ciphersuites supported by the device. Highlight any deemed weak by Mozilla standards.",
+      "essential_flag": "INFO",
+      "expected_evidence": "Full ciphersuite list per TLS version; each one classified as strong/intermediate/weak.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "no TLS-bearing port"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same per-port-scan pitfall as test 17. Additionally, Mozilla recommendations evolve — EDQ's classifier must use a versioned, dated Mozilla profile, not a static snapshot.",
+      "typical_tooling": "sslyze, testssl.sh + Mozilla SSL Configuration Generator dataset",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "tls_scanner",
+          "mozilla_cipher_profile_dated"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          17
+        ]
+      },
+      "evidence_artefacts_required": [
+        "sslyze_or_testssl_json",
+        "mozilla_profile_version_used"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 19,
+      "brief_description": "Unencrypted Web Access",
+      "category": "Cryptography",
+      "description": "Device does not accept unencrypted web traffic and supports x509 certificates.",
+      "essential_flag": "YES",
+      "expected_evidence": "HTTP either closed or 301/302 redirects to HTTPS; HTTPS presents valid x509 cert.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device has no web GUI"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Must handle custom HTTP/HTTPS ports, not assume 80/443. Must handle devices that return a 200 (not a redirect) on HTTP — should that be PASS or FAIL? EDQ's verdict logic must be explicit.",
+      "typical_tooling": "curl -I http://device:port, openssl s_client",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [],
+        "preceding_tests": [
+          15
+        ]
+      },
+      "evidence_artefacts_required": [
+        "http_request_response_pair",
+        "redirect_chain"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 20,
+      "brief_description": "x509 Certificate Updates",
+      "category": "Cryptography",
+      "description": "Device allows replacement of the self-signed certificate with a CA-signed x509 certificate.",
+      "essential_flag": "INFO",
+      "expected_evidence": "Location in web GUI / config where cert upload is supported; supported formats (PEM, PFX, P12).",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device has no TLS or no upload mechanism"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Manual inspection test. EDQ must prompt tester consistently across archetypes.",
+      "typical_tooling": "Web GUI walkthrough, screenshots",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [
+          "gui_walkthrough_confirmation"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "gui_screenshot_of_cert_upload_field"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 21,
+      "brief_description": "802.1x",
+      "category": "Network Access Control",
+      "description": "Device supports 802.1x and supports EAP-TLS.",
+      "essential_flag": "INFO",
+      "expected_evidence": "Whether 802.1x is built in or licensed; which EAP methods are supported.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "Requires RADIUS test server and a dot1x-capable switch. Not all archetypes support 802.1x — explicit N/A with reason is better than FAIL.",
+      "typical_tooling": "FreeRADIUS test server + managed switch with dot1x authenticator",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "freeradius_test_server",
+          "dot1x_capable_switch"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "radius_auth_log",
+        "eap_method_negotiation_pcap"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 22,
+      "brief_description": "BACnet/IP Support and Version",
+      "category": "Protocol — BMS",
+      "description": "Does the device support BACnet/IP? Record the BACnet version and traffic to/from the device.",
+      "essential_flag": "INFO",
+      "expected_evidence": "BACnet-info fields: Vendor ID, Vendor Name, Object-identifier, Firmware, Application Software, Object Name, Model Name, Description, Location; plus observed BACnet/IP port 47808/udp.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device does not expose BACnet/IP (no 47808/udp response)"
+        ]
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: absence of BACnet must produce N/A with reason 'no BACnet service detected', NEVER FAIL. This is a common automated-tooling failure mode.",
+      "typical_tooling": "nmap bacnet-info script, BACpypes whois/iam",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "bacnet_scanner_nmap_script_or_bacpypes"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "bacnet_info_raw_output",
+        "whois_iam_capture"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 23,
+      "brief_description": "BACnet PIC/BIBB",
+      "category": "Protocol — BMS",
+      "description": "Confirm the device has a valid BACnet PIC statement and BIBB statement.",
+      "essential_flag": "INFO",
+      "expected_evidence": "Presence (Y/N) and source location of both PICS and BIBB documents.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "test 22 is N/A"
+        ]
+      },
+      "device_agnosticism_pitfalls": "None significant beyond 22.",
+      "typical_tooling": "Manufacturer datasheet review",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [
+          "datasheet_reference"
+        ],
+        "preceding_tests": [
+          22
+        ]
+      },
+      "evidence_artefacts_required": [
+        "pics_document_link_or_pdf",
+        "bibb_statement_link_or_pdf"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 24,
+      "brief_description": "SSH",
+      "category": "Protocol — Remote Access",
+      "description": "If the device uses SSH, confirm SSH protocol v2 is being used.",
+      "essential_flag": "YES",
+      "expected_evidence": "SSH version string; N/A if SSH is not supported.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "no SSH service detected"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Absence of SSH must produce N/A with reason, not FAIL. Switches typically DO expose SSH — for that archetype, absence would be an unusual finding.",
+      "typical_tooling": "ssh -v, nmap ssh2-enum-algos",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "ssh_enumeration_tool"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          15
+        ]
+      },
+      "evidence_artefacts_required": [
+        "ssh_version_banner",
+        "nmap_ssh2_enum_algos_output"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 25,
+      "brief_description": "MQTT Support",
+      "category": "Protocol — IoT",
+      "description": "Does the device support MQTT? If so, which MQTT versions? If not, state alternative data path (e.g. HTTPS, middleware).",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "MQTT version(s) supported or explicit alternative data path.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "device is not classified as an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: running this against a BMS controller, camera, switch, etc. produces meaningless FAIL results. Must be archetype-gated.",
+      "typical_tooling": "Mosquitto broker + CONNECT packet inspection",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "mosquitto_broker"
+        ],
+        "tester_inputs": [
+          "broker_target_configured_on_device"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "mqtt_connect_packet_capture",
+        "broker_log"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 26,
+      "brief_description": "MQTT Custom Payloads",
+      "category": "Protocol — IoT",
+      "description": "Does the device support UDMI JSON payload creation? Does the device allow custom JSON payloads?",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "UDMI compliance Y/N; custom-payload support Y/N.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "not an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same as test 25.",
+      "typical_tooling": "Device config review + broker subscribe",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "mosquitto_broker_subscribed"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          25
+        ]
+      },
+      "evidence_artefacts_required": [
+        "published_payload_samples",
+        "udmi_schema_validation_result"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 27,
+      "brief_description": "MQTT Write-back",
+      "category": "Protocol — IoT",
+      "description": "Does the device allow commands to be sent to it via MQTT (inbound control)?",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "Write-back Y/N; topics/schema used.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "not an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same as test 25.",
+      "typical_tooling": "mosquitto_pub + state-change verification",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "mosquitto_broker"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          25
+        ]
+      },
+      "evidence_artefacts_required": [
+        "mqtt_publish_command_and_device_state_change"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 28,
+      "brief_description": "MQTT Over TLS",
+      "category": "Protocol — IoT",
+      "description": "Does the device support MQTT over TLS (MQTTS)?",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "Connection to broker on 8883/tcp with TLS handshake verified.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "not an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same as test 25.",
+      "typical_tooling": "Mosquitto with TLS listener + packet capture",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "mosquitto_broker_with_tls_listener"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          25
+        ]
+      },
+      "evidence_artefacts_required": [
+        "mqtts_handshake_pcap"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 29,
+      "brief_description": "MQTT Authentication #1 — Client Certificate",
+      "category": "Protocol — IoT",
+      "description": "Is client-certificate authentication (x509) supported for MQTT?",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "mTLS Y/N; client cert/key upload workflow.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "not an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same as test 25.",
+      "typical_tooling": "Mosquitto with require_certificate true",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "mosquitto_broker_require_cert"
+        ],
+        "tester_inputs": [
+          "client_cert_and_key"
+        ],
+        "preceding_tests": [
+          28
+        ]
+      },
+      "evidence_artefacts_required": [
+        "mtls_handshake_pcap",
+        "broker_cert_validation_log"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 30,
+      "brief_description": "MQTT Authentication #2 — Username/Password",
+      "category": "Protocol — IoT",
+      "description": "Is username/password authentication supported for MQTT?",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "Username/password auth Y/N.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "not an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same as test 25.",
+      "typical_tooling": "Mosquitto with password_file + CONNECT inspection",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "mosquitto_broker_with_password_file"
+        ],
+        "tester_inputs": [
+          "mqtt_username_password"
+        ],
+        "preceding_tests": [
+          28
+        ]
+      },
+      "evidence_artefacts_required": [
+        "mqtt_connect_pcap_showing_auth"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 31,
+      "brief_description": "PKI Integration",
+      "category": "Cryptography",
+      "description": "Can custom CA certificates be installed into the device's trust store?",
+      "essential_flag": "YES (IoT GATEWAYS ONLY)",
+      "expected_evidence": "CA trust-store upload workflow; supported formats.",
+      "applicability": {
+        "applies_to": [
+          "iot_gateway"
+        ],
+        "na_conditions": [
+          "not an IoT gateway"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same as test 25.",
+      "typical_tooling": "Web GUI walkthrough",
+      "destructive_level": "non_destructive_config",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [
+          "ca_certificate_upload_confirmation"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "gui_screenshot_of_trust_store_upload"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 32,
+      "brief_description": "Wi-Fi Standards Supported",
+      "category": "Wireless",
+      "description": "Device supports one or more of: 802.11g / 802.11n / 802.11ac / 802.11ax.",
+      "essential_flag": "YES",
+      "expected_evidence": "List of 802.11 variants or explicit N/A.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device has no wireless radio (classifier-derived has_wifi=false)"
+        ]
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: classifier must reliably detect presence/absence of radio. Wrong answer causes either false FAILs (on wired-only devices) or missed Wi-Fi tests (on devices with radios we didn't detect).",
+      "typical_tooling": "Datasheet, wireless probe scan",
+      "destructive_level": "non_destructive_config",
+      "prerequisites": {
+        "environment": [
+          "wireless_probe_scanner"
+        ],
+        "tester_inputs": [
+          "datasheet_reference"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "datasheet_extract",
+        "airodump_capture_if_applicable"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 33,
+      "brief_description": "Wi-Fi Disablement",
+      "category": "Wireless",
+      "description": "If not required for normal operations, Wi-Fi can be disabled on the device.",
+      "essential_flag": "YES",
+      "expected_evidence": "Setting exists and has been confirmed to disable the radio.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "has_wifi=false"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Depends on correct wifi detection from test 32.",
+      "typical_tooling": "Device config review + airodump-ng to confirm",
+      "destructive_level": "non_destructive_config",
+      "prerequisites": {
+        "environment": [
+          "wireless_probe_scanner"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          32
+        ]
+      },
+      "evidence_artefacts_required": [
+        "device_config_screenshot",
+        "airodump_verification_after_disable"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 34,
+      "brief_description": "Wi-Fi Encryption",
+      "category": "Wireless",
+      "description": "Wi-Fi supports WPA2-AES as a minimum (WPA3 preferred).",
+      "essential_flag": "YES",
+      "expected_evidence": "Supported security modes (Open, WEP, WPA, WPA2-PSK, WPA2-Enterprise, WPA3).",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "has_wifi=false"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Depends on correct wifi detection from test 32.",
+      "typical_tooling": "Device AP mode probe or config review",
+      "destructive_level": "non_destructive_config",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [],
+        "preceding_tests": [
+          32
+        ]
+      },
+      "evidence_artefacts_required": [
+        "device_security_mode_screenshot"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 35,
+      "brief_description": "PoE",
+      "category": "Power",
+      "description": "List the PoE standards supported by the device (802.3af, 802.3at, 802.3bt).",
+      "essential_flag": "INFO",
+      "expected_evidence": "PoE class and standard(s) or explicit N/A.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device is not PoE-capable (classifier-derived has_poe=false)"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Requires PoE-capable managed switch that exposes per-port class information via SNMP/CLI.",
+      "typical_tooling": "Managed PoE switch reading class; datasheet",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "poe_capable_managed_switch_exposing_class_via_snmp"
+        ],
+        "tester_inputs": [
+          "datasheet_reference"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "switch_poe_class_reading",
+        "datasheet_extract"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 36,
+      "brief_description": "Credentials",
+      "category": "Authentication",
+      "description": "Confirm default credentials on the device and confirm they can be changed for every credential-based service.",
+      "essential_flag": "YES",
+      "expected_evidence": "Default creds observed (or forced-change-on-first-login confirmed); list of credential-based services; confirmation each is changeable.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "device has no credential-based service (rare — some pure sensors)"
+        ]
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: must iterate EVERY credential-based service, not just web GUI. A camera may have separate credentials for web, ONVIF, RTSP, SSH. A switch may have web, SSH, SNMPv3, console. Missing any of these is a gap.",
+      "typical_tooling": "Hydra/ncrack against known defaults; manual GUI walkthrough",
+      "destructive_level": "destructive",
+      "prerequisites": {
+        "environment": [
+          "credential_probe_tool_hydra_or_ncrack"
+        ],
+        "tester_inputs": [
+          "tester_supplied_credentials",
+          "list_of_credential_based_services"
+        ],
+        "preceding_tests": [
+          15
+        ]
+      },
+      "evidence_artefacts_required": [
+        "auth_attempt_log_per_service",
+        "credential_change_confirmation"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 37,
+      "brief_description": "Login Credentials Policy",
+      "category": "Authentication",
+      "description": "Confirm the login credentials policy on all services (length, complexity, duration, MFA).",
+      "essential_flag": "INFO",
+      "expected_evidence": "Minimum length, character-class requirements, rotation, MFA support, per service.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "no credential-based services"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Same per-service pitfall as test 36. Policies vary between services on the same device.",
+      "typical_tooling": "Password-set attempts probing policy; GUI review",
+      "destructive_level": "non_destructive_config",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [
+          "authenticated_session"
+        ],
+        "preceding_tests": [
+          36
+        ]
+      },
+      "evidence_artefacts_required": [
+        "policy_probing_attempts_log",
+        "policy_config_screenshot"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 38,
+      "brief_description": "Brute Force",
+      "category": "Authentication",
+      "description": "Device employs brute-force protection (lockout / throttling) on all its credential-based services.",
+      "essential_flag": "YES",
+      "expected_evidence": "Number of failed attempts before lockout; lockout type (IP ban, account lock, rate limit); lockout duration.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "no credential-based services"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Brute-force prober must target EVERY credential-based service found in test 36. Web login form is common but insufficient — must also attempt SSH, ONVIF, RTSP, SNMPv3, proprietary auth where present.",
+      "typical_tooling": "Scripted failed-login burst with timing measurement",
+      "destructive_level": "destructive",
+      "prerequisites": {
+        "environment": [
+          "brute_force_prober"
+        ],
+        "tester_inputs": [
+          "confirmation_that_lockout_is_acceptable"
+        ],
+        "preceding_tests": [
+          36
+        ]
+      },
+      "evidence_artefacts_required": [
+        "attempt_count_vs_lockout_log",
+        "lockout_type_and_duration_observed"
+      ],
+      "determinism_class": "deterministic",
+      "safety_note": "This test triggers an intentional account lockout. Must not run on production without explicit authorisation. Must run AFTER all other authenticated tests."
+    },
+    {
+      "test_number": 39,
+      "brief_description": "Session Expiry",
+      "category": "Authentication",
+      "description": "Device logs the user out on inactivity after a defined period.",
+      "essential_flag": "INFO",
+      "expected_evidence": "Default session timeout value; whether configurable.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": [
+          "no session-based services"
+        ]
+      },
+      "device_agnosticism_pitfalls": "Applies per authenticated service.",
+      "typical_tooling": "Authenticated session + idle timer + state probe",
+      "destructive_level": "non_destructive_config",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [
+          "authenticated_session"
+        ],
+        "preceding_tests": [
+          36
+        ]
+      },
+      "evidence_artefacts_required": [
+        "idle_timer_observation_log"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 40,
+      "brief_description": "Firmware Upgrades",
+      "category": "Lifecycle",
+      "description": "Confirm how the firmware of the device can be upgraded (web GUI, vendor tool, USB, over-the-air, etc.).",
+      "essential_flag": "INFO",
+      "expected_evidence": "Upgrade method(s); signed-firmware support Y/N.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "Manual inspection. Prompt wording must be archetype-neutral.",
+      "typical_tooling": "Vendor documentation, GUI walkthrough",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [],
+        "tester_inputs": [
+          "datasheet_or_vendor_tool_review"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "upgrade_mechanism_description",
+        "signed_firmware_confirmation_if_applicable"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 41,
+      "brief_description": "Software/OS Info",
+      "category": "Fingerprinting",
+      "description": "List any software/OS version information obtained from the device.",
+      "essential_flag": "INFO",
+      "expected_evidence": "Web server banner, OS, service banners.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "Banner grabbers must not assume HTTP/HTTPS — also SSH, SNMP, RTSP, custom. Fingerprint DB must be current across all archetypes.",
+      "typical_tooling": "nmap -sV, curl -I, service banners",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "service_version_scanner"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          15
+        ]
+      },
+      "evidence_artefacts_required": [
+        "nmap_sv_output",
+        "http_headers",
+        "any_banner_captures"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 42,
+      "brief_description": "Additional Information",
+      "category": "Vulnerability Scan",
+      "description": "Device is scanned for further vulnerabilities and hardening recommendations (HTTP headers, CVEs, weak TLS, etc.).",
+      "essential_flag": "YES",
+      "expected_evidence": "CVE matches, missing HTTP security headers (HSTS, X-Content-Type-Options, CSP, Referrer-Policy, X-Frame-Options, Permissions-Policy), TLS config grade, other findings.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "CRITICAL: CVE database match must be driven by the product/version detected in test 41, NOT a Sauter-specific or BMS-specific CVE list. A camera must be matched against camera-firmware CVEs (Hikvision, Dahua, Axis...), a switch against switch-OS CVEs (IOS-XE, ArubaOS, EOS...), etc.",
+      "typical_tooling": "nmap NSE vuln scripts, nikto, testssl.sh, HTTP header checker, CVE feeds (NVD, vendor advisories)",
+      "destructive_level": "read_only",
+      "prerequisites": {
+        "environment": [
+          "vuln_scanner_nmap_nse_plus_nikto_plus_testssl",
+          "cve_feed_nvd_or_equivalent",
+          "http_security_header_checker"
+        ],
+        "tester_inputs": [],
+        "preceding_tests": [
+          41
+        ]
+      },
+      "evidence_artefacts_required": [
+        "nmap_vuln_nse_output",
+        "nikto_report",
+        "http_header_audit",
+        "cve_match_table_with_product_version"
+      ],
+      "determinism_class": "deterministic"
+    },
+    {
+      "test_number": 43,
+      "brief_description": "SOAK",
+      "category": "Stability",
+      "description": "Leave the device connected to the network for seven days; check switch logs to ensure the port remained stable and the device remained reachable.",
+      "essential_flag": "YES",
+      "expected_evidence": "Seven-day uptime record, switch port flap counter, ICMP availability statistics.",
+      "applicability": {
+        "applies_to": "all",
+        "na_conditions": []
+      },
+      "device_agnosticism_pitfalls": "Probe cadence and reachability check must work on any device — ICMP may be disabled on some cameras or ACS panels; EDQ must fall back to an archetype-appropriate liveness probe (TCP connect to a known-open port).",
+      "typical_tooling": "Continuous ping/HTTPS probe, switch port counters, Prometheus/Grafana",
+      "destructive_level": "disruptive",
+      "prerequisites": {
+        "environment": [
+          "continuous_monitoring_probe",
+          "persistent_state_store",
+          "switch_port_counter_access"
+        ],
+        "tester_inputs": [
+          "seven_day_window_confirmation"
+        ],
+        "preceding_tests": []
+      },
+      "evidence_artefacts_required": [
+        "seven_day_availability_timeseries",
+        "switch_port_flap_counter_delta",
+        "uptime_summary"
+      ],
+      "determinism_class": "time_dependent",
+      "safety_note": "Seven-day test. EDQ must persist state across its own restarts, handle tester host reboots, and report partial results if interrogated before day 7."
+    }
+  ],
+  "destructive_level_vocabulary": {
+    "read_only": "Test only observes the device. Cannot change its state. Safe on production.",
+    "non_destructive_config": "Test may probe configuration options but does not modify persistent state. Generally safe on production.",
+    "disruptive": "Test briefly alters device state or network context (DHCP lease change, port toggle, authenticated probe). Device recovers automatically; other devices on the same segment may be briefly affected.",
+    "destructive": "Test causes lasting state change or lockout. Must require explicit --allow-destructive flag and must be gated on a non-production VLAN. Test 36 (credentials probe) and 38 (brute-force lockout) are in this class."
+  },
+  "determinism_class_vocabulary": {
+    "deterministic": "Same device + same EDQ version + same input = same verdict, every time.",
+    "probabilistic_traffic_dependent": "Verdict depends on network traffic captured during the window; different verdicts possible on re-run.",
+    "probabilistic_udp_scan_may_miss": "UDP scanning is lossy by nature; EDQ must retry and report confidence.",
+    "time_dependent": "Verdict is a function of wall-clock elapsed time (e.g. 7-day SOAK); cannot be reproduced in less time."
+  },
+  "operational_contract": {
+    "safety_gates": {
+      "destructive_tests_require_flag": "EDQ must refuse to run tests with destructive_level in {destructive} unless --allow-destructive or equivalent is set.",
+      "production_vlan_block": "EDQ must refuse to run disruptive or destructive tests when it can detect the device is on a production VLAN (configurable allowlist of test VLANs).",
+      "test_ordering_enforcement": "EDQ must respect preceding_tests and never run test N before all tests in preceding_tests[N] have completed."
+    },
+    "evidence_preservation": {
+      "raw_artefact_attachment": "Every test result must attach the raw tool output (nmap XML, sslyze JSON, pcap, screenshot) that drove the verdict. Attachments stored outside the human-readable report but linked from it.",
+      "command_line_logged": "The exact command line, tool version, and timestamp used for each probe must be logged.",
+      "tester_input_logged": "For manual tests, the prompt shown to the tester and the verbatim tester response must be logged."
+    },
+    "idempotency_and_reruns": {
+      "rerun_policy": "EDQ must declare explicitly: does a second run overwrite, append, or merge? Default should be append with run-id tagging so history is preserved.",
+      "partial_run_handling": "If run is interrupted, EDQ must resume from the last completed test, not restart from scratch. Per-test state must be persisted.",
+      "timeout_handling": "Every test must have a declared timeout and a declared retry policy."
+    },
+    "determinism": {
+      "same_input_same_output": "For tests in determinism_class=deterministic, running EDQ twice against an unchanged device must produce identical verdicts and substantially identical evidence (modulo timestamps).",
+      "drift_detection": "EDQ should include a self-check that diffs consecutive runs and flags unexpected verdict changes."
+    },
+    "soak_orchestration": {
+      "persistence": "Test 43 state must survive EDQ container restart, tester host reboot, and network interruption.",
+      "partial_reporting": "If asked for a report before day 7 completes, EDQ must emit a partial SOAK result labelled clearly as partial, not an arbitrary PASS/FAIL.",
+      "reachability_probe_archetype_aware": "When ICMP is blocked, EDQ must fall back to a TCP-connect liveness probe to a known-open port."
+    },
+    "auth_state_management": {
+      "credential_storage": "Tester-supplied credentials must be held only in memory or encrypted at rest, never logged, never included in the report.",
+      "per_service_iteration": "For tests 36-39 EDQ must iterate every credential-based service detected (web, SSH, SNMPv3, ONVIF, RTSP, proprietary), not only the web GUI.",
+      "session_hygiene": "Authenticated sessions used by EDQ must be explicitly closed and invalidated at end of run."
+    },
+    "auditability": {
+      "report_hash": "Final report must include a SHA-256 hash of itself excluding the hash field, so a downstream reviewer can detect tampering.",
+      "manual_override_log": "If a tester manually downgrades a FAIL to PASS (or vice versa), the original verdict, the override, the tester identity, the timestamp, and the justification must all appear in the report.",
+      "tester_signature": "The report must capture the tester name AND a signature mechanism (typed name, digital signature, or equivalent) and the version of EDQ that produced it."
+    },
+    "agent_accountability": {
+      "llm_verdict_decisions_traceable": "If any part of verdict assignment is made by an LLM agent (claude-flow / ruflo swarm), the agent's prompt, inputs, and decision must be logged with the result.",
+      "deterministic_scoring_preferred": "Where possible, verdict logic should be expressed as explicit rules, not left to LLM judgement. LLM judgement is acceptable for narrative comments but should not be the sole basis for PASS/FAIL.",
+      "prompt_versioning": "Agent prompts must be versioned; the version used for a given run must appear in the report."
+    },
+    "scoring_transparency": {
+      "verdict_rules_explicit": "For every test, the PASS/FAIL/ADVISORY/INFO/N/A decision rule must be expressible as a human-readable rule, inspectable outside the code.",
+      "overall_result_rollup": "How 43 per-test verdicts combine into overall_result MUST be documented. The manual workbook leaves this to tester judgement; EDQ must make it an explicit rule (e.g. 'overall = FAIL if any essential test is FAIL; overall = ADVISORY if any essential test is ADVISORY; else PASS').",
+      "na_does_not_skew": "N/A results must not be counted as PASS in the rollup; they must be explicitly excluded."
+    },
+    "report_template_parity": {
+      "structural_equivalence": "Output workbook or PDF must map 1:1 to the C00 template's sheet structure, header field positions, and per-test row layout.",
+      "acceptance_by_reviewer": "A Sauter/SAUTER acceptance reviewer looking at EDQ output must be able to use it interchangeably with a manually-produced workbook."
+    }
+  },
+  "edge_resilience_contract": {
+    "misbehaving_device": "EDQ must gracefully handle devices that drop packets, close connections mid-scan, rate-limit the scanner, or return garbage on a port. Timeouts, retries with backoff, and per-probe error reporting are required.",
+    "ipv6_only_devices": "Every scanner invocation must accept v4 OR v6 targets. The full test suite must be runnable against a v6-only device.",
+    "resource_constrained_host": "EDQ should declare its memory/disk/network footprint and behave predictably on a modest tester host.",
+    "manual_test_ux": "For manual-inspection tests, EDQ must show a consistent, archetype-appropriate prompt with validation of tester input (no 'bananas' accepted in a PASS/FAIL field) and a way to attach photos/screenshots.",
+    "dead_code": "EDQ must not contain test definitions that are in the registry but never invoked, or invoked but not registered. A coverage audit across declarations and call sites is required.",
+    "internal_test_harness": "EDQ's own scanners should have unit/integration tests proving they return the correct verdict against known-good and known-bad fixtures. An untested test harness is an untrusted test harness.",
+    "localisation": "Non-ASCII characters in device hostnames, SSIDs, certificate subjects, or tester comments must round-trip through the report without corruption. Time zones on the tester host must not corrupt SOAK timestamps."
+  }
+}

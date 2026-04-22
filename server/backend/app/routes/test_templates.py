@@ -10,7 +10,7 @@ from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.schemas.test import TestTemplateCreate, TestTemplateUpdate, TestTemplateResponse
 from app.security.auth import get_current_active_user, require_role
-from app.services.test_library import UNIVERSAL_TESTS
+from app.services.test_library import get_active_tests
 from app.utils.sanitize import sanitize_dict
 from app.utils.audit import log_action
 from app.utils.collections import ordered_unique
@@ -20,8 +20,8 @@ router = APIRouter()
 
 @router.get("/library")
 async def get_test_library(_: User = Depends(get_current_active_user)):
-    """Return the full universal test library (all 60 tests)."""
-    return UNIVERSAL_TESTS
+    """Return the active universal test library."""
+    return get_active_tests()
 
 
 @router.get("/", response_model=List[TestTemplateResponse])

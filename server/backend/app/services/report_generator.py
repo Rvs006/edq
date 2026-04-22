@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from app.config import settings
 from app.services.run_readiness import build_run_readiness_summary
+from app.services.scenario_routing import describe_connection_scenario
 from app.utils.datetime import as_utc, utcnow_naive
 
 logger = logging.getLogger(__name__)
@@ -380,7 +381,9 @@ def _supporting_evidence_body(
     ]
     for reason in readiness_summary.get("reasons", [])[:4]:
         parts.append(f"- {reason}")
-    parts.append(f"Connection Scenario: {_safe_attr(test_run, 'connection_scenario', 'direct')}")
+    parts.append(
+        f"Connection Scenario: {describe_connection_scenario(_safe_attr(test_run, 'connection_scenario', 'direct'))}"
+    )
     if branding.footer_text:
         parts.append(f"Report Footer: {branding.footer_text}")
     return "\n".join(parts)

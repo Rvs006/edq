@@ -994,7 +994,11 @@ class TestEngine:
             _TESTSSL_CACHE[run_id] = parsed
             return (parsed, raw.get("stdout"))
 
-        if test_id in ("U14", "U35"):
+        if test_id == "U14":
+            parsed = await self._capture_http_security_headers(device_ip, run_id)
+            return (parsed, parsed.get("raw_headers"))
+
+        if test_id == "U35":
             # Auto-detect HTTP/HTTPS port from scan cache
             nikto_args = []
             port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
@@ -1318,6 +1322,7 @@ class TestEngine:
             logger.debug("Auth type detection failed for %s: %s", device_ip, e)
 
         lockout_detected = False
+        lockout_duration_seconds: int | None = None
         error_msg = ""
         attempts_made = 0
 
@@ -1354,6 +1359,7 @@ class TestEngine:
             stdout = raw.get("stdout", "")
             error_msg = stdout
             attempts_made += 27
+            lockout_duration_seconds = self._extract_lockout_duration_seconds(stdout)
 
             if _text_indicates_lockout(stdout):
                 lockout_detected = True
@@ -1383,6 +1389,13 @@ class TestEngine:
                                 )
 
                             attempts_made += 1
+                            retry_after = verify_resp.headers.get("Retry-After")
+                            if retry_after and retry_after.isdigit():
+                                lockout_duration_seconds = int(retry_after)
+                            elif lockout_duration_seconds is None:
+                                lockout_duration_seconds = self._extract_lockout_duration_seconds(
+                                    verify_resp.text
+                                )
                             if verify_resp.status_code in (403, 423, 429):
                                 lockout_detected = True
                                 break
@@ -1406,6 +1419,7 @@ class TestEngine:
             "auth_type": auth_type,
             "attempts": attempts_made,
             "error": error_msg,
+            "lockout_duration_seconds": lockout_duration_seconds,
         }
 
     async def _test_http_redirect(self, device_ip: str) -> dict[str, Any]:
@@ -1414,20 +1428,110 @@ class TestEngine:
 
         redirects_to_https = False
         http_open = False
+        redirect_location = ""
+        redirect_status_code: int | None = None
 
         try:
             async with httpx.AsyncClient(timeout=10, verify=settings.SSL_VERIFY_DEVICES, follow_redirects=False) as client:
-                resp = await client.head(f"http://{device_ip}")
+                try:
+                    resp = await client.head(f"http://{device_ip}")
+                except httpx.HTTPError:
+                    resp = await client.get(f"http://{device_ip}")
                 http_open = True
-                location = resp.headers.get("location", "")
-                if resp.status_code in (301, 302, 307, 308) and "https" in location.lower():
+                redirect_status_code = resp.status_code
+                redirect_location = resp.headers.get("location", "")
+                if resp.status_code in (301, 302, 307, 308) and "https" in redirect_location.lower():
                     redirects_to_https = True
         except httpx.ConnectError:
             http_open = False
         except Exception as e:
             logger.debug("HTTP redirect check failed for %s: %s", device_ip, e)
 
-        return {"redirects_to_https": redirects_to_https, "http_open": http_open}
+        return {
+            "redirects_to_https": redirects_to_https,
+            "http_open": http_open,
+            "redirect_location": redirect_location,
+            "redirect_status_code": redirect_status_code,
+        }
+
+    @staticmethod
+    def _extract_lockout_duration_seconds(text: str | None) -> int | None:
+        lowered = (text or "").lower()
+        if not lowered:
+            return None
+        match = re.search(
+            r"(\d+)\s*(second|seconds|sec|secs|minute|minutes|min|mins)\b",
+            lowered,
+        )
+        if not match:
+            return None
+        value = int(match.group(1))
+        unit = match.group(2)
+        if unit.startswith("min"):
+            return value * 60
+        return value
+
+    async def _capture_http_security_headers(self, device_ip: str, run_id: str) -> dict[str, Any]:
+        """Capture HTTP response headers so U14 can report exact header output."""
+        import httpx
+
+        port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
+        open_ports = port_cache.get("open_ports", [])
+        candidate_ports = [
+            p for p in open_ports
+            if p.get("service") in ("https", "ssl/http", "ssl/https", "http")
+        ]
+        if not candidate_ports:
+            return {
+                "http_service_detected": False,
+                "status_line": None,
+                "headers": {},
+                "header_lines": [],
+                "raw_headers": "",
+                "response_url": None,
+            }
+
+        https_candidates = [
+            p for p in candidate_ports
+            if p.get("service") in ("https", "ssl/http", "ssl/https")
+        ]
+        target_port = (https_candidates or candidate_ports)[0]["port"]
+        target_service = (https_candidates or candidate_ports)[0].get("service") or "http"
+        scheme = "https" if target_service in ("https", "ssl/http", "ssl/https") else "http"
+        url = f"{scheme}://{device_ip}:{target_port}" if target_port not in (80, 443) else f"{scheme}://{device_ip}"
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=15,
+                verify=settings.SSL_VERIFY_DEVICES,
+                follow_redirects=True,
+            ) as client:
+                try:
+                    resp = await client.head(url)
+                except httpx.HTTPError:
+                    resp = await client.get(url)
+        except Exception as exc:
+            logger.debug("HTTP header capture failed for %s: %s", device_ip, exc)
+            return {
+                "http_service_detected": True,
+                "status_line": None,
+                "headers": {},
+                "header_lines": [],
+                "raw_headers": "",
+                "response_url": url,
+                "error": str(exc),
+            }
+
+        status_line = f"HTTP/{resp.http_version} {resp.status_code} {resp.reason_phrase}"
+        header_lines = [f"{name}: {value}" for name, value in resp.headers.items()]
+        return {
+            "http_service_detected": True,
+            "status_line": status_line,
+            "headers": dict(resp.headers),
+            "header_lines": header_lines,
+            "raw_headers": "\n".join([status_line, *header_lines]).strip(),
+            "response_url": str(resp.url),
+        }
 
     async def _test_rtsp_auth(self, device_ip: str) -> dict[str, Any]:
         """Check if RTSP streams require authentication using raw TCP."""

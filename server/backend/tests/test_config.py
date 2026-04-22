@@ -105,12 +105,13 @@ def test_normalize_debug_accepts_development_aliases():
 
 
 def test_finalize_runtime_defaults_for_cloud_enable_secure_cookie():
-    settings = _base_settings(
-        ENVIRONMENT="cloud",
-        COOKIE_SECURE=False,
-        COOKIE_SAMESITE="strict",
-        DATABASE_URL="",
-    )
+    with pytest.warns(UserWarning, match="COOKIE_SECURE=false in production environment"):
+        settings = _base_settings(
+            ENVIRONMENT="cloud",
+            COOKIE_SECURE=False,
+            COOKIE_SAMESITE="strict",
+            DATABASE_URL="",
+        )
 
     assert settings.COOKIE_SECURE is True
     assert settings.COOKIE_SAMESITE == "lax"

@@ -7,6 +7,7 @@ export interface UniversalTest {
   tier: 'automatic' | 'guided_manual'
   category: string
   essential: boolean
+  deprecated?: boolean
 }
 
 export const UNIVERSAL_TESTS: UniversalTest[] = [
@@ -45,7 +46,7 @@ export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U33', name: 'mDNS/Bonjour Exposure', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U34', name: 'Telnet/Insecure Protocol Detection', tier: 'automatic', category: 'Network', essential: true },
   { id: 'U35', name: 'Web Server Vulnerability Scan', tier: 'automatic', category: 'Web', essential: false },
-  { id: 'U36', name: 'Banner Grabbing / Info Leakage', tier: 'automatic', category: 'Network', essential: false },
+  { id: 'U36', name: 'Banner Grabbing / Info Leakage (Retired)', tier: 'guided_manual', category: 'Manual', essential: false, deprecated: true },
   { id: 'U37', name: 'RTSP Stream Authentication', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U38', name: 'MQTT Support & Security', tier: 'guided_manual', category: 'Manual', essential: false },
   { id: 'U39', name: 'VLAN Tagging Support', tier: 'guided_manual', category: 'Manual', essential: false },
@@ -73,3 +74,31 @@ export const UNIVERSAL_TESTS: UniversalTest[] = [
 ]
 
 export const TEST_CATEGORIES = ['Network', 'TLS', 'SSH', 'Web', 'Manual'] as const
+
+export const ACTIVE_UNIVERSAL_TESTS = UNIVERSAL_TESTS.filter((test) => !test.deprecated)
+
+const SCENARIO_MANUAL_TEST_IDS = new Set(['U03', 'U04', 'U09', 'U26', 'U28', 'U29', 'U34'])
+const DIRECT_SCENARIOS = new Set(['direct', 'direct_cable'])
+
+export function getEffectiveTestTier(
+  test: Pick<UniversalTest, 'id' | 'tier'>,
+  scenario?: string | null,
+): 'automatic' | 'guided_manual' {
+  if (test.tier === 'guided_manual') return 'guided_manual'
+  if (!scenario || DIRECT_SCENARIOS.has(scenario)) return test.tier
+  return SCENARIO_MANUAL_TEST_IDS.has(test.id) ? 'guided_manual' : test.tier
+}
+
+export function formatConnectionScenarioLabel(scenario?: string | null): string {
+  switch (scenario) {
+    case 'direct':
+    case 'direct_cable':
+      return 'Scenario 1 - Direct Cable'
+    case 'test_lab':
+      return 'Scenario 2 - Test Lab'
+    case 'site_network':
+      return 'Scenario 3 - Site Network'
+    default:
+      return 'Scenario 2 - Test Lab'
+  }
+}

@@ -38,6 +38,8 @@ class TestsslParser:
             "ciphers": [],
             "weak_ciphers": [],
             "cert_valid": False,
+            "cert_not_before": None,
+            "cert_not_after": None,
             "cert_expiry": None,
             "cert_subject": None,
             "cert_issuer": None,
@@ -99,6 +101,8 @@ class TestsslParser:
             "ciphers": [],
             "weak_ciphers": [],
             "cert_valid": False,
+            "cert_not_before": None,
+            "cert_not_after": None,
             "cert_expiry": None,
             "cert_subject": None,
             "cert_issuer": None,
@@ -134,6 +138,13 @@ class TestsslParser:
                 parts = line.strip().split()
                 if parts:
                     result["cert_expiry"] = parts[-1]
+                    result["cert_not_after"] = line.strip()
+            if "not valid before" in line_lower:
+                result["cert_not_before"] = line.strip()
+            if line_lower.startswith("subject:"):
+                result["cert_subject"] = line.split(":", 1)[1].strip()
+            if line_lower.startswith("issuer:"):
+                result["cert_issuer"] = line.split(":", 1)[1].strip()
 
         return result
 
@@ -179,8 +190,11 @@ class TestsslParser:
 
     def _process_cert(self, item_id: str, finding: str, result: dict) -> None:
         item_lower = item_id.lower()
+        if "notbefore" in item_lower or "valid from" in item_lower or "start" in item_lower:
+            result["cert_not_before"] = finding.strip()
         if "expir" in item_lower or "notafter" in item_lower:
             result["cert_expiry"] = finding.strip()
+            result["cert_not_after"] = finding.strip()
         if "subject" in item_lower and "issuer" not in item_lower:
             result["cert_subject"] = finding.strip()
         if "issuer" in item_lower:

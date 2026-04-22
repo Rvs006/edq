@@ -20,6 +20,7 @@ class TestDefinition(TypedDict, total=False):
     compliance_map: list[str]
     platform_notes: str | None
     trust_level: TrustLevel
+    deprecated: bool
 
 UNIVERSAL_TESTS: list[TestDefinition] = [
     {
@@ -94,7 +95,7 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "compliance_map": ["ISO 27001 A.14.1.2"]
     },
     {
-        "test_id": "U14", "name": "HTTP Security Headers", "tier": "automatic", "tool": "nikto",
+        "test_id": "U14", "name": "HTTP Security Headers", "tier": "automatic", "tool": "curl",
         "is_essential": False, "description": "Check for security headers (CSP, X-Frame-Options, etc.).",
         "compliance_map": ["ISO 27001 A.14.1.2"]
     },
@@ -205,9 +206,10 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "compliance_map": ["ISO 27001 A.14.1.2"]
     },
     {
-        "test_id": "U36", "name": "Banner Grabbing / Information Leakage", "tier": "automatic", "tool": "nmap",
-        "is_essential": False, "description": "Check service banners for sensitive information disclosure (versions, internal IPs).",
-        "compliance_map": ["ISO 27001 A.12.6.1"]
+        "test_id": "U36", "name": "Banner Grabbing / Information Leakage", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Retired automatic check. Use U08 service version detection evidence and record any banner-leakage concerns manually.",
+        "compliance_map": ["ISO 27001 A.12.6.1"],
+        "deprecated": True,
     },
     {
         "test_id": "U37", "name": "RTSP Stream Authentication", "tier": "automatic", "tool": "custom",
@@ -372,24 +374,29 @@ def get_test_by_id(test_id: str) -> TestDefinition | None:
     return None
 
 
+def get_active_tests() -> list[TestDefinition]:
+    """Return tests that are not marked deprecated."""
+    return [test for test in UNIVERSAL_TESTS if not test.get("deprecated")]
+
+
 def get_all_test_ids() -> list[str]:
     """Get all test IDs."""
-    return [t["test_id"] for t in UNIVERSAL_TESTS]
+    return [t["test_id"] for t in get_active_tests()]
 
 
 def get_essential_test_ids() -> list[str]:
     """Get IDs of essential tests."""
-    return [t["test_id"] for t in UNIVERSAL_TESTS if t["is_essential"]]
+    return [t["test_id"] for t in get_active_tests() if t["is_essential"]]
 
 
 def get_automatic_test_ids() -> list[str]:
     """Get IDs of automatic tests."""
-    return [t["test_id"] for t in UNIVERSAL_TESTS if t["tier"] == "automatic"]
+    return [t["test_id"] for t in get_active_tests() if t["tier"] == "automatic"]
 
 
 def get_manual_test_ids() -> list[str]:
     """Get IDs of guided manual tests."""
-    return [t["test_id"] for t in UNIVERSAL_TESTS if t["tier"] == "guided_manual"]
+    return [t["test_id"] for t in get_active_tests() if t["tier"] == "guided_manual"]
 
 
 def get_trust_level_counts() -> dict[TrustLevel, int]:

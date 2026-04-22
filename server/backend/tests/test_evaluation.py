@@ -123,3 +123,125 @@ def test_u36_includes_script_output_in_banner_comment():
     assert verdict == "info"
     assert "PORT\tSTATE\tSERVICE\tVERSION" in comment
     assert "Server: nginx/1.16.1" in comment
+
+
+def test_u11_lists_detected_cipher_suites_in_comment():
+    verdict, comment = evaluate_result(
+        "U11",
+        {
+            "ciphers": [
+                {"name": "TLS_AES_256_GCM_SHA384"},
+                {"name": "TLS_CHACHA20_POLY1305_SHA256"},
+            ],
+            "weak_ciphers": [],
+        },
+    )
+
+    assert verdict == "pass"
+    assert "Detected cipher suites:" in comment
+    assert "TLS_AES_256_GCM_SHA384" in comment
+
+
+def test_u12_includes_subject_issuer_and_validity_window():
+    verdict, comment = evaluate_result(
+        "U12",
+        {
+            "cert_valid": True,
+            "cert_subject": "CN=device.local",
+            "cert_issuer": "CN=EDQ Test CA",
+            "cert_not_before": "2026-04-01",
+            "cert_not_after": "2027-04-01",
+        },
+    )
+
+    assert verdict == "pass"
+    assert "Subject: CN=device.local" in comment
+    assert "Issuer: CN=EDQ Test CA" in comment
+    assert "Not Before: 2026-04-01" in comment
+    assert "Not After: 2027-04-01" in comment
+
+
+def test_u14_reports_captured_header_dump():
+    verdict, comment = evaluate_result(
+        "U14",
+        {
+            "http_service_detected": True,
+            "headers": {
+                "Content-Security-Policy": "default-src 'self'",
+                "X-Frame-Options": "DENY",
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "same-origin",
+            },
+            "raw_headers": "HTTP/1.1 200 OK\nContent-Security-Policy: default-src 'self'\nX-Frame-Options: DENY",
+        },
+    )
+
+    assert verdict == "pass"
+    assert "HTTP/1.1 200 OK" in comment
+    assert "Content-Security-Policy" in comment
+
+
+def test_u15_includes_algorithm_inventory_in_comment():
+    verdict, comment = evaluate_result(
+        "U15",
+        {
+            "overall_score": "good",
+            "ssh_version": "SSH-2.0-OpenSSH_9.8",
+            "kex_algorithms": ["curve25519-sha256"],
+            "ciphers": ["chacha20-poly1305@openssh.com"],
+            "macs": ["hmac-sha2-256-etm@openssh.com"],
+            "host_keys": ["ssh-ed25519"],
+            "weak_kex": [],
+            "weak_ciphers": [],
+            "weak_macs": [],
+            "weak_host_keys": [],
+        },
+    )
+
+    assert verdict == "pass"
+    assert "Banner: SSH-2.0-OpenSSH_9.8" in comment
+    assert "KEX: curve25519-sha256" in comment
+    assert "Ciphers: chacha20-poly1305@openssh.com" in comment
+
+
+def test_u17_reports_lockout_duration_when_present():
+    verdict, comment = evaluate_result(
+        "U17",
+        {
+            "lockout_detected": True,
+            "lockout_duration_seconds": 120,
+        },
+    )
+
+    assert verdict == "pass"
+    assert "Lockout duration: 2 minute(s)." in comment
+
+
+def test_u18_no_longer_passes_when_http_is_absent():
+    verdict, comment = evaluate_result(
+        "U18",
+        {
+            "redirects_to_https": False,
+            "http_open": False,
+        },
+    )
+
+    assert verdict == "advisory"
+    assert "does not satisfy a redirect verification requirement" in comment
+
+
+def test_u19_includes_device_type_running_guess_and_cpe():
+    verdict, comment = evaluate_result(
+        "U19",
+        {
+            "os_fingerprint": "Linux 5.X",
+            "device_type": "general purpose",
+            "running": ["Linux 5.X"],
+            "os_cpe": ["cpe:/o:linux:linux_kernel:5"],
+        },
+    )
+
+    assert verdict == "info"
+    assert "Device type: general purpose." in comment
+    assert "Running guesses: Linux 5.X." in comment
+    assert "CPE: cpe:/o:linux:linux_kernel:5." in comment

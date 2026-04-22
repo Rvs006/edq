@@ -13,18 +13,30 @@ from app.models.test_result import TestTier
 
 DIRECT_SCENARIOS = {"direct", "direct_cable"}
 
+_SCENARIO_LABELS: dict[str, str] = {
+    "direct": "Scenario 1 - Direct Cable",
+    "test_lab": "Scenario 2 - Test Lab",
+    "site_network": "Scenario 3 - Site Network",
+}
+
 _SCENARIO_MANUAL_ROUTING: dict[str, dict[str, str]] = {
     "test_lab": {
         "U03": "Switch negotiation must be verified manually in the test lab scenario.",
         "U04": "DHCP behaviour must be verified manually in the test lab scenario.",
+        "U09": "Protocol whitelist compliance requires engineer review in the test lab scenario.",
         "U26": "NTP synchronisation requires lab-side observation in the test lab scenario.",
+        "U28": "BACnet/IP discovery requires engineer review in the test lab scenario.",
         "U29": "DNS support requires lab-side observation in the test lab scenario.",
+        "U34": "Insecure protocol findings require engineer review in the test lab scenario.",
     },
     "site_network": {
         "U03": "Switch negotiation must be verified manually on a live site network.",
         "U04": "DHCP behaviour must be verified manually on a live site network.",
+        "U09": "Protocol whitelist compliance must be reviewed manually on a live site network.",
         "U26": "NTP synchronisation requires manual evidence on a live site network.",
+        "U28": "BACnet/IP discovery must be reviewed manually on a live site network.",
         "U29": "DNS support requires manual evidence on a live site network.",
+        "U34": "Insecure protocol findings must be reviewed manually on a live site network.",
     },
 }
 
@@ -40,6 +52,11 @@ def normalize_connection_scenario(connection_scenario: str | None) -> str:
     if scenario in DIRECT_SCENARIOS:
         return "direct"
     return scenario or "direct"
+
+
+def describe_connection_scenario(connection_scenario: str | None) -> str:
+    scenario = normalize_connection_scenario(connection_scenario)
+    return _SCENARIO_LABELS.get(scenario, scenario.replace("_", " ").title())
 
 
 def get_scenario_routing_decision(test_id: str, base_tier: str, connection_scenario: str | None) -> ScenarioRoutingDecision:

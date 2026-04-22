@@ -21,6 +21,26 @@ _DHCP_MESSAGE_LABELS = {
 }
 
 
+def _format_duration_seconds(seconds: int | None) -> str:
+    if seconds is None or seconds <= 0:
+        return "duration unknown"
+    minutes, remainder = divmod(seconds, 60)
+    if minutes and remainder:
+        return f"{minutes} minute(s) {remainder} second(s)"
+    if minutes:
+        return f"{minutes} minute(s)"
+    return f"{remainder} second(s)"
+
+
+def _header_lookup(headers: dict[str, Any], *names: str) -> str | None:
+    lowered = {str(key).lower(): value for key, value in (headers or {}).items()}
+    for name in names:
+        value = lowered.get(name.lower())
+        if value:
+            return str(value)
+    return None
+
+
 def evaluate_result(
     test_id: str,
     parsed_data: dict[str, Any],
@@ -69,13 +89,14 @@ def _eval_u02(data: dict, _wl: list) -> tuple[str, str]:
 
 
 def _eval_u03(data: dict, _wl: list) -> tuple[str, str]:
-    """Switch Negotiation — ethtool not in sidecar, mark N/A."""
-    return ("na", "Switch Negotiation (Speed/Duplex) — Cannot run remotely from Docker. "
-                   "To verify: check the switch port LED indicators, or run 'show interface status' "
-                   "on the switch CLI, or use 'ethtool <interface>' from a host with direct access. "
-                   "Expected: auto-negotiation enabled, 100Mbps or 1Gbps full-duplex.\n\n"
-                   "Optimal environment: Linux host with direct Ethernet connection to the device's switch port.")
-
+    """Switch negotiation guidance for direct-cable verification."""
+    return (
+        "na",
+        "Switch Negotiation (Speed/Duplex) - Manual verification required. "
+        "Run this in Scenario 1 - Direct Cable using a host with direct Ethernet access to the device port. "
+        "Check switch interface status or run 'ethtool <interface>'. "
+        "Expected result: auto-negotiation enabled and the link settled at 100Mbps or 1Gbps full-duplex.",
+    )
 
 def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
     """DHCP Behaviour."""
@@ -406,24 +427,51 @@ def _eval_u11(data: dict, _wl: list) -> tuple[str, str]:
     weak_ciphers = data.get("weak_ciphers", [])
     ciphers = data.get("ciphers", [])
     if not ciphers:
-        return ("na", "Cipher Strength — No cipher suites detected. TLS may not be configured.")
+        return ("na", "Cipher Strength - No cipher suites detected. TLS may not be configured.")
+    cipher_names = [
+        c.get("name", str(c)).strip()
+        for c in ciphers
+        if (c.get("name", str(c)).strip() if isinstance(c, dict) else str(c).strip())
+    ]
+    weak_names = [
+        c.get("name", str(c)).strip()
+        for c in weak_ciphers
+        if (c.get("name", str(c)).strip() if isinstance(c, dict) else str(c).strip())
+    ]
+    cipher_lines = "\n".join(f"- {name}" for name in cipher_names[:12])
     if weak_ciphers:
-        names = [c.get("name", str(c)) if isinstance(c, dict) else str(c) for c in weak_ciphers[:5]]
-        return ("fail", f"Cipher Strength — Weak ciphers found: {', '.join(names)}. Disable RC4, DES, 3DES, NULL, and EXPORT ciphers in the TLS configuration.")
-    return ("pass", f"Cipher Strength — All {len(ciphers)} cipher suite(s) are strong.")
-
+        details = ", ".join(weak_names[:5])
+        suffix = "\nDetected cipher suites:\n" + cipher_lines if cipher_lines else ""
+        return ("fail", f"Cipher Strength - Weak ciphers found: {details}. Disable RC4, DES, 3DES, NULL, and EXPORT ciphers in the TLS configuration.{suffix}")
+    suffix = "\nDetected cipher suites:\n" + cipher_lines if cipher_lines else ""
+    return ("pass", f"Cipher Strength - All {len(ciphers)} cipher suite(s) are strong.{suffix}")
 
 def _eval_u12(data: dict, _wl: list) -> tuple[str, str]:
     """Certificate Validity."""
+    subject = data.get("cert_subject") or "unknown"
+    issuer = data.get("cert_issuer") or "unknown"
+    not_before = data.get("cert_not_before") or "unknown"
+    not_after = data.get("cert_not_after") or data.get("cert_expiry") or "unknown"
     if data.get("cert_valid"):
-        expiry = data.get("cert_expiry", "unknown")
-        issuer = data.get("cert_issuer", "unknown")
-        return ("pass", f"Certificate Validity — Certificate is valid. Expires: {expiry}. Issuer: {issuer}.")
-    expiry = data.get("cert_expiry")
-    if expiry:
-        return ("advisory", f"Certificate Validity — Issue found: certificate may be expired or self-signed. Expiry: {expiry}. Renew or replace the certificate.")
-    return ("na", "Certificate Validity — No certificate detected or testssl could not connect.")
-
+        return (
+            "pass",
+            "Certificate Validity - Certificate is valid.\n"
+            f"Subject: {subject}\n"
+            f"Issuer: {issuer}\n"
+            f"Not Before: {not_before}\n"
+            f"Not After: {not_after}",
+        )
+    if data.get("cert_expiry") or data.get("cert_not_after") or data.get("cert_subject") or data.get("cert_issuer"):
+        return (
+            "advisory",
+            "Certificate Validity - Issue found: certificate may be expired, untrusted, or self-signed.\n"
+            f"Subject: {subject}\n"
+            f"Issuer: {issuer}\n"
+            f"Not Before: {not_before}\n"
+            f"Not After: {not_after}\n"
+            "Renew or replace the certificate if this device is expected to present a trusted certificate.",
+        )
+    return ("na", "Certificate Validity - No certificate detected or testssl could not connect.")
 
 def _eval_u13(data: dict, _wl: list) -> tuple[str, str]:
     """HSTS Header Presence."""
@@ -435,22 +483,36 @@ def _eval_u13(data: dict, _wl: list) -> tuple[str, str]:
 
 
 def _eval_u14(data: dict, _wl: list) -> tuple[str, str]:
-    """HTTP Security Headers (nikto)."""
-    stdout = data.get("raw", data.get("stdout", ""))
-    if not stdout:
-        return ("na", "HTTP Headers — No HTTP service detected or nikto could not connect.")
+    """HTTP Security Headers."""
+    if not data.get("http_service_detected"):
+        return ("na", "HTTP Headers - No HTTP or HTTPS service detected for header inspection.")
 
-    issues = _extract_nikto_findings(stdout)
-    vuln_count = len(issues)
+    raw_headers = (data.get("raw_headers") or "").strip()
+    headers = data.get("headers") or {}
+    if not raw_headers and not headers:
+        error = data.get("error")
+        if error:
+            return ("advisory", f"HTTP Headers - Header capture failed: {error}")
+        return ("advisory", "HTTP Headers - HTTP service detected but header capture returned no response.")
 
-    if vuln_count > 5:
-        details = "; ".join(issues[:5]) + f" (+{vuln_count - 5} more)"
-        return ("fail", f"HTTP Headers — Missing or misconfigured headers ({vuln_count} issues): {details}. Add Content-Security-Policy, X-Frame-Options, X-Content-Type-Options.")
-    if vuln_count > 0:
-        details = "; ".join(issues)
-        return ("advisory", f"HTTP Headers — {vuln_count} issue(s) found: {details}. Review and add missing security headers.")
-    return ("pass", "HTTP Headers — Security headers are properly configured.")
+    required_headers = {
+        "Content-Security-Policy": _header_lookup(headers, "Content-Security-Policy"),
+        "X-Frame-Options": _header_lookup(headers, "X-Frame-Options"),
+        "X-Content-Type-Options": _header_lookup(headers, "X-Content-Type-Options"),
+        "Referrer-Policy": _header_lookup(headers, "Referrer-Policy"),
+    }
+    missing = [name for name, value in required_headers.items() if not value]
+    header_block = f"\n{raw_headers}" if raw_headers else ""
 
+    if missing:
+        return (
+            "advisory",
+            "HTTP Headers - Missing or misconfigured security headers: "
+            + ", ".join(missing)
+            + ". Review the captured response headers below."
+            + header_block,
+        )
+    return ("pass", "HTTP Headers - Security headers captured successfully." + header_block)
 
 def _eval_u15(data: dict, _wl: list) -> tuple[str, str]:
     """SSH Algorithm Assessment."""
@@ -462,9 +524,21 @@ def _eval_u15(data: dict, _wl: list) -> tuple[str, str]:
 
     version = data.get("ssh_version", "")
     total_weak = len(weak_kex) + len(weak_ciphers) + len(weak_macs) + len(weak_hk)
+    sections: list[str] = []
+    if version:
+        sections.append(f"Banner: {version}")
+    if data.get("kex_algorithms"):
+        sections.append("KEX: " + ", ".join(data.get("kex_algorithms", [])[:8]))
+    if data.get("ciphers"):
+        sections.append("Ciphers: " + ", ".join(data.get("ciphers", [])[:8]))
+    if data.get("macs"):
+        sections.append("MACs: " + ", ".join(data.get("macs", [])[:8]))
+    if data.get("host_keys"):
+        sections.append("Host Keys: " + ", ".join(data.get("host_keys", [])[:8]))
+    detail_block = "\n" + "\n".join(sections) if sections else ""
 
     if not version and total_weak == 0:
-        return ("na", "SSH Algorithms — No SSH service detected (port 22 closed). Not applicable.")
+        return ("na", "SSH Algorithms - No SSH service detected (port 22 closed). Not applicable.")
 
     if score == "fail" or total_weak > 3:
         parts = []
@@ -476,13 +550,12 @@ def _eval_u15(data: dict, _wl: list) -> tuple[str, str]:
             parts.append(f"MACs: {', '.join(weak_macs[:3])}")
         if weak_hk:
             parts.append(f"Host keys: {', '.join(weak_hk)}")
-        return ("fail", f"SSH Algorithms — Weak algorithms found: {'; '.join(parts)}. Update the SSH server configuration to remove weak algorithms.")
+        return ("fail", f"SSH Algorithms - Weak algorithms found: {'; '.join(parts)}. Update the SSH server configuration to remove weak algorithms.{detail_block}")
 
     if total_weak > 0:
-        return ("advisory", f"SSH Algorithms — {total_weak} weak algorithm(s) found. Update the SSH server configuration to remove weak algorithms.")
+        return ("advisory", f"SSH Algorithms - {total_weak} weak algorithm(s) found. Update the SSH server configuration to remove weak algorithms.{detail_block}")
 
-    return ("pass", f"SSH Algorithms — All SSH key exchange, cipher, and MAC algorithms are strong. Version: {version}.")
-
+    return ("pass", f"SSH Algorithms - All SSH key exchange, cipher, and MAC algorithms are strong.{detail_block}")
 
 def _eval_u16(data: dict, _wl: list) -> tuple[str, str]:
     """Default Credential Check."""
@@ -497,33 +570,50 @@ def _eval_u17(data: dict, _wl: list) -> tuple[str, str]:
     """Brute Force Protection."""
     lockout_detected = data.get("lockout_detected", False)
     error_msg = data.get("error", "")
+    duration = _format_duration_seconds(data.get("lockout_duration_seconds"))
     if lockout_detected:
-        return ("pass", "Brute Force Protection — Account lockout detected after rapid login attempts. Protection is active.")
+        return ("pass", f"Brute Force Protection - Account lockout or rate limiting detected after rapid login attempts. Protection is active. Lockout duration: {duration}.")
     if "connection refused" in error_msg.lower() or "max retries" in error_msg.lower():
-        return ("pass", "Brute Force Protection — Connection refused after rapid attempts. Brute force protection is active.")
-    return ("advisory", "Brute Force Protection — No lockout detected after rapid login attempts. Enable account lockout or rate limiting on the device.")
-
+        return ("pass", f"Brute Force Protection - Connection refused after rapid attempts. Brute force protection is active. Lockout duration: {duration}.")
+    return ("advisory", "Brute Force Protection - No lockout detected after rapid login attempts. "
+            f"Observed lockout duration: {duration}. Enable account lockout or rate limiting on the device.")
 
 def _eval_u18(data: dict, _wl: list) -> tuple[str, str]:
-    """HTTP→HTTPS Redirect."""
+    """HTTP to HTTPS Redirect."""
     redirects = data.get("redirects_to_https", False)
     http_open = data.get("http_open", False)
+    location = data.get("redirect_location") or ""
+    status_code = data.get("redirect_status_code")
     if redirects:
-        return ("pass", "HTTP→HTTPS Redirect — HTTP correctly redirects to HTTPS.")
+        suffix = f" Status: {status_code}. Redirect target: {location}." if status_code else ""
+        return ("pass", "HTTP to HTTPS Redirect - HTTP correctly redirects to HTTPS." + suffix)
     if not http_open:
-        return ("pass", "HTTP→HTTPS Redirect — No HTTP service detected. Only HTTPS available.")
-    return ("fail", "HTTP→HTTPS Redirect — HTTP does not redirect to HTTPS. Configure the web server to redirect port 80 to port 443.")
-
+        return ("advisory", "HTTP to HTTPS Redirect - No HTTP service detected on port 80. "
+                "This is more secure than serving plaintext HTTP, but it does not satisfy a redirect verification requirement.")
+    suffix = f" Status: {status_code}. Response location: {location}." if status_code or location else ""
+    return ("fail", "HTTP to HTTPS Redirect - HTTP does not redirect to HTTPS. Configure the web server to redirect port 80 to port 443." + suffix)
 
 def _eval_u19(data: dict, _wl: list) -> tuple[str, str]:
-    """OS Fingerprinting — informational."""
+    """OS Fingerprinting - informational."""
     os_fp = data.get("os_fingerprint")
+    os_details = data.get("os_details")
+    device_type = data.get("device_type")
+    running = data.get("running") or []
+    cpes = data.get("os_cpe") or []
     if os_fp:
-        return ("info", f"OS Fingerprint — Operating system identified: {os_fp}.")
-    return ("info", "OS Fingerprint — Could not determine OS. The device may block fingerprinting probes.\n\n"
+        parts = [f"OS Fingerprint - Operating system identified: {os_fp}."]
+        if os_details and os_details != os_fp:
+            parts.append(f"Details: {os_details}.")
+        if device_type:
+            parts.append(f"Device type: {device_type}.")
+        if running:
+            parts.append("Running guesses: " + ", ".join(running[:4]) + ".")
+        if cpes:
+            parts.append("CPE: " + ", ".join(cpes[:3]) + ".")
+        return ("info", " ".join(parts))
+    return ("info", "OS Fingerprint - Could not determine OS. The device may block fingerprinting probes.\n\n"
                      "Platform note: OS fingerprinting works best with a direct network connection (not through Docker NAT). "
                      "Alternatively, check the device admin interface for OS/firmware information.")
-
 
 def _eval_u26(data: dict, _wl: list) -> tuple[str, str]:
     """NTP Synchronisation Check."""

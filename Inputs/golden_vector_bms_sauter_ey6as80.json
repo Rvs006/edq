@@ -1,0 +1,331 @@
+{
+  "schema_version": "3.0",
+  "document_title": "Golden Vector — BMS Controller (Sauter EY6AS80)",
+  "document_role": "This is ONE entry in what must become a growing corpus of golden vectors spanning every device archetype EDQ must handle. Each entry records: (a) the device under test, (b) its archetype classification, (c) the expected per-test verdicts and evidence that a skilled manual tester produced. EDQ must be able to reproduce an equivalent report for any device represented in the corpus. This entry was the first — the Sauter 680-AS run performed by Dhilen Patel and Zakariya Amos on 17/04/2026, overall PASS. Future entries (IP camera, access control panel, managed switch, utility meter, IoT gateway, etc.) should live alongside this file under `golden_vectors/`.",
+  "corpus_expansion_note": "Every new device Raj and the team qualify becomes a candidate golden vector. Suggested directory structure: `golden_vectors/{archetype}/{manufacturer}_{model}_{firmware}.json`. This entry would move to `golden_vectors/bms_controller/sauter_ey6as80_v3.3.1b5450.json` once the corpus is established.",
+  "device_under_test": {
+    "header": {
+      "test_attempt": 1,
+      "date_started": "17/04/2026",
+      "date_finished": "?????",
+      "system": "BMS",
+      "system_owner": "Sauter",
+      "manufacturer": "Sauter",
+      "model": "EY6AS80",
+      "firmware_version": "V3.3.1b5450",
+      "serial_number": "711150000659",
+      "tester_name": "Dhilen Patel / Zakariya Amos",
+      "overall_result": "PASS",
+      "test_summary_narrative": "The device has passed the IP device qualification, no issues were found from the scans/tests."
+    },
+    "archetype_classification": {
+      "archetype": "bms_controller",
+      "confidence": 1.0,
+      "evidence_trail": [
+        "BACnet/IP service on 47808/udp with Vendor ID 80 (Fr. Sauter AG), Vendor Name SAUTER, Model Name EY6AS80F021",
+        "MAC OUI 0C:1C:57 — Texas Instruments (common in BMS controller hardware)",
+        "CASE Sun Configuration port 5627/tcp open (Sauter-proprietary configuration protocol)",
+        "No MQTT ports observed",
+        "No RTSP/ONVIF ports observed"
+      ],
+      "derived_capabilities": {
+        "is_iot_gateway": false,
+        "has_wifi": false,
+        "has_poe": false,
+        "speaks_bacnet": true,
+        "speaks_mqtt": false,
+        "has_ssh": false,
+        "has_web_gui": true,
+        "has_secondary_physical_ports": true
+      }
+    },
+    "expected_results": [
+      {
+        "test_number": 1,
+        "result": "PASS",
+        "comments": "Speed auto-negotiates to 100Mbit/sec. Manual speeds of 10 and 100Mbit/sec supported."
+      },
+      {
+        "test_number": 2,
+        "result": "PASS",
+        "comments": ""
+      },
+      {
+        "test_number": 3,
+        "result": "PASS",
+        "comments": ""
+      },
+      {
+        "test_number": 4,
+        "result": "PASS",
+        "comments": "DHCP range changed, device was able to go onto the new range without a port toggle."
+      },
+      {
+        "test_number": 5,
+        "result": "PASS",
+        "comments": "Static DNS supported only."
+      },
+      {
+        "test_number": 6,
+        "result": "N/A",
+        "na_reason": "Device is not classified as an IoT gateway.",
+        "comments": "Server fields require an IP address rather than a hostname. Not an issue as DNS is supported and can be pointed at a local DNS if required."
+      },
+      {
+        "test_number": 7,
+        "result": "PASS",
+        "comments": ""
+      },
+      {
+        "test_number": 8,
+        "result": "PASS",
+        "comments": "LAN MAC: 0C:1C:57:14:52:24\nVendor: Texas Instruments\nCompany Address: 12500 TI Blvd Dallas TX US 75243\nLast Updated: 12/04/2018\n\nWAN MAC: 0C:1C:57:F4:52:22"
+      },
+      {
+        "test_number": 9,
+        "result": "INFO",
+        "comments": ""
+      },
+      {
+        "test_number": 10,
+        "result": "INFO",
+        "comments": "DHCP IPv6 address received by the device."
+      },
+      {
+        "test_number": 11,
+        "result": "PASS",
+        "comments": ""
+      },
+      {
+        "test_number": 12,
+        "result": "N/A",
+        "na_reason": "Device is not classified as an IoT gateway.",
+        "comments": "Manual source left this cell blank. EDQ should emit explicit N/A-with-reason rather than a blank verdict."
+      },
+      {
+        "test_number": 13,
+        "result": "PASS",
+        "comments": "No unusual traffic."
+      },
+      {
+        "test_number": 14,
+        "result": "INFO",
+        "comments": "There is a WAN ethernet port, a USB port and SD card."
+      },
+      {
+        "test_number": 15,
+        "result": "INFO",
+        "comments": "Network ports open on physical LAN ports G, H, J:\nPORT      STATE SERVICE\n80/tcp    open  http\n443/tcp   open  https\n5627/tcp  open  CASE Sun Config (WSC)\n16080/tcp open  \n16443/tcp open  \n44443/tcp open  license manager port\n44444/tcp open  license manager port\n\nNetwork ports open on physical WAN port:\n443/tcp https"
+      },
+      {
+        "test_number": 16,
+        "result": "PASS",
+        "comments": "HTTP is only used to redirect to HTTPS. Port 5627 is used by the CASE Sun Configuration tool to configure the Sauter device. CASE Sun discovery service is implemented on UDP port 5353. TCP ports 44443 and 44444 are licence manager ports for updating licences on the controller (MQTT, API, BACnet Sec, etc). All accounted for with justification. NOTE: manual source left this verdict cell blank; EDQ must infer a verdict from the justification content rather than leaving it empty."
+      },
+      {
+        "test_number": 17,
+        "result": "PASS",
+        "comments": "TLSv1.3 supported."
+      },
+      {
+        "test_number": 18,
+        "result": "INFO",
+        "comments": "TLS_AES_256_GCM_SHA384\nTLS_CHACHA20_POLY1305_SHA256\nTLS_AES_128_GCM_SHA256"
+      },
+      {
+        "test_number": 19,
+        "result": "PASS",
+        "comments": "HTTPS supported, user is redirected to HTTPS if standard HTTP is used."
+      },
+      {
+        "test_number": 20,
+        "result": "INFO",
+        "comments": "Device allows for replacement of certificate in the web GUI in TLS Settings."
+      },
+      {
+        "test_number": 21,
+        "result": "INFO",
+        "comments": "802.1x support can be enabled with an additional licence. 802.1x authentication methods accepted TBC."
+      },
+      {
+        "test_number": 22,
+        "result": "INFO",
+        "comments": "BACnet/IP supported.\n\nPORT      STATE SERVICE\n47808/udp open  bacnet\n| bacnet-info:\n|   Vendor ID: Fr. Sauter AG (80)\n|   Vendor Name: SAUTER\n|   Object-identifier: 1\n|   Firmware: V3.3.1b5450\n|   Application Software: 3.7\n|   Object Name: AS1\n|   Model Name: EY6AS80F021\n|   Description:\n|_  Location:\nMAC Address: 0C:1C:57:F4:52:24 (Texas Instruments)"
+      },
+      {
+        "test_number": 23,
+        "result": "INFO",
+        "comments": "Yes, both PIC and BIBB statement."
+      },
+      {
+        "test_number": 24,
+        "result": "N/A",
+        "na_reason": "SSH not supported on this device.",
+        "comments": "SSH not supported."
+      },
+      {
+        "test_number": 25,
+        "result": "N/A",
+        "na_reason": "Not classified as an IoT gateway.",
+        "comments": "Device is not acting as an IoT gateway on this project."
+      },
+      {
+        "test_number": 26,
+        "result": "N/A",
+        "na_reason": "Not classified as an IoT gateway.",
+        "comments": ""
+      },
+      {
+        "test_number": 27,
+        "result": "N/A",
+        "na_reason": "Not classified as an IoT gateway.",
+        "comments": ""
+      },
+      {
+        "test_number": 28,
+        "result": "N/A",
+        "na_reason": "Not classified as an IoT gateway.",
+        "comments": ""
+      },
+      {
+        "test_number": 29,
+        "result": "N/A",
+        "na_reason": "Not classified as an IoT gateway.",
+        "comments": ""
+      },
+      {
+        "test_number": 30,
+        "result": "N/A",
+        "na_reason": "Not classified as an IoT gateway.",
+        "comments": ""
+      },
+      {
+        "test_number": 31,
+        "result": "N/A",
+        "na_reason": "Not classified as an IoT gateway.",
+        "comments": "CAs can be uploaded via the web GUI — capability exists but not assessed here as device is not acting as a gateway."
+      },
+      {
+        "test_number": 32,
+        "result": "N/A",
+        "na_reason": "Device has no wireless radio.",
+        "comments": "Wi-Fi not supported."
+      },
+      {
+        "test_number": 33,
+        "result": "N/A",
+        "na_reason": "Device has no wireless radio.",
+        "comments": ""
+      },
+      {
+        "test_number": 34,
+        "result": "N/A",
+        "na_reason": "Device has no wireless radio.",
+        "comments": ""
+      },
+      {
+        "test_number": 35,
+        "result": "N/A",
+        "na_reason": "Device is not PoE-capable.",
+        "comments": "PoE not supported."
+      },
+      {
+        "test_number": 36,
+        "result": "PASS",
+        "comments": "Credentials can be changed."
+      },
+      {
+        "test_number": 37,
+        "result": "INFO",
+        "comments": "Web server password policy: Value must have between 8 and 256 characters, including 1 lower-case, 1 upper-case and 1 non-alphanumerical character(s): /.-,+*)('&%$#\"! @?>=<;:`_^]\\[~}|{\n\nThe required password complexity/policy can be altered in the web GUI, as well as the password duration and two factor authentication."
+      },
+      {
+        "test_number": 38,
+        "result": "PASS",
+        "comments": "After around 5 unsuccessful login attempts, message returned: Your IP has been locked out."
+      },
+      {
+        "test_number": 39,
+        "result": "INFO",
+        "comments": "Authentication Duration can be set in the web GUI - user is logged out on inactivity."
+      },
+      {
+        "test_number": 40,
+        "result": "INFO",
+        "comments": "The firmware can be upgraded using the Sauter Sun Configuration tool."
+      },
+      {
+        "test_number": 41,
+        "result": "INFO",
+        "comments": "nginx is used for the webserver, but the specific version could not be identified."
+      },
+      {
+        "test_number": 42,
+        "result": "PASS",
+        "comments": "Nothing unusual came up on the scans. Recommended hardening: add HSTS, X-Content-Type-Options, Content-Security-Policy and Referrer-Policy HTTP headers."
+      },
+      {
+        "test_number": 43,
+        "result": "PASS",
+        "comments": "Device remained connected to the test lab's network with no issues."
+      }
+    ],
+    "overall_result_rationale": {
+      "rollup_rule_applied": "overall_result = FAIL if any essential test is FAIL; else ADVISORY if any essential test is ADVISORY; else PASS. N/A tests are excluded from the rollup. INFO tests are excluded unless the tester elevates them.",
+      "counts": {
+        "total_tests": 43,
+        "essential_yes": 22,
+        "essential_iot_only": 12,
+        "essential_info": 9,
+        "results_pass": 14,
+        "results_fail": 0,
+        "results_advisory": 0,
+        "results_info": 15,
+        "results_na": 14
+      },
+      "rollup_computation": "No essential test returned FAIL or ADVISORY. Essential-YES tests all returned PASS or N/A (where N/A was driven by archetype classification). Therefore overall_result = PASS.",
+      "edq_must_reproduce": "EDQ must apply this same rollup rule deterministically. A review of the essential-flag table alone must be sufficient for a downstream reviewer to reconstruct the overall verdict."
+    },
+    "evidence_capture_gap": {
+      "manual_run_evidence_level": "Free-text comments only. No raw tool output retained. No pcap. No screenshots of manual inspections. No command-line log.",
+      "edq_expected_evidence_level": "Per the operational_contract.evidence_preservation section of the methodology, every test must attach raw artefacts. For this device specifically the expected artefact set would include: nmap XML from test 15, sslyze JSON from tests 17/18, bacnet-info raw from test 22, brute-force attempt log from test 38, 7-day availability timeseries from test 43, plus screenshots for every manual-inspection test (14, 20, 23, 31, 40).",
+      "auditability_impact": "The manual workbook cannot be re-verified six months later. EDQ output must be re-verifiable."
+    },
+    "destructive_test_conduct": {
+      "destructive_tests_executed": [
+        36,
+        38
+      ],
+      "disruptive_tests_executed": [
+        1,
+        2,
+        3,
+        4,
+        11,
+        43
+      ],
+      "safety_context": "Manual run conducted in a test lab, not on a production VLAN. EDQ must enforce the same constraint via its safety gates (operational_contract.safety_gates)."
+    }
+  },
+  "deviations_from_manual_source": [
+    "Tests 6, 12, 25-31 are recorded here as N/A (with reason 'not an IoT gateway') rather than the mixed PASS/blank/N/A that appear in the original workbook. This is the correct archetype-driven behaviour that EDQ must emit.",
+    "Tests 32-35 are recorded here as N/A (with reason 'no radio' / 'not PoE-capable') rather than blank — same rationale.",
+    "Test 12 result cell was blank in the original workbook. EDQ must never emit a blank verdict.",
+    "Test 16 result cell was blank in the original workbook despite detailed commentary. EDQ must synthesise a verdict (PASS in this case, given every discouraged port has a valid justification).",
+    "Test 42 was marked PASS in the original despite the missing HTTP security headers. A defensible alternative is ADVISORY — EDQ's scoring logic should be explicit about which threshold applies.",
+    "Manual run did not retain raw evidence artefacts. EDQ must attach raw tool output, command line, tool version, and timestamp to every result.",
+    "Manual run did not document the overall_result rollup rule. EDQ must apply an explicit, deterministic rule (see overall_result_rationale).",
+    "Manual run did not apply safety gates before running destructive tests 36 and 38. EDQ must require --allow-destructive before executing those tests."
+  ],
+  "corpus_coverage_recommendation": {
+    "target_archetypes_to_add_next": [
+      "iot_gateway (to exercise tests 6, 12, 25-31 in the YES path, not the N/A path)",
+      "ip_camera (to exercise non-BMS port profile, RTSP/ONVIF protocols, separate credential-based services)",
+      "managed_network_switch (to exercise 'many open ports by design' behaviour of test 16)",
+      "access_control_panel (to exercise OSDP-over-IP traffic classification in test 13)",
+      "utility_meter (to exercise Modbus TCP traffic classification and minimal-GUI devices)",
+      "simple_sensor_actuator (to exercise the 'no web GUI' edge case across tests 2, 19, 36, 37, 38, 39)"
+    ],
+    "harness_note": "Each new vector should include (a) the same header block, (b) the archetype classification with evidence trail, and (c) expected per-test verdicts. A good regression test is: pick any corpus entry, point EDQ at the described device, and diff the produced report against the expected_results array."
+  }
+}

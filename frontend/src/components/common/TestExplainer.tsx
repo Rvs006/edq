@@ -272,6 +272,13 @@ const TEST_EXPLAINERS: Record<string, { what: string; why: string; pass: string;
   },
 }
 
+TEST_EXPLAINERS.U36 = {
+  what: 'This automatic banner-grab check has been retired. Use U08 service-version evidence and engineer notes instead if banner leakage still needs to be documented.',
+  why: 'U36 overlapped heavily with U08 and was creating duplicate or misleading evidence in some scenarios.',
+  pass: 'Retired from the active automatic test set.',
+  fail: 'If banner leakage still matters for a device, record the evidence manually from U08 or packet captures.',
+}
+
 export function getTestExplainer(testNumber: string) {
   return TEST_EXPLAINERS[testNumber]
 }

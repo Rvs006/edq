@@ -31,6 +31,7 @@ import {
   getRunningTestIdFromProgress,
 } from '@/lib/testRunDetailPage'
 import { summarizeRunProgress } from '@/lib/testUi'
+import { formatConnectionScenarioLabel } from '@/lib/universal-tests'
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -558,7 +559,7 @@ export default function TestRunDetailPage() {
               {run.connection_scenario && (
                 <span className="flex items-center gap-1">
                   <Cpu className="w-3 h-3" />
-                  {run.connection_scenario.replace(/_/g, ' ')}
+                  {formatConnectionScenarioLabel(run.connection_scenario)}
                 </span>
               )}
               {run.started_at && (

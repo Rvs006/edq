@@ -21,21 +21,21 @@ const scenarios: {
 }[] = [
   {
     value: 'direct_cable',
-    label: 'Direct Cable',
-    description: 'Device connected directly to test laptop via Ethernet cable.',
+    label: 'Scenario 1 - Direct Cable',
+    description: 'Device connected directly to the test laptop via Ethernet cable.',
     icon: Cable,
     intensity: 'Full scan intensity',
   },
   {
     value: 'test_lab',
-    label: 'Test Lab',
+    label: 'Scenario 2 - Test Lab',
     description: 'Device on an isolated test network.',
     icon: Building2,
     intensity: 'Moderate scan intensity',
   },
   {
     value: 'site_network',
-    label: 'Site Network',
+    label: 'Scenario 3 - Site Network',
     description: 'Device on a live production network.',
     icon: Wifi,
     intensity: 'Low scan intensity',
@@ -83,7 +83,7 @@ export default function ConnectionScenarioDialog({
               </Dialog.Close>
             </div>
             <Dialog.Description className="text-sm text-zinc-500 dark:text-slate-400 mt-1">
-              Select how the device under test is connected. This determines scan intensity.
+              Select the connection scenario for the device under test. This determines scan intensity and whether some tests are rerouted to guided manual review.
             </Dialog.Description>
           </div>
 

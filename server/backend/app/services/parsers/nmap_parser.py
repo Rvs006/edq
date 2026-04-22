@@ -28,6 +28,10 @@ class NmapParser:
             "hosts": [],
             "open_ports": [],
             "os_fingerprint": None,
+            "os_details": None,
+            "device_type": None,
+            "running": [],
+            "os_cpe": [],
             "mac_address": None,
             "oui_vendor": None,
             "scan_info": {},
@@ -113,6 +117,30 @@ class NmapParser:
                 if osmatch is not None:
                     host_data["os"] = osmatch.get("name", "")
                     result["os_fingerprint"] = osmatch.get("name", "")
+                    result["os_details"] = osmatch.get("name", "")
+                running: list[str] = []
+                device_types: list[str] = []
+                cpes: list[str] = []
+                for osclass in os_elem.findall("osclass"):
+                    device_type = (osclass.get("type", "") or "").strip()
+                    vendor = (osclass.get("vendor", "") or "").strip()
+                    family = (osclass.get("osfamily", "") or "").strip()
+                    generation = (osclass.get("osgen", "") or "").strip()
+                    if device_type and device_type not in device_types:
+                        device_types.append(device_type)
+                    running_label = " ".join(part for part in (vendor, family, generation) if part).strip()
+                    if running_label and running_label not in running:
+                        running.append(running_label)
+                    for cpe_elem in osclass.findall("cpe"):
+                        cpe_value = (cpe_elem.text or "").strip()
+                        if cpe_value and cpe_value not in cpes:
+                            cpes.append(cpe_value)
+                if device_types:
+                    result["device_type"] = "|".join(device_types)
+                if running:
+                    result["running"] = running
+                if cpes:
+                    result["os_cpe"] = cpes
 
             result["hosts"].append(host_data)
 

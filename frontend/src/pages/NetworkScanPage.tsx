@@ -24,7 +24,13 @@ import {
   type ScanResult,
   type NetworkScanStep,
 } from '@/lib/networkScanPage'
-import { UNIVERSAL_TESTS, TEST_CATEGORIES } from '@/lib/universal-tests'
+import {
+  ACTIVE_UNIVERSAL_TESTS,
+  UNIVERSAL_TESTS,
+  TEST_CATEGORIES,
+  getEffectiveTestTier,
+  formatConnectionScenarioLabel,
+} from '@/lib/universal-tests'
 import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
@@ -133,7 +139,7 @@ export default function NetworkScanPage() {
   }
 
   const toggleCategory = (cat: string) => {
-    const catTests = UNIVERSAL_TESTS.filter(t => t.category === cat)
+    const catTests = ACTIVE_UNIVERSAL_TESTS.filter(t => t.category === cat)
     const allSelected = catTests.every(t => selectedTests.has(t.id))
     setSelectedTests(prev => {
       const next = new Set(prev)
@@ -510,7 +516,7 @@ function ConfigureStep({
             >
               <div className="flex items-center gap-2 mb-1">
                 {s.warn ? <AlertTriangle className="w-4 h-4 text-amber-500" /> : <Shield className="w-4 h-4 text-brand-500" />}
-                <span className="text-sm font-medium text-zinc-800 dark:text-slate-200">{s.label}</span>
+                <span className="text-sm font-medium text-zinc-800 dark:text-slate-200">{formatConnectionScenarioLabel(s.value)}</span>
               </div>
               <p className="text-xs text-zinc-500">{s.desc}</p>
             </button>
@@ -519,7 +525,7 @@ function ConfigureStep({
         {scenario === 'site_network' && (
           <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-amber-700">Site network mode uses conservative scan settings to minimise disruption. Some tests are not recommended.</p>
+            <p className="text-xs text-amber-700">Scenario 3 uses conservative scan settings to minimise disruption. Scenario-sensitive tests are rerouted to guided manual review.</p>
           </div>
         )}
       </div>
@@ -528,9 +534,9 @@ function ConfigureStep({
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Test Selection</h3>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">{selectedTests.size}/{UNIVERSAL_TESTS.length} selected</span>
+            <span className="text-xs text-zinc-500">{selectedTests.size}/{ACTIVE_UNIVERSAL_TESTS.length} selected</span>
             <button
-              onClick={() => setSelectedTests(new Set(UNIVERSAL_TESTS.map(t => t.id)))}
+              onClick={() => setSelectedTests(new Set(ACTIVE_UNIVERSAL_TESTS.map(t => t.id)))}
               className="text-xs text-brand-500 hover:text-brand-600 font-medium"
             >Select All</button>
             <button
@@ -542,7 +548,7 @@ function ConfigureStep({
 
         <div className="space-y-1">
           {TEST_CATEGORIES.map(cat => {
-            const catTests = UNIVERSAL_TESTS.filter(t => t.category === cat)
+            const catTests = ACTIVE_UNIVERSAL_TESTS.filter(t => t.category === cat)
             const allSelected = catTests.every(t => selectedTests.has(t.id))
             const someSelected = catTests.some(t => selectedTests.has(t.id))
             const expanded = expandedCategories.has(cat)
@@ -587,8 +593,8 @@ function ConfigureStep({
                         <span className="text-xs font-mono text-zinc-400 w-8">{t.id}</span>
                         <span className="text-sm text-zinc-700 dark:text-slate-300 flex-1">{t.name}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                          t.tier === 'automatic' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
-                        }`}>{t.tier === 'automatic' ? 'Auto' : 'Manual'}</span>
+                          getEffectiveTestTier(t, scenario) === 'automatic' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
+                        }`}>{getEffectiveTestTier(t, scenario) === 'automatic' ? 'Auto' : 'Manual'}</span>
                         {t.essential && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">Essential</span>}
                       </label>
                     ))}
@@ -976,8 +982,8 @@ function formatDuration(seconds: number | null): string {
 
 // Device relevance mapping: which test categories matter for each device type
 const DEVICE_RELEVANCE: Record<string, Set<string>> = {
-  camera: new Set(['U01','U02','U06','U07','U08','U09','U10','U11','U12','U13','U14','U16','U18','U19','U26','U34','U35','U36','U37']),
-  controller: new Set(['U01','U02','U03','U04','U06','U07','U08','U09','U15','U16','U17','U19','U26','U28','U31','U34','U36']),
+  camera: new Set(['U01','U02','U06','U07','U08','U09','U10','U11','U12','U13','U14','U16','U18','U19','U26','U34','U35','U37']),
+  controller: new Set(['U01','U02','U03','U04','U06','U07','U08','U09','U15','U16','U17','U19','U26','U28','U31','U34']),
   intercom: new Set(['U01','U02','U06','U08','U10','U11','U12','U14','U16','U18','U19','U26','U34','U35','U37']),
   access_panel: new Set(['U01','U02','U06','U08','U10','U14','U16','U18','U19','U26','U34','U35']),
   hvac: new Set(['U01','U02','U03','U06','U08','U09','U15','U16','U19','U26','U28','U31','U34']),
@@ -1023,8 +1029,8 @@ function DeviceTestDashboard({ result, navigate, selectedTests }: { result: Scan
   }
 
   // Group tests by category — only include tests that are selected for this scan
-  const selectedTestList = UNIVERSAL_TESTS.filter(t => selectedTests.has(t.id))
-  const unselectedTestList = UNIVERSAL_TESTS.filter(t => !selectedTests.has(t.id))
+  const selectedTestList = ACTIVE_UNIVERSAL_TESTS.filter(t => selectedTests.has(t.id))
+  const unselectedTestList = ACTIVE_UNIVERSAL_TESTS.filter(t => !selectedTests.has(t.id))
 
   const categoryGroups: { category: string; tests: typeof selectedTestList }[] = []
   for (const cat of TEST_CATEGORIES) {

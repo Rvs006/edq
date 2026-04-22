@@ -7,7 +7,6 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.device import Device
-from app.models.test_template import TestTemplate
 from .conftest import register_and_login
 
 
@@ -20,9 +19,11 @@ async def _create_device(db: AsyncSession) -> str:
 
 
 async def _create_template(db: AsyncSession) -> str:
+    from app.models.test_template import TestTemplate
+
     template = TestTemplate(
         name=f"scenario-routing-{uuid.uuid4().hex[:6]}",
-        test_ids=["U01", "U03", "U04", "U26", "U29"],
+        test_ids=["U01", "U03", "U04", "U09", "U26", "U28", "U29", "U34"],
         version="1.0",
     )
     db.add(template)
@@ -64,5 +65,8 @@ async def test_create_run_reclassifies_scenario_sensitive_tests_to_manual(
     assert results["U01"]["tier"] == "automatic"
     assert results["U03"]["tier"] == "guided_manual"
     assert results["U04"]["tier"] == "guided_manual"
+    assert results["U09"]["tier"] == "guided_manual"
     assert results["U26"]["tier"] == "guided_manual"
+    assert results["U28"]["tier"] == "guided_manual"
     assert results["U29"]["tier"] == "guided_manual"
+    assert results["U34"]["tier"] == "guided_manual"
