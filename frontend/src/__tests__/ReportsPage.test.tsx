@@ -73,4 +73,10 @@ describe('ReportsPage', () => {
     renderWithProviders(<ReportsPage />)
     expect(screen.getByText(/server-side provider settings/i)).toBeInTheDocument()
   })
+
+  it('shows the excel workbook preview by default', () => {
+    renderWithProviders(<ReportsPage />)
+    expect(screen.getByText('Excel Workbook Preview')).toBeInTheDocument()
+    expect(screen.getByText(/worksheet tabs: General Test Information, Test Results, Additional Device Information, Raw Evidence/i)).toBeInTheDocument()
+  })
 })

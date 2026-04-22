@@ -94,11 +94,14 @@ _TESTPLAN_COLUMN_LABELS = {
     "test_number": "Test Number",
     "brief_description": "Brief Description",
     "test_description": "Test Description",
+    "tier": "Tier",
+    "tool": "Tool",
     "essential_test": "Essential Test",
     "essential_pass": "Essential Pass",
     "test_result": "Test Result",
     "test_comments": "Test Comments",
     "engineer_notes": "Engineer Notes",
+    "evidence_summary": "Evidence Summary",
     "script_flag": "Script Flag",
 }
 
@@ -111,7 +114,11 @@ class ReportRow:
     essential_test: str
     test_result: str
     test_comments: str
+    tier: str = ""
+    tool: str = ""
     engineer_notes: str = ""
+    evidence_summary: str = ""
+    evidence_detail: str = ""
     script_flag: str = ""
     template_backed: bool = False
 
@@ -236,6 +243,108 @@ def _engineer_notes(result: Any) -> str:
     return str(notes) if notes else ""
 
 
+def _clip_text(value: Any, limit: int = 2000) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()} ... [truncated]"
+
+
+def _format_evidence(result: Any, limit: int | None = None) -> str:
+    """Format evidence from a result object with optional truncation.
+    
+    Checks raw_output → findings → parsed_data in order.
+    For findings and parsed_data, attempts JSON serialization with proper formatting.
+    Falls back to string representation on TypeError.
+    Applies truncation only when limit is provided.
+    """
+    raw_output = getattr(result, "raw_output", None)
+    if raw_output:
+        text = str(raw_output).strip()
+        return _clip_text(text, limit=limit) if limit else text
+
+    findings = getattr(result, "findings", None)
+    if findings:
+        try:
+            text = json.dumps(findings, indent=2, ensure_ascii=False)
+        except TypeError:
+            text = str(findings).strip()
+        return _clip_text(text, limit=limit) if limit else text
+
+    parsed = getattr(result, "parsed_data", None)
+    if parsed:
+        try:
+            text = json.dumps(parsed, indent=2, ensure_ascii=False)
+        except TypeError:
+            text = str(parsed).strip()
+        return _clip_text(text, limit=limit) if limit else text
+
+    return ""
+
+
+def _format_tier(result: Any) -> str:
+    raw = _safe_attr(result, "tier").replace("_", " ").strip()
+    return raw.title() if raw else ""
+
+
+def _format_tool(result: Any) -> str:
+    return _safe_attr(result, "tool")
+
+
+def _evidence_summary(result: Any) -> str:
+    return _format_evidence(result, limit=2500)
+
+
+def _evidence_detail(result: Any) -> str:
+    return _format_evidence(result, limit=None)
+
+
+def _test_sort_key(result: Any) -> tuple[int, str]:
+    test_id = _safe_attr(result, "test_id")
+    match = re.match(r"^[A-Za-z]+(\d+)$", test_id)
+    if match:
+        return (int(match.group(1)), test_id)
+    return (9999, test_id)
+
+
+def _generic_testplan_columns() -> list[tuple[str, str]]:
+    return [
+        ("test_number", "Test ID"),
+        ("brief_description", "Test Name"),
+        ("tier", "Tier"),
+        ("tool", "Tool"),
+        ("essential_test", "Essential Test"),
+        ("test_result", "Test Result"),
+        ("test_comments", "Test Comments"),
+        ("engineer_notes", "Engineer Notes"),
+        ("evidence_summary", "Evidence Summary"),
+    ]
+
+
+def _build_detailed_report_rows(test_results: list[Any]) -> list[ReportRow]:
+    rows: list[ReportRow] = []
+    for result in sorted(test_results, key=_test_sort_key):
+        verdict = _safe_attr(result, "verdict")
+        rows.append(
+            ReportRow(
+                test_number=_safe_attr(result, "test_id"),
+                brief_description=_safe_attr(result, "test_name"),
+                test_description="",
+                essential_test=_safe_attr(result, "is_essential").upper(),
+                test_result=_VERDICT_MAP.get(verdict.lower(), verdict.upper()),
+                test_comments=_comment(result),
+                tier=_format_tier(result),
+                tool=_format_tool(result),
+                engineer_notes=_engineer_notes(result),
+                evidence_summary=_evidence_summary(result),
+                evidence_detail=_evidence_detail(result),
+            )
+        )
+    return rows
+
+
 def _summary_text(
     test_run: Any,
     metadata: dict[str, str],
@@ -291,11 +400,14 @@ def _resolve_testplan_columns(mapping: dict[str, Any]) -> list[tuple[str, str]]:
         "test_number",
         "brief_description",
         "test_description",
+        "tier",
+        "tool",
         "essential_test",
         "essential_pass",
         "test_result",
         "test_comments",
         "engineer_notes",
+        "evidence_summary",
         "script_flag",
     ]
     resolved: list[tuple[str, str]] = []
@@ -382,7 +494,10 @@ def build_report_document(
     del whitelist_entries
     if template_key not in TEMPLATE_FILES:
         raise ValueError(f"Unknown template_key '{template_key}'")
-    filtered_results = [r for r in test_results if not enabled_test_ids or getattr(r, "test_id", None) in set(enabled_test_ids)]
+    filtered_results = sorted(
+        [r for r in test_results if not enabled_test_ids or getattr(r, "test_id", None) in set(enabled_test_ids)],
+        key=_test_sort_key,
+    )
     mapping = _load_mapping(template_key)
     template_path = _TEMPLATES_DIR / TEMPLATE_FILES[template_key]
     branding = _resolve_branding(report_config, branding_settings)
@@ -393,7 +508,11 @@ def build_report_document(
     additional_section_title = str(mapping.get("additional_sheet") or "ADDITIONAL INFORMATION")
     summary_text_label = _resolve_summary_text_label(mapping)
     summary_fields = _resolve_summary_fields(mapping)
-    testplan_columns = _resolve_testplan_columns(mapping)
+    testplan_columns = (
+        _generic_testplan_columns()
+        if template_key == "generic"
+        else _resolve_testplan_columns(mapping)
+    )
 
     device = getattr(test_run, "device", None)
     engineer = getattr(test_run, "engineer", None)
@@ -421,7 +540,9 @@ def build_report_document(
     metadata["synopsis_text"] = metadata["summary_text"]
 
     rows: list[ReportRow] = []
-    if template_path.exists() and mapping and mapping.get("row_sources"):
+    if template_key == "generic":
+        rows = _build_detailed_report_rows(filtered_results)
+    elif template_path.exists() and mapping and mapping.get("row_sources"):
         from openpyxl import load_workbook
 
         wb = load_workbook(str(template_path), read_only=True, data_only=False)
@@ -456,19 +577,7 @@ def build_report_document(
         finally:
             wb.close()
     else:
-        for idx, result in enumerate(filtered_results, start=1):
-            rows.append(
-                ReportRow(
-                    test_number=str(idx),
-                    brief_description=_safe_attr(result, "test_name"),
-                    test_description="",
-                    essential_test=_safe_attr(result, "is_essential").upper(),
-                    test_result=_VERDICT_MAP.get((_safe_attr(result, "verdict") or "").lower(), _safe_attr(result, "verdict").upper()),
-                    test_comments=_comment(result),
-                    engineer_notes=_engineer_notes(result),
-                    script_flag="",
-                )
-            )
+        rows = _build_detailed_report_rows(filtered_results)
 
     additional_sections = [
         ReportSection("Executive Summary", metadata["summary_text"]),
@@ -516,6 +625,126 @@ def _output_path(test_run: Any, template_key: str, extension: str) -> Path:
     return output_dir / f"EDQ_Report_{test_run.id!s}_{template_key}_{stamp}{extension}"
 
 
+def _write_generic_excel_report(path: Path, report: ReportDocument) -> None:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = Workbook()
+    summary_ws = wb.active
+    summary_ws.title = report.summary_section_title
+    results_ws = wb.create_sheet(report.testplan_section_title)
+    additional_ws = wb.create_sheet(report.additional_section_title)
+    evidence_ws = wb.create_sheet("Raw Evidence")
+
+    title_fill = PatternFill("solid", fgColor="1F4E78")
+    band_fill = PatternFill("solid", fgColor="D9EAF7")
+    title_font = Font(color="FFFFFF", bold=True, size=14)
+    header_font = Font(bold=True)
+    wrap = Alignment(vertical="top", wrap_text=True)
+
+    summary_ws.merge_cells("A1:H1")
+    summary_ws["A1"] = "IP Device Qualification Report"
+    summary_ws["A1"].fill = title_fill
+    summary_ws["A1"].font = title_font
+    summary_ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    summary_ws["A2"] = f"Template Profile: {TEMPLATE_INFO[report.template_key]['name']}"
+
+    row = 4
+    for key, label in report.summary_fields:
+        summary_ws[f"A{row}"] = label
+        summary_ws[f"A{row}"].font = header_font
+        summary_ws[f"A{row}"].fill = band_fill
+        summary_ws[f"B{row}"] = report.metadata.get(key, "")
+        summary_ws[f"B{row}"].alignment = wrap
+        row += 1
+
+    summary_ws[f"A{row + 1}"] = report.summary_text_label
+    summary_ws[f"A{row + 1}"].font = header_font
+    summary_ws[f"A{row + 1}"].fill = band_fill
+    summary_ws[f"B{row + 1}"] = report.metadata.get("summary_text", "")
+    summary_ws[f"B{row + 1}"].alignment = wrap
+    summary_ws.column_dimensions["A"].width = 28
+    summary_ws.column_dimensions["B"].width = 110
+    summary_ws.freeze_panes = "A4"
+
+    results_ws.merge_cells("B1:J1")
+    results_ws["B1"] = "Per-Test Results and Evidence"
+    results_ws["B1"].fill = title_fill
+    results_ws["B1"].font = title_font
+    results_ws["B1"].alignment = Alignment(horizontal="center", vertical="center")
+    header_row = 3
+    columns = ["B", "C", "D", "E", "F", "G", "H", "I", "J"]
+    widths = {
+        "B": 12,
+        "C": 34,
+        "D": 16,
+        "E": 14,
+        "F": 16,
+        "G": 44,
+        "H": 28,
+        "I": 16,
+        "J": 90,
+    }
+    for col, (_, label) in zip(columns, report.testplan_columns, strict=False):
+        results_ws[f"{col}{header_row}"] = label
+        results_ws[f"{col}{header_row}"].font = header_font
+        results_ws[f"{col}{header_row}"].fill = band_fill
+        results_ws[f"{col}{header_row}"].alignment = wrap
+        results_ws.column_dimensions[col].width = widths[col]
+
+    for offset, row_values in enumerate(report.rows, start=header_row + 1):
+        for col, value in zip(columns, _report_row_values(row_values, report.testplan_columns), strict=False):
+            results_ws[f"{col}{offset}"] = value
+            results_ws[f"{col}{offset}"].alignment = wrap
+
+    results_ws.freeze_panes = "B4"
+    results_ws.auto_filter.ref = f"B{header_row}:J{max(header_row, len(report.rows) + header_row)}"
+
+    additional_ws.merge_cells("A1:B1")
+    additional_ws["A1"] = "Supporting Notes"
+    additional_ws["A1"].fill = title_fill
+    additional_ws["A1"].font = title_font
+    additional_ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    additional_ws.column_dimensions["A"].width = 28
+    additional_ws.column_dimensions["B"].width = 110
+    section_row = 3
+    for section in report.additional_sections:
+        additional_ws[f"A{section_row}"] = section.title
+        additional_ws[f"A{section_row}"].font = header_font
+        additional_ws[f"A{section_row}"].fill = band_fill
+        additional_ws[f"B{section_row}"] = section.body
+        additional_ws[f"B{section_row}"].alignment = wrap
+        section_row += 2
+
+    evidence_ws.merge_cells("A1:D1")
+    evidence_ws["A1"] = "Detailed Evidence"
+    evidence_ws["A1"].fill = title_fill
+    evidence_ws["A1"].font = title_font
+    evidence_ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    evidence_headers = ["Test ID", "Test Name", "Engineer Notes", "Detailed Evidence"]
+    evidence_widths = {"A": 12, "B": 34, "C": 30, "D": 120}
+    for idx, header in enumerate(evidence_headers, start=1):
+        cell = evidence_ws.cell(row=3, column=idx)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = band_fill
+        cell.alignment = wrap
+        evidence_ws.column_dimensions[chr(64 + idx)].width = evidence_widths[chr(64 + idx)]
+
+    for row_index, item in enumerate(report.rows, start=4):
+        evidence_ws[f"A{row_index}"] = item.test_number
+        evidence_ws[f"B{row_index}"] = item.brief_description
+        evidence_ws[f"C{row_index}"] = item.engineer_notes
+        evidence_ws[f"D{row_index}"] = item.evidence_detail or item.evidence_summary
+        for col in ("A", "B", "C", "D"):
+            evidence_ws[f"{col}{row_index}"].alignment = wrap
+
+    evidence_ws.freeze_panes = "A4"
+    evidence_ws.auto_filter.ref = f"A3:D{max(3, len(report.rows) + 3)}"
+
+    wb.save(str(path))
+
+
 async def generate_excel_report(
     test_run: Any,
     test_results: list[Any],
@@ -542,7 +771,9 @@ async def generate_excel_report(
     )
     path = _output_path(test_run, template_key, ".xlsx")
 
-    if report.template_path.exists() and report.mapping:
+    if template_key == "generic":
+        await asyncio.to_thread(_write_generic_excel_report, path, report)
+    elif report.template_path.exists() and report.mapping:
         # Build cell updates per sheet — ZIP-level patcher preserves ALL
         # template assets (images, drawings, printer settings, styles, etc.)
         from app.services.xlsx_template_patcher import patch_xlsx
