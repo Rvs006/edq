@@ -160,9 +160,13 @@ __pycache__/
 pytest-cache-files-*
 .pytest-cache-files-*/
 .venv/
+.venv-win/
+.venv-pylance/
 .venv-backend*/
 .venv-wsl/
 server/backend/.venv/
+server/backend/.venv-win/
+server/backend/.venv-pylance/
 server/backend/.venv-wsl/
 server/backend/pytest-cache-files-*/
 server/backend/pytest-cache-files-*

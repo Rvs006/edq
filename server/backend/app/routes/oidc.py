@@ -201,6 +201,9 @@ async def oidc_callback(
 
     claims = await _validate_id_token(id_token, discovery, data.nonce)
     email = claims.get("email")
+    # OIDC `sub` is only the identity provider's stable user identifier for
+    # EDQ SSO account linking. It is unrelated to synopsis generation or any
+    # server-side AI provider credentials.
     sub = claims.get("sub")
     name = claims.get("name")
 

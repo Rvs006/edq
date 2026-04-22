@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 from typing import List
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 from dotenv import load_dotenv
 from pydantic import field_validator, model_validator
@@ -105,6 +105,18 @@ class Settings(BaseSettings):
     ACCOUNT_LOCKOUT_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15
 
+    PROTOCOL_OBSERVER_ENABLED: bool = True
+    PROTOCOL_OBSERVER_BIND_HOST: str = "0.0.0.0"
+    PROTOCOL_OBSERVER_TIMEOUT_SECONDS: int = 20
+    PROTOCOL_OBSERVER_DNS_PORT: int = 53
+    PROTOCOL_OBSERVER_NTP_PORT: int = 123
+    PROTOCOL_OBSERVER_DHCP_PORT: int = 67
+    PROTOCOL_OBSERVER_DHCP_OFFER_IP: str = ""
+    PROTOCOL_OBSERVER_DHCP_SUBNET_MASK: str = ""
+    PROTOCOL_OBSERVER_DHCP_ROUTER_IP: str = ""
+    PROTOCOL_OBSERVER_DHCP_DNS_SERVER: str = ""
+    PROTOCOL_OBSERVER_DHCP_LEASE_SECONDS: int = 300
+
     OIDC_PROVIDER: str = ""
     OIDC_CLIENT_ID: str = ""
     OIDC_CLIENT_SECRET: str = ""
@@ -148,6 +160,62 @@ class Settings(BaseSettings):
             if normalized in {"cloud", "prod", "production", "staging"}:
                 return "cloud"
         return value
+
+    def get_ai_provider_status(self) -> dict[str, str | bool]:
+        """Describe the optional server-side synopsis provider configuration."""
+        api_key = self.AI_API_KEY.strip()
+        api_url = self.AI_API_URL.strip()
+
+        if not api_key and not api_url:
+            return {
+                "enabled": False,
+                "status": "not_configured",
+                "message": (
+                    "AI synopsis drafting is not configured on this EDQ server. "
+                    "Set AI_API_KEY and AI_API_URL in the repo-root .env. "
+                    "EDQ users do not need personal Codex or Claude credentials."
+                ),
+            }
+
+        if api_key and not api_url:
+            return {
+                "enabled": False,
+                "status": "invalid_configuration",
+                "message": (
+                    "AI synopsis drafting is partially configured on this EDQ server. "
+                    "AI_API_KEY is set but AI_API_URL is missing in the repo-root .env."
+                ),
+            }
+
+        if api_url and not api_key:
+            return {
+                "enabled": False,
+                "status": "invalid_configuration",
+                "message": (
+                    "AI synopsis drafting is partially configured on this EDQ server. "
+                    "AI_API_URL is set but AI_API_KEY is missing in the repo-root .env."
+                ),
+            }
+
+        parsed = urlparse(api_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return {
+                "enabled": False,
+                "status": "invalid_configuration",
+                "message": (
+                    "AI synopsis drafting is misconfigured on this EDQ server. "
+                    "AI_API_URL must be a valid http or https URL in the repo-root .env."
+                ),
+            }
+
+        return {
+            "enabled": True,
+            "status": "configured",
+            "message": (
+                "AI synopsis drafting uses this EDQ server's provider configuration. "
+                "Users authenticate only to EDQ; they do not enter separate editor credentials."
+            ),
+        }
 
     @model_validator(mode="after")
     def finalize_runtime_defaults(self):

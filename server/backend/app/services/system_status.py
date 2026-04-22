@@ -29,6 +29,7 @@ async def _get_database_status() -> str:
 async def get_system_status(include_tool_versions: bool = True) -> dict[str, Any]:
     """Return the live status of the backend dependencies."""
     database_status = await _get_database_status()
+    ai_status = settings.get_ai_provider_status()
     tools_status = "ok"
     tools_message: str | None = None
     versions: dict[str, str] = {}
@@ -92,7 +93,9 @@ async def get_system_status(include_tool_versions: bool = True) -> dict[str, Any
         "app_name": settings.APP_NAME,
         "app_version": settings.APP_VERSION,
         "debug": settings.DEBUG,
-        "ai_enabled": bool(settings.AI_API_KEY),
+        "ai_enabled": bool(ai_status["enabled"]),
+        "ai_status": ai_status["status"],
+        "ai_message": ai_status["message"],
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "backend": {"status": "ok"},
         "database": {"status": database_status},

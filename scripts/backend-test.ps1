@@ -3,7 +3,6 @@ param()
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$backendPath = (Resolve-Path (Join-Path $repoRoot "server\backend")).Path
 
 Write-Host "=== EDQ Backend Test Suite ==="
 Write-Host ("Repo root: {0}" -f $repoRoot)
@@ -13,6 +12,6 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$mountArg = "{0}:/app" -f $backendPath
-docker compose run --rm --no-deps -T -v $mountArg backend sh -lc "python -m pip install --quiet -r requirements-dev.txt && python -m pytest tests/ -v --tb=short"
+$mountArg = "{0}:/workspace" -f $repoRoot
+docker compose run --rm --no-deps -T --entrypoint sh -v $mountArg backend -lc "cd /workspace/server/backend && python -m pip install --quiet -r requirements-dev.txt && python -m pytest tests/ -v --tb=short"
 exit $LASTEXITCODE
