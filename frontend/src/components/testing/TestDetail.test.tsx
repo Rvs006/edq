@@ -62,4 +62,40 @@ describe('TestDetail manual gating', () => {
 
     expect(screen.getByRole('button', { name: /submit result/i })).toBeInTheDocument()
   })
+
+  it('summarizes protocol observer evidence for DHCP tests', () => {
+    render(
+      <TestDetail
+        result={{
+          ...baseResult,
+          tier: 'automatic',
+          test_id: 'U04',
+          test_name: 'DHCP Behaviour',
+          verdict: 'pass',
+          parsed_data: {
+            dhcp_observed: true,
+            dhcp_lease_acknowledged: true,
+            offered_ip: '192.168.4.68',
+            dhcp_server: '192.168.4.1',
+            dhcp_events: [{ message_type: 3, observer_reply_label: 'ack' }],
+          },
+          comment: 'DHCP request traffic observed and lease acknowledged.',
+        }}
+        liveOutput=""
+        isRunning={false}
+        runStatus="completed"
+        userRole="engineer"
+        onSubmitManual={vi.fn()}
+        onOverride={vi.fn()}
+        onSaveNotes={vi.fn()}
+        isSubmitting={false}
+        manualProgress={null}
+      />
+    )
+
+    expect(screen.getByText(/protocol harness result/i)).toBeInTheDocument()
+    expect(screen.getByText(/dhcp lease acknowledged/i)).toBeInTheDocument()
+    expect(screen.getByText(/offered ip 192.168.4.68/i)).toBeInTheDocument()
+    expect(screen.getByText(/server 192.168.4.1/i)).toBeInTheDocument()
+  })
 })

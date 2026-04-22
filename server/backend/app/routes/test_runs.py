@@ -29,6 +29,12 @@ from app.services.run_readiness import (
     build_run_readiness_summary,
     merge_readiness_into_metadata,
 )
+from app.services.scenario_routing import (
+    get_manual_routing_note,
+    get_scenario_routing_decision,
+    is_manual_routing_note,
+    normalize_connection_scenario,
+)
 from app.services.test_run_connectivity import ensure_device_execution_readiness
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, is_run_executing, launch_test_run
@@ -42,6 +48,35 @@ from app.models.user import UserRole
 logger = logging.getLogger("edq.routes.test_runs")
 
 router = APIRouter()
+
+
+def _resolve_result_tier(test_id: str, connection_scenario: str, base_tier: str) -> TestTier:
+    decision = get_scenario_routing_decision(test_id, base_tier, connection_scenario)
+    return TestTier(decision.tier)
+
+
+async def _sync_run_result_routing(
+    db: AsyncSession,
+    run_id: str,
+    connection_scenario: str,
+) -> None:
+    results_q = await db.execute(
+        select(TestResult).where(TestResult.test_run_id == run_id)
+    )
+    for result in results_q.scalars().all():
+        test_def = get_test_by_id(result.test_id)
+        if not test_def:
+            continue
+        decision = get_scenario_routing_decision(
+            result.test_id,
+            test_def["tier"],
+            connection_scenario,
+        )
+        result.tier = TestTier(decision.tier)
+        if decision.manual_reason and result.verdict == TestVerdict.PENDING and not result.comment:
+            result.comment = decision.manual_reason
+        elif not decision.manual_reason and result.verdict == TestVerdict.PENDING and is_manual_routing_note(result.comment):
+            result.comment = None
 
 
 async def _get_authorized_test_run(
@@ -323,6 +358,7 @@ async def create_test_run(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
+    connection_scenario = normalize_connection_scenario(data.connection_scenario)
     device_result = await db.execute(select(Device).where(Device.id == data.device_id))
     device = device_result.scalar_one_or_none()
     if not device:
@@ -359,7 +395,7 @@ async def create_test_run(
         engineer_id=user.id,
         project_id=device.project_id,
         agent_id=data.agent_id,
-        connection_scenario=data.connection_scenario,
+        connection_scenario=connection_scenario,
         total_tests=len(raw_ids),
         status=TestRunStatus.PENDING,
         run_metadata=data.metadata,
@@ -374,15 +410,19 @@ async def create_test_run(
                 test_run_id=test_run.id,
                 test_id=test_id,
                 test_name=test_def["name"],
-                tier=TestTier(test_def["tier"]),
+                tier=_resolve_result_tier(test_id, connection_scenario, test_def["tier"]),
                 tool=test_def.get("tool"),
                 verdict=TestVerdict.PENDING,
                 is_essential="yes" if test_def["is_essential"] else "no",
                 compliance_map=test_def.get("compliance_map", []),
             )
+            manual_note = get_manual_routing_note(test_id, connection_scenario)
+            if manual_note:
+                result.comment = manual_note
             db.add(result)
 
     await db.flush()
+    await _sync_run_result_routing(db, test_run.id, connection_scenario)
     await db.refresh(test_run)
     await log_action(db, user, "create", "test_run", test_run.id, {"device_id": data.device_id}, request)
     # Commit explicitly so the new run is visible to subsequent GET requests
@@ -416,7 +456,8 @@ async def update_test_run(
                 status_code=400,
                 detail="Connection scenario can only be changed before a run starts",
             )
-        run.connection_scenario = updates["connection_scenario"]
+        run.connection_scenario = normalize_connection_scenario(updates["connection_scenario"])
+        await _sync_run_result_routing(db, run.id, run.connection_scenario)
     if "synopsis" in updates:
         run.synopsis = updates["synopsis"]
     if "synopsis_status" in updates:
@@ -455,6 +496,13 @@ async def start_test_run(
             status_code=409 if readiness.dhcp_missing_ip else 422,
             detail=_missing_ip_detail_for_action("start", readiness.dhcp_missing_ip),
         )
+
+    await _sync_run_result_routing(
+        db,
+        run.id,
+        normalize_connection_scenario(run.connection_scenario),
+    )
+    await db.flush()
 
     task = launch_test_run(run_id)
     if task is None:

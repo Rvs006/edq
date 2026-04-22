@@ -42,6 +42,7 @@ export default function TestRunDetailPage() {
   // callbacks (which are re-invoked by React Query on every tick) can read
   // it without creating a circular dependency between `ws` and the queries.
   const wsHealthyRef = useRef(false)
+  const selectionPinnedRef = useRef(false)
   const [selectedTestId, setSelectedTestId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [scenarioDialogOpen, setScenarioDialogOpen] = useState(false)
@@ -121,7 +122,7 @@ export default function TestRunDetailPage() {
   useEffect(() => {
     if (!ws.lastProgress) return
     const msg = ws.lastProgress
-    if (msg.type === 'test_start' && msg.data.test_id) {
+    if (msg.type === 'test_start' && msg.data.test_id && !selectionPinnedRef.current) {
       const running = (results as TestResult[]).find((r) => r.test_id === msg.data.test_id)
       if (running) {
         setSelectedTestId(running.id)
@@ -190,6 +191,10 @@ export default function TestRunDetailPage() {
       setSelectedTestId((results as TestResult[])[0]?.id || null)
     }
   }, [results, selectedTestId])
+
+  useEffect(() => {
+    selectionPinnedRef.current = false
+  }, [id])
 
   const completedCount = useMemo(
     () => countCompletedResults(results as TestResult[]),
@@ -344,6 +349,11 @@ export default function TestRunDetailPage() {
     (afterId: string) => getNextPendingManualResultId(results as TestResult[], afterId),
     [results]
   )
+
+  const handleSelectTest = useCallback((testId: string) => {
+    selectionPinnedRef.current = true
+    setSelectedTestId(testId)
+  }, [])
 
   const handleSubmitManual = async (resultId: string, verdict: string, notes: string) => {
     setIsSubmitting(true)
@@ -594,7 +604,7 @@ export default function TestRunDetailPage() {
             firstPendingManualId
               ? {
                   label: 'Next manual',
-                  onClick: () => setSelectedTestId(firstPendingManualId),
+                  onClick: () => handleSelectTest(firstPendingManualId),
                 }
               : undefined
           }
@@ -671,7 +681,7 @@ export default function TestRunDetailPage() {
             runningTestId={runIsExecuting ? runningTestId : null}
             runStatus={run.status}
             onSelectTest={(testId) => {
-              setSelectedTestId(testId)
+              handleSelectTest(testId)
               setSidebarOpen(false)
             }}
             className="h-full"

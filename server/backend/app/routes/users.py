@@ -87,9 +87,14 @@ async def admin_create_user(
 ):
     """Admin-only endpoint to create a user (bypasses ALLOW_REGISTRATION)."""
     normalized_email = data.email.strip()
+    clean = sanitize_dict(data.model_dump(), ["full_name", "username"])
+    normalized_username = (clean["username"] or "").strip()
+    if len(normalized_username) < 3:
+        raise HTTPException(status_code=422, detail="Username must be at least 3 characters")
+
     if await _find_casefold_user_conflict(
         db,
-        username=data.username.strip(),
+        username=normalized_username,
         email=normalized_email,
     ):
         raise HTTPException(status_code=400, detail="Email or username already registered")
@@ -99,10 +104,9 @@ async def admin_create_user(
     except ValueError:
         raise HTTPException(status_code=422, detail=f"Invalid role: {data.role}")
 
-    clean = sanitize_dict(data.model_dump(), ["full_name", "username"])
     user = User(
         email=normalized_email,
-        username=(clean["username"] or "").strip(),
+        username=normalized_username,
         password_hash=hash_password(data.password),
         full_name=clean.get("full_name"),
         role=role,

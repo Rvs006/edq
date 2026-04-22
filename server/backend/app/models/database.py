@@ -115,6 +115,7 @@ def _import_all_models() -> None:
         nessus_finding,
         network_scan,
         project,
+        protocol_observer_settings,
         protocol_whitelist,
         refresh_token,
         report_config,

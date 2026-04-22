@@ -368,6 +368,36 @@ export const brandingApi = {
   },
 }
 
+export const protocolObserverApi = {
+  get: () => api.get<{
+    id: string
+    enabled: boolean
+    bind_host: string
+    timeout_seconds: number
+    dns_port: number
+    ntp_port: number
+    dhcp_port: number
+    dhcp_offer_ip: string
+    dhcp_subnet_mask: string
+    dhcp_router_ip: string
+    dhcp_dns_server: string
+    dhcp_lease_seconds: number
+  }>('/settings/protocol-observer'),
+  update: (data: {
+    enabled?: boolean
+    bind_host?: string
+    timeout_seconds?: number
+    dns_port?: number
+    ntp_port?: number
+    dhcp_port?: number
+    dhcp_offer_ip?: string
+    dhcp_subnet_mask?: string
+    dhcp_router_ip?: string
+    dhcp_dns_server?: string
+    dhcp_lease_seconds?: number
+  }) => api.put('/settings/protocol-observer', data),
+}
+
 export function getApiErrorMessage(err: unknown, fallback = 'An error occurred'): string {
   const axiosErr = err as {
     message?: string

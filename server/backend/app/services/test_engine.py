@@ -27,7 +27,7 @@ from app.models.device import Device
 from app.models.test_template import TestTemplate
 from app.models.protocol_whitelist import ProtocolWhitelist
 from app.config import settings
-from app.services.tools_client import tools_client
+from app.services.tools_client import describe_tools_error, tools_client
 from app.services.parsers.nmap_parser import nmap_parser
 from app.services.parsers.testssl_parser import testssl_parser
 from app.services.parsers.ssh_audit_parser import ssh_audit_parser
@@ -44,6 +44,16 @@ from app.services.wobbly_cable import WobblyCableHandler
 from app.services.test_library import get_test_by_id
 from app.services.device_fingerprinter import fingerprinter, FingerprintResult
 from app.services.discovery_service import guess_manufacturer, guess_model
+from app.services.protocol_observer import (
+    observe_dhcp_activity,
+    observe_dns_queries,
+    observe_ntp_queries,
+)
+from app.services.scenario_routing import (
+    get_manual_routing_note,
+    get_scenario_routing_decision,
+    normalize_connection_scenario,
+)
 from app.routes.websocket_routes import manager
 from app.utils.datetime import utcnow_naive
 
@@ -307,23 +317,10 @@ class TestEngine:
             skip_test_ids: set[str] = set()
             skip_reasons: dict[str, str] = {}
 
-            # Scenario-based skipping: certain tests are not applicable in some scenarios
-            connection_scenario = getattr(run, "connection_scenario", "direct") or "direct"
-            if connection_scenario == "site_network":
-                skip_test_ids.update({"U03", "U04"})
-                skip_reasons["U03"] = (
-                    "Skipped — Switch negotiation test not applicable in site network scenario."
-                )
-                skip_reasons["U04"] = (
-                    "Skipped — DHCP behaviour test not applicable in site network scenario. "
-                    "The device is already on an existing network with established DHCP. "
-                    "To test DHCP, use the direct cable scenario."
-                )
-            elif connection_scenario == "test_lab":
-                skip_test_ids.add("U03")
-                skip_reasons["U03"] = (
-                    "Skipped — Switch negotiation test not applicable in test lab scenario."
-                )
+            # Scenario routing still affects manual-vs-automatic handling below.
+            connection_scenario = normalize_connection_scenario(
+                getattr(run, "connection_scenario", "direct")
+            )
             fingerprint_done = False
             fingerprint_result: FingerprintResult | None = None
 
@@ -399,13 +396,22 @@ class TestEngine:
                     cfg = plan_configs.get(test_result.test_id)
                     if cfg and cfg.get("tier_override"):
                         effective_tier = cfg["tier_override"]
+                else:
+                    effective_tier = get_scenario_routing_decision(
+                        test_result.test_id,
+                        effective_tier,
+                        connection_scenario,
+                    ).tier
 
                 if effective_tier == "guided_manual":
                     completed += 1
                     async with async_session() as db:
                         result_row = await db.get(TestResult, test_result.id)
                         if result_row and result_row.verdict == TestVerdict.PENDING:
-                            result_row.comment = "Awaiting engineer input"
+                            result_row.comment = (
+                                get_manual_routing_note(test_result.test_id, connection_scenario)
+                                or "Awaiting engineer input"
+                            )
                             await db.commit()
 
                     await self._persist_run_progress(
@@ -463,7 +469,12 @@ class TestEngine:
 
                     test_started_at = utcnow_naive()
                     verdict, comment, parsed, raw_out, duration = await self._run_single_test(
-                        test_def, current_device_ip, test_run_id, whitelist_entries
+                        test_def,
+                        current_device_ip,
+                        test_run_id,
+                        whitelist_entries,
+                        device,
+                        connection_scenario,
                     )
 
                     if not await self._is_run_paused_for_cable(test_run_id):
@@ -682,18 +693,32 @@ class TestEngine:
         device_ip: str,
         run_id: str,
         whitelist_entries: list[dict],
+        device: Device,
+        connection_scenario: str,
     ) -> tuple[str, str, dict | None, str | None, float | None]:
         """Execute a single automatic test. Returns (verdict, comment, parsed, raw_output, duration)."""
         test_id = test_def["test_id"]
         start = time.monotonic()
 
         try:
-            parsed, raw_out = await self._dispatch_test(test_id, device_ip, run_id)
+            parsed, raw_out = await self._dispatch_test(
+                test_id,
+                device_ip,
+                run_id,
+                device,
+                connection_scenario,
+            )
             verdict, comment = evaluate_result(test_id, parsed, whitelist_entries)
         except Exception as exc:
             logger.warning("Test %s failed for run %s: %s", test_id, run_id, exc)
             elapsed = time.monotonic() - start
-            return ("error", "Test execution failed due to an internal error", None, None, round(elapsed, 2))
+            return (
+                "error",
+                describe_tools_error(exc, fallback=f"{test_id} execution failed"),
+                None,
+                None,
+                round(elapsed, 2),
+            )
 
         elapsed = time.monotonic() - start
         return (verdict, comment, parsed, raw_out, round(elapsed, 2))
@@ -767,7 +792,12 @@ class TestEngine:
         return on_line
 
     async def _dispatch_test(
-        self, test_id: str, device_ip: str, run_id: str
+        self,
+        test_id: str,
+        device_ip: str,
+        run_id: str,
+        device: Device,
+        connection_scenario: str,
     ) -> tuple[dict[str, Any], str | None]:
         """Dispatch a test to the appropriate tool and parser.
 
@@ -831,6 +861,29 @@ class TestEngine:
             return ({"ethtool_available": False}, None)
 
         if test_id == "U04":
+            if (
+                connection_scenario == "direct"
+                and settings.PROTOCOL_OBSERVER_ENABLED
+            ):
+                mac = getattr(device, "mac_address", None)
+                stripped_mac = mac.strip() if mac else ""
+                if stripped_mac:
+                    try:
+                        observed = await observe_dhcp_activity(expected_mac=stripped_mac)
+                        if observed.get("observed"):
+                            return (
+                                {
+                                    "dhcp_observed": True,
+                                    "dhcp_lease_acknowledged": observed.get("lease_acknowledged", False),
+                                    "dhcp_events": observed.get("events", []),
+                                    "offer_capable": observed.get("offer_capable", False),
+                                    "offered_ip": observed.get("offered_ip"),
+                                    "dhcp_server": observed.get("server_identifier"),
+                                },
+                                None,
+                            )
+                    except OSError as exc:
+                        logger.debug("U04 DHCP observer unavailable for %s: %s", device_ip, exc)
             try:
                 raw = await tools_client.nmap_stream(
                     device_ip, ["-sU", "-p", "67", "--script", "dhcp-discover", "-oX", "-"],
@@ -838,9 +891,15 @@ class TestEngine:
                 )
                 parsed = nmap_parser.parse_dhcp_discover(raw.get("stdout", ""))
                 return (parsed, raw.get("stdout"))
-            except Exception:
+            except Exception as exc:
                 logger.debug("U04: DHCP discover failed for %s", device_ip)
-                return ({"dhcp_detected": None}, None)
+                return (
+                    {
+                        "dhcp_detected": None,
+                        "error": describe_tools_error(exc, fallback="DHCP discovery failed"),
+                    },
+                    None,
+                )
 
         if test_id == "U05":
             raw = await tools_client.nmap_stream(device_ip, ["-6", "-sn"], timeout=60, on_line=on_line)
@@ -868,6 +927,7 @@ class TestEngine:
                 device_ip, ["-sU", "--top-ports", "100", "--open", "-oX", "-"], timeout=300, on_line=on_line
             )
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            _PORT_SCAN_CACHE[f"{run_id}_u07"] = parsed
             return (parsed, raw.get("stdout"))
 
         if test_id == "U08":
@@ -984,45 +1044,150 @@ class TestEngine:
             return (parsed, raw.get("stdout"))
 
         if test_id == "U26":
-            # NTP runs on UDP 123 — check TCP cache first, then run a quick UDP probe
-            cached = _PORT_SCAN_CACHE.get(run_id)
-            ntp_open = False
-            if cached:
-                ntp_open = any(p["port"] == 123 for p in cached.get("open_ports", []))
-            if not ntp_open:
+            if connection_scenario == "direct" and settings.PROTOCOL_OBSERVER_ENABLED:
+                try:
+                    observed = await observe_ntp_queries(expected_device_ip=device_ip)
+                    if observed.get("observed"):
+                        return (
+                            {
+                                "ntp_open": True,
+                                "ntp_version": observed.get("version"),
+                                "ntp_observed_sync": True,
+                                "ntp_script_output": "\n".join(
+                                    f"{event.get('source_ip')} version {event.get('version')} mode {event.get('mode')}"
+                                    for event in observed.get("events", [])
+                                ),
+                            },
+                            None,
+                        )
+                except OSError as exc:
+                    logger.debug("U26 NTP observer unavailable for %s: %s", device_ip, exc)
+            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
+            ntp_port = next(
+                (p for p in udp_cache.get("open_ports", []) if p.get("port") == 123),
+                None,
+            )
+            raw_out = None
+            if ntp_port is None:
                 raw = await tools_client.nmap_stream(
-                    device_ip, ["-sU", "-p", "123", "--open", "-oX", "-"], timeout=30, on_line=on_line
+                    device_ip,
+                    ["-sU", "-sV", "-p", "123", "--script", "ntp-info", "--open", "-oX", "-"],
+                    timeout=60,
+                    on_line=on_line,
                 )
-                udp_parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-                ntp_open = any(p["port"] == 123 for p in udp_parsed.get("open_ports", []))
-            return ({"ntp_open": ntp_open}, None)
+                raw_out = raw.get("stdout")
+                udp_parsed = nmap_parser.parse_xml(raw_out or "")
+                ntp_port = next(
+                    (p for p in udp_parsed.get("open_ports", []) if p.get("port") == 123),
+                    None,
+                )
+
+            script_output = ""
+            ntp_version = None
+            if ntp_port:
+                for script in ntp_port.get("scripts", []) or []:
+                    if script.get("id") == "ntp-info":
+                        script_output = script.get("output", "") or ""
+                        match = re.search(r"\b(?:version|v)\s*([0-9]+)\b", script_output, re.IGNORECASE)
+                        if match:
+                            ntp_version = match.group(1)
+                        break
+
+            return (
+                {
+                    "ntp_open": ntp_port is not None,
+                    "ntp_service": ntp_port.get("service") if ntp_port else None,
+                    "ntp_version": ntp_version or (ntp_port.get("version") if ntp_port else None),
+                    "ntp_script_output": script_output,
+                    "ntp_observed_sync": False,
+                },
+                raw_out,
+            )
 
         if test_id == "U28":
-            # BACnet runs on UDP 47808 — check TCP cache first, then run a quick UDP probe
-            cached = _PORT_SCAN_CACHE.get(run_id)
-            bacnet = False
-            if cached:
-                bacnet = any(p["port"] == 47808 for p in cached.get("open_ports", []))
-            if not bacnet:
+            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
+            bacnet_port = next(
+                (p for p in udp_cache.get("open_ports", []) if p.get("port") == 47808),
+                None,
+            )
+            raw_out = None
+            if bacnet_port is None:
                 raw = await tools_client.nmap_stream(
-                    device_ip, ["-sU", "-p", "47808", "--open", "-oX", "-"], timeout=30, on_line=on_line
+                    device_ip,
+                    ["-sU", "-sV", "-p", "47808", "--script", "bacnet-info", "--open", "-oX", "-"],
+                    timeout=90,
+                    on_line=on_line,
                 )
-                udp_parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-                bacnet = any(p["port"] == 47808 for p in udp_parsed.get("open_ports", []))
-            return ({"bacnet_open": bacnet}, None)
+                raw_out = raw.get("stdout")
+                udp_parsed = nmap_parser.parse_xml(raw_out or "")
+                bacnet_port = next(
+                    (p for p in udp_parsed.get("open_ports", []) if p.get("port") == 47808),
+                    None,
+                )
+
+            bacnet_script = None
+            for script in (bacnet_port.get("scripts", []) if bacnet_port else []) or []:
+                if script.get("id") == "bacnet-info":
+                    bacnet_script = script
+                    break
+
+            return (
+                {
+                    "bacnet_open": bacnet_port is not None,
+                    "bacnet_service": bacnet_port.get("service") if bacnet_port else None,
+                    "bacnet_version": bacnet_port.get("version") if bacnet_port else None,
+                    "bacnet_details": (bacnet_script or {}).get("details") or {},
+                    "bacnet_script_output": (bacnet_script or {}).get("output") or "",
+                },
+                raw_out,
+            )
 
         if test_id == "U29":
-            cached = _PORT_SCAN_CACHE.get(run_id)
-            dns = False
-            if cached:
-                dns = any(p["port"] == 53 for p in cached.get("open_ports", []))
-            if not dns:
+            if connection_scenario == "direct" and settings.PROTOCOL_OBSERVER_ENABLED:
+                try:
+                    observed = await observe_dns_queries(expected_device_ip=device_ip)
+                    if observed.get("observed"):
+                        queries = observed.get("events", [])
+                        return (
+                            {
+                                "dns_open": True,
+                                "dns_observed_requests": True,
+                                "dns_service": "dns-observer",
+                                "dns_version": None,
+                                "dns_queries": queries,
+                            },
+                            None,
+                        )
+                except OSError as exc:
+                    logger.debug("U29 DNS observer unavailable for %s: %s", device_ip, exc)
+            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
+            dns_port = next(
+                (p for p in udp_cache.get("open_ports", []) if p.get("port") == 53),
+                None,
+            )
+            raw_out = None
+            if dns_port is None:
                 raw = await tools_client.nmap_stream(
-                    device_ip, ["-sU", "-p", "53", "--open", "-oX", "-"], timeout=30, on_line=on_line
+                    device_ip,
+                    ["-sU", "-sV", "-p", "53", "--open", "-oX", "-"],
+                    timeout=45,
+                    on_line=on_line,
                 )
-                udp_parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-                dns = any(p["port"] == 53 for p in udp_parsed.get("open_ports", []))
-            return ({"dns_open": dns}, None)
+                raw_out = raw.get("stdout")
+                udp_parsed = nmap_parser.parse_xml(raw_out or "")
+                dns_port = next(
+                    (p for p in udp_parsed.get("open_ports", []) if p.get("port") == 53),
+                    None,
+                )
+            return (
+                {
+                    "dns_open": dns_port is not None,
+                    "dns_service": dns_port.get("service") if dns_port else None,
+                    "dns_version": dns_port.get("version") if dns_port else None,
+                    "dns_observed_requests": False,
+                },
+                raw_out,
+            )
 
         if test_id == "U31":
             raw = await tools_client.nmap_stream(
@@ -1063,7 +1228,7 @@ class TestEngine:
             return (parsed, raw.get("stdout"))
 
         if test_id == "U34":
-            cached = _PORT_SCAN_CACHE.get(run_id)
+            cached = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08")
             if cached:
                 open_ports = {p["port"] for p in cached.get("open_ports", [])}
                 telnet_open = 23 in open_ports
@@ -1077,11 +1242,19 @@ class TestEngine:
             return ({"telnet_open": 23 in open_ports, "ftp_open": 21 in open_ports, "insecure_ports": sorted(open_ports)}, raw.get("stdout"))
 
         if test_id == "U36":
-            raw = await tools_client.nmap_stream(
-                device_ip, ["-sV", "--script", "banner", "--open", "-oX", "-"], timeout=180, on_line=on_line
-            )
-            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-            return (parsed, raw.get("stdout"))
+            try:
+                raw = await tools_client.nmap_stream(
+                    device_ip, ["-sV", "--script", "banner", "--open", "-oX", "-"], timeout=180, on_line=on_line
+                )
+                parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+                if parsed.get("open_ports"):
+                    return (parsed, raw.get("stdout"))
+            except Exception as exc:
+                logger.debug("U36 banner scan failed for %s: %s", device_ip, exc)
+            u08_cached = _PORT_SCAN_CACHE.get(f"{run_id}_u08")
+            if u08_cached and u08_cached.get("open_ports"):
+                return (u08_cached, None)
+            return ({"open_ports": []}, None)
 
         if test_id == "U37":
             parsed = await self._test_rtsp_auth(device_ip)

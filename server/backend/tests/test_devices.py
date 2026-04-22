@@ -191,22 +191,25 @@ async def test_devices_unauthenticated(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_import_devices_csv_preserves_firmware_version(client: AsyncClient):
-    """CSV imports should persist the firmware_version column."""
+    """CSV imports should preserve firmware_version without dropping the first data row."""
     headers = await register_and_login(client, "devimportfw", role="admin")
     csv_content = (
         "ip_address,hostname,firmware_version,manufacturer,model\n"
         "192.168.55.10,fw-device,1.2.3,Axis,P3245-V\n"
+        "192.168.55.11,fw-device-2,2.0.0,Axis,P3248-LV\n"
     )
     files = {"file": ("devices.csv", io.BytesIO(csv_content.encode()), "text/csv")}
 
     resp = await client.post("/api/devices/import", files=files, headers=headers)
     assert resp.status_code == 200
-    assert resp.json()["imported"] == 1
+    assert resp.json()["imported"] == 2
 
     listing = await client.get("/api/devices/", headers=headers)
     assert listing.status_code == 200
     imported = next(device for device in listing.json() if device["ip_address"] == "192.168.55.10")
     assert imported["firmware_version"] == "1.2.3"
+    second = next(device for device in listing.json() if device["ip_address"] == "192.168.55.11")
+    assert second["firmware_version"] == "2.0.0"
 
 
 @pytest.mark.asyncio

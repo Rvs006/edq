@@ -31,6 +31,7 @@ class NmapParser:
             "mac_address": None,
             "oui_vendor": None,
             "scan_info": {},
+            "scripts": [],
         }
 
         if not xml_output or not xml_output.strip():
@@ -58,6 +59,7 @@ class NmapParser:
                 "ports": [],
                 "os": None,
                 "hostname": None,
+                "scripts": [],
             }
 
             status = host_elem.find("status")
@@ -99,6 +101,12 @@ class NmapParser:
                         if state is not None and state.get("state") in ("open", "open|filtered"):
                             result["open_ports"].append(port_info)
 
+            for script_elem in host_elem.findall("script"):
+                script_info = self._parse_script(script_elem)
+                if script_info:
+                    host_data["scripts"].append(script_info)
+                    result["scripts"].append(script_info)
+
             os_elem = host_elem.find("os")
             if os_elem is not None:
                 osmatch = os_elem.find("osmatch")
@@ -133,6 +141,12 @@ class NmapParser:
         if state_elem is not None:
             state_str = state_elem.get("state", "unknown")
 
+        scripts = []
+        for script_elem in port_elem.findall("script"):
+            script_info = self._parse_script(script_elem)
+            if script_info:
+                scripts.append(script_info)
+
         version_str = service_product
         if service_version:
             version_str = f"{service_product} {service_version}".strip()
@@ -145,7 +159,37 @@ class NmapParser:
             "version": version_str,
             "product": service_product,
             "extra_info": service_extra_info,
+            "scripts": scripts,
         }
+
+    def _parse_script(self, script_elem) -> dict[str, Any] | None:
+        script_id = script_elem.get("id", "")
+        output = script_elem.get("output", "") or ""
+        if not script_id and not output:
+            return None
+        details = self._parse_script_children(script_elem)
+        return {
+            "id": script_id,
+            "output": output,
+            "details": details,
+        }
+
+    def _parse_script_children(self, elem) -> dict[str, Any]:
+        details: dict[str, Any] = {}
+        for child in list(elem):
+            key = child.get("key") or child.tag
+            if child.tag == "elem":
+                details[key] = (child.text or "").strip()
+            elif child.tag == "table":
+                nested = self._parse_script_children(child)
+                existing = details.get(key)
+                if existing is None:
+                    details[key] = nested
+                elif isinstance(existing, list):
+                    existing.append(nested)
+                else:
+                    details[key] = [existing, nested]
+        return details
 
     def parse_ping(self, raw_output: dict[str, Any]) -> dict[str, Any]:
         """Parse ping/nmap -sn result for reachability."""
@@ -251,7 +295,13 @@ class NmapParser:
 
     def parse_dhcp_discover(self, xml_output: str) -> dict[str, Any]:
         """Parse nmap dhcp-discover script output from XML."""
-        result: dict[str, Any] = {"dhcp_detected": None, "dhcp_server": None, "offered_ip": None}
+        result: dict[str, Any] = {
+            "dhcp_detected": None,
+            "dhcp_server": None,
+            "offered_ip": None,
+            "script_output": "",
+            "details": {},
+        }
 
         if not xml_output or not xml_output.strip():
             return result
@@ -273,6 +323,8 @@ class NmapParser:
                 output = script.get("output", "")
                 if output:
                     result["dhcp_detected"] = True
+                    result["script_output"] = output
+                    result["details"] = self._parse_script_children(script)
                     # Extract DHCP server IP
                     for elem in script.iter("elem"):
                         key = elem.get("key", "")

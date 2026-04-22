@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useNavigate } from 'react-router-dom'
-import { authApi, brandingApi } from '@/lib/api'
+import { authApi, brandingApi, getApiErrorMessage, protocolObserverApi } from '@/lib/api'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import type { TourState } from '@/lib/types'
 import { User, Lock, Sun, Moon, Loader2, Server, RotateCcw, Save, Palette, Upload, Shield, ShieldCheck, ShieldOff } from 'lucide-react'
@@ -17,6 +17,7 @@ export default function SettingsPage({ tourState }: { tourState?: TourState }) {
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'appearance', label: 'Appearance', icon: Sun },
     { id: 'branding', label: 'Report Branding', icon: Palette },
+    { id: 'protocol', label: 'Protocol Harness', icon: ShieldCheck },
     { id: 'system', label: 'System Status', icon: Server },
   ]
 
@@ -55,6 +56,7 @@ export default function SettingsPage({ tourState }: { tourState?: TourState }) {
           </>}
           {activeTab === 'appearance' && <AppearanceSettings />}
           {activeTab === 'branding' && <BrandingSettings />}
+          {activeTab === 'protocol' && <ProtocolObserverSettings role={user?.role ?? null} />}
           {activeTab === 'system' && <SystemStatus />}
           <HelpSection tourState={tourState} />
         </div>
@@ -627,6 +629,246 @@ function BrandingSettings() {
         <button type="submit" disabled={saving} className="btn-primary">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}
           Save Branding
+        </button>
+      </form>
+    </div>
+  )
+}
+
+type ProtocolObserverForm = {
+  enabled: boolean
+  bind_host: string
+  timeout_seconds: number
+  dns_port: number
+  ntp_port: number
+  dhcp_port: number
+  dhcp_offer_ip: string
+  dhcp_subnet_mask: string
+  dhcp_router_ip: string
+  dhcp_dns_server: string
+  dhcp_lease_seconds: number
+}
+
+function ProtocolObserverSettings({ role }: { role: string | null }) {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState<ProtocolObserverForm>({
+    enabled: true,
+    bind_host: '0.0.0.0',
+    timeout_seconds: 20,
+    dns_port: 53,
+    ntp_port: 123,
+    dhcp_port: 67,
+    dhcp_offer_ip: '',
+    dhcp_subnet_mask: '',
+    dhcp_router_ip: '',
+    dhcp_dns_server: '',
+    dhcp_lease_seconds: 300,
+  })
+
+  const isAdmin = role === 'admin'
+
+  useEffect(() => {
+    protocolObserverApi.get()
+      .then((res) => setForm(res.data))
+      .catch((err) => {
+        console.error('Failed to fetch protocol observer settings:', err)
+        toast.error(getApiErrorMessage(err, 'Failed to load protocol harness settings'))
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const setField = <K extends keyof ProtocolObserverForm>(key: K, value: ProtocolObserverForm[K]) => {
+    setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin) return
+    setSaving(true)
+    try {
+      await protocolObserverApi.update(form)
+      toast.success('Protocol harness settings saved')
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to save protocol harness settings'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="card p-5">
+        <div className="py-6 text-center">
+          <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mx-auto" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="mb-4">
+        <h2 className="font-semibold text-zinc-900 dark:text-slate-100">Protocol Harness</h2>
+        <p className="text-xs text-zinc-500 mt-1">
+          Configure the local DNS, NTP, and DHCP observer used by direct-connection tests.
+          DNS and NTP can prove observed traffic. DHCP needs a safe offer range before EDQ can acknowledge a lease.
+        </p>
+      </div>
+
+      {!isAdmin && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
+          You can view the current harness configuration, but only admins can change it.
+        </div>
+      )}
+
+      <form onSubmit={handleSave} className="space-y-5 max-w-3xl">
+        <div className="flex items-center justify-between rounded-lg border border-zinc-200 dark:border-slate-700 px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-zinc-900 dark:text-slate-100">Enable protocol observer</div>
+            <div className="text-xs text-zinc-500">Turns on the UDP listeners used by direct-scenario DNS/NTP/DHCP checks.</div>
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => setField('enabled', e.target.checked)}
+              disabled={!isAdmin}
+            />
+            {form.enabled ? 'Enabled' : 'Disabled'}
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Bind Host</label>
+            <input
+              type="text"
+              value={form.bind_host}
+              onChange={(e) => setField('bind_host', e.target.value)}
+              className="input"
+              disabled={!isAdmin}
+              placeholder="0.0.0.0"
+            />
+          </div>
+          <div>
+            <label className="label">Observer Timeout (seconds)</label>
+            <input
+              type="number"
+              min={1}
+              max={300}
+              value={form.timeout_seconds}
+              onChange={(e) => setField('timeout_seconds', Number(e.target.value))}
+              className="input"
+              disabled={!isAdmin}
+            />
+          </div>
+          <div>
+            <label className="label">DNS Port</label>
+            <input
+              type="number"
+              min={1}
+              max={65535}
+              value={form.dns_port}
+              onChange={(e) => setField('dns_port', Number(e.target.value))}
+              className="input"
+              disabled={!isAdmin}
+            />
+          </div>
+          <div>
+            <label className="label">NTP Port</label>
+            <input
+              type="number"
+              min={1}
+              max={65535}
+              value={form.ntp_port}
+              onChange={(e) => setField('ntp_port', Number(e.target.value))}
+              className="input"
+              disabled={!isAdmin}
+            />
+          </div>
+          <div>
+            <label className="label">DHCP Port</label>
+            <input
+              type="number"
+              min={1}
+              max={65535}
+              value={form.dhcp_port}
+              onChange={(e) => setField('dhcp_port', Number(e.target.value))}
+              className="input"
+              disabled={!isAdmin}
+            />
+          </div>
+          <div>
+            <label className="label">DHCP Lease Seconds</label>
+            <input
+              type="number"
+              min={60}
+              max={86400}
+              value={form.dhcp_lease_seconds}
+              onChange={(e) => setField('dhcp_lease_seconds', Number(e.target.value))}
+              className="input"
+              disabled={!isAdmin}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-zinc-200 dark:border-slate-700 p-4">
+          <h3 className="text-sm font-medium text-zinc-900 dark:text-slate-100 mb-1">DHCP Offer Settings</h3>
+          <p className="text-xs text-zinc-500 mb-4">
+            Leave these blank if you only want passive DHCP observation. Set them only when you have a safe isolated range for direct device testing.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Offer IP</label>
+              <input
+                type="text"
+                value={form.dhcp_offer_ip}
+                onChange={(e) => setField('dhcp_offer_ip', e.target.value)}
+                className="input"
+                disabled={!isAdmin}
+                placeholder="192.168.4.68"
+              />
+            </div>
+            <div>
+              <label className="label">Subnet Mask</label>
+              <input
+                type="text"
+                value={form.dhcp_subnet_mask}
+                onChange={(e) => setField('dhcp_subnet_mask', e.target.value)}
+                className="input"
+                disabled={!isAdmin}
+                placeholder="255.255.255.0"
+              />
+            </div>
+            <div>
+              <label className="label">Router IP</label>
+              <input
+                type="text"
+                value={form.dhcp_router_ip}
+                onChange={(e) => setField('dhcp_router_ip', e.target.value)}
+                className="input"
+                disabled={!isAdmin}
+                placeholder="192.168.4.1"
+              />
+            </div>
+            <div>
+              <label className="label">DNS Server IP</label>
+              <input
+                type="text"
+                value={form.dhcp_dns_server}
+                onChange={(e) => setField('dhcp_dns_server', e.target.value)}
+                className="input"
+                disabled={!isAdmin}
+                placeholder="192.168.4.1"
+              />
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" disabled={!isAdmin || saving} className="btn-primary">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save Protocol Harness
         </button>
       </form>
     </div>
