@@ -22,6 +22,41 @@ type FormatGroup = {
   formats: { key: ReportFormat; label: string; ext: string; icon: typeof FileSpreadsheet }[]
 }
 
+const FORMAT_PREVIEW: Record<ReportFormat, { title: string; highlights: string[] }> = {
+  excel: {
+    title: 'Excel Workbook Preview',
+    highlights: [
+      'Worksheet tabs: General Test Information, Test Results, Additional Device Information, Raw Evidence',
+      'One EDQ test per row with engineer notes and evidence summary',
+      'Raw Evidence sheet keeps detailed observer/tool output for bench review',
+    ],
+  },
+  csv: {
+    title: 'CSV Export Preview',
+    highlights: [
+      'Flat per-test export for quick filtering and diffing',
+      'Engineer notes and evidence summary columns stay separate',
+      'Best for quick review, not for preserving multi-sheet evidence layout',
+    ],
+  },
+  word: {
+    title: 'Word Report Preview',
+    highlights: [
+      'Narrative deliverable with template profile and shared report model',
+      'Good for handoff and client editing',
+      'Summarised findings instead of workbook-style raw evidence tabs',
+    ],
+  },
+  pdf: {
+    title: 'PDF Report Preview',
+    highlights: [
+      'Fixed-layout client deliverable with shared report content',
+      'Best for formal distribution and archiving',
+      'Uses the same report model, but not the Excel Raw Evidence sheet layout',
+    ],
+  },
+}
+
 export default function ReportsPage() {
   const [selectedRun, setSelectedRun] = useState('')
   const [reportType, setReportType] = useState<ReportFormat>('excel')
@@ -116,6 +151,7 @@ export default function ReportsPage() {
   }
 
   const availableTemplates = templates || TEMPLATE_OPTIONS
+  const selectedFormatPreview = FORMAT_PREVIEW[reportType]
 
   const formatGroups: FormatGroup[] = [
     {
@@ -276,6 +312,18 @@ export default function ReportsPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="card p-4">
+            <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">{selectedFormatPreview.title}</h3>
+            <ul className="space-y-2 text-sm text-zinc-600 dark:text-slate-400">
+              {selectedFormatPreview.highlights.map((item) => (
+                <li key={item} className="flex items-start gap-2">
+                  <span className="text-brand-500 mt-0.5">&bull;</span>
+                  {item}
+                </li>
+              ))}
+            </ul>
           </div>
 
           <div className="card p-4">

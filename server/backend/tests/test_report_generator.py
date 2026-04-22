@@ -6,8 +6,15 @@ import importlib.util
 
 import pytest
 from openpyxl import load_workbook
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app import main as main_module
+from app.models import database as database_module
+from app.models.protocol_observer_settings import ProtocolObserverSettings
+from app.services import test_engine as test_engine_module
+from app.services.evaluation import evaluate_result
 from app.services import report_generator
+from app.services.test_engine import TestEngine
 
 
 def _make_test_run():
@@ -35,11 +42,16 @@ def _make_test_result():
     return SimpleNamespace(
         test_id="U01",
         test_name="Network Reachability",
+        tier="automatic",
+        tool="nmap",
         verdict="pass",
         comment="Device responded as expected.",
         comment_override=None,
         engineer_notes=None,
         override_reason=None,
+        raw_output=None,
+        parsed_data=None,
+        findings=None,
         is_essential="YES",
     )
 
@@ -113,6 +125,7 @@ async def test_generate_excel_report_preserves_generic_workbook_structure(tmp_pa
             "General Test Information",
             "Test Results",
             "Additional Device Information",
+            "Raw Evidence",
         ]
     finally:
         workbook.close()
@@ -207,13 +220,53 @@ def _make_test_result_with_notes(notes: str = "Check firmware 1.2.3 manually on 
     return SimpleNamespace(
         test_id="U01",
         test_name="Network Reachability",
+        tier="guided_manual",
+        tool="manual",
         verdict="pass",
         comment="Device responded as expected.",
         comment_override=None,
         engineer_notes=notes,
         override_reason=None,
+        raw_output=None,
+        parsed_data=None,
+        findings=None,
         is_essential="YES",
     )
+
+
+def _make_generic_results():
+    return [
+        SimpleNamespace(
+            test_id="U01",
+            test_name="Network Reachability",
+            tier="automatic",
+            tool="nmap",
+            verdict="pass",
+            comment="Device responded as expected.",
+            comment_override=None,
+            engineer_notes=None,
+            override_reason=None,
+            raw_output="Host is up.\n1 open tcp port discovered.",
+            parsed_data=None,
+            findings=None,
+            is_essential="YES",
+        ),
+        SimpleNamespace(
+            test_id="U03",
+            test_name="Switch Negotiation",
+            tier="guided_manual",
+            tool=None,
+            verdict="pass",
+            comment="Engineer verified full duplex support.",
+            comment_override=None,
+            engineer_notes="Observed from managed switch port status page.",
+            override_reason=None,
+            raw_output=None,
+            parsed_data=None,
+            findings=None,
+            is_essential="NO",
+        ),
+    ]
 
 
 @pytest.mark.asyncio
@@ -249,32 +302,141 @@ def test_engineer_notes_resolved_as_separate_column_in_document():
 
 
 @pytest.mark.asyncio
-async def test_excel_export_refreshes_dimension_and_row_spans(tmp_path, monkeypatch):
-    import re
-    import zipfile
-
+async def test_generic_report_uses_one_row_per_test_and_keeps_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
 
     output = await report_generator.generate_excel_report(
         _make_test_run(),
-        [_make_test_result_with_notes("H-col regression fixture")],
+        _make_generic_results(),
         template_key="generic",
     )
 
-    with zipfile.ZipFile(output) as zf:
-        sheet = zf.read("xl/worksheets/sheet2.xml").decode()
+    wb = load_workbook(output)
+    try:
+        ws = wb["Test Results"]
+        headers = [ws[f"{col}3"].value for col in ["B", "C", "D", "E", "F", "G", "H", "I", "J"]]
+        assert headers == [
+            "Test ID",
+            "Test Name",
+            "Tier",
+            "Tool",
+            "Essential Test",
+            "Test Result",
+            "Test Comments",
+            "Engineer Notes",
+            "Evidence Summary",
+        ]
+        assert ws["B4"].value == "U01"
+        assert ws["C4"].value == "Network Reachability"
+        assert ws["J4"].value.startswith("Host is up.")
+        assert ws["B5"].value == "U03"
+        assert ws["D5"].value == "Guided Manual"
+        assert ws["I5"].value == "Observed from managed switch port status page."
+        evidence_ws = wb["Raw Evidence"]
+        assert evidence_ws["A4"].value == "U01"
+        assert evidence_ws["D4"].value == "Host is up.\n1 open tcp port discovered."
+        assert evidence_ws["C5"].value == "Observed from managed switch port status page."
+    finally:
+        wb.close()
 
-    dim = re.search(r'<dimension ref="([^"]+)"/>', sheet)
-    assert dim is not None
-    max_col = dim.group(1).split(":")[1]
-    assert re.match(r"^[H-Z]+\d+$", max_col), f"dimension not extended to H+: {dim.group(1)}"
 
-    for m in re.finditer(r'<row r="(\d+)" spans="(\d+):(\d+)"[^>]*>', sheet):
-        row_no, low, high = m.group(1), int(m.group(2)), int(m.group(3))
-        row_end = sheet.find("</row>", m.end())
-        body = sheet[m.end():row_end] if row_end > 0 else ""
-        if 'r="H' + row_no + '"' in body:
-            assert high >= 8, f"row {row_no} has H cell but spans={low}:{high}"
+@pytest.mark.asyncio
+async def test_protocol_settings_reload_drive_u04_exported_evidence(
+    tmp_path,
+    monkeypatch,
+    db_engine,
+    db_session: AsyncSession,
+):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+    session_factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(database_module, "async_session", session_factory)
+    monkeypatch.setattr(report_generator.settings, "PROTOCOL_OBSERVER_ENABLED", False)
+    monkeypatch.setattr(report_generator.settings, "PROTOCOL_OBSERVER_DHCP_OFFER_IP", "")
+
+    db_session.add(
+        ProtocolObserverSettings(
+            singleton_key="_",
+            enabled=True,
+            bind_host="127.0.0.1",
+            timeout_seconds=20,
+            dns_port=5300,
+            ntp_port=1123,
+            dhcp_port=1067,
+            dhcp_offer_ip="192.168.4.68",
+            dhcp_subnet_mask="255.255.255.0",
+            dhcp_router_ip="192.168.4.1",
+            dhcp_dns_server="192.168.4.1",
+            dhcp_lease_seconds=600,
+        )
+    )
+    await db_session.commit()
+
+    await main_module._load_protocol_observer_settings_from_db()
+
+    assert report_generator.settings.PROTOCOL_OBSERVER_ENABLED is True
+    assert report_generator.settings.PROTOCOL_OBSERVER_DHCP_OFFER_IP == "192.168.4.68"
+
+    async def fake_observe_dhcp_activity(*, expected_mac: str | None, timeout_seconds=None, port=None):
+        assert expected_mac == "AA:BB:CC:DD:EE:FF"
+        assert test_engine_module.settings.PROTOCOL_OBSERVER_DHCP_OFFER_IP == "192.168.4.68"
+        return {
+            "observed": True,
+            "lease_acknowledged": True,
+            "offer_capable": True,
+            "offered_ip": "192.168.4.68",
+            "server_identifier": "192.168.4.1",
+            "events": [
+                {"message_type": 1, "observer_reply_type": 2},
+                {"message_type": 3, "observer_reply_type": 5},
+            ],
+        }
+
+    monkeypatch.setattr(test_engine_module, "observe_dhcp_activity", fake_observe_dhcp_activity)
+
+    engine = TestEngine()
+    parsed, raw = await engine._dispatch_test(
+        "U04",
+        "192.168.4.68",
+        "run-u04-export",
+        SimpleNamespace(mac_address="AA:BB:CC:DD:EE:FF"),
+        "direct",
+    )
+    verdict, comment = evaluate_result("U04", parsed)
+
+    result = SimpleNamespace(
+        test_id="U04",
+        test_name="DHCP Behaviour",
+        tier="automatic",
+        tool="protocol_observer",
+        verdict=verdict,
+        comment=comment,
+        comment_override=None,
+        engineer_notes=None,
+        override_reason=None,
+        raw_output=raw,
+        parsed_data=parsed,
+        findings=None,
+        is_essential="YES",
+    )
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [result],
+        template_key="generic",
+    )
+
+    wb = load_workbook(output)
+    try:
+        results_ws = wb["Test Results"]
+        evidence_ws = wb["Raw Evidence"]
+        assert results_ws["B4"].value == "U04"
+        assert "lease acknowledgement" in str(results_ws["H4"].value).lower()
+        assert "192.168.4.68" in str(results_ws["J4"].value)
+        evidence_detail = str(evidence_ws["D4"].value)
+        assert '"dhcp_lease_acknowledged": true' in evidence_detail.lower()
+        assert '"offered_ip": "192.168.4.68"' in evidence_detail
+    finally:
+        wb.close()
 
 
 @pytest.mark.asyncio
@@ -310,9 +472,9 @@ async def test_engineer_notes_written_to_excel_cell(tmp_path, monkeypatch):
     wb = load_workbook(output)
     try:
         ws = wb["Test Results"]
-        header = ws["H10"].value
+        header = ws["I3"].value
         assert header == "Engineer Notes"
-        column_values = [ws[f"H{row}"].value for row in range(11, 54)]
+        column_values = [ws[f"I{row}"].value for row in range(4, 10)]
         assert note in column_values
     finally:
         wb.close()
