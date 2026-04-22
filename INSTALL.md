@@ -183,7 +183,7 @@ git pull --ff-only origin main
 docker compose up --build -d
 ```
 
-Update-only guide with after-update checks: [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
+For the supported update flow plus post-update checks, use [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md).
 
 ## Troubleshooting
 

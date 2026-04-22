@@ -42,6 +42,7 @@ from app.services.wobbly_cable import get_cable_handler
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
 from app.utils.audit import log_action
+from app.utils.collections import ordered_unique
 from app.utils.datetime import utcnow_naive
 from app.models.user import UserRole
 
@@ -380,14 +381,7 @@ async def create_test_run(
         import json as _json
         raw_ids = _json.loads(raw_ids)
 
-    # Deduplicate while preserving order (guards against manually edited or double-serialized templates)
-    seen_ids: set[str] = set()
-    deduped_ids: list[str] = []
-    for tid in raw_ids:
-        if tid not in seen_ids:
-            seen_ids.add(tid)
-            deduped_ids.append(tid)
-    raw_ids = deduped_ids
+    raw_ids = ordered_unique(raw_ids)
 
     test_run = TestRun(
         device_id=data.device_id,

@@ -29,20 +29,6 @@ type FrontendTelemetryConfig = {
   sentryRelease?: string
 }
 
-function parseBoolean(value: string | undefined, fallback = false) {
-  if (value === undefined) {
-    return fallback
-  }
-  const normalized = value.trim().toLowerCase()
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return true
-  }
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false
-  }
-  return fallback
-}
-
 function normalizeEndpoint(endpoint: string | undefined) {
   const candidate = endpoint?.trim() || DEFAULT_CLIENT_ERROR_ENDPOINT
   const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'

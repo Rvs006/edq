@@ -12,7 +12,8 @@ EDQ runs as three containers:
 - `backend`: FastAPI application plus the co-located tools sidecar
 - `postgres`: primary application database
 
-Optional production HTTPS support is provided through `docker-compose.prod.yml`.
+Built-in production HTTPS support is provided through `docker-compose.prod.yml`.
+An optional alternative TLS overlay is also available through `docker-compose.tls.yml` if you prefer Caddy instead of the built-in nginx + certbot path.
 
 Tip: Set `ENVIRONMENT=cloud` in `.env` for production deployments — this auto-derives `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`, and Postgres defaults.
 
@@ -52,10 +53,12 @@ docker compose up --build -d
 Health endpoint:
 
 ```bash
-curl http://localhost:3000/api/health
+curl http://localhost:3000/api/v1/health
 ```
 
 ## Start With HTTPS
+
+This guide uses the built-in production HTTPS path: `docker-compose.prod.yml` with nginx + certbot.
 
 1. Set `DOMAIN` in the root `.env`
 2. Set `LETSENCRYPT_EMAIL` in the root `.env`
@@ -87,6 +90,16 @@ The production override:
 - sets `COOKIE_SECURE=true` for the backend
 
 During the bootstrap phase, port `80` is used for ACME validation and health checks. Browser login should be treated as unavailable until certificates are issued and the frontend has been restarted onto HTTPS.
+
+## Optional Caddy TLS Overlay
+
+If you prefer Caddy-managed TLS instead of the built-in nginx + certbot path, use:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+```
+
+That optional overlay uses the repo-root `Caddyfile`. Keep one TLS approach per deployment; do not combine `docker-compose.prod.yml` and `docker-compose.tls.yml`.
 
 ## Operations
 
@@ -138,13 +151,15 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T frontend
 
 Public health endpoints:
 
-- `/api/health`
-- `/api/health/metrics`
+- `/api/v1/health`
+- `/api/v1/health/metrics`
 
 Authenticated status endpoints:
 
-- `/api/health/tools/versions`
-- `/api/health/system-status`
+- `/api/v1/health/tools/versions`
+- `/api/v1/health/system-status`
+
+Legacy `/api/...` paths still rewrite for backward compatibility, but `/api/v1/...` is the canonical path.
 
 Operational telemetry:
 

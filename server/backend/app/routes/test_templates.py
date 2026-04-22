@@ -13,6 +13,7 @@ from app.security.auth import get_current_active_user, require_role
 from app.services.test_library import UNIVERSAL_TESTS
 from app.utils.sanitize import sanitize_dict
 from app.utils.audit import log_action
+from app.utils.collections import ordered_unique
 
 router = APIRouter()
 
@@ -45,10 +46,8 @@ async def create_template(
     user: User = Depends(require_role(["admin"])),
 ):
     clean = sanitize_dict(data.model_dump(), ["name", "description"])
-    # Deduplicate test_ids while preserving order
     if "test_ids" in clean and clean["test_ids"]:
-        seen: set[str] = set()
-        clean["test_ids"] = [t for t in clean["test_ids"] if t not in seen and not seen.add(t)]  # type: ignore[func-returns-value]
+        clean["test_ids"] = ordered_unique(clean["test_ids"])
     template = TestTemplate(**clean, created_by=user.id)
     db.add(template)
     await db.flush()
@@ -90,9 +89,7 @@ async def update_template(
     if "description" in updates:
         template.description = updates["description"]
     if "test_ids" in updates:
-        # Deduplicate while preserving order
-        seen: set[str] = set()
-        template.test_ids = [t for t in updates["test_ids"] if t not in seen and not seen.add(t)]  # type: ignore[func-returns-value]
+        template.test_ids = ordered_unique(updates["test_ids"])
     if "whitelist_id" in updates:
         template.whitelist_id = updates["whitelist_id"]
     if "cell_mappings" in updates:

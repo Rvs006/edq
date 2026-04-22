@@ -1,5 +1,5 @@
 /** Single source of truth for the 60 EDQ security tests.
- *  Imported by NetworkScanPage and TestPlansPage instead of duplicating. */
+ *  Imported by multiple pages instead of duplicating the test catalog. */
 
 export interface UniversalTest {
   id: string

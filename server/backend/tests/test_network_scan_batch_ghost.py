@@ -62,6 +62,7 @@ async def test_start_batch_skips_unreachable_ip(
         json={
             "scan_id": scan_id,
             "device_ips": [ghost_ip, live_ip],
+            "test_ids": ["U03", "U01", "U03", "U02", "U01"],
             "connection_scenario": "test_lab",
         },
         headers=headers,
@@ -75,3 +76,9 @@ async def test_start_batch_skips_unreachable_ip(
     )
     runs = run_result.scalars().all()
     assert len(runs) == 1
+    assert runs[0].total_tests == 3
+
+    db_session.expire_all()
+    saved_scan = await db_session.get(NetworkScan, scan_id)
+    assert saved_scan is not None
+    assert saved_scan.selected_test_ids == ["U03", "U01", "U02"]

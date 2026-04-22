@@ -5,22 +5,21 @@ import type { ReadinessSummary, TestResult, TestRun, TestRunStatus } from './typ
  * Backend sends naive UTC datetimes without "Z" suffix, which causes
  * `new Date(str)` to treat them as local time instead of UTC.
  */
+function normalizeUtcTimestamp(utcTimestamp: string): string {
+  if (utcTimestamp.endsWith('Z') || utcTimestamp.includes('+') || /\d{2}:\d{2}$/.test(utcTimestamp.slice(-6))) {
+    return utcTimestamp
+  }
+  return `${utcTimestamp}Z`
+}
+
 export function toLocalDateString(utcTimestamp: string | null | undefined): string {
   if (!utcTimestamp) return ''
-  let ts = utcTimestamp
-  if (!ts.endsWith('Z') && !ts.includes('+') && !/\d{2}:\d{2}$/.test(ts.slice(-6))) {
-    ts += 'Z'
-  }
-  return new Date(ts).toLocaleString('en-GB', { timeZone: 'Europe/London' })
+  return new Date(normalizeUtcTimestamp(utcTimestamp)).toLocaleString('en-GB', { timeZone: 'Europe/London' })
 }
 
 export function toLocalDateOnly(utcTimestamp: string | null | undefined, options?: Intl.DateTimeFormatOptions): string {
   if (!utcTimestamp) return ''
-  let ts = utcTimestamp
-  if (!ts.endsWith('Z') && !ts.includes('+') && !/\d{2}:\d{2}$/.test(ts.slice(-6))) {
-    ts += 'Z'
-  }
-  return new Date(ts).toLocaleDateString('en-GB', { timeZone: 'Europe/London', ...options })
+  return new Date(normalizeUtcTimestamp(utcTimestamp)).toLocaleDateString('en-GB', { timeZone: 'Europe/London', ...options })
 }
 
 const RUN_STATUS_ALIASES: Record<string, TestRunStatus> = {
