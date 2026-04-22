@@ -366,6 +366,22 @@ async def test_admin_create_user_rejects_case_insensitive_collisions(client: Asy
 
 
 @pytest.mark.asyncio
+async def test_admin_create_user_rejects_whitespace_only_username(client: AsyncClient):
+    """Admin-created usernames should still meet minimum length after trimming/sanitizing."""
+    headers = await register_and_login(client, suffix="adminblankcreate", role="admin")
+
+    resp = await client.post("/api/users/", json={
+        "username": "   ",
+        "email": "blank-admin-user@example.com",
+        "password": "TestPass1",
+        "role": "engineer",
+    }, headers=headers)
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Username must be at least 3 characters"
+
+
+@pytest.mark.asyncio
 async def test_admin_update_user_rejects_case_insensitive_email_collision(client: AsyncClient):
     """Admin updates should reject case-only email collisions instead of surfacing a 500."""
     headers = await register_and_login(client, suffix="admincaseupdate", role="admin")

@@ -4,9 +4,21 @@ Maps each test ID to evaluation logic that produces (verdict, comment) tuples.
 """
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger("edq.services.evaluation")
+
+_DHCP_MESSAGE_LABELS = {
+    1: "discover",
+    2: "offer",
+    3: "request",
+    4: "decline",
+    5: "ack",
+    6: "nak",
+    7: "release",
+    8: "inform",
+}
 
 
 def evaluate_result(
@@ -70,15 +82,52 @@ def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
     dhcp = data.get("dhcp_detected", data.get("dhcp_enabled"))
     dhcp_server = data.get("dhcp_server")
     offered_ip = data.get("offered_ip")
-    if dhcp is True:
-        details = "DHCP Behaviour — DHCP server detected on the network segment."
-        if dhcp_server:
-            details += f" Server: {dhcp_server}."
+    script_output = (data.get("script_output") or "").strip()
+    dhcp_observed = data.get("dhcp_observed", False)
+    lease_acknowledged = data.get("dhcp_lease_acknowledged", False)
+    offer_capable = data.get("offer_capable")
+    dhcp_events = data.get("dhcp_events") or []
+    if lease_acknowledged:
+        details = ["DHCP Behaviour - DHCP request traffic observed and EDQ issued a lease acknowledgement to the device."]
         if offered_ip:
-            details += f" Offered IP: {offered_ip}."
-        details += (" Note: this confirms a DHCP server exists on the segment. "
-                     "To verify the device itself uses DHCP, check the device's network settings page.")
-        return ("pass", details)
+            details.append(f"Offered IP: {offered_ip}.")
+        if dhcp_server:
+            details.append(f"Server Identifier: {dhcp_server}.")
+        return ("pass", " ".join(details))
+    if dhcp_observed:
+        details = ["DHCP Behaviour - DHCP client traffic from the device was observed."]
+        if dhcp_events:
+            seen_labels: list[str] = []
+            for event in dhcp_events:
+                message_type = event.get("message_type")
+                label = _DHCP_MESSAGE_LABELS.get(message_type, f"type-{message_type}")
+                if label not in seen_labels:
+                    seen_labels.append(label)
+            if seen_labels:
+                details.append("Observed client messages: " + ", ".join(seen_labels) + ".")
+        if offer_capable is False:
+            details.append(
+                "EDQ was not configured to offer a DHCP lease, so this run was observation-only. "
+                "Configure Protocol Harness DHCP offer settings to complete the handshake automatically."
+            )
+        else:
+            details.append("EDQ did not complete a full lease acknowledgement in this run, so address acceptance still requires confirmation.")
+        if offered_ip:
+            details.append(f"Configured offer IP: {offered_ip}.")
+        if dhcp_server:
+            details.append(f"Configured server identifier: {dhcp_server}.")
+        return ("info", " ".join(details))
+    if dhcp is True:
+        details = "DHCP Behaviour — DHCP offer observed on the network segment."
+        if dhcp_server:
+            details += f" Server Identifier: {dhcp_server}."
+        if offered_ip:
+            details += f" IP Offered: {offered_ip}."
+        details += (" This confirms DHCP service is present, but it does not prove the device under test accepted the lease."
+                    " Confirm the device network settings or lease table for a true DHCP behaviour check.")
+        if script_output:
+            details += f"\n{script_output}"
+        return ("info", details)
     if dhcp is False:
         return ("info", "DHCP Behaviour — No DHCP server response detected on the network segment. "
                          "The device may use static IP configuration, or the DHCP server may be on a different VLAN.")
@@ -88,11 +137,187 @@ def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
                      "For best results, run from a host on the same VLAN.")
 
 
+def _eval_u04_v2(data: dict, _wl: list) -> tuple[str, str]:
+    """DHCP Behaviour."""
+    dhcp = data.get("dhcp_detected", data.get("dhcp_enabled"))
+    dhcp_server = data.get("dhcp_server")
+    offered_ip = data.get("offered_ip")
+    script_output = (data.get("script_output") or "").strip()
+    dhcp_observed = data.get("dhcp_observed", False)
+    lease_acknowledged = data.get("dhcp_lease_acknowledged", False)
+    offer_capable = data.get("offer_capable")
+    dhcp_events = data.get("dhcp_events") or []
+
+    if lease_acknowledged:
+        details = ["DHCP Behaviour - DHCP request traffic observed and EDQ issued a lease acknowledgement to the device."]
+        if offered_ip:
+            details.append(f"Offered IP: {offered_ip}.")
+        if dhcp_server:
+            details.append(f"Server Identifier: {dhcp_server}.")
+        return ("pass", " ".join(details))
+
+    if dhcp_observed:
+        details = ["DHCP Behaviour - DHCP client traffic from the device was observed."]
+        if dhcp_events:
+            seen_labels: list[str] = []
+            for event in dhcp_events:
+                message_type = event.get("message_type")
+                label = _DHCP_MESSAGE_LABELS.get(message_type, f"type-{message_type}")
+                if label not in seen_labels:
+                    seen_labels.append(label)
+            if seen_labels:
+                details.append("Observed client messages: " + ", ".join(seen_labels) + ".")
+        if offer_capable is False:
+            details.append(
+                "EDQ was not configured to offer a DHCP lease, so this run was observation-only. "
+                "Configure Protocol Harness DHCP offer settings to complete the handshake automatically."
+            )
+        else:
+            details.append(
+                "EDQ did not complete a full lease acknowledgement in this run, so address acceptance still requires confirmation."
+            )
+        if offered_ip:
+            details.append(f"Configured offer IP: {offered_ip}.")
+        if dhcp_server:
+            details.append(f"Configured server identifier: {dhcp_server}.")
+        return ("info", " ".join(details))
+
+    if dhcp is True:
+        details = "DHCP Behaviour - DHCP offer observed on the network segment."
+        if dhcp_server:
+            details += f" Server Identifier: {dhcp_server}."
+        if offered_ip:
+            details += f" IP Offered: {offered_ip}."
+        details += (
+            " This confirms DHCP service is present, but it does not prove the device under test accepted the lease."
+            " Confirm the device network settings or lease table for a true DHCP behaviour check."
+        )
+        if script_output:
+            details += f"\n{script_output}"
+        return ("info", details)
+
+    if dhcp is False:
+        return (
+            "info",
+            "DHCP Behaviour - No DHCP server response detected on the network segment. "
+            "The device may use static IP configuration, or the DHCP server may be on a different VLAN.",
+        )
+
+    return (
+        "info",
+        "DHCP Behaviour - Could not be determined automatically. Check the device's network "
+        "settings page, or monitor DHCP lease tables on the network switch/router.\n\n"
+        "Platform note: DHCP detection uses broadcast probes. In Docker, broadcasts may not reach the device's subnet. "
+        "For best results, run from a host on the same VLAN.",
+    )
+
+
 def _eval_u05(data: dict, _wl: list) -> tuple[str, str]:
     """IPv6 Support Detection — informational."""
     if data.get("ipv6_supported"):
         return ("info", "IPv6 Detection — IPv6 is enabled and responding on this device.")
     return ("info", "IPv6 Detection — No IPv6 response. The device may not support IPv6, or it is disabled in device settings.")
+
+
+def _format_port_table(open_ports: list[dict], include_version: bool = False) -> str:
+    if not open_ports:
+        return ""
+    sorted_ports = sorted(
+        open_ports,
+        key=lambda p: (str(p.get("protocol", "tcp")), int(p.get("port", 0))),
+    )
+    if include_version:
+        lines = ["PORT\tSTATE\tSERVICE\tVERSION"]
+        for p in sorted_ports:
+            version = (p.get("version") or "").strip()
+            lines.append(
+                f"{p.get('port')}/{p.get('protocol', 'tcp')}\t{p.get('state', 'open')}\t{p.get('service', '?')}\t{version}".rstrip()
+            )
+        return "\n".join(lines)
+
+    lines = ["PORT\tSTATE\tSERVICE"]
+    for p in sorted_ports:
+        lines.append(
+            f"{p.get('port')}/{p.get('protocol', 'tcp')}\t{p.get('state', 'open')}\t{p.get('service', '?')}"
+        )
+    return "\n".join(lines)
+
+
+def _first_script(open_ports: list[dict], *script_ids: str) -> dict | None:
+    """Find the first script matching any of the provided IDs in open ports.
+    
+    Scans a list of open_ports for the first script whose "id" attribute matches
+    any of the provided script_ids. Returns that script dict (with id, output, etc.),
+    or None if no match is found.
+    
+    Private utility for reuse by evaluation logic (e.g., evaluate_ports, evaluate_host)
+    to extract specific NSE script results from port discovery data.
+    
+    Args:
+        open_ports: List of port dicts (each with optional "scripts" list).
+        *script_ids: Variable number of script ID strings to match against.
+    
+    Returns:
+        The first script dict whose id matches any script_ids, or None.
+    """
+    wanted = set(script_ids)
+    for port in open_ports:
+        for script in port.get("scripts", []) or []:
+            if script.get("id") in wanted:
+                return script
+    return None
+
+
+_SERVICE_LABELS = {
+    "ftp": "FTP",
+    "ssh": "SSH",
+    "http": "HTTP",
+    "https": "HTTPS",
+    "ssl/http": "HTTPS",
+    "ssl/https": "HTTPS",
+    "netbios-ssn": "SAMBA",
+    "microsoft-ds": "SAMBA",
+    "domain": "DNS",
+    "domain?": "DNS",
+    "ntp": "NTP",
+    "bacnet": "BACNET",
+    "bacnet-ip": "BACNET",
+}
+
+
+def _service_label(raw: str | None) -> str:
+    value = (raw or "").strip().lower()
+    if not value:
+        return "UNKNOWN"
+    return _SERVICE_LABELS.get(value, value.upper())
+
+
+def _script_output(script: dict | None) -> str:
+    if not script:
+        return ""
+    output = str(script.get("output") or "").strip()
+    if output:
+        return output
+
+    details = script.get("details") or {}
+    if not isinstance(details, dict):
+        return ""
+
+    lines: list[str] = []
+    for key, value in details.items():
+        if isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                lines.append(f"{nested_key}: {nested_value}")
+        elif isinstance(value, list):
+            for entry in value:
+                if isinstance(entry, dict):
+                    for nested_key, nested_value in entry.items():
+                        lines.append(f"{nested_key}: {nested_value}")
+                else:
+                    lines.append(f"{key}: {entry}")
+        else:
+            lines.append(f"{key}: {value}")
+    return "\n".join(line for line in lines if line.strip())
 
 
 def _eval_u06(data: dict, _wl: list) -> tuple[str, str]:
@@ -101,11 +326,10 @@ def _eval_u06(data: dict, _wl: list) -> tuple[str, str]:
     count = len(open_ports)
     if count == 0:
         return ("info", "TCP Port Scan — No open TCP ports found. Verify the device is reachable and not blocking scans.")
-    port_list = ", ".join(
-        f"{p['port']}/{p.get('service', '?')}" for p in open_ports[:20]
+    return (
+        "info",
+        f"TCP Port Scan — {count} open TCP port(s) found.\n{_format_port_table(open_ports)}",
     )
-    suffix = f" (and {count - 20} more)" if count > 20 else ""
-    return ("info", f"TCP Port Scan — {count} open TCP port(s) found: {port_list}{suffix}. Review for unnecessary services.")
 
 
 def _eval_u07(data: dict, _wl: list) -> tuple[str, str]:
@@ -115,10 +339,10 @@ def _eval_u07(data: dict, _wl: list) -> tuple[str, str]:
     caveat = " Note: UDP scanning through Docker may miss some ports due to NAT/firewall behaviour."
     if count == 0:
         return ("info", f"UDP Port Scan — No open UDP ports detected in top 100 scan.{caveat}")
-    port_list = ", ".join(
-        f"{p['port']}/{p.get('service', '?')}" for p in open_ports[:20]
+    return (
+        "info",
+        f"UDP Port Scan — {count} open/filtered UDP port(s) found.{caveat}\n{_format_port_table(open_ports)}",
     )
-    return ("info", f"UDP Port Scan — {count} open/filtered UDP port(s) found: {port_list}.{caveat}")
 
 
 def _eval_u08(data: dict, _wl: list) -> tuple[str, str]:
@@ -126,11 +350,10 @@ def _eval_u08(data: dict, _wl: list) -> tuple[str, str]:
     open_ports = data.get("open_ports", [])
     if not open_ports:
         return ("info", "Service Detection — No service versions could be determined.")
-    services = [
-        f"{p['port']}: {p.get('service', '?')} {p.get('version', '')}".strip()
-        for p in open_ports[:15]
-    ]
-    return ("info", f"Service Detection — Versions identified on {len(open_ports)} port(s): {'; '.join(services)}.")
+    return (
+        "info",
+        f"Service Detection — Versions identified on {len(open_ports)} port(s).\n{_format_port_table(open_ports, include_version=True)}",
+    )
 
 
 def _eval_u09(data: dict, wl: list) -> tuple[str, str]:
@@ -150,7 +373,18 @@ def _eval_u09(data: dict, wl: list) -> tuple[str, str]:
 
     non_compliant = sorted(open_ports - allowed_ports)
     if non_compliant:
-        return ("fail", f"Whitelist Compliance — Non-whitelisted ports open: {non_compliant}. These services are not approved. Disable them or add to the whitelist if justified.")
+        port_details = {int(p["port"]): p for p in data.get("open_ports", [])}
+        details = []
+        for port in non_compliant:
+            port_info = port_details.get(port, {})
+            protocol = (port_info.get("protocol") or "tcp").upper()
+            service = _service_label(port_info.get("service"))
+            if service in {"FTP", "TELNET", "SAMBA"}:
+                suffix = "disable." if service in {"FTP", "TELNET"} else "disable if not required."
+            else:
+                suffix = "review and disable if not required."
+            details.append(f"{protocol} port {port}: {service} found open, {suffix}")
+        return ("fail", "Whitelist Compliance — Non-whitelisted ports open.\n" + "\n".join(details))
     return ("pass", "Whitelist Compliance — All open ports match the protocol whitelist.")
 
 
@@ -294,25 +528,65 @@ def _eval_u19(data: dict, _wl: list) -> tuple[str, str]:
 def _eval_u26(data: dict, _wl: list) -> tuple[str, str]:
     """NTP Synchronisation Check."""
     ntp_open = data.get("ntp_open", False)
+    ntp_observed = data.get("ntp_observed_sync", False)
+    ntp_version = data.get("ntp_version")
+    ntp_service = data.get("ntp_service")
+    script_output = (data.get("ntp_script_output") or "").strip()
+    if ntp_observed:
+        details = ["NTP Check — NTP traffic seen. Time synchronised."]
+        if ntp_version:
+            details.append(f"NTP version {ntp_version} detected.")
+        if script_output:
+            details.append(f"\n{script_output}")
+        return ("pass", " ".join(details).strip())
     if ntp_open:
-        return ("pass", "NTP Check — NTP service detected on port 123. Time synchronisation supported.")
+        details = ["NTP Check — UDP/123 responded."]
+        if ntp_service:
+            details.append(f"Service: {ntp_service}.")
+        if ntp_version:
+            details.append(f"NTP version evidence: {ntp_version}.")
+        details.append("EDQ did not observe the device contacting an EDQ-hosted NTP server in this run, so synchronisation is still unproven.")
+        if script_output:
+            details.append(f"\n{script_output}")
+        return ("info", " ".join(details).strip())
     return ("advisory", "NTP Check — No NTP service detected. Device may not sync time, affecting log accuracy and certificate validation.")
 
 
 def _eval_u28(data: dict, _wl: list) -> tuple[str, str]:
     """BACnet/IP Discovery."""
     bacnet_open = data.get("bacnet_open", False)
+    bacnet_details = data.get("bacnet_details") or {}
+    script_output = (data.get("bacnet_script_output") or "").strip()
     if bacnet_open:
-        return ("info", "BACnet Discovery — BACnet service detected on port 47808. Ensure traffic is restricted to the BAS VLAN.")
+        parts = ["BACnet Discovery — BACnet service detected on port 47808."]
+        for key in ("Vendor Name", "Vendor ID", "Instance Number", "Model Name", "Application Software", "Firmware"):
+            value = bacnet_details.get(key)
+            if value:
+                parts.append(f"{key}: {value}.")
+        if script_output:
+            parts.append(f"\n{script_output}")
+        parts.append("Ensure BACnet traffic is restricted to the BAS VLAN.")
+        return ("info", " ".join(parts).strip())
     return ("info", "BACnet Discovery — No BACnet service detected on port 47808.")
 
 
 def _eval_u29(data: dict, _wl: list) -> tuple[str, str]:
     """DNS Support Verification."""
     dns_open = data.get("dns_open", False)
+    dns_observed = data.get("dns_observed_requests", False)
+    dns_service = data.get("dns_service")
+    dns_version = data.get("dns_version")
+    if dns_observed:
+        return ("pass", "DNS Verification — Device made DNS requests to the EDQ laptop.")
     if dns_open:
-        return ("info", "DNS Verification — DNS service detected on port 53.")
-    return ("info", "DNS Verification — No DNS service detected. Device may use external DNS.")
+        parts = ["DNS Verification — DNS-related service detected on port 53."]
+        if dns_service:
+            parts.append(f"Service: {dns_service}.")
+        if dns_version:
+            parts.append(f"Version evidence: {dns_version}.")
+        parts.append("EDQ did not observe outbound DNS requests to the EDQ laptop in this run, so request-direction verification is still required.")
+        return ("info", " ".join(parts))
+    return ("info", "DNS Verification — No DNS service detected on port 53. Device may use external DNS or may require manual capture of outbound DNS requests.")
 
 
 def _eval_u31(data: dict, _wl: list) -> tuple[str, str]:
@@ -424,11 +698,22 @@ def _eval_u36(data: dict, _wl: list) -> tuple[str, str]:
         banner = f"{service} {version}".lower()
         if any(kw in banner for kw in ["10.0.", "192.168.", "172.16.", "internal", "debug"]):
             leaky.append(f"port {port_num}: {service} {version}".strip())
-    services_summary = "; ".join(services_detail[:15])
-    suffix = f" (+{len(services_detail) - 15} more)" if len(services_detail) > 15 else ""
+    services_summary = _format_port_table(open_ports, include_version=True)
+    script_outputs = [
+        _script_output(script)
+        for port in open_ports
+        for script in port.get("scripts", []) or []
+        if _script_output(script)
+    ]
     if leaky:
-        return ("advisory", f"Banner Grabbing — Banners reveal sensitive info: {'; '.join(leaky[:5])}. Configure services to suppress version information.\n\nAll services detected: {services_summary}{suffix}")
-    return ("pass", f"Banner Grabbing — No sensitive information leakage in service banners.\n\nServices detected: {services_summary}{suffix}")
+        detail = f"Banner Grabbing — Banners reveal sensitive info: {'; '.join(leaky[:5])}. Configure services to suppress version information.\n{services_summary}"
+        if script_outputs:
+            detail += "\n" + "\n\n".join(script_outputs[:3])
+        return ("advisory", detail)
+    detail = f"Banner Grabbing — Service banners captured.\n{services_summary}"
+    if script_outputs:
+        detail += "\n" + "\n\n".join(script_outputs[:3])
+    return ("info", detail)
 
 
 def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
@@ -441,8 +726,6 @@ def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
         return ("pass", "RTSP Auth — Stream requires authentication.")
     return ("fail", "RTSP Auth — Stream accessible without authentication. Anyone on the network can view the video. Enable RTSP authentication.")
 
-
-import re
 
 _NIKTO_FINDING_RE = re.compile(r"\+ (OSVDB-\d+): (.+)")
 
@@ -468,7 +751,7 @@ _EVALUATORS: dict[str, Any] = {
     "U01": _eval_u01,
     "U02": _eval_u02,
     "U03": _eval_u03,
-    "U04": _eval_u04,
+    "U04": _eval_u04_v2,
     "U05": _eval_u05,
     "U06": _eval_u06,
     "U07": _eval_u07,

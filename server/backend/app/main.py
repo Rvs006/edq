@@ -46,6 +46,7 @@ from app.routes import (
     test_plans,
     cve,
     branding,
+    protocol_observer_settings,
     scan_schedules,
     authorized_networks,
     two_factor,
@@ -370,6 +371,7 @@ async def lifespan(app: FastAPI):
     if admin_created or force_local_admin_password:
         await _ensure_admin_password_synced(force_reset=force_local_admin_password)
     await _ensure_local_test_users_synced()
+    await _load_protocol_observer_settings_from_db()
     try:
         from app.services.test_engine import recover_orphaned_runs
         await recover_orphaned_runs()
@@ -513,6 +515,33 @@ async def _ensure_local_test_users_synced() -> None:
             print("[EDQ] Local test users synced through async engine")
 
 
+async def _load_protocol_observer_settings_from_db() -> None:
+    from sqlalchemy import select
+
+    from app.models.database import async_session
+    from app.models.protocol_observer_settings import ProtocolObserverSettings
+    from app.services.protocol_observer import apply_protocol_observer_settings
+
+    async with async_session() as db:
+        result = await db.execute(select(ProtocolObserverSettings).limit(1))
+        row = result.scalar_one_or_none()
+        if not row:
+            return
+        apply_protocol_observer_settings({
+            "enabled": row.enabled,
+            "bind_host": row.bind_host,
+            "timeout_seconds": row.timeout_seconds,
+            "dns_port": row.dns_port,
+            "ntp_port": row.ntp_port,
+            "dhcp_port": row.dhcp_port,
+            "dhcp_offer_ip": row.dhcp_offer_ip,
+            "dhcp_subnet_mask": row.dhcp_subnet_mask,
+            "dhcp_router_ip": row.dhcp_router_ip,
+            "dhcp_dns_server": row.dhcp_dns_server,
+            "dhcp_lease_seconds": row.dhcp_lease_seconds,
+        })
+
+
 def create_app() -> FastAPI:
     # Disable Swagger/ReDoc docs in production (enable with DEBUG=true)
     docs_url = "/docs" if settings.DEBUG else None
@@ -600,6 +629,7 @@ def create_app() -> FastAPI:
         (test_plans.router, "/test-plans", "Test Plans"),
         (cve.router, "/cve", "CVE Lookup"),
         (branding.router, "/settings", "Settings"),
+        (protocol_observer_settings.router, "/settings", "Settings"),
         (scan_schedules.router, "/scan-schedules", "Scan Schedules"),
         (authorized_networks.router, "/authorized-networks", "Authorized Networks"),
         (two_factor.router, "/auth/2fa", "Two-Factor Auth"),

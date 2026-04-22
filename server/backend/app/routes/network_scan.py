@@ -31,6 +31,11 @@ from app.services.device_ip_discovery import (
 from app.services.connectivity_probe import probe_device_connectivity
 from app.services.tools_client import describe_tools_error, tools_client
 from app.services.test_library import get_test_by_id
+from app.services.scenario_routing import (
+    get_manual_routing_note,
+    get_scenario_routing_decision,
+    normalize_connection_scenario,
+)
 from app.services.test_run_launcher import launch_test_run
 from app.services.parsers.nmap_parser import nmap_parser
 from app.utils.audit import log_action
@@ -571,7 +576,7 @@ async def start_batch_scan(
                 template_id=template_id,
                 engineer_id=user.id,
                 project_id=device.project_id,
-                connection_scenario=data.connection_scenario or scan.connection_scenario,
+                connection_scenario=normalize_connection_scenario(data.connection_scenario or scan.connection_scenario),
                 total_tests=len(test_ids),
                 status=TestRunStatus.PENDING,
             )
@@ -581,16 +586,24 @@ async def start_batch_scan(
             for tid in test_ids:
                 test_def = get_test_by_id(tid)
                 if test_def:
+                    decision = get_scenario_routing_decision(
+                        tid,
+                        test_def["tier"],
+                        test_run.connection_scenario,
+                    )
                     tr = TestResult(
                         test_run_id=test_run.id,
                         test_id=tid,
                         test_name=test_def["name"],
-                        tier=TestTier(test_def["tier"]),
+                        tier=TestTier(decision.tier),
                         tool=test_def.get("tool"),
                         verdict=TestVerdict.PENDING,
                         is_essential="yes" if test_def.get("is_essential") else "no",
                         compliance_map=test_def.get("compliance_map", []),
                     )
+                    manual_note = get_manual_routing_note(tid, test_run.connection_scenario)
+                    if manual_note:
+                        tr.comment = manual_note
                     db.add(tr)
 
             await db.flush()

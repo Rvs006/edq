@@ -148,3 +148,39 @@ class TestParseXml:
         result = parser.parse_xml("<broken>xml")
         assert result["mac_address"] is None
         assert result["hosts"] == []
+
+    def test_xml_preserves_port_and_host_script_output(self, parser):
+        xml = """<?xml version="1.0"?>
+        <nmaprun>
+          <host>
+            <status state="up"/>
+            <address addr="192.168.1.10" addrtype="ipv4"/>
+            <script id="host-script" output="host evidence"/>
+            <ports>
+              <port protocol="udp" portid="47808">
+                <state state="open"/>
+                <service name="bacnet"/>
+                <script id="bacnet-info" output="Vendor Name: Example Controls&#10;Instance Number: 1234">
+                  <elem key="Vendor Name">Example Controls</elem>
+                  <elem key="Instance Number">1234</elem>
+                </script>
+              </port>
+            </ports>
+          </host>
+        </nmaprun>"""
+
+        result = parser.parse_xml(xml)
+
+        assert result["scripts"] == [
+            {"id": "host-script", "output": "host evidence", "details": {}}
+        ]
+        assert result["open_ports"][0]["scripts"] == [
+            {
+                "id": "bacnet-info",
+                "output": "Vendor Name: Example Controls\nInstance Number: 1234",
+                "details": {
+                    "Vendor Name": "Example Controls",
+                    "Instance Number": "1234",
+                },
+            }
+        ]

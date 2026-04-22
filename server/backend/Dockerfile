@@ -50,6 +50,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     procps \
     dnsutils \
     && setcap cap_net_raw,cap_net_admin+ep /usr/bin/nmap \
+    && python_real="$(readlink -f /usr/local/bin/python3.13)" \
+    && if [ -n "$python_real" ] && [ -x "$python_real" ]; then setcap cap_net_bind_service+ep "$python_real"; fi \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$INSTALL_LIBREOFFICE" = "true" ]; then \

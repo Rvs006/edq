@@ -43,6 +43,133 @@ interface TestDetailProps {
   manualProgress?: { current: number; total: number } | null
 }
 
+type StructuredOutput = Record<string, unknown> | unknown[]
+
+const DHCP_MESSAGE_LABELS: Record<string, string> = {
+  '1': 'discover',
+  '2': 'offer',
+  '3': 'request',
+  '4': 'decline',
+  '5': 'ack',
+  '6': 'nak',
+  '7': 'release',
+  '8': 'inform',
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function buildProtocolEvidenceSummary(
+  testId: string,
+  structuredOutput: StructuredOutput | null,
+): { title: string; status: string; tone: 'success' | 'warning' | 'info'; details: string[] } | null {
+  if (!isRecord(structuredOutput)) return null
+
+  if (testId === 'U04' && structuredOutput.dhcp_observed) {
+    const eventLabels = Array.isArray(structuredOutput.dhcp_events)
+      ? structuredOutput.dhcp_events
+          .map((event) => {
+            if (!isRecord(event)) return ''
+            const rawType = String(event.message_type ?? '').trim()
+            const replyLabel = String(event.observer_reply_label ?? '').trim()
+            const clientLabel = DHCP_MESSAGE_LABELS[rawType] ?? rawType
+            return replyLabel ? `${clientLabel}->${replyLabel}` : clientLabel
+          })
+          .filter(Boolean)
+      : []
+
+    if (structuredOutput.dhcp_lease_acknowledged) {
+      const details = [
+        structuredOutput.offered_ip ? `Offered IP ${String(structuredOutput.offered_ip)}` : '',
+        structuredOutput.dhcp_server ? `Server ${String(structuredOutput.dhcp_server)}` : '',
+      ].filter(Boolean)
+      return {
+        title: 'Protocol Harness Result',
+        status: 'DHCP lease acknowledged',
+        tone: 'success',
+        details,
+      }
+    }
+
+    const details = [
+      eventLabels.length > 0 ? `Observed DHCP messages: ${eventLabels.join(', ')}` : '',
+      structuredOutput.offer_capable === false
+        ? 'Harness was observation-only. Configure DHCP offer settings to complete the handshake.'
+        : 'Client traffic was observed, but the handshake was not fully acknowledged.',
+      structuredOutput.offered_ip ? `Configured offer IP ${String(structuredOutput.offered_ip)}` : '',
+    ].filter(Boolean)
+    return {
+      title: 'Protocol Harness Result',
+      status: 'DHCP traffic observed',
+      tone: 'warning',
+      details,
+    }
+  }
+
+  if (testId === 'U26' && structuredOutput.ntp_observed_sync) {
+    const details = [
+      structuredOutput.ntp_version ? `Version ${String(structuredOutput.ntp_version)}` : '',
+      structuredOutput.ntp_script_output ? String(structuredOutput.ntp_script_output) : '',
+    ].filter(Boolean)
+    return {
+      title: 'Protocol Harness Result',
+      status: 'NTP requests observed',
+      tone: 'success',
+      details,
+    }
+  }
+
+  if (testId === 'U29' && structuredOutput.dns_observed_requests) {
+    const queryNames = Array.isArray(structuredOutput.dns_queries)
+      ? structuredOutput.dns_queries
+          .map((entry) => (isRecord(entry) ? String(entry.query_name ?? '').trim() : ''))
+          .filter(Boolean)
+      : []
+    return {
+      title: 'Protocol Harness Result',
+      status: 'DNS requests observed',
+      tone: 'success',
+      details: queryNames.length > 0 ? [`Queries: ${queryNames.join(', ')}`] : [],
+    }
+  }
+
+  return null
+}
+
+function ProtocolEvidenceCard({
+  title,
+  status,
+  tone,
+  details,
+}: {
+  title: string
+  status: string
+  tone: 'success' | 'warning' | 'info'
+  details: string[]
+}) {
+  const toneClasses =
+    tone === 'success'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-200'
+      : tone === 'warning'
+        ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200'
+        : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-200'
+
+  return (
+    <div className={`rounded-lg border px-3 py-3 ${toneClasses}`}>
+      <p className="text-xs font-semibold uppercase tracking-wider">{title}</p>
+      <p className="mt-1 text-sm font-medium">{status}</p>
+      {details.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs">
+          {details.map((detail, idx) => (
+            <li key={`${idx}-${detail}`}>{detail}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export default function TestDetail({
   result,
   liveOutput,
@@ -70,6 +197,7 @@ export default function TestDetail({
   const manualUnlocked = isManual && (!isPendingManual || runStatus === 'awaiting_manual')
   const termOutput = liveOutput || result.raw_output || ''
   const structuredOutput = result.findings || result.parsed_data
+  const protocolEvidence = buildProtocolEvidenceSummary(result.test_id, structuredOutput)
   const manualLockedMessage =
     runStatus === 'paused_cable'
       ? 'Manual assessment stays locked until the device is reachable and automatic checks can run.'
@@ -180,6 +308,11 @@ export default function TestDetail({
                 Parsed Findings
               </h3>
             </div>
+            {protocolEvidence && (
+              <div className="mb-3">
+                <ProtocolEvidenceCard {...protocolEvidence} />
+              </div>
+            )}
             <div className="bg-zinc-50 dark:bg-slate-900/40 rounded-lg border border-zinc-200 dark:border-slate-700/50 p-3">
               <FindingsDisplay findings={structuredOutput} />
             </div>

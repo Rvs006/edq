@@ -46,7 +46,7 @@ fi
 # the UI 30+ seconds after login.
 if [ -n "${TOOLS_API_KEY:-}" ]; then
     auth_probe=$(curl -s -o /dev/null -w "%{http_code}" \
-        -H "X-API-Key: ${TOOLS_API_KEY}" \
+        -H "X-Tools-Key: ${TOOLS_API_KEY}" \
         http://localhost:8001/versions 2>/dev/null || true)
     if [ "$auth_probe" != "200" ]; then
         echo "[EDQ] WARNING: authenticated /versions probe returned HTTP ${auth_probe:-<none>}."
