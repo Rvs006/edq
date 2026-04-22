@@ -60,8 +60,7 @@ function buildRunLabels(runs: TestRun[]): Map<string, string> {
   // Group runs by device+date to determine sequence numbers
   const groups = new Map<string, TestRun[]>()
   for (const run of runs) {
-    const device = getPreferredDeviceName(run)
-    const date = toLocalDateOnly(run.started_at || run.created_at, { month: 'short', day: 'numeric' })
+    const { device, date } = getRunDeviceDateLabelParts(run)
     const key = `${device}|${date}`
     const group = groups.get(key) || []
     group.push(run)
@@ -82,9 +81,15 @@ function buildRunLabels(runs: TestRun[]): Map<string, string> {
   return labels
 }
 
+function getRunDeviceDateLabelParts(run: TestRun) {
+  return {
+    device: getPreferredDeviceName(run),
+    date: toLocalDateOnly(run.started_at || run.created_at, { month: 'short', day: 'numeric' }),
+  }
+}
+
 function formatRunName(run: TestRun) {
-  const device = getPreferredDeviceName(run)
-  const date = toLocalDateOnly(run.started_at || run.created_at, { month: 'short', day: 'numeric' })
+  const { device, date } = getRunDeviceDateLabelParts(run)
   return `${device} — ${date}`
 }
 

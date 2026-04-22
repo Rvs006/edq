@@ -2,7 +2,6 @@
 
 import os
 import random
-import uuid
 from pathlib import Path
 
 import httpx

@@ -19,6 +19,7 @@ from app.models.test_result import TestResult, TestTier
 from app.models.test_template import TestTemplate
 from app.services.test_library import get_test_by_id
 from app.services.test_run_launcher import is_run_executing, launch_test_run
+from app.utils.collections import ordered_unique
 from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.scheduler")
@@ -155,12 +156,7 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 import json as _json
                 raw_ids = _json.loads(raw_ids)
 
-            seen_ids: set[str] = set()
-            deduped_ids: list[str] = []
-            for test_id in raw_ids or []:
-                if test_id not in seen_ids:
-                    seen_ids.add(test_id)
-                    deduped_ids.append(test_id)
+            deduped_ids = ordered_unique(raw_ids)
 
             # Preserve project membership from the scheduled device onto the run.
             device_result = await db.execute(

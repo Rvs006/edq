@@ -91,6 +91,45 @@ async def test_start_run_launches_engine_when_device_is_unreachable(
 
 
 @pytest.mark.asyncio
+async def test_create_run_deduplicates_template_test_ids_preserving_order(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    headers = await register_and_login(client, suffix="createRunDedup")
+    user_id = await _get_user_id(db_session, "createRunDedupuser")
+    device_id = await _create_device(db_session)
+    template = TemplateModel(
+        name="dedupe-connectivity-template",
+        test_ids=["U03", "U01", "U03", "U02", "U01"],
+        version="1.0",
+    )
+    db_session.add(template)
+    await db_session.flush()
+    await db_session.refresh(template)
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/test-runs/",
+        json={
+            "device_id": device_id,
+            "template_id": template.id,
+            "connection_scenario": "direct",
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["engineer_id"] == user_id
+    assert resp.json()["total_tests"] == 3
+
+    result = await db_session.execute(
+        select(RunModel).where(RunModel.id == resp.json()["id"])
+    )
+    run = result.scalar_one()
+    assert run.total_tests == 3
+
+
+@pytest.mark.asyncio
 async def test_resume_paused_cable_run_requires_device_reachability(
     client: AsyncClient,
     db_session: AsyncSession,

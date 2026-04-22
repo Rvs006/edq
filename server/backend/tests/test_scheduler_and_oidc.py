@@ -24,7 +24,11 @@ from .conftest import register_and_login
 
 async def _create_schedule_fixture(db: AsyncSession, creator_id: str) -> ScanSchedule:
     device = Device(ip_address="10.0.0.77", category="unknown", status="discovered")
-    template = TemplateModel(name="schedule-template", test_ids=["U01"], version="1.0")
+    template = TemplateModel(
+        name="schedule-template",
+        test_ids=["U03", "U01", "U03", "U02", "U01"],
+        version="1.0",
+    )
     db.add_all([device, template])
     await db.flush()
     await db.refresh(device)
@@ -96,11 +100,12 @@ async def test_due_schedule_launches_background_execution(
         assert run.id in launched
         assert run.status == RunStatus.RUNNING
         assert run.started_at is not None
+        assert run.total_tests == 3
 
         results_result = await verify_session.execute(
             select(ResultModel).where(ResultModel.test_run_id == run.id)
         )
-        assert len(results_result.scalars().all()) == 1
+        assert len(results_result.scalars().all()) == 3
 
         refreshed_schedule = await verify_session.get(ScanSchedule, schedule.id)
         assert refreshed_schedule is not None

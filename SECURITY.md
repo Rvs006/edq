@@ -5,7 +5,7 @@ This document reflects the current application behavior in the repository. It is
 ## Authentication Model
 
 - Login accepts either username or email.
-- `POST /api/auth/login` issues:
+- `POST /api/v1/auth/login` issues:
   - an access token cookie
   - a refresh token cookie
   - a CSRF cookie
@@ -18,7 +18,7 @@ This document reflects the current application behavior in the repository. It is
 
 - `COOKIE_SECURE=false` is required for plain `http://localhost` testing.
 - Set `COOKIE_SECURE=true` only when EDQ is served behind HTTPS.
-- CSRF protection applies to mutating `/api/` requests except exempt auth and health endpoints.
+- CSRF protection applies to mutating `/api/v1/` requests except exempt auth and health endpoints.
 
 ## Registration and User Roles
 
@@ -32,19 +32,21 @@ This document reflects the current application behavior in the repository. It is
 
 Public endpoints:
 
-- `GET /api/health`
-- `GET /api/health/metrics`
+- `GET /api/v1/health`
+- `GET /api/v1/health/metrics`
 
 Authenticated endpoints:
 
-- `GET /api/health/tools/versions`
-- `GET /api/health/system-status`
+- `GET /api/v1/health/tools/versions`
+- `GET /api/v1/health/system-status`
 
 Interactive backend docs are available only when `DEBUG=true`.
 
 ## Current Health Contract
 
-`GET /api/health` currently returns JSON with:
+Legacy `/api/...` paths still rewrite for backward compatibility, but `/api/v1/...` is the canonical path.
+
+`GET /api/v1/health` currently returns JSON with:
 
 - `status`
 - `database`
@@ -96,7 +98,7 @@ Impact:
 Recommended restart:
 
 ```bash
-docker compose restart backend tools
+docker compose restart backend
 ```
 
 ### Initial admin password
@@ -129,7 +131,7 @@ Compromised admin password:
 Compromised tools key:
 
 1. rotate `TOOLS_API_KEY`
-2. restart backend and tools
+2. restart the backend container so the co-located tools sidecar picks up the new key
 3. review logs around scan activity
 
 ## Production Hardening Checklist
