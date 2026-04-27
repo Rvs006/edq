@@ -12,7 +12,7 @@ Use this guide if you are:
 
 Do not use this guide for internet-facing or shared production deployment. Use [DEPLOY.md](DEPLOY.md) for that.
 
-If you are doing frontend or backend development outside the full Docker stack, use [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md). That path supports running Vite and Uvicorn locally, but the scan tooling remains Docker-backed on Windows.
+If you are doing frontend or backend development outside the full Docker stack, use [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md). That path supports running Vite and Uvicorn locally. Scan tooling is Docker-backed by default, with host-scanner mode available for Windows direct-Ethernet discovery.
 
 ## Prerequisites
 

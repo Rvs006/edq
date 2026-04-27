@@ -235,6 +235,9 @@ def _eval_u04_v2(data: dict, _wl: list) -> tuple[str, str]:
 
 def _eval_u05(data: dict, _wl: list) -> tuple[str, str]:
     """IPv6 Support Detection — informational."""
+    if data.get("ipv6_assessed") is False:
+        reason = data.get("reason") or "No IPv6 target was available for this run."
+        return ("na", f"IPv6 Detection - Not assessed. {reason}")
     if data.get("ipv6_supported"):
         return ("info", "IPv6 Detection — IPv6 is enabled and responding on this device.")
     return ("info", "IPv6 Detection — No IPv6 response. The device may not support IPv6, or it is disabled in device settings.")
@@ -381,7 +384,8 @@ def _eval_u09(data: dict, wl: list) -> tuple[str, str]:
     """Protocol Whitelist Compliance."""
     open_ports = set()
     for p in data.get("open_ports", []):
-        open_ports.add(int(p["port"]))
+        protocol = str(p.get("protocol") or "tcp").upper()
+        open_ports.add((protocol, int(p["port"])))
 
     if not open_ports:
         return ("pass", "Whitelist Compliance — No open ports to compare against whitelist.")
@@ -390,15 +394,20 @@ def _eval_u09(data: dict, wl: list) -> tuple[str, str]:
     for entry in wl:
         port_val = entry.get("port")
         if port_val is not None:
-            allowed_ports.add(int(port_val))
+            protocol_text = str(entry.get("protocol") or "TCP").upper().replace(" ", "")
+            protocols = {"TCP", "UDP"} if protocol_text in {"TCP/UDP", "UDP/TCP", "BOTH", "ANY"} else {protocol_text}
+            for protocol in protocols:
+                allowed_ports.add((protocol, int(port_val)))
 
     non_compliant = sorted(open_ports - allowed_ports)
     if non_compliant:
-        port_details = {int(p["port"]): p for p in data.get("open_ports", [])}
+        port_details = {
+            (str(p.get("protocol") or "tcp").upper(), int(p["port"])): p
+            for p in data.get("open_ports", [])
+        }
         details = []
-        for port in non_compliant:
-            port_info = port_details.get(port, {})
-            protocol = (port_info.get("protocol") or "tcp").upper()
+        for protocol, port in non_compliant:
+            port_info = port_details.get((protocol, port), {})
             service = _service_label(port_info.get("service"))
             if service in {"FTP", "TELNET", "SAMBA"}:
                 suffix = "disable." if service in {"FTP", "TELNET"} else "disable if not required."
@@ -475,6 +484,10 @@ def _eval_u12(data: dict, _wl: list) -> tuple[str, str]:
 
 def _eval_u13(data: dict, _wl: list) -> tuple[str, str]:
     """HSTS Header Presence."""
+    if not data.get("tls_versions") and not data.get("hsts"):
+        return ("na", "HSTS Header - No HTTPS service detected or testssl could not connect.")
+    if data.get("hsts_checked") is False:
+        return ("na", "HSTS Header - TLS was detected, but HSTS was not checked by the fast TLS probe.")
     if data.get("hsts"):
         max_age = data.get("hsts_max_age")
         suffix = f" with max-age={max_age}" if max_age else ""
@@ -563,11 +576,17 @@ def _eval_u16(data: dict, _wl: list) -> tuple[str, str]:
     if found:
         creds = [f"{c['login']}:{c['password']}" for c in found[:3]]
         return ("fail", f"Default Credentials — Default credentials work ({', '.join(creds)}). CRITICAL: Change the default password immediately via the device web interface.")
+    if data.get("check_ran") is False or (not data.get("raw") and not data.get("services_tested")):
+        reason = data.get("reason") or "No credential service was tested."
+        return ("na", f"Default Credentials - Not assessed. {reason}")
     return ("pass", "Default Credentials — No default credentials found. Device uses custom credentials.")
 
 
 def _eval_u17(data: dict, _wl: list) -> tuple[str, str]:
     """Brute Force Protection."""
+    if data.get("check_ran") is False:
+        reason = data.get("reason") or "No supported authentication challenge was detected."
+        return ("na", f"Brute Force Protection - Not assessed. {reason}")
     lockout_detected = data.get("lockout_detected", False)
     error_msg = data.get("error", "")
     duration = _format_duration_seconds(data.get("lockout_duration_seconds"))
@@ -622,6 +641,8 @@ def _eval_u26(data: dict, _wl: list) -> tuple[str, str]:
     ntp_version = data.get("ntp_version")
     ntp_service = data.get("ntp_service")
     script_output = (data.get("ntp_script_output") or "").strip()
+    if data.get("ntp_inconclusive"):
+        return ("info", "NTP Check - UDP/123 was open|filtered, so EDQ could not confirm whether NTP is available.")
     if ntp_observed:
         details = ["NTP Check — NTP traffic seen. Time synchronised."]
         if ntp_version:
@@ -647,6 +668,8 @@ def _eval_u28(data: dict, _wl: list) -> tuple[str, str]:
     bacnet_open = data.get("bacnet_open", False)
     bacnet_details = data.get("bacnet_details") or {}
     script_output = (data.get("bacnet_script_output") or "").strip()
+    if data.get("bacnet_inconclusive"):
+        return ("info", "BACnet Discovery - UDP/47808 was open|filtered, so EDQ could not confirm whether BACnet/IP is available.")
     if bacnet_open:
         parts = ["BACnet Discovery — BACnet service detected on port 47808."]
         for key in ("Vendor Name", "Vendor ID", "Instance Number", "Model Name", "Application Software", "Firmware"):
@@ -666,6 +689,8 @@ def _eval_u29(data: dict, _wl: list) -> tuple[str, str]:
     dns_observed = data.get("dns_observed_requests", False)
     dns_service = data.get("dns_service")
     dns_version = data.get("dns_version")
+    if data.get("dns_inconclusive"):
+        return ("info", "DNS Verification - UDP/53 was open|filtered, so EDQ could not confirm whether DNS service is available.")
     if dns_observed:
         return ("pass", "DNS Verification — Device made DNS requests to the EDQ laptop.")
     if dns_open:
@@ -682,8 +707,17 @@ def _eval_u29(data: dict, _wl: list) -> tuple[str, str]:
 def _eval_u31(data: dict, _wl: list) -> tuple[str, str]:
     """SNMP Version Check."""
     open_ports = data.get("open_ports", [])
-    snmp_ports = [p for p in open_ports if p.get("port") in (161, 162)]
+    snmp_ports = [
+        p for p in open_ports
+        if p.get("port") in (161, 162) and str(p.get("state", "open")).lower() == "open"
+    ]
+    snmp_inconclusive = any(
+        p.get("port") in (161, 162) and str(p.get("state") or "").lower() == "open|filtered"
+        for p in open_ports
+    )
     if not snmp_ports:
+        if snmp_inconclusive:
+            return ("info", "SNMP Check - UDP/161 or UDP/162 was open|filtered, so EDQ could not confirm whether SNMP is exposed.")
         return ("pass", "SNMP Check — No SNMP services detected.")
     snmpwalk_out = (data.get("snmpwalk_output", "") or "").strip()
     if snmpwalk_out and ".1.3.6" in snmpwalk_out:
@@ -704,18 +738,36 @@ def _eval_u31(data: dict, _wl: list) -> tuple[str, str]:
 def _eval_u32(data: dict, _wl: list) -> tuple[str, str]:
     """UPnP/SSDP Exposure."""
     open_ports = data.get("open_ports", [])
-    upnp_ports = [p for p in open_ports if p.get("port") == 1900]
+    upnp_ports = [
+        p for p in open_ports
+        if p.get("port") == 1900 and str(p.get("state", "open")).lower() == "open"
+    ]
+    upnp_inconclusive = any(
+        p.get("port") == 1900 and str(p.get("state") or "").lower() == "open|filtered"
+        for p in open_ports
+    )
     if upnp_ports:
         return ("fail", "UPnP Check — UPnP/SSDP open on port 1900. This can expose the device to network attacks. Disable UPnP if not required.")
+    if upnp_inconclusive:
+        return ("info", "UPnP Check - UDP/1900 was open|filtered, so EDQ could not confirm whether UPnP/SSDP is exposed.")
     return ("pass", "UPnP Check — No UPnP/SSDP service exposed.")
 
 
 def _eval_u33(data: dict, _wl: list) -> tuple[str, str]:
     """mDNS/Bonjour Exposure."""
     open_ports = data.get("open_ports", [])
-    mdns_ports = [p for p in open_ports if p.get("port") == 5353]
+    mdns_ports = [
+        p for p in open_ports
+        if p.get("port") == 5353 and str(p.get("state", "open")).lower() == "open"
+    ]
+    mdns_inconclusive = any(
+        p.get("port") == 5353 and str(p.get("state") or "").lower() == "open|filtered"
+        for p in open_ports
+    )
     if mdns_ports:
         return ("fail", "mDNS Check — mDNS open on port 5353. This leaks device information. Disable if not required.")
+    if mdns_inconclusive:
+        return ("info", "mDNS Check - UDP/5353 was open|filtered, so EDQ could not confirm whether mDNS/Bonjour is exposed.")
     return ("pass", "mDNS Check — No mDNS/Bonjour service exposed.")
 
 
@@ -817,20 +869,41 @@ def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
     return ("fail", "RTSP Auth — Stream accessible without authentication. Anyone on the network can view the video. Enable RTSP authentication.")
 
 
-_NIKTO_FINDING_RE = re.compile(r"\+ (OSVDB-\d+): (.+)")
+_NIKTO_FINDING_RE = re.compile(r"\+\s+(?:(OSVDB-\d+|\[\d+\]):\s*)?(.+)")
 
 
 def _extract_nikto_findings(stdout: str) -> list[str]:
     """Extract structured findings from nikto output.
 
     Returns list of strings like "OSVDB-3092: /admin/: Directory indexing found"
+    or "[013587]: The X-Content-Type-Options header is not set."
     """
     findings: list[str] = []
     for line in stdout.splitlines():
         line = line.strip()
+        if not line.startswith("+ "):
+            continue
+        lowered = line.lower()
+        if any(marker in lowered for marker in (
+            "target ip:",
+            "target hostname:",
+            "target port:",
+            "start time:",
+            "end time:",
+            "requests:",
+            "server:",
+            "platform:",
+            "no cgi directories found",
+            "1 host(s) tested",
+        )):
+            continue
         m = _NIKTO_FINDING_RE.match(line)
         if m:
-            findings.append(f"{m.group(1)}: {m.group(2).strip()}")
+            finding_id = m.group(1)
+            detail = m.group(2).strip()
+            if not detail:
+                continue
+            findings.append(f"{finding_id}: {detail}" if finding_id else detail)
         elif line.startswith("+ ") and "osvdb" in line.lower():
             # Fallback for non-standard OSVDB references
             findings.append(line[2:].strip())

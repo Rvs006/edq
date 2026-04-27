@@ -147,12 +147,202 @@ CIDR_RE = re.compile(
 )
 
 _SETTLED_BATCH_RUN_STATUSES = {
+    TestRunStatus.PAUSED_MANUAL.value,
+    TestRunStatus.PAUSED_CABLE.value,
     TestRunStatus.AWAITING_MANUAL.value,
     TestRunStatus.AWAITING_REVIEW.value,
     TestRunStatus.COMPLETED.value,
     TestRunStatus.FAILED.value,
     TestRunStatus.CANCELLED.value,
 }
+_DISCOVERY_TCP_PROBE_PORTS = (
+    80, 443, 22, 53, 8080, 8443, 502, 47808, 445, 139,
+)
+_DISCOVERY_TCP_PROBE_TIMEOUT_SECONDS = 0.75
+_DISCOVERY_TCP_PROBE_CONCURRENCY = 128
+_DISCOVERY_TCP_PROBE_MAX_HOSTS = 1024
+_DISCOVERY_SUSPICIOUS_HOST_MINIMUM = 16
+_DISCOVERY_ENRICH_MAX_HOSTS = 10
+_DISCOVERY_SERVICE_BY_PORT = {
+    22: "ssh",
+    53: "domain",
+    80: "http",
+    139: "netbios-ssn",
+    443: "https",
+    445: "microsoft-ds",
+    502: "modbus",
+    8080: "http-proxy",
+    8443: "https-alt",
+    47808: "bacnet",
+}
+
+
+def _discovery_host_count(cidr: str) -> int | None:
+    try:
+        network = ipaddress.ip_network(cidr, strict=False)
+    except ValueError:
+        return None
+    if network.version != 4:
+        return None
+    if network.prefixlen >= 31:
+        return network.num_addresses
+    return max(network.num_addresses - 2, 0)
+
+
+def _host_discovery_needs_tcp_gate(cidr: str, hosts: list[dict]) -> bool:
+    if not getattr(tools_client, "scanner_in_docker", tools_client.in_docker) or not hosts:
+        return False
+    if any(host.get("mac") or host.get("vendor") for host in hosts):
+        return False
+    host_count = _discovery_host_count(cidr)
+    if host_count is None or host_count <= 0:
+        return False
+    if host_count == 1:
+        return False
+    return len(hosts) >= host_count or len(hosts) >= _DISCOVERY_SUSPICIOUS_HOST_MINIMUM
+
+
+async def _probe_tcp_port(
+    ip: str,
+    port: int,
+    semaphore: asyncio.Semaphore,
+) -> tuple[int, str]:
+    try:
+        async with semaphore:
+            payload = await tools_client.tcp_probe(
+                ip,
+                ports=[port],
+                connect_timeout=_DISCOVERY_TCP_PROBE_TIMEOUT_SECONDS,
+                concurrency=1,
+                max_hosts=1,
+                timeout=30,
+            )
+    except Exception:
+        return port, "none"
+
+    hosts = payload.get("hosts", []) if isinstance(payload, dict) else []
+    host = hosts[0] if hosts and isinstance(hosts[0], dict) else {}
+    for response in host.get("responses", []) if isinstance(host, dict) else []:
+        if response.get("port") == port:
+            return port, response.get("state") or "none"
+    return port, "none"
+
+
+async def _probe_tcp_host(ip: str, semaphore: asyncio.Semaphore) -> dict | None:
+    results = await asyncio.gather(
+        *(_probe_tcp_port(ip, port, semaphore) for port in _DISCOVERY_TCP_PROBE_PORTS),
+        return_exceptions=True,
+    )
+    open_ports: list[dict] = []
+    has_tcp_response = False
+    for result in results:
+        if not isinstance(result, tuple):
+            continue
+        port, state = result
+        if state in {"open", "refused"}:
+            has_tcp_response = True
+        if state == "open":
+            open_ports.append(
+                {
+                    "port": port,
+                    "service": _DISCOVERY_SERVICE_BY_PORT.get(port, ""),
+                    "version": "",
+                }
+            )
+    if not has_tcp_response:
+        return None
+    return {
+        "ip": ip,
+        "mac": None,
+        "vendor": None,
+        "hostname": None,
+        "services": [
+            f"{port_info['service'] or '?'}/{port_info['port']}"
+            for port_info in open_ports
+        ],
+        "open_ports": open_ports,
+    }
+
+
+async def _discover_hosts_by_tcp(cidr: str, candidate_ips: list[str] | None = None) -> list[dict]:
+    if candidate_ips is None:
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            return []
+        if network.version != 4 or network.num_addresses > _DISCOVERY_TCP_PROBE_MAX_HOSTS:
+            logger.warning(
+                "Skipping TCP discovery fallback for %s because the range is too large",
+                cidr,
+            )
+            return []
+        candidate_ips = [str(ip) for ip in network.hosts()]
+
+    ordered_ips: list[str] = []
+    seen: set[str] = set()
+    for ip in candidate_ips:
+        try:
+            ipaddress.IPv4Address(ip)
+        except ValueError:
+            continue
+        if ip in seen:
+            continue
+        ordered_ips.append(ip)
+        seen.add(ip)
+        if len(ordered_ips) >= _DISCOVERY_TCP_PROBE_MAX_HOSTS:
+            break
+
+    if not ordered_ips:
+        return []
+
+    try:
+        payload = await tools_client.tcp_probe(
+            " ".join(ordered_ips),
+            ports=list(_DISCOVERY_TCP_PROBE_PORTS),
+            connect_timeout=_DISCOVERY_TCP_PROBE_TIMEOUT_SECONDS,
+            concurrency=_DISCOVERY_TCP_PROBE_CONCURRENCY,
+            max_hosts=_DISCOVERY_TCP_PROBE_MAX_HOSTS,
+            timeout=max(30, min(120, len(ordered_ips))),
+        )
+    except Exception as exc:
+        logger.warning("TCP discovery fallback failed for %s via scanner agent: %s", cidr, exc)
+        return []
+
+    scanner_hosts = payload.get("hosts", []) if isinstance(payload, dict) else []
+    hosts: list[dict] = []
+    for host in scanner_hosts:
+        if not isinstance(host, dict) or not host.get("reachable"):
+            continue
+        open_ports = []
+        for port_info in host.get("open_ports", []) or []:
+            port = port_info.get("port") if isinstance(port_info, dict) else None
+            if isinstance(port, int):
+                open_ports.append(
+                    {
+                        "port": port,
+                        "service": _DISCOVERY_SERVICE_BY_PORT.get(port, ""),
+                        "version": "",
+                    }
+                )
+        hosts.append(
+            {
+                "ip": host.get("ip"),
+                "mac": None,
+                "vendor": None,
+                "hostname": None,
+                "services": [
+                    f"{port_info['service'] or '?'}/{port_info['port']}"
+                    for port_info in open_ports
+                ],
+                "open_ports": open_ports,
+            }
+        )
+
+    hosts = [host for host in hosts if host.get("ip")]
+    hosts.sort(
+        key=lambda item: tuple(int(part) for part in str(item["ip"]).split("."))
+    )
+    return hosts
 
 
 class DiscoverRequest(BaseModel):
@@ -208,11 +398,40 @@ def _batch_runs_are_settled(run_ids: list[str], run_statuses: dict[str, str]) ->
         for status in run_statuses.values()
     )
 
+
+async def _merge_known_device_metadata(db: AsyncSession, hosts: list[dict]) -> list[dict]:
+    ips = [str(host.get("ip")) for host in hosts if host.get("ip")]
+    if not ips:
+        return hosts
+
+    result = await db.execute(select(Device).where(Device.ip_address.in_(ips)))
+    known_by_ip = {device.ip_address: device for device in result.scalars().all()}
+    for host in hosts:
+        device = known_by_ip.get(str(host.get("ip")))
+        if not device:
+            continue
+        if not host.get("mac") and device.mac_address:
+            host["mac"] = device.mac_address
+        if not host.get("vendor") and (device.oui_vendor or device.manufacturer):
+            host["vendor"] = device.oui_vendor or device.manufacturer
+        if not host.get("hostname") and device.hostname:
+            host["hostname"] = device.hostname
+        if not host.get("model") and device.model:
+            host["model"] = device.model
+        if not host.get("open_ports") and device.open_ports:
+            host["open_ports"] = device.open_ports
+            host["services"] = [
+                f"{port.get('service') or '?'}/{port.get('port') or '?'}"
+                for port in device.open_ports
+                if isinstance(port, dict)
+            ]
+    return hosts
+
 @router.get("/detect-networks")
 async def detect_networks(
     _: User = Depends(get_current_active_user),
 ):
-    """Auto-detect reachable networks from the tools sidecar.
+    """Auto-detect reachable networks from the configured scanner agent.
 
     Returns discovered interfaces, host IP, and scan recommendations.
     Used by the frontend to pre-fill scan targets.
@@ -225,6 +444,8 @@ async def detect_networks(
             "interfaces": [],
             "host_ip": None,
             "in_docker": tools_client.in_docker,
+            "scanner_in_docker": getattr(tools_client, "scanner_in_docker", tools_client.in_docker),
+            "scanner_mode": getattr(tools_client, "scanner_mode", "auto"),
             "scan_recommendation": None,
             "debug": {"error": str(exc)},
         }
@@ -273,8 +494,8 @@ async def discover_devices(
 
     parts = data.cidr.split("/")
     prefix = int(parts[1])
-    if prefix < 16 or prefix > 30:
-        raise HTTPException(status_code=400, detail="CIDR prefix must be between /16 and /30")
+    if prefix < 16 or prefix > 32:
+        raise HTTPException(status_code=400, detail="CIDR prefix must be between /16 and /32")
 
     # Validate against authorized networks — admins auto-authorize
     authorized = await get_active_networks(db)
@@ -321,60 +542,81 @@ async def discover_devices(
         hosts = nmap_parser.parse_host_discovery(raw.get("stdout", ""))
         neighbor_entries = await get_neighbor_entries(data.cidr)
         hosts = enrich_hosts_with_neighbor_entries(hosts, neighbor_entries)
+        used_tcp_probe_discovery = False
+
+        if _host_discovery_needs_tcp_gate(data.cidr, hosts):
+            logger.warning(
+                "Host discovery for %s returned %d Docker candidates without L2 evidence; gating with TCP probes",
+                data.cidr,
+                len(hosts),
+            )
+            tcp_hosts = await _discover_hosts_by_tcp(data.cidr)
+            hosts = enrich_hosts_with_neighbor_entries(tcp_hosts, neighbor_entries)
+            used_tcp_probe_discovery = True
 
         # Enrich discovered hosts with service/OS info via quick scan (batched)
-        if hosts:
-            discovered_ips = [h["ip"] for h in hosts if h.get("ip")]
-            if discovered_ips:
-                _ENRICH_BATCH_SIZE = 20
-                enrich_map = {}
-                for batch_start in range(0, len(discovered_ips), _ENRICH_BATCH_SIZE):
-                    batch_ips = discovered_ips[batch_start:batch_start + _ENRICH_BATCH_SIZE]
-                    try:
-                        enrich_raw = await tools_client.nmap(
-                            " ".join(batch_ips),
-                            ["-sV", "-O", "--top-ports", "20", "-T4", "-oX", "-"],
-                            timeout=max(180, len(batch_ips) * 15),
-                        )
-                        enrich_xml = enrich_raw.get("stdout", "")
-                        if enrich_xml and "<?xml" in enrich_xml:
-                            enrich_data = nmap_parser.parse_xml(enrich_xml)
-                            for ehost in enrich_data.get("hosts", []):
-                                eip = ehost.get("ip")
-                                if eip:
-                                    enrich_map[eip] = ehost
-                    except Exception as exc:
-                        logger.warning("Enrichment scan failed for batch starting at %d: %s", batch_start, exc)
-                        continue
+        if hosts and not used_tcp_probe_discovery:
+            if len(hosts) > _DISCOVERY_ENRICH_MAX_HOSTS:
+                logger.info(
+                    "Skipping discovery enrichment for %s because %d hosts were found",
+                    data.cidr,
+                    len(hosts),
+                )
+            else:
+                discovered_ips = [h["ip"] for h in hosts if h.get("ip")]
+                if discovered_ips:
+                    _ENRICH_BATCH_SIZE = 5
+                    enrich_map = {}
+                    for batch_start in range(0, len(discovered_ips), _ENRICH_BATCH_SIZE):
+                        batch_ips = discovered_ips[batch_start:batch_start + _ENRICH_BATCH_SIZE]
+                        try:
+                            enrich_raw = await tools_client.nmap(
+                                " ".join(batch_ips),
+                                [
+                                    "-sT", "-sV", "--top-ports", "20", "--open",
+                                    "--max-retries", "1", "--host-timeout", "20s",
+                                    "-T4", "-n", "-oX", "-",
+                                ],
+                                timeout=max(45, len(batch_ips) * 10),
+                            )
+                            enrich_xml = enrich_raw.get("stdout", "")
+                            if enrich_xml and "<?xml" in enrich_xml:
+                                enrich_data = nmap_parser.parse_xml(enrich_xml)
+                                for ehost in enrich_data.get("hosts", []):
+                                    eip = ehost.get("ip")
+                                    if eip:
+                                        enrich_map[eip] = ehost
+                        except Exception as exc:
+                            logger.warning("Enrichment scan failed for batch starting at %d: %s", batch_start, exc)
+                            continue
 
-                # Merge enrichment into discovered hosts
-                for h in hosts:
-                    einfo = enrich_map.get(h.get("ip"))
-                    if einfo:
-                        # Extract services list
-                        ports = einfo.get("ports", [])
-                        h["services"] = [
-                            f"{p.get('service', '?')}/{p.get('port', '?')}"
-                            for p in ports if p.get("state") == "open"
-                        ]
-                        h["open_ports"] = [
-                            {"port": p.get("port"), "service": p.get("service", ""), "version": p.get("version", "")}
-                            for p in ports if p.get("state") == "open"
-                        ]
-                        h["os"] = einfo.get("os")
-                        if not h.get("mac") and einfo.get("mac_address"):
-                            h["mac"] = einfo["mac_address"]
-                        if not h.get("vendor") and einfo.get("oui_vendor"):
-                            h["vendor"] = einfo["oui_vendor"]
-                        for p in ports:
-                            version = (p.get("version") or "").strip()
-                            service = (p.get("service") or "").strip()
-                            if version and not h.get("model"):
-                                h["model"] = version
-                            if service == "http" and version:
-                                h["http_server"] = version
-
-        scan.devices_found = hosts
+                    # Merge enrichment into discovered hosts
+                    for h in hosts:
+                        einfo = enrich_map.get(h.get("ip"))
+                        if einfo:
+                            # Extract services list
+                            ports = einfo.get("ports", [])
+                            h["services"] = [
+                                f"{p.get('service', '?')}/{p.get('port', '?')}"
+                                for p in ports if p.get("state") == "open"
+                            ]
+                            h["open_ports"] = [
+                                {"port": p.get("port"), "service": p.get("service", ""), "version": p.get("version", "")}
+                                for p in ports if p.get("state") == "open"
+                            ]
+                            h["os"] = einfo.get("os")
+                            if not h.get("mac") and einfo.get("mac_address"):
+                                h["mac"] = einfo["mac_address"]
+                            if not h.get("vendor") and einfo.get("oui_vendor"):
+                                h["vendor"] = einfo["oui_vendor"]
+                            for p in ports:
+                                version = (p.get("version") or "").strip()
+                                service = (p.get("service") or "").strip()
+                                if version and not h.get("model"):
+                                    h["model"] = version
+                                if service == "http" and version:
+                                    h["http_server"] = version
+        scan.devices_found = await _merge_known_device_metadata(db, hosts)
         scan.status = NetworkScanStatus.PENDING
         await db.flush()
         await db.refresh(scan)
@@ -547,7 +789,9 @@ async def start_batch_scan(
                     ip_address=ip,
                     mac_address=disc.get("mac"),
                     manufacturer=disc.get("vendor"),
+                    oui_vendor=disc.get("vendor"),
                     hostname=disc.get("hostname"),
+                    open_ports=disc.get("open_ports") or None,
                     status=DeviceStatus.DISCOVERED,
                     category=DeviceCategory.UNKNOWN,
                     last_seen_at=utcnow_naive(),
@@ -559,10 +803,14 @@ async def start_batch_scan(
                 disc = _discovered_map.get(ip, {})
                 if not device.mac_address and disc.get("mac"):
                     device.mac_address = disc["mac"]
+                if disc.get("vendor") and not device.oui_vendor:
+                    device.oui_vendor = disc["vendor"]
                 if disc.get("vendor") and not device.manufacturer:
                     device.manufacturer = disc["vendor"]
                 if disc.get("hostname") and not device.hostname:
                     device.hostname = disc["hostname"]
+                if disc.get("open_ports"):
+                    device.open_ports = disc["open_ports"]
                 device.last_seen_at = utcnow_naive()
                 await db.flush()
 
@@ -605,6 +853,21 @@ async def start_batch_scan(
             run_ids.append(test_run.id)
 
         scan.run_ids = run_ids
+        if not run_ids:
+            scan.status = NetworkScanStatus.ERROR
+            scan.selected_test_ids = test_ids
+            scan.error_message = "No selected devices were reachable; no tests were started."
+            scan.completed_at = utcnow_naive()
+            await db.flush()
+            await db.refresh(scan)
+            await db.commit()
+            await db.refresh(scan)
+            await log_action(db, user, "network_scan.start", "network_scan", scan.id,
+                             {"device_count": len(data.device_ips), "test_count": len(test_ids), "started": 0}, request)
+            response = NetworkScanResponse.model_validate(scan).model_dump()
+            response["skipped_unreachable"] = skipped_unreachable
+            return response
+
         scan.status = NetworkScanStatus.SCANNING
         scan.selected_test_ids = test_ids
         await db.flush()

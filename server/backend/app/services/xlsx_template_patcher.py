@@ -11,9 +11,12 @@ Uses inline strings (``t="inlineStr"``) so the shared-strings table
 from __future__ import annotations
 
 import logging
+import mimetypes
+import posixpath
 import re
 import tempfile
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +28,14 @@ logger = logging.getLogger(__name__)
 _NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _NS_PKG_RELS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_NS_CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+_NS_XDR = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+_NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _NSMAP = {"": _NS}
+_EMU_PER_PIXEL = 9525
+_DRAWING_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
+_IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+_DRAWING_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.drawing+xml"
 
 # Excel hard limit for cell text length
 _MAX_CELL_LENGTH = 32_767
@@ -34,12 +44,86 @@ _MAX_CELL_LENGTH = 32_767
 _CELL_REF_RE = re.compile(r"^([A-Z]+)(\d+)$", re.IGNORECASE)
 
 
+@dataclass(frozen=True)
+class XlsxImageInsert:
+    sheet_name: str
+    image_path: Path
+    cell: str = "A1"
+    width_px: int = 190
+    height_px: int = 35
+    description: str = "Report logo"
+
+
+@dataclass
+class _PlannedImageInsert:
+    sheet_xml_path: str
+    sheet_rels_path: str
+    drawing_path: str
+    drawing_rels_path: str
+    media_path: str
+    image_bytes: bytes
+    cell: str
+    width_px: int
+    height_px: int
+    description: str
+    image_rel_id: str
+    sheet_drawing_rel_id: str | None = None
+
+
 def _col_to_index(col: str) -> int:
     """Convert a column letter (A, B, ..., Z, AA, AB, ...) to a 1-based index."""
     index = 0
     for ch in col.upper():
         index = index * 26 + (ord(ch) - ord("A") + 1)
     return index
+
+
+def _next_numbered_part(existing_names: set[str], prefix: str, suffix: str) -> str:
+    pattern = re.compile(rf"^{re.escape(prefix)}(\d+){re.escape(suffix)}$")
+    max_index = 0
+    for name in existing_names:
+        match = pattern.match(name)
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return f"{prefix}{max_index + 1}{suffix}"
+
+
+def _rels_path_for_part(part_path: str) -> str:
+    return posixpath.join(
+        posixpath.dirname(part_path),
+        "_rels",
+        f"{posixpath.basename(part_path)}.rels",
+    )
+
+
+def _resolve_related_part(source_part_path: str, target: str) -> str:
+    return posixpath.normpath(posixpath.join(posixpath.dirname(source_part_path), target))
+
+
+def _relative_target(from_part_path: str, target_part_path: str) -> str:
+    return posixpath.relpath(target_part_path, posixpath.dirname(from_part_path))
+
+
+def _new_relationships_root() -> Any:
+    return etree.Element(f"{{{_NS_PKG_RELS}}}Relationships", nsmap={None: _NS_PKG_RELS})
+
+
+def _parse_relationships(data: bytes | None) -> Any:
+    return etree.fromstring(data) if data else _new_relationships_root()
+
+
+def _relationship_target(root: Any, rel_id: str) -> str | None:
+    for rel in root.findall(f"{{{_NS_PKG_RELS}}}Relationship"):
+        if rel.get("Id") == rel_id:
+            return rel.get("Target")
+    return None
+
+
+def _add_relationship(root: Any, rel_id: str, rel_type: str, target: str) -> None:
+    rel = etree.SubElement(root, f"{{{_NS_PKG_RELS}}}Relationship")
+    rel.set("Id", rel_id)
+    rel.set("Type", rel_type)
+    rel.set("Target", target)
 
 
 def _parse_cell_ref(ref: str) -> tuple[int, str, int]:
@@ -94,6 +178,279 @@ def _resolve_sheet_paths(zf: zipfile.ZipFile) -> dict[str, str]:
             result[name] = full_path
 
     return result
+
+
+def _sheet_drawing_part(
+    zf: zipfile.ZipFile,
+    sheet_xml_path: str,
+) -> tuple[str | None, str | None, str | None]:
+    sheet_xml = zf.read(sheet_xml_path)
+    sheet_root = etree.fromstring(sheet_xml)
+    drawing_el = sheet_root.find(f"{{{_NS}}}drawing")
+    if drawing_el is None:
+        return None, None, None
+
+    rel_id = drawing_el.get(f"{{{_NS_R}}}id")
+    if not rel_id:
+        return None, None, None
+
+    sheet_rels_path = _rels_path_for_part(sheet_xml_path)
+    if sheet_rels_path not in zf.namelist():
+        return None, None, None
+
+    sheet_rels = _parse_relationships(zf.read(sheet_rels_path))
+    target = _relationship_target(sheet_rels, rel_id)
+    if not target:
+        return None, None, None
+
+    return _resolve_related_part(sheet_xml_path, target), sheet_rels_path, rel_id
+
+
+def _image_content_type(ext: str) -> str:
+    if ext in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    return mimetypes.types_map.get(ext, "image/png")
+
+
+def _plan_image_inserts(
+    zf: zipfile.ZipFile,
+    sheet_paths: dict[str, str],
+    image_inserts: list[XlsxImageInsert],
+) -> list[_PlannedImageInsert]:
+    if not image_inserts:
+        return []
+
+    names = set(zf.namelist())
+    planned_names: set[str] = set()
+    planned_sheet_drawings: dict[str, tuple[str, str, str | None]] = {}
+    used_rel_ids: dict[str, set[str]] = {}
+    plans: list[_PlannedImageInsert] = []
+
+    def reserve_rel_id(rels_path: str) -> str:
+        root = (
+            _parse_relationships(zf.read(rels_path))
+            if rels_path in names
+            else _new_relationships_root()
+        )
+        used = used_rel_ids.setdefault(rels_path, set())
+        max_index = 0
+        for rel in root.findall(f"{{{_NS_PKG_RELS}}}Relationship"):
+            rel_id = rel.get("Id", "")
+            match = re.match(r"^rId(\d+)$", rel_id)
+            if match:
+                max_index = max(max_index, int(match.group(1)))
+        for rel_id in used:
+            match = re.match(r"^rId(\d+)$", rel_id)
+            if match:
+                max_index = max(max_index, int(match.group(1)))
+        rel_id = f"rId{max_index + 1}"
+        used.add(rel_id)
+        return rel_id
+
+    for insert in image_inserts:
+        sheet_xml_path = sheet_paths.get(insert.sheet_name)
+        if sheet_xml_path is None:
+            logger.warning(
+                "Sheet %r not found for image insert; available: %s",
+                insert.sheet_name,
+                list(sheet_paths.keys()),
+            )
+            continue
+
+        image_path = Path(insert.image_path)
+        if not image_path.exists():
+            logger.warning("Image insert skipped; file not found: %s", image_path)
+            continue
+
+        extension = image_path.suffix.lower()
+        if extension not in {".png", ".jpg", ".jpeg"}:
+            logger.warning("Image insert skipped; unsupported extension: %s", image_path)
+            continue
+
+        if sheet_xml_path in planned_sheet_drawings:
+            drawing_path, sheet_rels_path, sheet_drawing_rel_id = planned_sheet_drawings[sheet_xml_path]
+        else:
+            existing_drawing_path, sheet_rels_path, _ = _sheet_drawing_part(zf, sheet_xml_path)
+            sheet_drawing_rel_id = None
+            if existing_drawing_path:
+                drawing_path = existing_drawing_path
+            else:
+                drawing_name = _next_numbered_part(
+                    {posixpath.basename(name) for name in names | planned_names if name.startswith("xl/drawings/")},
+                    "drawing",
+                    ".xml",
+                )
+                drawing_path = f"xl/drawings/{drawing_name}"
+                planned_names.add(drawing_path)
+                sheet_rels_path = _rels_path_for_part(sheet_xml_path)
+                sheet_drawing_rel_id = reserve_rel_id(sheet_rels_path)
+            planned_sheet_drawings[sheet_xml_path] = (
+                drawing_path,
+                sheet_rels_path or _rels_path_for_part(sheet_xml_path),
+                sheet_drawing_rel_id,
+            )
+
+        drawing_rels_path = _rels_path_for_part(drawing_path)
+        image_rel_id = reserve_rel_id(drawing_rels_path)
+
+        media_name = _next_numbered_part(
+            {posixpath.basename(name) for name in names | planned_names if name.startswith("xl/media/")},
+            "image",
+            extension,
+        )
+        media_path = f"xl/media/{media_name}"
+        planned_names.add(media_path)
+
+        plans.append(
+            _PlannedImageInsert(
+                sheet_xml_path=sheet_xml_path,
+                sheet_rels_path=sheet_rels_path or _rels_path_for_part(sheet_xml_path),
+                drawing_path=drawing_path,
+                drawing_rels_path=drawing_rels_path,
+                media_path=media_path,
+                image_bytes=image_path.read_bytes(),
+                cell=insert.cell,
+                width_px=insert.width_px,
+                height_px=insert.height_px,
+                description=insert.description,
+                image_rel_id=image_rel_id,
+                sheet_drawing_rel_id=sheet_drawing_rel_id,
+            )
+        )
+
+    return plans
+
+
+def _patch_sheet_drawing_reference(xml_bytes: bytes, rel_id: str | None) -> bytes:
+    if not rel_id:
+        return xml_bytes
+
+    root = etree.fromstring(xml_bytes)
+    drawing_el = root.find(f"{{{_NS}}}drawing")
+    if drawing_el is None:
+        drawing_el = etree.Element(f"{{{_NS}}}drawing")
+        drawing_el.set(f"{{{_NS_R}}}id", rel_id)
+        sheet_data = root.find(f"{{{_NS}}}sheetData")
+        if sheet_data is not None:
+            root.insert(list(root).index(sheet_data) + 1, drawing_el)
+        else:
+            root.append(drawing_el)
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _max_picture_id(root: Any) -> int:
+    max_id = 0
+    for element in root.iter():
+        if element.tag.endswith("}cNvPr"):
+            raw_id = element.get("id")
+            if raw_id and raw_id.isdigit():
+                max_id = max(max_id, int(raw_id))
+    return max_id
+
+
+def _append_image_anchor(root: Any, plan: _PlannedImageInsert) -> None:
+    row_num, _, col_idx = _parse_cell_ref(plan.cell)
+    pic_id = _max_picture_id(root) + 1
+    cx = max(plan.width_px, 1) * _EMU_PER_PIXEL
+    cy = max(plan.height_px, 1) * _EMU_PER_PIXEL
+
+    anchor = etree.SubElement(root, f"{{{_NS_XDR}}}oneCellAnchor")
+    from_el = etree.SubElement(anchor, f"{{{_NS_XDR}}}from")
+    etree.SubElement(from_el, f"{{{_NS_XDR}}}col").text = str(max(col_idx - 1, 0))
+    etree.SubElement(from_el, f"{{{_NS_XDR}}}colOff").text = "0"
+    etree.SubElement(from_el, f"{{{_NS_XDR}}}row").text = str(max(row_num - 1, 0))
+    etree.SubElement(from_el, f"{{{_NS_XDR}}}rowOff").text = "0"
+    ext_el = etree.SubElement(anchor, f"{{{_NS_XDR}}}ext")
+    ext_el.set("cx", str(cx))
+    ext_el.set("cy", str(cy))
+
+    pic = etree.SubElement(anchor, f"{{{_NS_XDR}}}pic")
+    nv_pic_pr = etree.SubElement(pic, f"{{{_NS_XDR}}}nvPicPr")
+    c_nv_pr = etree.SubElement(nv_pic_pr, f"{{{_NS_XDR}}}cNvPr")
+    c_nv_pr.set("id", str(pic_id))
+    c_nv_pr.set("name", plan.description)
+    c_nv_pr.set("descr", plan.description)
+    etree.SubElement(nv_pic_pr, f"{{{_NS_XDR}}}cNvPicPr")
+
+    blip_fill = etree.SubElement(pic, f"{{{_NS_XDR}}}blipFill")
+    blip = etree.SubElement(blip_fill, f"{{{_NS_A}}}blip")
+    blip.set(f"{{{_NS_R}}}embed", plan.image_rel_id)
+    stretch = etree.SubElement(blip_fill, f"{{{_NS_A}}}stretch")
+    etree.SubElement(stretch, f"{{{_NS_A}}}fillRect")
+
+    sp_pr = etree.SubElement(pic, f"{{{_NS_XDR}}}spPr")
+    xfrm = etree.SubElement(sp_pr, f"{{{_NS_A}}}xfrm")
+    off = etree.SubElement(xfrm, f"{{{_NS_A}}}off")
+    off.set("x", "0")
+    off.set("y", "0")
+    ext = etree.SubElement(xfrm, f"{{{_NS_A}}}ext")
+    ext.set("cx", str(cx))
+    ext.set("cy", str(cy))
+    prst = etree.SubElement(sp_pr, f"{{{_NS_A}}}prstGeom")
+    prst.set("prst", "rect")
+    etree.SubElement(prst, f"{{{_NS_A}}}avLst")
+    etree.SubElement(anchor, f"{{{_NS_XDR}}}clientData")
+
+
+def _new_drawing_root() -> Any:
+    return etree.Element(
+        f"{{{_NS_XDR}}}wsDr",
+        nsmap={"xdr": _NS_XDR, "a": _NS_A, "r": _NS_R},
+    )
+
+
+def _patch_drawing_xml(
+    xml_bytes: bytes | None,
+    plans: list[_PlannedImageInsert],
+) -> bytes:
+    root = etree.fromstring(xml_bytes) if xml_bytes else _new_drawing_root()
+    for plan in plans:
+        _append_image_anchor(root, plan)
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _patch_rels_xml(
+    xml_bytes: bytes | None,
+    additions: list[tuple[str, str, str]],
+) -> bytes:
+    root = _parse_relationships(xml_bytes)
+    existing_ids = {rel.get("Id") for rel in root.findall(f"{{{_NS_PKG_RELS}}}Relationship")}
+    for rel_id, rel_type, target in additions:
+        if rel_id not in existing_ids:
+            _add_relationship(root, rel_id, rel_type, target)
+            existing_ids.add(rel_id)
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _patch_content_types(xml_bytes: bytes, plans: list[_PlannedImageInsert]) -> bytes:
+    if not plans:
+        return xml_bytes
+    root = etree.fromstring(xml_bytes)
+    existing_defaults = {
+        node.get("Extension")
+        for node in root.findall(f"{{{_NS_CT}}}Default")
+    }
+    existing_overrides = {
+        node.get("PartName")
+        for node in root.findall(f"{{{_NS_CT}}}Override")
+    }
+
+    for plan in plans:
+        ext = Path(plan.media_path).suffix.lower().lstrip(".")
+        if ext not in existing_defaults:
+            default = etree.SubElement(root, f"{{{_NS_CT}}}Default")
+            default.set("Extension", ext)
+            default.set("ContentType", _image_content_type(f".{ext}"))
+            existing_defaults.add(ext)
+
+        part_name = f"/{plan.drawing_path}"
+        if part_name not in existing_overrides:
+            override = etree.SubElement(root, f"{{{_NS_CT}}}Override")
+            override.set("PartName", part_name)
+            override.set("ContentType", _DRAWING_CONTENT_TYPE)
+            existing_overrides.add(part_name)
+
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
 def _patch_sheet_xml(xml_bytes: bytes, cell_updates: dict[str, str | None]) -> bytes:
@@ -355,6 +712,7 @@ def patch_xlsx(
     template_path: Path,
     output_path: Path,
     sheet_updates: dict[str, dict[str, str | None]],
+    image_inserts: list[XlsxImageInsert] | None = None,
 ) -> Path:
     """Create a patched copy of an XLSX template.
 
@@ -391,6 +749,7 @@ def patch_xlsx(
     with zipfile.ZipFile(str(template_path), "r") as src_zip:
         # Resolve sheet names to their XML paths
         sheet_paths = _resolve_sheet_paths(src_zip)
+        image_plans = _plan_image_inserts(src_zip, sheet_paths, image_inserts or [])
 
         # Map XML paths → sheet updates
         xml_to_updates: dict[str, dict[str, str | None]] = {}
@@ -406,6 +765,17 @@ def patch_xlsx(
             if updates:
                 xml_to_updates[xml_path] = updates
 
+        plans_by_sheet_xml: dict[str, list[_PlannedImageInsert]] = {}
+        plans_by_drawing: dict[str, list[_PlannedImageInsert]] = {}
+        plans_by_drawing_rels: dict[str, list[_PlannedImageInsert]] = {}
+        plans_by_sheet_rels: dict[str, list[_PlannedImageInsert]] = {}
+        for plan in image_plans:
+            plans_by_sheet_xml.setdefault(plan.sheet_xml_path, []).append(plan)
+            plans_by_drawing.setdefault(plan.drawing_path, []).append(plan)
+            plans_by_drawing_rels.setdefault(plan.drawing_rels_path, []).append(plan)
+            if plan.sheet_drawing_rel_id:
+                plans_by_sheet_rels.setdefault(plan.sheet_rels_path, []).append(plan)
+
         # Write to temp file for atomicity, then rename
         tmp_fd, tmp_path = tempfile.mkstemp(
             suffix=".xlsx",
@@ -414,6 +784,7 @@ def patch_xlsx(
 
         try:
             with zipfile.ZipFile(tmp_path, "w") as dst_zip:
+                written: set[str] = set()
                 for item in src_zip.infolist():
                     if _is_stray_zip_entry(item.filename):
                         logger.info("Stripping stray entry %s", item.filename)
@@ -429,6 +800,54 @@ def patch_xlsx(
                             len(updates),
                         )
                         data = _patch_sheet_xml(data, updates)
+                    if item.filename in plans_by_sheet_xml:
+                        rel_id = next(
+                            (
+                                plan.sheet_drawing_rel_id
+                                for plan in plans_by_sheet_xml[item.filename]
+                                if plan.sheet_drawing_rel_id
+                            ),
+                            None,
+                        )
+                        data = _patch_sheet_drawing_reference(data, rel_id)
+                    if item.filename in plans_by_drawing:
+                        data = _patch_drawing_xml(data, plans_by_drawing[item.filename])
+                    if item.filename in plans_by_drawing_rels:
+                        data = _patch_rels_xml(
+                            data,
+                            [
+                                (
+                                    plan.image_rel_id,
+                                    _IMAGE_REL_TYPE,
+                                    _relative_target(plan.drawing_path, plan.media_path),
+                                )
+                                for plan in plans_by_drawing_rels[item.filename]
+                            ],
+                        )
+                    if item.filename in plans_by_sheet_rels:
+                        data = _patch_rels_xml(
+                            data,
+                            [
+                                (
+                                    plan.sheet_drawing_rel_id or "",
+                                    _DRAWING_REL_TYPE,
+                                    _relative_target(plan.sheet_xml_path, plan.drawing_path),
+                                )
+                                for plan in plans_by_sheet_rels[item.filename]
+                                if plan.sheet_drawing_rel_id
+                            ],
+                        )
+                    if item.filename == "[Content_Types].xml":
+                        data = _patch_content_types(data, image_plans)
+
+                    if (
+                        item.filename in xml_to_updates
+                        or item.filename in plans_by_sheet_xml
+                        or item.filename in plans_by_drawing
+                        or item.filename in plans_by_drawing_rels
+                        or item.filename in plans_by_sheet_rels
+                        or item.filename == "[Content_Types].xml"
+                    ):
                         # Write with same compression but let Python
                         # recalculate size/CRC for the modified data
                         dst_zip.writestr(
@@ -439,6 +858,54 @@ def patch_xlsx(
                     else:
                         # Copy byte-for-byte preserving original ZipInfo
                         dst_zip.writestr(item, data)
+                    written.add(item.filename)
+
+                for path, plans in plans_by_drawing.items():
+                    if path not in written:
+                        dst_zip.writestr(path, _patch_drawing_xml(None, plans))
+                        written.add(path)
+
+                for path, plans in plans_by_drawing_rels.items():
+                    if path not in written:
+                        dst_zip.writestr(
+                            path,
+                            _patch_rels_xml(
+                                None,
+                                [
+                                    (
+                                        plan.image_rel_id,
+                                        _IMAGE_REL_TYPE,
+                                        _relative_target(plan.drawing_path, plan.media_path),
+                                    )
+                                    for plan in plans
+                                ],
+                            ),
+                        )
+                        written.add(path)
+
+                for path, plans in plans_by_sheet_rels.items():
+                    if path not in written:
+                        dst_zip.writestr(
+                            path,
+                            _patch_rels_xml(
+                                None,
+                                [
+                                    (
+                                        plan.sheet_drawing_rel_id or "",
+                                        _DRAWING_REL_TYPE,
+                                        _relative_target(plan.sheet_xml_path, plan.drawing_path),
+                                    )
+                                    for plan in plans
+                                    if plan.sheet_drawing_rel_id
+                                ],
+                            ),
+                        )
+                        written.add(path)
+
+                for plan in image_plans:
+                    if plan.media_path not in written:
+                        dst_zip.writestr(plan.media_path, plan.image_bytes)
+                        written.add(plan.media_path)
 
             # Atomic rename
             import os

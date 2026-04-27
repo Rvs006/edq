@@ -5,17 +5,22 @@ title EDQ Security Launcher
 cd /d "%~dp0"
 
 set "PAUSE_AFTER=1"
+set "FORMAT=markdown"
 if /I "%~1"=="--no-pause" set "PAUSE_AFTER=0"
+if /I "%~1"=="json" set "FORMAT=json"
+if /I "%~1"=="--json" set "FORMAT=json"
+if /I "%~2"=="json" set "FORMAT=json"
+if /I "%~2"=="--json" set "FORMAT=json"
 
-where npm >nul 2>&1
+where powershell >nul 2>&1
 if errorlevel 1 (
-  echo npm was not found on PATH.
+  echo PowerShell was not found on PATH.
   set "EXIT_CODE=1"
   goto :done
 )
 
 echo Running ShieldMyRepo scan...
-call npm run security:scan
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\security-scan.ps1" -Format "%FORMAT%"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 :done
@@ -31,4 +36,3 @@ if "%EXIT_CODE%"=="0" (
 
 if "%PAUSE_AFTER%"=="1" pause
 exit /b %EXIT_CODE%
-

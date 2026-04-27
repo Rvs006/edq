@@ -19,7 +19,7 @@ TWO_HOST_STDOUT = (
 @pytest.mark.asyncio
 async def test_subnet_discovery_skips_ghost_hosts(client: AsyncClient, monkeypatch):
     """nmap -sn reports 2 hosts; probe says only one is real -> skip the ghost."""
-    headers = await register_and_login(client, suffix="subghost")
+    headers = await register_and_login(client, suffix="subghost", role="admin")
 
     async def fake_nmap(target, args=None, timeout=120):
         return {"stdout": TWO_HOST_STDOUT}

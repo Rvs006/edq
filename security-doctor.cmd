@@ -7,15 +7,15 @@ cd /d "%~dp0"
 set "PAUSE_AFTER=1"
 if /I "%~1"=="--no-pause" set "PAUSE_AFTER=0"
 
-where npm >nul 2>&1
+where powershell >nul 2>&1
 if errorlevel 1 (
-  echo npm was not found on PATH.
+  echo PowerShell was not found on PATH.
   set "EXIT_CODE=1"
   goto :done
 )
 
 echo Running ShieldMyRepo doctor...
-call npm run security:doctor
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\security-doctor.ps1"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 :done
@@ -31,4 +31,3 @@ if "%EXIT_CODE%"=="0" (
 
 if "%PAUSE_AFTER%"=="1" pause
 exit /b %EXIT_CODE%
-

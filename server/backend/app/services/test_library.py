@@ -36,10 +36,10 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "platform_notes": "Best results: Linux/Windows host on same subnet. Docker: limited by NAT (L2 adjacency required for MAC)."
     },
     {
-        "test_id": "U03", "name": "Switch Negotiation (Speed/Duplex)", "tier": "automatic", "tool": "ethtool",
+        "test_id": "U03", "name": "Switch Negotiation (Speed/Duplex)", "tier": "guided_manual", "tool": None,
         "is_essential": False, "description": "Verify Ethernet link negotiation parameters.",
         "compliance_map": [],
-        "platform_notes": "Requires: Linux host with direct Ethernet connection. Not possible via Docker or remote scan."
+        "platform_notes": "Manual evidence required: verify switch interface status or run ethtool on a host with direct Ethernet access. Not possible via Docker or remote scan."
     },
     {
         "test_id": "U04", "name": "DHCP Behaviour", "tier": "automatic", "tool": "discovery_metadata",

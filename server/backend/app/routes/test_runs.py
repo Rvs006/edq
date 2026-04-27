@@ -2,6 +2,7 @@
 
 import logging
 import os
+import ipaddress
 import uuid
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -45,10 +46,39 @@ from app.utils.audit import log_action
 from app.utils.collections import ordered_unique
 from app.utils.datetime import utcnow_naive
 from app.models.user import UserRole
+from app.models.authorized_network import AuthorizedNetwork
+from app.routes.authorized_networks import get_active_networks, is_ip_authorized
 
 logger = logging.getLogger("edq.routes.test_runs")
 
 router = APIRouter()
+
+
+async def _ensure_test_run_target_authorized(db: AsyncSession, user: User, device: Device) -> None:
+    if not device.ip_address:
+        return
+    authorized = await get_active_networks(db)
+    if is_ip_authorized(device.ip_address, authorized):
+        return
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail=f"IP address {device.ip_address} is not authorized. Contact your admin to authorize this scan range.",
+        )
+    subnet = str(ipaddress.ip_network(f"{device.ip_address}/24", strict=False))
+    existing = await db.execute(
+        select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == subnet)
+    )
+    if existing.scalar_one_or_none() is None:
+        db.add(AuthorizedNetwork(
+            cidr=subnet,
+            label="Auto-authorized (test run)",
+            description=f"Automatically authorized by {user.username} during test run start",
+            is_active=True,
+            created_by=user.id,
+        ))
+        await db.flush()
+        logger.info("Auto-authorized test-run target %s for admin %s", subnet, user.username)
 
 
 def _resolve_result_tier(test_id: str, connection_scenario: str, base_tier: str) -> TestTier:
@@ -173,6 +203,12 @@ def _status_filter_values(status: str) -> list[str]:
     return values
 
 
+def _enum_response_value(value) -> str:
+    if hasattr(value, "value"):
+        return value.value
+    return normalize_test_run_status(value)
+
+
 async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int | bool]:
     # Use SQL aggregation instead of loading all result rows into Python
     result = await db.execute(
@@ -181,7 +217,9 @@ async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int
             func.count(case((TestResult.verdict == TestVerdict.FAIL, 1))).label("failed"),
             func.count(case((TestResult.verdict == TestVerdict.ADVISORY, 1))).label("advisory"),
             func.count(case((TestResult.verdict == TestVerdict.NA, 1))).label("na"),
+            func.count(case((TestResult.verdict == TestVerdict.INFO, 1))).label("info"),
             func.count(case((TestResult.verdict == TestVerdict.ERROR, 1))).label("errors"),
+            func.count(case((TestResult.verdict == TestVerdict.SKIPPED_SAFE_MODE, 1))).label("skipped"),
             func.count(case((and_(
                 TestResult.verdict == TestVerdict.PENDING,
                 TestResult.tier == TestTier.GUIDED_MANUAL,
@@ -198,16 +236,19 @@ async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int
     failed = row.failed
     advisory = row.advisory
     na = row.na
+    info = row.info
     errors = row.errors
+    skipped = row.skipped
 
     return {
         "passed": passed,
         "failed": failed,
         "advisory": advisory,
         "na": na,
+        "info": info,
         "errors": errors,
         "pending_manual": row.pending_manual,
-        "completed": passed + failed + advisory + na + errors,
+        "completed": passed + failed + advisory + na + info + errors + skipped,
         "essential_failed": row.essential_failed > 0,
         "total": row.total,
     }
@@ -216,6 +257,8 @@ async def _summarize_run_results(db: AsyncSession, run_id: str) -> dict[str, int
 def _overall_verdict_from_summary(summary: dict[str, int | bool]) -> str | None:
     if summary["essential_failed"] or summary["failed"]:
         return "fail"
+    if summary["errors"]:
+        return "incomplete"
     if summary["advisory"]:
         return "qualified_pass"
     if summary["completed"]:
@@ -225,7 +268,7 @@ def _overall_verdict_from_summary(summary: dict[str, int | bool]) -> str | None:
 
 def _apply_summary_to_run(run: TestRun, summary: dict[str, int | bool]) -> None:
     run.passed_tests = int(summary["passed"])
-    run.failed_tests = int(summary["failed"])
+    run.failed_tests = int(summary["failed"]) + int(summary["errors"])
     run.advisory_tests = int(summary["advisory"])
     run.na_tests = int(summary["na"])
     run.completed_tests = int(summary["completed"])
@@ -308,8 +351,8 @@ async def test_run_stats(
     )
     return {
         "total": total.scalar() or 0,
-        "by_status": {str(row[0]): row[1] for row in by_status.all()},
-        "by_verdict": {str(row[0]): row[1] for row in by_verdict.all()},
+        "by_status": {_enum_response_value(row[0]): row[1] for row in by_status.all()},
+        "by_verdict": {_enum_response_value(row[0]): row[1] for row in by_verdict.all()},
     }
 
 
@@ -382,6 +425,11 @@ async def create_test_run(
         raw_ids = _json.loads(raw_ids)
 
     raw_ids = ordered_unique(raw_ids)
+    test_defs = [
+        (test_id, test_def)
+        for test_id in raw_ids
+        if (test_def := get_test_by_id(test_id)) and not test_def.get("deprecated")
+    ]
 
     test_run = TestRun(
         device_id=data.device_id,
@@ -390,30 +438,28 @@ async def create_test_run(
         project_id=device.project_id,
         agent_id=data.agent_id,
         connection_scenario=connection_scenario,
-        total_tests=len(raw_ids),
+        total_tests=len(test_defs),
         status=TestRunStatus.PENDING,
         run_metadata=data.metadata,
     )
     db.add(test_run)
     await db.flush()
 
-    for test_id in raw_ids:
-        test_def = get_test_by_id(test_id)
-        if test_def:
-            result = TestResult(
-                test_run_id=test_run.id,
-                test_id=test_id,
-                test_name=test_def["name"],
-                tier=_resolve_result_tier(test_id, connection_scenario, test_def["tier"]),
-                tool=test_def.get("tool"),
-                verdict=TestVerdict.PENDING,
-                is_essential="yes" if test_def["is_essential"] else "no",
-                compliance_map=test_def.get("compliance_map", []),
-            )
-            manual_note = get_manual_routing_note(test_id, connection_scenario)
-            if manual_note:
-                result.comment = manual_note
-            db.add(result)
+    for test_id, test_def in test_defs:
+        result = TestResult(
+            test_run_id=test_run.id,
+            test_id=test_id,
+            test_name=test_def["name"],
+            tier=_resolve_result_tier(test_id, connection_scenario, test_def["tier"]),
+            tool=test_def.get("tool"),
+            verdict=TestVerdict.PENDING,
+            is_essential="yes" if test_def["is_essential"] else "no",
+            compliance_map=test_def.get("compliance_map", []),
+        )
+        manual_note = get_manual_routing_note(test_id, connection_scenario)
+        if manual_note:
+            result.comment = manual_note
+        db.add(result)
 
     await db.flush()
     await _sync_run_result_routing(db, test_run.id, connection_scenario)
@@ -490,6 +536,18 @@ async def start_test_run(
             status_code=409 if readiness.dhcp_missing_ip else 422,
             detail=_missing_ip_detail_for_action("start", readiness.dhcp_missing_ip),
         )
+    if device is not None:
+        await _ensure_test_run_target_authorized(db, user, device)
+
+    start_status = TestRunStatus.RUNNING.value
+    start_message = "Test execution started"
+    if not readiness.can_execute:
+        run.status = TestRunStatus.PAUSED_CABLE
+        start_status = TestRunStatus.PAUSED_CABLE.value
+        start_message = readiness.pause_message or (
+            f"Target device {device.ip_address if device else 'unknown'} is unreachable from this "
+            "network. Testing is paused until connectivity is restored."
+        )
 
     await _sync_run_result_routing(
         db,
@@ -497,6 +555,7 @@ async def start_test_run(
         normalize_connection_scenario(run.connection_scenario),
     )
     await db.flush()
+    await db.commit()
 
     task = launch_test_run(run_id)
     if task is None:
@@ -505,7 +564,18 @@ async def start_test_run(
             detail="Test run was already started by another process",
         )
 
-    return {"status": "running", "message": "Test execution started", "run_id": run_id}
+    return {
+        "status": start_status,
+        "message": start_message,
+        "run_id": run_id,
+        "connection_scenario": normalize_connection_scenario(run.connection_scenario),
+        "connectivity": {
+            "reason": readiness.reason,
+            "reachable": readiness.reachable,
+            "probe_method": readiness.probe_method,
+            "can_execute": readiness.can_execute,
+        },
+    }
 
 
 @router.post("/{run_id}/cancel")
@@ -545,6 +615,9 @@ async def cancel_test_run(
     # 3. Mark run as cancelled
     run.status = TestRunStatus.CANCELLED
     run.completed_at = utcnow_naive()
+    metadata = dict(run.run_metadata) if isinstance(run.run_metadata, dict) else {}
+    metadata.pop("current_test", None)
+    run.run_metadata = metadata
     await db.flush()
 
     return {"status": "cancelled", "message": "Test run cancelled", "run_id": run_id}
@@ -647,7 +720,13 @@ async def resume_test_run(
                 detail=_missing_ip_detail_for_action("resume", readiness.dhcp_missing_ip),
             )
         if handler and device and device.ip_address:
-            handler.update_target(device.ip_address, readiness.probe_ports)
+            handler.update_target(
+                device.ip_address,
+                readiness.probe_ports,
+                known_service_ports=getattr(readiness, "known_probe_ports", None) or [],
+            )
+            if hasattr(handler, "known_service_ports"):
+                handler.known_service_ports = readiness.known_probe_ports or []
         if handler and is_run_executing(run_id) and not readiness.can_execute:
             raise HTTPException(
                 status_code=409,
@@ -660,8 +739,14 @@ async def resume_test_run(
         run.status = TestRunStatus.RUNNING
         await db.flush()
         await db.refresh(run)
+        await db.commit()
         await handler.resume()
         return {"status": "running", "message": "Test execution resumed", "run_id": run_id}
+
+    run.status = TestRunStatus.RUNNING
+    await db.flush()
+    await db.refresh(run)
+    await db.commit()
 
     task = launch_test_run(run_id)
     if task is None:
@@ -670,9 +755,6 @@ async def resume_test_run(
             detail="Test run was already started by another process",
         )
 
-    run.status = TestRunStatus.RUNNING
-    await db.flush()
-    await db.refresh(run)
     return {"status": "running", "message": "Test execution resumed", "run_id": run_id}
 
 
@@ -699,10 +781,12 @@ async def complete_test_run(
         select(TestResult).where(TestResult.test_run_id == run_id).order_by(TestResult.test_id)
     )
     all_results = list(results.scalars().all())
-    run.run_metadata = merge_readiness_into_metadata(
+    run_metadata = merge_readiness_into_metadata(
         run.run_metadata,
         build_run_readiness_summary(run, all_results),
     )
+    run_metadata.pop("current_test", None)
+    run.run_metadata = run_metadata
 
     await db.commit()
     return await _enrich_run(run, db)
@@ -731,10 +815,12 @@ async def request_review_for_test_run(
         select(TestResult).where(TestResult.test_run_id == run_id).order_by(TestResult.test_id)
     )
     all_results = list(results.scalars().all())
-    run.run_metadata = merge_readiness_into_metadata(
+    run_metadata = merge_readiness_into_metadata(
         run.run_metadata,
         build_run_readiness_summary(run, all_results),
     )
+    run_metadata.pop("current_test", None)
+    run.run_metadata = run_metadata
     await db.commit()
     return await _enrich_run(run, db)
 

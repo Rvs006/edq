@@ -6,6 +6,8 @@ type CableStatus = 'connected' | 'disconnected' | 'reconnecting' | 'service_unre
 interface CableProbe {
   reachable: boolean
   tcpReachable?: boolean
+  serviceExpected?: boolean
+  probeMethod?: string
   consecutiveFailures: number
   failThreshold: number
 }

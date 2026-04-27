@@ -164,6 +164,40 @@ async def test_monitor_batch_keeps_scan_pending_when_any_run_is_active(
 
 
 @pytest.mark.asyncio
+async def test_monitor_batch_treats_paused_runs_as_settled_attention_required(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    db_engine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    session_factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr("app.models.database.async_session", session_factory)
+    await register_and_login(client, suffix="batchPaused", role="admin")
+    user_id = await _get_user_id(db_session, "batchPauseduser")
+    template_id = await _create_template(db_session)
+    device_id = await _create_device(db_session, "10.10.2.11")
+    run_ids = [
+        await _create_run(
+            db_session,
+            engineer_id=user_id,
+            device_id=device_id,
+            template_id=template_id,
+            status=RunStatus.PAUSED_MANUAL,
+        )
+    ]
+    scan_id = await _create_scan(db_session, created_by=user_id, run_ids=run_ids)
+    await db_session.commit()
+
+    await _monitor_batch(scan_id, run_ids, [])
+
+    db_session.expire_all()
+    saved_scan = await db_session.get(NetworkScan, scan_id)
+    assert saved_scan is not None
+    assert saved_scan.status == NetworkScanStatus.COMPLETE
+    assert saved_scan.completed_at is not None
+
+
+@pytest.mark.asyncio
 async def test_reserve_batch_scan_start_rejects_duplicate_start_while_starting():
     scan_id = "scan-starting"
     assert _reserve_batch_scan_start(scan_id) is True

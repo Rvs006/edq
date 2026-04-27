@@ -10,7 +10,23 @@ interface SystemStatus {
   toolsStatus: 'ok' | 'unavailable' | 'not_configured' | 'unknown'
   toolsMessage: string | null
   toolVersions: Record<string, string>
+  scannerUpdates: ScannerUpdates | null
   lastChecked: Date | null
+}
+
+export interface ScannerUpdateTool {
+  installed: string
+  latest_known: string
+  up_to_date: boolean | null
+  action?: string
+}
+
+export interface ScannerUpdates {
+  status: 'ok' | 'outdated' | 'unknown' | 'unavailable' | 'not_configured'
+  image_rebuild_recommended: boolean | null
+  tools: Record<string, ScannerUpdateTool>
+  message?: string
+  checked_at?: string
 }
 
 export function useOnlineStatus(): SystemStatus {
@@ -22,6 +38,7 @@ export function useOnlineStatus(): SystemStatus {
   const [toolsStatus, setToolsStatus] = useState<'ok' | 'unavailable' | 'not_configured' | 'unknown'>('unknown')
   const [toolsMessage, setToolsMessage] = useState<string | null>(null)
   const [toolVersions, setToolVersions] = useState<Record<string, string>>({})
+  const [scannerUpdates, setScannerUpdates] = useState<ScannerUpdates | null>(null)
   const [lastChecked, setLastChecked] = useState<Date | null>(null)
 
   useEffect(() => {
@@ -46,6 +63,14 @@ export function useOnlineStatus(): SystemStatus {
       setToolsStatus(sidecarStatus as 'ok' | 'unavailable' | 'not_configured' | 'unknown')
       setToolsMessage(data.tools_sidecar?.message || null)
       setToolVersions(data.tools || {})
+      const scannerUpdateStatus = data.scanner_updates
+      setScannerUpdates(scannerUpdateStatus ? {
+        status: scannerUpdateStatus.status as ScannerUpdates['status'],
+        image_rebuild_recommended: scannerUpdateStatus.image_rebuild_recommended,
+        tools: scannerUpdateStatus.tools || {},
+        message: scannerUpdateStatus.message,
+        checked_at: scannerUpdateStatus.checked_at,
+      } : null)
       setLastChecked(data.checked_at ? new Date(data.checked_at) : new Date())
     } catch {
       setBackendHealthy(false)
@@ -54,6 +79,7 @@ export function useOnlineStatus(): SystemStatus {
       setToolsStatus('unknown')
       setToolsMessage(null)
       setToolVersions({})
+      setScannerUpdates(null)
       setLastChecked(null)
     }
   }, [])
@@ -73,6 +99,7 @@ export function useOnlineStatus(): SystemStatus {
     toolsStatus,
     toolsMessage,
     toolVersions,
+    scannerUpdates,
     lastChecked,
   }
 }

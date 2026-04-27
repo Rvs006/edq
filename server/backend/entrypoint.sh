@@ -14,6 +14,12 @@ shutdown() {
 
 trap 'shutdown; exit 143' INT TERM
 
+case "$(printf '%s' "${EDQ_START_INTERNAL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off) START_INTERNAL_TOOLS=false ;;
+    *) START_INTERNAL_TOOLS=true ;;
+esac
+
+if [ "$START_INTERNAL_TOOLS" = "true" ]; then
 # Start the tools sidecar first.
 # Keep a single worker process because the sidecar tracks active subprocesses
 # in memory, but allow multiple threads so health checks and control endpoints
@@ -39,26 +45,32 @@ if [ "$ready" -ne 1 ]; then
     shutdown
     exit 1
 fi
+sidecar_probe_url="http://localhost:8001/versions"
+else
+    echo "[EDQ] Internal tools sidecar disabled; backend will use TOOLS_SIDECAR_URL=${TOOLS_SIDECAR_URL:-<unset>}"
+    if [ -n "${TOOLS_SIDECAR_URL:-}" ]; then
+        sidecar_probe_url="${TOOLS_SIDECAR_URL%/}/versions"
+    else
+        sidecar_probe_url=""
+    fi
+fi
 
 # Authenticated self-test: verify backend's TOOLS_API_KEY actually works
-# against the sidecar. Catches env-drift/key-mismatch deployments at boot
+# against the configured scanner agent. Catches env-drift/key-mismatch deployments at boot
 # instead of letting them silently mark "Security Tools: Unavailable" in
 # the UI 30+ seconds after login.
-if [ -n "${TOOLS_API_KEY:-}" ]; then
+if [ -n "${TOOLS_API_KEY:-}" ] && [ -n "${sidecar_probe_url:-}" ]; then
     auth_probe=$(curl -s -o /dev/null -w "%{http_code}" \
         -H "X-Tools-Key: ${TOOLS_API_KEY}" \
-        http://localhost:8001/versions 2>/dev/null || true)
+        "$sidecar_probe_url" 2>/dev/null || true)
     if [ "$auth_probe" != "200" ]; then
-        echo "[EDQ] WARNING: authenticated /versions probe returned HTTP ${auth_probe:-<none>}."
-        echo "[EDQ] The tools sidecar is running but the backend cannot auth to it."
-        echo "[EDQ] Most likely the TOOLS_API_KEY in .env is empty or differs from"
-        echo "[EDQ] what the sidecar loaded at startup. Rebuild with:"
-        echo "[EDQ]   docker compose down && docker compose build --no-cache backend && docker compose up -d"
+        echo "[EDQ] WARNING: authenticated scanner /versions probe returned HTTP ${auth_probe:-<none>}."
+        echo "[EDQ] Automated scans may be unavailable until TOOLS_SIDECAR_URL and TOOLS_API_KEY match the scanner agent."
         # Non-fatal: container stays up so the UI can still render manual
         # tests and show the diagnostic banner. An env-mismatch should not
         # brick the whole stack — engineers still get to log in and fix it.
     else
-        echo "[EDQ] Authenticated /versions probe OK (backend <-> sidecar auth verified)"
+        echo "[EDQ] Authenticated scanner /versions probe OK"
     fi
 fi
 
@@ -104,7 +116,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop uvloop --http httptools &
 BACKEND_PID=$!
 
 while :; do
-    if ! kill -0 "$TOOLS_PID" 2>/dev/null; then
+    if [ "${TOOLS_PID:-}" != "" ] && ! kill -0 "$TOOLS_PID" 2>/dev/null; then
         echo "[EDQ] Tools sidecar exited unexpectedly"
         shutdown
         exit 1

@@ -8,14 +8,14 @@ import logging
 import socket
 import struct
 import time
-from collections import defaultdict
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from app.config import settings
 
 logger = logging.getLogger("edq.protocol_observer")
 
-_LOCKS: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+_LOCKS: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]] = WeakKeyDictionary()
 _NTP_EPOCH = 2208988800
 _DHCP_MAGIC_COOKIE = b"\x63\x82\x53\x63"
 _DHCP_MESSAGE_LABELS = {
@@ -41,6 +41,23 @@ _RUNTIME_FIELDS = {
     "dhcp_dns_server": "PROTOCOL_OBSERVER_DHCP_DNS_SERVER",
     "dhcp_lease_seconds": "PROTOCOL_OBSERVER_DHCP_LEASE_SECONDS",
 }
+
+
+def _observer_lock(name: str) -> asyncio.Lock:
+    """Return a lock scoped to the current event loop.
+
+    FastAPI request handlers, background tasks, and tests may run this module
+    from different event loops. Reusing one module-level asyncio.Lock across
+    those loops can raise immediately and make observer-backed tests look
+    broken before their scanner fallback runs.
+    """
+    loop = asyncio.get_running_loop()
+    loop_locks = _LOCKS.setdefault(loop, {})
+    lock = loop_locks.get(name)
+    if lock is None:
+        lock = asyncio.Lock()
+        loop_locks[name] = lock
+    return lock
 
 
 def current_protocol_observer_settings() -> dict[str, Any]:
@@ -99,6 +116,8 @@ def parse_dns_query(packet: bytes) -> dict[str, Any] | None:
     if len(packet) < 12:
         return None
     txid, flags, qdcount, _, _, _ = struct.unpack("!HHHHHH", packet[:12])
+    if flags & 0x8000:
+        return None
     if qdcount < 1:
         return None
     name, offset = _decode_dns_name(packet, 12)
@@ -272,7 +291,7 @@ async def observe_dns_queries(
 ) -> dict[str, Any]:
     timeout = timeout_seconds or settings.PROTOCOL_OBSERVER_TIMEOUT_SECONDS
     bind_port = port or settings.PROTOCOL_OBSERVER_DNS_PORT
-    async with _LOCKS["dns"]:
+    async with _observer_lock("dns"):
         sock = _bind_udp_socket(bind_port)
         response_ip = _local_ip_for_target(expected_device_ip) or "127.0.0.1"
         events: list[dict[str, Any]] = []
@@ -319,7 +338,7 @@ async def observe_ntp_queries(
 ) -> dict[str, Any]:
     timeout = timeout_seconds or settings.PROTOCOL_OBSERVER_TIMEOUT_SECONDS
     bind_port = port or settings.PROTOCOL_OBSERVER_NTP_PORT
-    async with _LOCKS["ntp"]:
+    async with _observer_lock("ntp"):
         sock = _bind_udp_socket(bind_port)
         loop = asyncio.get_running_loop()
         events: list[dict[str, Any]] = []
@@ -365,7 +384,7 @@ async def observe_dhcp_activity(
 ) -> dict[str, Any]:
     timeout = timeout_seconds or settings.PROTOCOL_OBSERVER_TIMEOUT_SECONDS
     bind_port = port or settings.PROTOCOL_OBSERVER_DHCP_PORT
-    async with _LOCKS["dhcp"]:
+    async with _observer_lock("dhcp"):
         sock = _bind_udp_socket(bind_port)
         loop = asyncio.get_running_loop()
         events: list[dict[str, Any]] = []

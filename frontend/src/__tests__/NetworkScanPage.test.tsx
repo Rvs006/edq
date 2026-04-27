@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 
 import NetworkScanPage from '@/pages/NetworkScanPage'
 
-const { mockNetworkScanApi, mockAuthorizedNetworksApi } = vi.hoisted(() => ({
+const { mockNetworkScanApi, mockAuthorizedNetworksApi, mockToast } = vi.hoisted(() => ({
   mockNetworkScanApi: {
     detectNetworks: vi.fn(),
     discover: vi.fn(),
@@ -17,6 +17,10 @@ const { mockNetworkScanApi, mockAuthorizedNetworksApi } = vi.hoisted(() => ({
   mockAuthorizedNetworksApi: {
     list: vi.fn(),
   },
+  mockToast: Object.assign(vi.fn(), {
+    success: vi.fn(),
+    error: vi.fn(),
+  }),
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -53,10 +57,7 @@ vi.mock('@/hooks/useTestRunWebSocket', () => ({
 }))
 
 vi.mock('react-hot-toast', () => ({
-  default: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
+  default: mockToast,
 }))
 
 function renderWithProviders() {
@@ -76,6 +77,8 @@ function renderWithProviders() {
 describe('NetworkScanPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    Object.values(mockNetworkScanApi).forEach((mockFn) => mockFn.mockReset())
+    mockAuthorizedNetworksApi.list.mockReset()
     sessionStorage.clear()
     mockAuthorizedNetworksApi.list.mockResolvedValue({
       data: [{ cidr: '192.168.1.0/24', label: 'Lab' }],
@@ -165,5 +168,79 @@ describe('NetworkScanPage', () => {
     await user.click(screen.getByRole('button', { name: 'Start Scan' }))
 
     expect(await screen.findByText('Awaiting Manual')).toBeInTheDocument()
+  }, 20000)
+
+  it('allows a single-host /32 discovery range', async () => {
+    const user = userEvent.setup()
+
+    mockNetworkScanApi.discover.mockResolvedValue({
+      data: {
+        id: 'scan-3',
+        status: 'pending',
+        devices_found: [{ ip: '192.168.4.64', mac: null, vendor: 'EasyIO', hostname: null }],
+      },
+    })
+
+    renderWithProviders()
+
+    const cidrInput = screen.getByPlaceholderText('192.168.1.0/24')
+    fireEvent.change(cidrInput, { target: { value: '192.168.4.64/32' } })
+
+    expect(cidrInput).toHaveValue('192.168.4.64/32')
+    expect(screen.getByText(/1 possible IPs/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Discover Devices' }))
+
+    expect(mockNetworkScanApi.discover).toHaveBeenCalledWith(expect.objectContaining({
+      cidr: '192.168.4.64/32',
+    }))
+    expect(await screen.findByText('192.168.4.64')).toBeInTheDocument()
+  }, 20000)
+
+  it('blocks invalid or over-wide CIDR ranges before discovery', async () => {
+    renderWithProviders()
+
+    const cidrInput = screen.getByPlaceholderText('192.168.1.0/24')
+    const discoverButton = screen.getByRole('button', { name: 'Discover Devices' })
+
+    fireEvent.change(cidrInput, { target: { value: '999.168.1.0/24' } })
+    expect(screen.getByText('Invalid CIDR format')).toBeInTheDocument()
+    expect(discoverButton).toBeDisabled()
+
+    fireEvent.change(cidrInput, { target: { value: '10.0.0.0/8' } })
+    expect(screen.getByText('CIDR prefix must be between /16 and /32')).toBeInTheDocument()
+    expect(discoverButton).toBeDisabled()
+
+    expect(mockNetworkScanApi.discover).not.toHaveBeenCalled()
+  })
+
+  it('shows backend start errors without entering an endless monitor state', async () => {
+    const user = userEvent.setup()
+
+    mockNetworkScanApi.discover.mockResolvedValue({
+      data: {
+        id: 'scan-4',
+        status: 'pending',
+        devices_found: [{ ip: '192.168.1.12', mac: null, vendor: 'Axis', hostname: 'cam-3' }],
+      },
+    })
+    mockNetworkScanApi.start.mockResolvedValue({
+      data: {
+        status: 'error',
+        error_message: 'No selected devices were reachable; no tests were started.',
+        results: [],
+      },
+    })
+
+    renderWithProviders()
+
+    await user.click(screen.getByRole('button', { name: 'Discover Devices' }))
+    expect(await screen.findByText('1 Device(s) Found')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Start Scan' }))
+
+    expect(mockToast.error).toHaveBeenCalledWith('No selected devices were reachable; no tests were started.')
+    expect(screen.queryByText(/Scanning 0 device\(s\)/i)).not.toBeInTheDocument()
+    expect(mockNetworkScanApi.results).not.toHaveBeenCalled()
   }, 20000)
 })

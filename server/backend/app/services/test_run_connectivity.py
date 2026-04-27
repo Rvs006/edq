@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.device import AddressingMode, Device
-from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
+from app.services.connectivity_probe import (
+    extract_known_probe_ports,
+    extract_probe_ports,
+    probe_device_connectivity,
+)
 from app.services.device_ip_discovery import discover_ip_for_mac
 
 
@@ -23,6 +27,7 @@ class DeviceExecutionReadiness:
     missing_ip: bool
     dhcp_missing_ip: bool
     pause_message: str | None
+    known_probe_ports: list[int] | None = None
 
 
 def device_uses_dhcp(device: Device | None) -> bool:
@@ -116,13 +121,15 @@ async def probe_device_execution_readiness(device: Device | None) -> DeviceExecu
             pause_message=None,
         )
 
+    known_probe_ports = extract_known_probe_ports(device.open_ports)
     probe_ports = extract_probe_ports(device.open_ports)
     reachable, probe_method = await probe_device_connectivity(
         device.ip_address,
         probe_ports,
+        trust_icmp_only=True,
     )
     has_tcp_service = bool(probe_method) and probe_method.startswith("tcp:")
-    can_execute = has_tcp_service or (reachable and not device.open_ports)
+    can_execute = has_tcp_service or (reachable and not known_probe_ports)
 
     if can_execute:
         reason = "ready"
@@ -150,6 +157,7 @@ async def probe_device_execution_readiness(device: Device | None) -> DeviceExecu
         missing_ip=False,
         dhcp_missing_ip=False,
         pause_message=pause_message,
+        known_probe_ports=known_probe_ports,
     )
 
 

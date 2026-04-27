@@ -131,7 +131,11 @@ export default function TestSidebar({
   }, [autoTests, runningTestId])
 
   useEffect(() => {
-    if (runningItemRef.current && scrollContainerRef.current) {
+    if (
+      runningItemRef.current
+      && scrollContainerRef.current
+      && typeof runningItemRef.current.scrollIntoView === 'function'
+    ) {
       runningItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
   }, [runningTestId])

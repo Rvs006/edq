@@ -26,6 +26,9 @@ class HydraParser:
             "successful": 0,
             "service": None,
             "raw": "",
+            "stderr": raw_output.get("stderr", ""),
+            "exit_code": raw_output.get("exit_code"),
+            "check_ran": False,
         }
 
         stdout = raw_output.get("stdout", "")
@@ -33,6 +36,7 @@ class HydraParser:
 
         if not stdout:
             return result
+        result["check_ran"] = True
 
         cred_pattern = re.compile(
             r"\[(\d+)\]\[([^\]]+)\]\s+host:\s+(\S+)\s+login:\s+(\S+)\s+password:\s+(\S*)",

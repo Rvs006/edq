@@ -10,6 +10,7 @@ from app.services.protocol_observer import (
     observe_dhcp_activity,
     observe_dns_queries,
     observe_ntp_queries,
+    parse_dns_query,
     parse_dhcp_packet,
 )
 from app.config import settings
@@ -19,6 +20,11 @@ def _dns_query(name: str) -> bytes:
     labels = b"".join(bytes([len(part)]) + part.encode("ascii") for part in name.split("."))
     question = labels + b"\x00" + struct.pack("!HH", 1, 1)
     return struct.pack("!HHHHHH", 0x1234, 0x0100, 1, 0, 0, 0) + question
+
+
+def _dns_response(name: str) -> bytes:
+    query = _dns_query(name)
+    return query[:2] + struct.pack("!H", 0x8180) + query[4:]
 
 
 def _dhcp_packet(message_type: int, mac: bytes | None = None) -> bytes:
@@ -105,6 +111,28 @@ def test_parse_dhcp_packet_and_build_reply():
     assert parsed["chaddr"] == "AA:BB:CC:DD:EE:FF"
     assert parsed["message_type"] == 1
     assert socket.inet_ntoa(reply[16:20]) == "192.168.4.68"
+
+
+def test_parse_dns_query_ignores_response_packets():
+    assert parse_dns_query(_dns_query("device.local")) is not None
+    assert parse_dns_query(_dns_response("device.local")) is None
+
+
+def test_observer_locks_are_scoped_to_event_loop():
+    held_locks = []
+
+    async def lock_pair_for_current_loop():
+        first = protocol_observer_module._observer_lock("ntp")
+        second = protocol_observer_module._observer_lock("ntp")
+        held_locks.extend([first, second])
+        return first, second
+
+    first_loop_lock, first_loop_lock_again = asyncio.run(lock_pair_for_current_loop())
+    second_loop_lock, second_loop_lock_again = asyncio.run(lock_pair_for_current_loop())
+
+    assert first_loop_lock is first_loop_lock_again
+    assert second_loop_lock is second_loop_lock_again
+    assert first_loop_lock is not second_loop_lock
 
 
 @pytest.mark.asyncio

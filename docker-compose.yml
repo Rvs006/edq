@@ -27,11 +27,17 @@ services:
       - DB_PORT=5432
       - REDIS_URL=${REDIS_URL:-}
       - REDIS_REQUIRED=${REDIS_REQUIRED:-false}
-      - TOOLS_SIDECAR_URL=${TOOLS_SIDECAR_URL:-http://localhost:8001}
+      - TOOLS_SIDECAR_URL=${TOOLS_SIDECAR_URL:-http://127.0.0.1:8001}
+      - EDQ_SCANNER_MODE=${EDQ_SCANNER_MODE:-auto}
+      - EDQ_START_INTERNAL_TOOLS=${EDQ_START_INTERNAL_TOOLS:-true}
       - TOOLS_API_KEY=${TOOLS_API_KEY}
+      - EDQ_TOOLS_RATE_LIMIT_PER_TARGET_PER_MINUTE=${EDQ_TOOLS_RATE_LIMIT_PER_TARGET_PER_MINUTE:-120}
+      - EDQ_FORCE_DOCKER_TCP_CONNECT_SCAN=${EDQ_FORCE_DOCKER_TCP_CONNECT_SCAN:-true}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    cap_drop:
+      - ALL
     # Required for nmap raw socket scans (SYN scan, OS detection, etc.)
     cap_add:
       - NET_ADMIN
@@ -46,7 +52,7 @@ services:
           memory: 2G
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v1/health >/dev/null && curl -sf http://localhost:8001/health >/dev/null"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v1/health >/dev/null && case \"${EDQ_START_INTERNAL_TOOLS:-true}\" in false|0|no|off) exit 0 ;; *) curl -sf http://localhost:8001/health >/dev/null ;; esac"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -109,6 +115,10 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - edq-frontend
     deploy:
@@ -137,6 +147,10 @@ services:
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save ""
     volumes:
       - edq-redis:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - edq-internal
     restart: unless-stopped

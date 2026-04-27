@@ -16,9 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build context is repo root; requirements is in server/backend/
 COPY server/backend/requirements.txt .
+COPY tools/requirements.txt tools-requirements.txt
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # Also install tools sidecar deps
-RUN pip install --no-cache-dir --prefix=/install "ssh-audit==3.3.0" "flask==3.1.3" "gunicorn==25.3.0"
+RUN pip install --no-cache-dir --prefix=/install -r tools-requirements.txt
 
 # ---------- Stage 3: runtime (backend + tools combined) ----------
 FROM python:3.13-slim
@@ -26,8 +27,9 @@ ENV HOME=/home/edq
 ENV XDG_CACHE_HOME=/app/.cache
 ENV XDG_CONFIG_HOME=/app/.config
 
-# Set INSTALL_LIBREOFFICE=true to include LibreOffice for PDF conversion
-# (optional — fpdf2 is used by default; set EDQ_USE_LIBREOFFICE=true at runtime)
+# Set INSTALL_LIBREOFFICE=true to include LibreOffice for DOCX/XLSX to PDF conversion.
+# fpdf2 is used by default; set EDQ_USE_LIBREOFFICE=true at runtime to preserve
+# workbook-backed template layout in PDF output.
 ARG INSTALL_LIBREOFFICE=false
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
@@ -50,12 +52,10 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     procps \
     dnsutils \
     && setcap cap_net_raw,cap_net_admin+ep /usr/bin/nmap \
-    && python_real="$(readlink -f /usr/local/bin/python3.13)" \
-    && if [ -n "$python_real" ] && [ -x "$python_real" ]; then setcap cap_net_bind_service+ep "$python_real"; fi \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$INSTALL_LIBREOFFICE" = "true" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends libreoffice-writer \
+        apt-get update && apt-get install -y --no-install-recommends libreoffice-calc libreoffice-writer \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
@@ -77,9 +77,12 @@ COPY --from=builder /install /usr/local
 
 WORKDIR /app
 
+RUN mkdir -p /app/assets
+
 # Copy backend code (build context is repo root)
 COPY server/backend/ .
 COPY templates/ /app/templates/
+COPY frontend/public/electracom-logo.png /app/assets/electracom-logo.png
 
 # Copy tools sidecar
 COPY tools/server.py /app/tools/server.py
@@ -97,6 +100,6 @@ USER edq
 EXPOSE 8000 8001
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=30s \
-    CMD curl -sf http://localhost:8000/api/v1/health >/dev/null && curl -sf http://localhost:8001/health >/dev/null || exit 1
+    CMD curl -sf http://localhost:8000/api/v1/health >/dev/null && case "${EDQ_START_INTERNAL_TOOLS:-true}" in false|0|no|off) exit 0 ;; *) curl -sf http://localhost:8001/health >/dev/null ;; esac
 
 ENTRYPOINT ["/app/entrypoint.sh"]

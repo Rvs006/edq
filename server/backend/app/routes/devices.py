@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 from app.models.database import get_db
 from app.models.device import Device, DeviceStatus
 from app.models.project import Project
-from app.models.user import User
+from app.models.authorized_network import AuthorizedNetwork
+from app.models.user import User, UserRole
 from app.models.test_run import TestRun, TestRunStatus
 from app.models.test_result import TestResult, TestVerdict
 from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse, DeviceCreateResponse
@@ -33,7 +34,7 @@ from app.services.device_ip_discovery import discover_ip_for_mac
 from app.services.connectivity_probe import probe_device_connectivity
 from app.services.tools_client import describe_tools_error, get_tools_error_status, tools_client
 from app.middleware.rate_limit import check_rate_limit
-from app.routes.authorized_networks import get_active_networks
+from app.routes.authorized_networks import get_active_networks, is_ip_authorized
 
 logger = logging.getLogger("edq.routes.devices")
 
@@ -63,6 +64,31 @@ def _append_anchor_subnet(candidates: list[str], host: str, prefix: int = 24) ->
     except ValueError:
         return
     _append_scan_cidr(candidates, str(subnet))
+
+
+async def _ensure_device_ip_authorized(db: AsyncSession, user: User, ip_address: str) -> None:
+    authorized = await get_active_networks(db)
+    if is_ip_authorized(ip_address, authorized):
+        return
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail=f"IP address {ip_address} is not authorized. Contact your admin to authorize this scan range.",
+        )
+    subnet = str(ipaddress.ip_network(f"{ip_address}/24", strict=False))
+    existing = await db.execute(
+        select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == subnet)
+    )
+    if existing.scalar_one_or_none() is None:
+        db.add(AuthorizedNetwork(
+            cidr=subnet,
+            label="Auto-authorized (device)",
+            description=f"Automatically authorized by {user.username} during device registration",
+            is_active=True,
+            created_by=user.id,
+        ))
+        await db.flush()
+        logger.info("Auto-authorized device target %s for admin %s", subnet, user.username)
 
 
 def _build_discovery_scan_ranges(authorized_cidrs: list[str], detection: dict | None) -> list[str]:
@@ -369,6 +395,7 @@ async def create_device(
                 status_code=409,
                 detail=f"A device with IP address {data.ip_address} already exists",
             )
+        await _ensure_device_ip_authorized(db, user, data.ip_address)
 
     clean = sanitize_dict(
         data.model_dump(exclude_none=True),
@@ -576,6 +603,12 @@ async def import_devices_csv(
         # Duplicate check (in-memory set includes both DB and already-imported)
         if ip_raw in existing_ips:
             skipped += 1
+            continue
+
+        try:
+            await _ensure_device_ip_authorized(db, user, ip_raw)
+        except HTTPException as exc:
+            errors.append({"row": row_num, "ip_address": ip_raw, "error": str(exc.detail)})
             continue
 
         # Validate optional MAC address
@@ -1035,6 +1068,7 @@ async def update_device(
         )
         if dup.scalar_one_or_none():
             raise HTTPException(status_code=409, detail=f"A device with IP address {updates['ip_address']} already exists")
+        await _ensure_device_ip_authorized(db, user, updates["ip_address"])
     if "mac_address" in updates and updates["mac_address"]:
         dup = await db.execute(
             select(Device).where(Device.mac_address == updates["mac_address"], Device.id != device_id)

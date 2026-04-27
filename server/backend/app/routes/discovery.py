@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import ipaddress
 import logging
 import socket
 from typing import Any, Dict, List, Optional
@@ -12,10 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.authorized_network import AuthorizedNetwork
 from app.models.database import get_db
 from app.models.device import Device, DeviceCategory, DeviceStatus
 from app.models.project import Project
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.routes.authorized_networks import get_active_networks, is_ip_authorized, is_target_authorized
 from app.schemas.device import DiscoveryRequest
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit
@@ -35,6 +38,23 @@ from app.utils.datetime import utcnow_naive
 logger = logging.getLogger("edq.routes.discovery")
 
 router = APIRouter()
+
+_SINGLE_IP_SERVICE_SCAN_ARGS = [
+    "-sT",
+    "-sV",
+    "--top-ports",
+    "100",
+    "--open",
+    "--max-retries",
+    "1",
+    "--host-timeout",
+    "25s",
+    "-T4",
+    "-n",
+    "-oX",
+    "-",
+]
+_SINGLE_IP_SERVICE_SCAN_TIMEOUT = 45
 
 
 class DiscoveryResult(BaseModel):
@@ -207,6 +227,41 @@ async def _validate_project_id(db: AsyncSession, project_id: Optional[str]) -> O
     return project_id
 
 
+async def _ensure_discovery_target_authorized(
+    db: AsyncSession,
+    user: User,
+    target: str,
+    *,
+    is_subnet: bool,
+) -> None:
+    authorized = await get_active_networks(db)
+    allowed = is_target_authorized(target, authorized) if is_subnet else is_ip_authorized(target, authorized)
+    if allowed:
+        return
+
+    if user.role != UserRole.ADMIN:
+        target_label = "Network" if is_subnet else "IP address"
+        raise HTTPException(
+            status_code=403,
+            detail=f"{target_label} {target} is not authorized. Contact your admin to authorize this scan range.",
+        )
+
+    net = ipaddress.ip_network(target if is_subnet else f"{target}/24", strict=False)
+    existing = await db.execute(
+        select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == str(net))
+    )
+    if existing.scalar_one_or_none() is None:
+        db.add(AuthorizedNetwork(
+            cidr=str(net),
+            label="Auto-authorized (discovery)",
+            description=f"Automatically authorized by {user.username} during discovery",
+            is_active=True,
+            created_by=user.id,
+        ))
+        await db.flush()
+        logger.info("Auto-authorized discovery target %s for admin %s", net, user.username)
+
+
 @router.post("/scan")
 async def initiate_discovery(
     data: DiscoveryRequest,
@@ -242,10 +297,16 @@ async def initiate_discovery(
     unreachable_skipped = 0
 
     if data.ip_address:
+        await _ensure_discovery_target_authorized(
+            db,
+            user,
+            data.ip_address,
+            is_subnet=False,
+        )
+
         # Strict pre-flight: flush ARP cache for this IP, then do a fresh
         # TCP + ICMP probe.  ARP cache can make probes succeed for ~30s
         # after a cable is unplugged, causing false "device found" results.
-        scan_timeout = 300
         # Run a quick nmap ping-only probe with --send-ip to bypass ARP
         # cache. This forces a fresh ICMP/TCP probe that won't succeed
         # from a stale ARP entry after cable is unplugged.
@@ -299,27 +360,27 @@ async def initiate_discovery(
         #  - "tcp_refused:<port>" — device's TCP stack sent RST (alive, firewalled port)
         #  - "icmp:<N>ms"         — ICMP reply with real LAN latency (>=1ms),
         #                           proves real network hop (not localhost loopback)
-        tcp_reachable = bool(
+        probe_source_text = str(probe_source or "")
+        tcp_stack_reachable = bool(
             is_reachable
-            and probe_source
             and (
-                str(probe_source).startswith("tcp")
-                or str(probe_source).startswith("icmp:")
+                probe_source_text.startswith("tcp:")
+                or probe_source_text.startswith("tcp_refused:")
             )
         )
-        # AND-gate: BOTH signals (TCP/ICMP probe AND nmap ARP-bypass ping)
-        # must agree the host is up before we proceed to a full scan.
-        # Rationale: a stale ARP entry can make nmap -sn show "up" for
-        # minutes after a cable is pulled; requiring a fresh probe to also
-        # confirm eliminates ghost results.
-        if not tcp_reachable or not arp_host_alive:
-            if not tcp_reachable and not arp_host_alive:
+        trusted_icmp_reachable = bool(is_reachable and probe_source_text.startswith("icmp:"))
+        reachability_confirmed = tcp_stack_reachable or (
+            trusted_icmp_reachable and arp_host_alive
+        )
+
+        if not reachability_confirmed:
+            if not is_reachable and not arp_host_alive:
                 reason = "unreachable"
-            elif not tcp_reachable:
+            elif not is_reachable:
                 reason = "probe_down_arp_up"
             else:
                 reason = "probe_up_arp_down"
-            if is_reachable and str(probe_source or "") == "icmp":
+            if is_reachable and probe_source_text == "icmp":
                 message = (
                     f"Device {data.ip_address} only answered ICMP. This is not "
                     "trustworthy in Docker/NAT environments (stale ARP can make a "
@@ -345,13 +406,19 @@ async def initiate_discovery(
                 "message": message,
             }
 
+        if tcp_stack_reachable and not arp_host_alive:
+            logger.info(
+                "Device %s accepted via TCP proof-of-life after ARP-bypass nmap missed it",
+                data.ip_address,
+            )
+
         logger.debug("Connectivity pre-check confirmed %s via %s", data.ip_address, probe_source)
 
         try:
             raw = await tools_client.nmap(
                 data.ip_address,
-                _append_interface_arg(["-sV", "-O", "-p-", "--max-rate", "300", "-oX", "-"], data.interface),
-                timeout=scan_timeout,
+                _append_interface_arg(_SINGLE_IP_SERVICE_SCAN_ARGS, data.interface),
+                timeout=_SINGLE_IP_SERVICE_SCAN_TIMEOUT,
             )
         except Exception as exc:
             logger.exception("Nmap service scan failed for %s", data.ip_address)
@@ -411,6 +478,13 @@ async def initiate_discovery(
         })
 
     elif data.subnet:
+        await _ensure_discovery_target_authorized(
+            db,
+            user,
+            data.subnet,
+            is_subnet=True,
+        )
+
         try:
             raw = await tools_client.nmap(
                 data.subnet,

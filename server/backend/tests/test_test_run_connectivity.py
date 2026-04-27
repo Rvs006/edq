@@ -4,6 +4,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from types import SimpleNamespace
 
 from app.models.device import AddressingMode, Device
 from app.models.test_run import TestRun as RunModel, TestRunStatus as RunStatus
@@ -56,19 +57,19 @@ async def _create_run(
 
 
 @pytest.mark.asyncio
-async def test_start_run_launches_engine_when_device_is_unreachable(
+async def test_start_run_flags_paused_when_device_is_unreachable(
     client: AsyncClient,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    headers = await register_and_login(client, suffix="startCable")
+    headers = await register_and_login(client, suffix="startCable", role="admin")
     user_id = await _get_user_id(db_session, "startCableuser")
     run_id = await _create_run(db_session, user_id, status=RunStatus.PENDING)
     await db_session.commit()
 
     launched: list[str] = []
 
-    async def fake_probe(_ip: str, _ports=None):
+    async def fake_probe(_ip: str, _ports=None, **_kwargs):
         return (False, None)
 
     def fake_launch(run_id: str, test_plan_id: str | None = None):
@@ -81,13 +82,42 @@ async def test_start_run_launches_engine_when_device_is_unreachable(
     resp = await client.post(f"/api/test-runs/{run_id}/start", headers=headers)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == RunStatus.RUNNING.value
+    body = resp.json()
+    assert body["status"] == RunStatus.PAUSED_CABLE.value
+    assert body["connectivity"]["reason"] == "unreachable"
+    assert body["connectivity"]["can_execute"] is False
     assert launched == [run_id]
 
     db_session.expire_all()
     saved_run = await db_session.get(RunModel, run_id)
     assert saved_run is not None
-    assert saved_run.status == RunStatus.PENDING
+    assert saved_run.status == RunStatus.PAUSED_CABLE
+
+
+@pytest.mark.asyncio
+async def test_start_run_rejects_unauthorized_engineer_target(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = await register_and_login(client, suffix="startUnauthorized")
+    user_id = await _get_user_id(db_session, "startUnauthorizeduser")
+    run_id = await _create_run(db_session, user_id, status=RunStatus.PENDING)
+    await db_session.commit()
+
+    async def fake_readiness(_db, _device, logger=None):
+        return SimpleNamespace(missing_ip=False, dhcp_missing_ip=False)
+
+    def fail_launch(_run_id: str, test_plan_id: str | None = None):
+        raise AssertionError("Unauthorized target must not launch")
+
+    monkeypatch.setattr("app.routes.test_runs.ensure_device_execution_readiness", fake_readiness)
+    monkeypatch.setattr("app.routes.test_runs.launch_test_run", fail_launch)
+
+    resp = await client.post(f"/api/test-runs/{run_id}/start", headers=headers)
+
+    assert resp.status_code == 403
+    assert "not authorized" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -140,11 +170,16 @@ async def test_resume_paused_cable_run_requires_device_reachability(
     run_id = await _create_run(db_session, user_id, status=RunStatus.PAUSED_CABLE)
     await db_session.commit()
 
-    async def fake_probe(_ip: str, _ports=None):
+    async def fake_probe(_ip: str, _ports=None, **_kwargs):
         return (False, None)
 
     class DummyHandler:
-        def update_target(self, ip: str, probe_ports: list[int] | None = None) -> None:
+        def update_target(
+            self,
+            ip: str,
+            probe_ports: list[int] | None = None,
+            known_service_ports: list[int] | None = None,
+        ) -> None:
             return None
 
         async def resume(self) -> None:
@@ -176,7 +211,7 @@ async def test_resume_paused_cable_run_succeeds_when_device_is_reachable(
     run_id = await _create_run(db_session, user_id, status=RunStatus.PAUSED_CABLE)
     await db_session.commit()
 
-    async def fake_probe(_ip: str, _ports=None):
+    async def fake_probe(_ip: str, _ports=None, **_kwargs):
         return (True, "tcp:443")
 
     launched: list[str] = []
@@ -218,8 +253,13 @@ async def test_resume_paused_cable_run_uses_live_handler_fast_path(
             self.resume_calls = 0
             self.updated_targets: list[tuple[str, list[int] | None]] = []
 
-        def update_target(self, ip: str, probe_ports: list[int] | None = None) -> None:
-            self.updated_targets.append((ip, probe_ports))
+        def update_target(
+            self,
+            ip: str,
+            probe_ports: list[int] | None = None,
+            known_service_ports: list[int] | None = None,
+        ) -> None:
+            self.updated_targets.append((ip, probe_ports, known_service_ports))
 
         async def resume(self) -> None:
             self.resume_calls += 1
@@ -227,7 +267,7 @@ async def test_resume_paused_cable_run_uses_live_handler_fast_path(
     handler = DummyHandler()
     launched: list[str] = []
 
-    async def fake_probe(_ip: str, _ports=None):
+    async def fake_probe(_ip: str, _ports=None, **_kwargs):
         return (True, "tcp:443")
 
     def fake_launch(run_id: str, test_plan_id: str | None = None):
@@ -246,6 +286,7 @@ async def test_resume_paused_cable_run_uses_live_handler_fast_path(
     assert launched == []
     assert handler.resume_calls == 1
     assert handler.updated_targets
+    assert handler.updated_targets[0][2] == []
 
 
 @pytest.mark.asyncio
@@ -267,7 +308,7 @@ async def test_ensure_device_execution_readiness_refreshes_dhcp_stale_ip(
 
     probe_calls: list[str] = []
 
-    async def fake_probe(ip: str, _ports=None):
+    async def fake_probe(ip: str, _ports=None, **_kwargs):
         probe_calls.append(ip)
         if ip == "192.168.1.20":
             return (False, None)
@@ -298,12 +339,72 @@ async def test_ensure_device_execution_readiness_refreshes_dhcp_stale_ip(
 
 
 @pytest.mark.asyncio
+async def test_ensure_device_execution_readiness_accepts_icmp_only_during_runs(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    device = Device(
+        ip_address="192.168.4.64",
+        category="unknown",
+        status="discovered",
+    )
+    db_session.add(device)
+    await db_session.flush()
+    await db_session.refresh(device)
+
+    async def fake_probe(ip: str, _ports=None, **kwargs):
+        assert ip == "192.168.4.64"
+        assert kwargs.get("trust_icmp_only") is True
+        return (True, "icmp")
+
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
+
+    readiness = await ensure_device_execution_readiness(db_session, device)
+
+    assert readiness.can_execute is True
+    assert readiness.reason == "ready"
+    assert readiness.has_tcp_service is False
+    assert readiness.known_probe_ports == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_device_execution_readiness_requires_tcp_for_known_service_ports(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    device = Device(
+        ip_address="192.168.4.64",
+        open_ports=[{"port": 443}],
+        category="unknown",
+        status="discovered",
+    )
+    db_session.add(device)
+    await db_session.flush()
+    await db_session.refresh(device)
+
+    async def fake_probe(ip: str, _ports=None, **kwargs):
+        assert ip == "192.168.4.64"
+        assert kwargs.get("trust_icmp_only") is True
+        return (True, "tcp_refused:443")
+
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
+
+    readiness = await ensure_device_execution_readiness(db_session, device)
+
+    assert readiness.can_execute is False
+    assert readiness.reason == "service_unreachable"
+    assert readiness.reachable is True
+    assert readiness.has_tcp_service is False
+    assert readiness.known_probe_ports == [443]
+
+
+@pytest.mark.asyncio
 async def test_start_run_discovers_ip_for_dhcp_device_before_launch(
     client: AsyncClient,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    headers = await register_and_login(client, suffix="startDhcp")
+    headers = await register_and_login(client, suffix="startDhcp", role="admin")
     user_id = await _get_user_id(db_session, "startDhcpuser")
     device = Device(
         ip_address=None,
@@ -341,7 +442,7 @@ async def test_start_run_discovers_ip_for_dhcp_device_before_launch(
             successful_scans=1,
         )
 
-    async def fake_probe(_ip: str, _ports=None):
+    async def fake_probe(_ip: str, _ports=None, **_kwargs):
         return (True, "tcp:443")
 
     def fake_launch(run_id: str, test_plan_id: str | None = None):
@@ -372,7 +473,7 @@ async def test_start_run_discovers_ip_from_neighbor_cache_for_dhcp_device(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    headers = await register_and_login(client, suffix="startDhcpNeighbor")
+    headers = await register_and_login(client, suffix="startDhcpNeighbor", role="admin")
     user_id = await _get_user_id(db_session, "startDhcpNeighboruser")
     device = Device(
         ip_address=None,
@@ -431,7 +532,7 @@ async def test_start_run_discovers_ip_from_neighbor_cache_for_dhcp_device(
             ]
         }
 
-    async def fake_probe(_ip: str, _ports=None):
+    async def fake_probe(_ip: str, _ports=None, **_kwargs):
         return (True, "tcp:443")
 
     def fake_launch(run_id: str, test_plan_id: str | None = None):

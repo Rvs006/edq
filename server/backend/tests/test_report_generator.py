@@ -73,6 +73,8 @@ def test_generic_template_is_available():
     templates = {item["key"]: item for item in report_generator.get_available_templates()}
     assert templates["generic"]["template_exists"] is True
     assert templates["generic"]["mapping_exists"] is True
+    assert templates["sauter_680_as"]["template_exists"] is True
+    assert templates["sauter_680_as"]["mapping_exists"] is True
 
 
 def test_build_report_document_uses_template_mapping_for_layout():
@@ -127,6 +129,48 @@ async def test_generate_excel_report_preserves_generic_workbook_structure(tmp_pa
             "Additional Device Information",
             "Raw Evidence",
         ]
+        assert len(workbook["General Test Information"]._images) >= 1
+    finally:
+        workbook.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_excel_report_patches_sauter_template(tmp_path, monkeypatch):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [_make_test_result()],
+        template_key="sauter_680_as",
+    )
+
+    workbook = load_workbook(output)
+    try:
+        assert workbook.sheetnames == ["TEST SUMMARY", "TESTPLAN"]
+        summary_ws = workbook["TEST SUMMARY"]
+        plan_ws = workbook["TESTPLAN"]
+        assert summary_ws["G11"].value == "Axis"
+        assert summary_ws["G16"].value == "PASS"
+        assert plan_ws["F17"].value == "PASS"
+        assert plan_ws["G17"].value == "Device responded as expected."
+        assert len(summary_ws._images) >= 1
+    finally:
+        workbook.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_excel_report_adds_logo_to_template_summary_sheet(tmp_path, monkeypatch):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [_make_test_result()],
+        template_key="pelco_camera",
+    )
+
+    workbook = load_workbook(output)
+    try:
+        assert len(workbook["TEST SYNOPSIS"]._images) >= 1
     finally:
         workbook.close()
 
@@ -214,6 +258,50 @@ async def test_generate_csv_report_uses_template_profile_metadata(tmp_path, monk
     assert "Synopsis" in csv_text
     assert "Essential Pass" in csv_text
     assert "Script Flag" in csv_text
+    assert "Report Logo" in csv_text
+    assert "electracom-logo.png" in csv_text
+
+
+@pytest.mark.asyncio
+async def test_generate_csv_report_keeps_client_logo_alongside_electracom_logo(tmp_path, monkeypatch):
+    upload_root = tmp_path / "uploads"
+    branding_dir = upload_root / "branding"
+    branding_dir.mkdir(parents=True)
+    source_logo = report_generator._resolve_electracom_report_logo_path()
+    assert source_logo is not None
+    (branding_dir / "client-logo.png").write_bytes(source_logo.read_bytes())
+
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path / "reports"))
+    monkeypatch.setattr(report_generator.settings, "UPLOAD_DIR", str(upload_root))
+    branding = _make_branding()
+    branding.logo_path = "client-logo.png"
+
+    output = await report_generator.generate_csv_report(
+        _make_test_run(),
+        [_make_test_result()],
+        template_key="generic",
+        branding_settings=branding,
+    )
+
+    csv_text = Path(output).read_text(encoding="utf-8")
+    assert "Report Logo" in csv_text
+    assert "electracom-logo.png" in csv_text
+    assert "Client Logo" in csv_text
+    assert "client-logo.png" in csv_text
+
+
+def test_uploaded_logo_resolution_stays_inside_upload_dir(tmp_path, monkeypatch):
+    upload_root = tmp_path / "uploads"
+    branding_dir = upload_root / "branding"
+    branding_dir.mkdir(parents=True)
+    outside_logo = tmp_path / "outside-logo.png"
+    source_logo = report_generator._resolve_electracom_report_logo_path()
+    assert source_logo is not None
+    outside_logo.write_bytes(source_logo.read_bytes())
+
+    monkeypatch.setattr(report_generator.settings, "UPLOAD_DIR", str(upload_root))
+
+    assert report_generator._resolve_uploaded_logo_path("../outside-logo.png") is None
 
 
 def _make_test_result_with_notes(notes: str = "Check firmware 1.2.3 manually on next reboot"):
@@ -296,7 +384,7 @@ def test_engineer_notes_resolved_as_separate_column_in_document():
 
     attrs = [attr for attr, _ in report.testplan_columns]
     assert "engineer_notes" in attrs
-    row = report.rows[0]
+    row = next(item for item in report.rows if item.engineer_notes)
     assert row.engineer_notes == "Inspect after reboot"
     assert "[Engineer Notes:" not in row.test_comments
 

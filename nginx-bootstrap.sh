@@ -21,3 +21,5 @@ else
   echo "EDQ frontend bootstrap: certificates not found for ${DOMAIN}; serving HTTP bootstrap config"
   envsubst '${DOMAIN}' < "$BOOTSTRAP_TEMPLATE" > "$TARGET_CONFIG"
 fi
+
+chown nginx:nginx "$TARGET_CONFIG" 2>/dev/null || true

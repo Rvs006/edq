@@ -53,7 +53,7 @@ class ReportRequest(BaseModel):
     report_type: Literal["excel", "word", "pdf", "csv"] = "excel"
     report_config_id: Optional[str] = None
     include_synopsis: bool = False
-    template_key: Literal["generic", "pelco_camera", "easyio_controller"] = "generic"
+    template_key: Literal["generic", "pelco_camera", "easyio_controller", "sauter_680_as"] = "generic"
 
 
 @router.get("/templates")

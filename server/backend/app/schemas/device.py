@@ -1,15 +1,13 @@
 """Device schemas."""
 
+import ipaddress
 import re
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Optional, List, Any
 from datetime import datetime
 
 from app.models.device import AddressingMode, DeviceCategory, DeviceStatus
 
-_IP_RE = re.compile(
-    r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
-)
 _MAC_RE = re.compile(
     r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$"
 )
@@ -27,8 +25,11 @@ class DeviceCreate(BaseModel):
     @field_validator("ip_address")
     @classmethod
     def validate_ip(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and not _IP_RE.match(v):
-            raise ValueError("Invalid IPv4 address")
+        if v is not None:
+            try:
+                ipaddress.IPv4Address(v)
+            except ValueError as exc:
+                raise ValueError("Invalid IPv4 address") from exc
         return v
 
     @field_validator("mac_address")
@@ -86,8 +87,11 @@ class DeviceUpdate(BaseModel):
     @field_validator("ip_address")
     @classmethod
     def validate_ip(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and not _IP_RE.match(v):
-            raise ValueError("Invalid IPv4 address")
+        if v is not None:
+            try:
+                ipaddress.IPv4Address(v)
+            except ValueError as exc:
+                raise ValueError("Invalid IPv4 address") from exc
         return v
 
     @field_validator("mac_address")
@@ -174,16 +178,30 @@ class DiscoveryRequest(BaseModel):
     def validate_subnet(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
-        import ipaddress
         try:
-            ipaddress.ip_network(v, strict=False)
-        except ValueError:
-            raise ValueError("Invalid CIDR subnet (e.g. 192.168.1.0/24)")
-        return v
+            network = ipaddress.ip_network(v, strict=False)
+        except ValueError as exc:
+            raise ValueError("Invalid CIDR subnet (e.g. 192.168.1.0/24)") from exc
+        if network.version != 4:
+            raise ValueError("Discovery subnet must be IPv4")
+        if network.prefixlen < 16 or network.prefixlen > 32:
+            raise ValueError("CIDR prefix must be between /16 and /32")
+        return str(network)
+
+    @model_validator(mode="after")
+    def validate_single_target(self) -> "DiscoveryRequest":
+        if self.ip_address and self.subnet:
+            raise ValueError("Provide either ip_address or subnet, not both")
+        if not self.ip_address and not self.subnet:
+            raise ValueError("Provide either ip_address or subnet")
+        return self
 
     @field_validator("ip_address")
     @classmethod
     def validate_discovery_ip(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and not _IP_RE.match(v):
-            raise ValueError("Invalid IPv4 address")
+        if v is not None:
+            try:
+                ipaddress.IPv4Address(v)
+            except ValueError as exc:
+                raise ValueError("Invalid IPv4 address") from exc
         return v

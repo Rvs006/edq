@@ -1,10 +1,9 @@
 """Test Result routes with run-aware authorization and reviewer overrides."""
 
-from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select, func, case, and_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db
@@ -57,9 +56,17 @@ def _parse_verdict(value: str) -> TestVerdict:
         raise HTTPException(status_code=422, detail=f"Unsupported verdict '{value}'") from exc
 
 
-def _overall_verdict(passed: int, failed: int, advisory: int, essential_failed: bool) -> str | None:
+def _overall_verdict(
+    passed: int,
+    failed: int,
+    advisory: int,
+    errors: int,
+    essential_failed: bool,
+) -> str | None:
     if essential_failed or failed:
         return "fail"
+    if errors:
+        return "incomplete"
     if advisory:
         return "qualified_pass"
     if passed:
@@ -77,7 +84,9 @@ async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
     failed = sum(1 for item in all_results if item.verdict == TestVerdict.FAIL)
     advisory = sum(1 for item in all_results if item.verdict == TestVerdict.ADVISORY)
     na = sum(1 for item in all_results if item.verdict == TestVerdict.NA)
+    info = sum(1 for item in all_results if item.verdict == TestVerdict.INFO)
     errors = sum(1 for item in all_results if item.verdict == TestVerdict.ERROR)
+    skipped = sum(1 for item in all_results if item.verdict == TestVerdict.SKIPPED_SAFE_MODE)
     pending_manual = sum(
         1
         for item in all_results
@@ -90,10 +99,10 @@ async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
     )
 
     run.passed_tests = passed
-    run.failed_tests = failed
+    run.failed_tests = failed + errors
     run.advisory_tests = advisory
     run.na_tests = na
-    run.completed_tests = passed + failed + advisory + na + errors
+    run.completed_tests = passed + failed + advisory + na + info + errors + skipped
     if run.total_tests:
         run.progress_pct = round((run.completed_tests / run.total_tests) * 100, 1)
 
@@ -108,9 +117,11 @@ async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
         TestRunStatus.CANCELLED.value,
         TestRunStatus.FAILED.value,
     }
+    has_pending_manual = pending_manual > 0
+
     if current_status in active_statuses:
         pass
-    elif pending_manual:
+    elif has_pending_manual:
         run.status = TestRunStatus.AWAITING_MANUAL
         run.completed_at = None
         run.overall_verdict = None
@@ -119,10 +130,16 @@ async def _refresh_parent_run(db: AsyncSession, run: TestRun) -> None:
     else:
         run.status = TestRunStatus.COMPLETED
 
-    if current_status not in active_statuses and run.completed_at is None:
+    if current_status not in active_statuses and not has_pending_manual and run.completed_at is None:
         run.completed_at = utcnow_naive()
-    if current_status not in active_statuses:
-        run.overall_verdict = _overall_verdict(passed, failed, advisory, essential_failed)
+    if current_status not in active_statuses and not has_pending_manual:
+        run.overall_verdict = _overall_verdict(
+            passed,
+            failed,
+            advisory,
+            errors,
+            essential_failed,
+        )
 
     run.run_metadata = merge_readiness_into_metadata(
         run.run_metadata,
@@ -191,6 +208,25 @@ async def update_result(
             raise HTTPException(
                 status_code=400,
                 detail="Reviewers and admins must use the override endpoint to change verdicts on automatic tests",
+            )
+
+    protected_fields = {
+        "verdict",
+        "raw_output",
+        "parsed_data",
+        "findings",
+        "duration_seconds",
+    }
+    protected_updates = protected_fields.intersection(updates)
+    if protected_updates:
+        tier_raw = test_result.tier.value if hasattr(test_result.tier, "value") else str(test_result.tier)
+        if tier_raw != "guided_manual":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Automatic test verdicts and scanner evidence are read-only here. "
+                    "Use the override endpoint for reviewed verdict changes."
+                ),
             )
 
     if "verdict" in updates:

@@ -15,12 +15,12 @@ const capabilities = [
   {
     icon: ScanLine,
     title: 'Automated Security Scans',
-    description: '29 automated checks using nmap, testssl.sh, ssh-audit, hydra, nikto, and supporting probes. Runs against the device under test.',
+    description: '27 automated checks using nmap, testssl.sh, ssh-audit, hydra, nikto, and supporting probes. Runs against the device under test.',
   },
   {
     icon: ClipboardCheck,
     title: 'Guided Manual Tests',
-    description: '31 guided manual checks for physical inspection, web UI review, configuration validation, and extended qualification evidence.',
+    description: '32 guided manual checks for physical inspection, web UI review, configuration validation, and extended qualification evidence.',
   },
   {
     icon: FileDown,
@@ -29,8 +29,8 @@ const capabilities = [
   },
   {
     icon: Terminal,
-    title: 'Tools Sidecar',
-    description: 'Dockerized sidecar runs nmap, testssl.sh, ssh-audit, hydra, nikto, and related network helpers. No local install needed.',
+    title: 'Scanner Agent',
+    description: 'Dockerized by default, with host-scanner mode for direct Ethernet discovery. Runs nmap, testssl.sh, ssh-audit, hydra, nikto, and network helpers.',
   },
   {
     icon: Shield,
@@ -73,7 +73,7 @@ export default function LandingPage() {
               </h1>
               <p className="mt-3 text-sm sm:text-base text-zinc-600 dark:text-slate-400 leading-relaxed">
                 Internal tool for security qualification of IP devices on Electracom projects.
-                60 tests (29 automated + 31 guided manual). Runs offline on Docker.
+                59 active tests (27 automated + 32 guided manual). Runs offline on Docker.
               </p>
               <div className="mt-5 flex items-center gap-3">
                 <Link to="/login" className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
@@ -150,7 +150,7 @@ export default function LandingPage() {
               <div>
                 <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-3">Security Tools</h2>
                 <p className="text-xs text-zinc-500 dark:text-slate-400 mb-3">
-                  All tools run inside the Docker sidecar container. No local installation required.
+                  Tools run in the Docker sidecar by default, or on a host scanner for direct-Ethernet discovery.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {tools.map(t => (

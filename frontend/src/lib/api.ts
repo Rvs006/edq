@@ -281,7 +281,7 @@ export const synopsisApi = {
 export const networkScanApi = {
   list: (params?: { skip?: number; limit?: number }) => api.get('/network-scan/', { params }),
   detectNetworks: () => api.get('/network-scan/detect-networks'),
-  discover: (data: { cidr: string; connection_scenario: string; test_ids: string[] }) => api.post('/network-scan/discover', data),
+  discover: (data: { cidr: string; connection_scenario: string; test_ids: string[] }) => api.post('/network-scan/discover', data, { timeout: 180000 }),
   start: (data: { scan_id: string; device_ips: string[]; test_ids: string[]; connection_scenario: string }) => api.post('/network-scan/start', data),
   get: (id: string) => api.get(`/network-scan/${id}`),
   results: (id: string) => api.get(`/network-scan/${id}/results`),
@@ -306,6 +306,18 @@ export const healthApi = {
     database: { status: string }
     tools_sidecar: { status: string; message?: string }
     tools: Record<string, string>
+    scanner_updates?: {
+      status: string
+      image_rebuild_recommended: boolean | null
+      message?: string
+      checked_at?: string
+      tools: Record<string, {
+        installed: string
+        latest_known: string
+        up_to_date: boolean | null
+        action?: string
+      }>
+    }
   }>('/health/system-status'),
 }
 

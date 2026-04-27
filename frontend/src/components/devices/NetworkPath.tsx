@@ -101,7 +101,7 @@ export default function NetworkPath({ deviceId, deviceIp }: { deviceId: string; 
       {traceMutation.isError && !data && (
         <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded-lg p-3 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          Traceroute failed. Check that the device is reachable and the tools sidecar is running.
+          Traceroute failed. Check that the device is reachable and the scanner agent is running.
         </div>
       )}
 

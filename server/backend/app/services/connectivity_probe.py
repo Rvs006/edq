@@ -29,8 +29,8 @@ DEFAULT_CONNECTIVITY_PORTS = (
 MAX_PROBE_PORTS = 20
 
 
-def extract_probe_ports(open_ports: Any) -> list[int]:
-    """Build a short, stable list of ports to use for TCP reachability probes."""
+def extract_known_probe_ports(open_ports: Any) -> list[int]:
+    """Return only ports already discovered or saved for the device."""
     ports: list[int] = []
     seen: set[int] = set()
 
@@ -42,6 +42,14 @@ def extract_probe_ports(open_ports: Any) -> list[int]:
                 ports.append(port)
             if len(ports) >= MAX_PROBE_PORTS:
                 break
+
+    return ports
+
+
+def extract_probe_ports(open_ports: Any) -> list[int]:
+    """Build a short, stable list of ports to use for TCP reachability probes."""
+    ports = extract_known_probe_ports(open_ports)
+    seen: set[int] = set(ports)
 
     for port in DEFAULT_CONNECTIVITY_PORTS:
         if port not in seen:
@@ -65,32 +73,32 @@ async def _tcp_probe(ip: str, port: int, timeout: float) -> tuple[int, str]:
     originate from a real TCP stack at the target IP; ARP cache entries, proxy-ARP,
     and switch CAM forwarding cannot fabricate one.
     """
-    writer = None
     try:
-        _reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
-        return (port, "open")
-    except ConnectionRefusedError:
-        return (port, "refused")
-    except OSError as exc:
-        # ECONNRESET mid-handshake is also a positive signal (real stack, briefly dropped)
-        if exc.errno in (104, 10054):  # ECONNRESET (Linux/Windows)
-            return (port, "refused")
-        return (port, "none")
+            payload = await tools_client.tcp_probe(
+                ip,
+                ports=[port],
+                connect_timeout=timeout,
+                concurrency=1,
+                max_hosts=1,
+                timeout=30,
+                stop_on_first_open=True,
+            )
     except Exception:
         return (port, "none")
-    finally:
-        if writer is not None:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
+
+    hosts = payload.get("hosts", []) if isinstance(payload, dict) else []
+    host = hosts[0] if hosts and isinstance(hosts[0], dict) else {}
+    for response in host.get("responses", []) if isinstance(host, dict) else []:
+        if response.get("port") == port:
+            return (port, response.get("state") or "none")
+    return (port, "none")
 
 
 async def probe_device_connectivity(
     ip: str,
     probe_ports: list[int] | None = None,
     tcp_timeout: float = 2.0,
+    trust_icmp_only: bool = False,
 ) -> tuple[bool, str | None]:
     """Return whether the target is reachable via ICMP or a quick TCP probe.
 
@@ -99,6 +107,9 @@ async def probe_device_connectivity(
     Prefer reporting a TCP hit when one exists so callers that inspect the
     probe source can distinguish "host is up" from "host has a testable
     service port open".
+
+    Set trust_icmp_only for in-run cable monitoring. Discovery keeps it false
+    so stale ARP ghosts still need TCP or nmap corroboration.
     """
     ports = probe_ports or list(DEFAULT_CONNECTIVITY_PORTS[:MAX_PROBE_PORTS])
 
@@ -125,15 +136,31 @@ async def probe_device_connectivity(
         return (False, None)
 
     async def _tcp_probes():
-        results = await asyncio.gather(
-            *(_tcp_probe(ip, port, tcp_timeout) for port in ports),
-            return_exceptions=True,
-        )
+        try:
+            payload = await tools_client.tcp_probe(
+                ip,
+                ports=ports,
+                connect_timeout=tcp_timeout,
+                concurrency=min(len(ports), MAX_PROBE_PORTS),
+                max_hosts=1,
+                timeout=30,
+                stop_on_first_open=True,
+            )
+        except Exception as exc:
+            logger.debug("TCP probe failed for %s via scanner agent: %s", ip, exc)
+            return (False, None)
+
+        hosts = payload.get("hosts", []) if isinstance(payload, dict) else []
+        host = hosts[0] if hosts and isinstance(hosts[0], dict) else {}
+        results = host.get("responses", []) if isinstance(host, dict) else []
         refused_port: int | None = None
         for result in results:
-            if not isinstance(result, tuple):
+            if not isinstance(result, dict):
                 continue
-            port, outcome = result
+            port = result.get("port")
+            outcome = result.get("state")
+            if not isinstance(port, int):
+                continue
             if outcome == "open":
                 return (True, f"tcp:{port}")
             if outcome == "refused" and refused_port is None:
@@ -156,14 +183,16 @@ async def probe_device_connectivity(
         icmp_source = icmp_result[1] or ""
         if icmp_source.startswith("icmp:"):
             return icmp_result
+        if trust_icmp_only:
+            return icmp_result
         # ICMP answered but none of our DEFAULT_CONNECTIVITY_PORTS responded.
         # Could be (a) a real device with services on an obscure port, or
         # (b) an ARP-cache ghost (ICMP echo bouncing off a stale MAC entry
         # for 30-300s after a cable is pulled). Use nmap --top-ports 100
         # as an authoritative tiebreaker: if any port responds, the device's
         # TCP stack is alive (proof of life); if nothing responds, the ICMP
-        # was almost certainly cached. nmap respects the backend's NET_RAW
-        # capabilities so it can send proper SYN probes.
+        # was almost certainly cached. The scanner agent owns the network
+        # namespace and nmap privileges for this probe.
         tiebreaker_port = await _nmap_tiebreaker(ip)
         if tiebreaker_port is not None:
             return (True, f"tcp:{tiebreaker_port}")
@@ -189,7 +218,7 @@ async def _nmap_tiebreaker(ip: str) -> int | None:
       - `--max-rate 400`            — cap so scans don't hammer fragile IoT
       - `--max-retries 1`           — fail fast; loss-sensitive caller
       - `--host-timeout 5s`         — ghost cap: dead host aborts in 5s, not 10s
-      - outer `asyncio.wait_for 7s` — safety net if tools sidecar hangs
+      - outer `asyncio.wait_for 7s` — safety net if the scanner agent hangs
     Total: ~5s ceiling per ghost (was ~10-15s).
 
     Returns an int port number on success, None on failure/no open ports.

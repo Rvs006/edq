@@ -69,6 +69,86 @@ def test_u09_uses_protocol_and_service_labels_in_non_whitelist_findings():
     assert "TCP port 445: SAMBA found open, disable if not required." in comment
 
 
+def test_u09_compares_protocol_as_well_as_port():
+    verdict, comment = evaluate_result(
+        "U09",
+        {"open_ports": [{"port": 53, "protocol": "tcp", "service": "domain"}]},
+        whitelist_entries=[{"port": 53, "protocol": "UDP", "service": "DNS"}],
+    )
+
+    assert verdict == "fail"
+    assert "TCP port 53" in comment
+
+
+def test_u09_allows_tcp_udp_whitelist_entries():
+    verdict, comment = evaluate_result(
+        "U09",
+        {"open_ports": [{"port": 53, "protocol": "udp", "service": "domain"}]},
+        whitelist_entries=[{"port": 53, "protocol": "TCP/UDP", "service": "DNS"}],
+    )
+
+    assert verdict == "pass"
+    assert "All open ports match" in comment
+
+
+def test_u05_ipv4_target_reports_not_assessed():
+    verdict, comment = evaluate_result(
+        "U05",
+        {
+            "ipv6_supported": False,
+            "ipv6_assessed": False,
+            "reason": "No IPv6 address is recorded for this device.",
+        },
+    )
+
+    assert verdict == "na"
+    assert "Not assessed" in comment
+
+
+def test_u16_empty_credential_check_is_not_pass():
+    verdict, comment = evaluate_result(
+        "U16",
+        {"found_credentials": [], "raw": "", "services_tested": [], "check_ran": False},
+    )
+
+    assert verdict == "na"
+    assert "Not assessed" in comment
+
+
+def test_u17_not_assessed_when_no_supported_auth_surface():
+    verdict, comment = evaluate_result(
+        "U17",
+        {
+            "lockout_detected": False,
+            "check_ran": False,
+            "reason": "Tokenized web login detected.",
+        },
+    )
+
+    assert verdict == "na"
+    assert "Tokenized web login" in comment
+
+
+def test_u35_parses_modern_nikto_bracketed_findings():
+    verdict, comment = evaluate_result(
+        "U35",
+        {
+            "raw": "\n".join(
+                [
+                    "+ Target IP: 192.168.4.64",
+                    "+ Server: nginx/1.17.5",
+                    "+ /: [013587] The X-Content-Type-Options header is not set.",
+                    "+ /: [999988] Retrieved x-powered-by header: PHP/7.2.25.",
+                ]
+            )
+        },
+    )
+
+    assert verdict == "advisory"
+    assert "[013587]" in comment
+    assert "X-Content-Type-Options" in comment
+
+
 def test_u26_requires_observed_sync_for_pass():
     verdict, comment = evaluate_result(
         "U26",
@@ -101,6 +181,22 @@ def test_u29_requires_observed_dns_requests_for_pass():
     assert verdict == "info"
     assert "DNS-related service detected on port 53." in comment
     assert "request-direction verification is still required" in comment
+
+
+def test_udp_open_filtered_protocol_checks_are_inconclusive():
+    cases = [
+        ("U26", {"ntp_inconclusive": True}, "UDP/123"),
+        ("U28", {"bacnet_inconclusive": True}, "UDP/47808"),
+        ("U29", {"dns_inconclusive": True}, "UDP/53"),
+        ("U31", {"open_ports": [{"port": 161, "protocol": "udp", "state": "open|filtered"}]}, "UDP/161"),
+        ("U32", {"open_ports": [{"port": 1900, "protocol": "udp", "state": "open|filtered"}]}, "UDP/1900"),
+        ("U33", {"open_ports": [{"port": 5353, "protocol": "udp", "state": "open|filtered"}]}, "UDP/5353"),
+    ]
+
+    for test_id, data, expected_text in cases:
+        verdict, comment = evaluate_result(test_id, data)
+        assert verdict == "info"
+        assert expected_text in comment
 
 
 def test_u36_includes_script_output_in_banner_comment():
@@ -159,6 +255,23 @@ def test_u12_includes_subject_issuer_and_validity_window():
     assert "Issuer: CN=EDQ Test CA" in comment
     assert "Not Before: 2026-04-01" in comment
     assert "Not After: 2027-04-01" in comment
+
+
+def test_u13_missing_hsts_without_tls_is_na_not_fail():
+    verdict, comment = evaluate_result("U13", {"tls_versions": [], "hsts": False})
+
+    assert verdict == "na"
+    assert "No HTTPS service detected" in comment
+
+
+def test_u13_fast_tls_probe_without_hsts_check_is_na_not_fail():
+    verdict, comment = evaluate_result(
+        "U13",
+        {"tls_versions": ["TLSv1.3"], "hsts": None, "hsts_checked": False},
+    )
+
+    assert verdict == "na"
+    assert "not checked" in comment
 
 
 def test_u14_reports_captured_header_dump():

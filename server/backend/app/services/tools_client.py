@@ -7,6 +7,8 @@ import os
 import shutil
 import subprocess
 from typing import Any, AsyncGenerator, Callable, Coroutine, Dict, List, Optional
+from urllib.parse import urlparse
+from xml.etree import ElementTree
 
 import httpx
 
@@ -68,22 +70,57 @@ class ToolsClient:
         self._headers: Dict[str, str] = {}
         if settings.TOOLS_API_KEY:
             self._headers["X-Tools-Key"] = settings.TOOLS_API_KEY
-        self.in_docker: bool = os.path.exists("/.dockerenv")
+        self.backend_in_docker: bool = os.path.exists("/.dockerenv")
+        # Backward-compatible name used by older route code/tests.
+        self.in_docker: bool = self.backend_in_docker
+        self.scanner_mode: str = self._resolve_scanner_mode()
+        self.scanner_in_docker: bool = self.scanner_mode == "docker"
         self._docker_raw_scan_capable = self._detect_docker_raw_scan_capability()
         self._client: Optional[httpx.AsyncClient] = None
 
-    def _detect_docker_raw_scan_capability(self) -> bool:
-        if not self.in_docker:
-            return False
+    def _tools_url_is_loopback(self) -> bool:
+        host = (urlparse(self.base_url).hostname or "").lower()
+        return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
-        override = os.environ.get("EDQ_FORCE_DOCKER_TCP_CONNECT_SCAN", "").strip().lower()
-        if override in {"1", "true", "yes", "on"}:
+    def _resolve_scanner_mode(self) -> str:
+        raw_mode = (
+            os.environ.get("EDQ_SCANNER_MODE")
+            or os.environ.get("TOOLS_SCANNER_MODE")
+            or "auto"
+        ).strip().lower()
+        normalized_mode = raw_mode.replace("_", "-")
+        if normalized_mode in {"host", "host-scanner", "external", "external-host"}:
+            return "host"
+        if normalized_mode in {"docker", "container", "internal", "sidecar"}:
+            return "docker"
+
+        start_internal = os.environ.get("EDQ_START_INTERNAL_TOOLS", "true").strip().lower()
+        if start_internal in {"0", "false", "no", "off"}:
+            return "host"
+
+        # Auto preserves the default EDQ development/deployment model: a scanner
+        # reached on localhost is the bundled Docker sidecar unless host mode is
+        # explicitly requested. Windows host scanner setups should set
+        # EDQ_SCANNER_MODE=host.
+        if self._tools_url_is_loopback():
+            return "docker"
+        return "host"
+
+    def _detect_docker_raw_scan_capability(self) -> bool:
+        if not self.scanner_in_docker or not self.backend_in_docker or not self._tools_url_is_loopback():
             return False
 
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             return True
 
-        getcap_path = shutil.which("getcap")
+        getcap_path = next(
+            (
+                candidate
+                for candidate in (shutil.which("getcap"), "/usr/sbin/getcap", "/sbin/getcap")
+                if candidate and os.path.exists(candidate)
+            ),
+            None,
+        )
         nmap_path = shutil.which("nmap")
         if not getcap_path or not nmap_path:
             return False
@@ -101,6 +138,16 @@ class ToolsClient:
         capabilities = f"{result.stdout}\n{result.stderr}".lower()
         return "cap_net_raw" in capabilities or "cap_net_admin" in capabilities
 
+    def _prefer_docker_tcp_connect_scan(self) -> bool:
+        """Prefer nmap TCP connect scans in Docker unless raw scans are explicitly enabled.
+
+        Docker Desktop and bridge NAT often make SYN scans unreliable against
+        directly connected LAN devices. TCP connect scans use the normal socket
+        path, which is slower but much more predictable for U06/U09.
+        """
+        override = os.environ.get("EDQ_FORCE_DOCKER_TCP_CONNECT_SCAN", "true").strip().lower()
+        return override not in {"0", "false", "no", "off"}
+
     def _get_client(self, timeout: int = 300) -> httpx.AsyncClient:
         """Return a persistent shared AsyncClient, creating it on first use."""
         if self._client is None or self._client.is_closed:
@@ -113,18 +160,29 @@ class ToolsClient:
     async def close(self) -> None:
         """Close the persistent HTTP client. Call on app shutdown."""
         if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
+            try:
+                await self._client.aclose()
+            except RuntimeError as exc:
+                if "Event loop is closed" not in str(exc):
+                    raise
+            finally:
+                self._client = None
 
     def docker_nmap_flags(self, args: List[str]) -> List[str]:
         """Adjust nmap flags for container NAT without breaking discovery scans."""
-        if not self.in_docker:
-            return list(args)
-        if "-sn" in args or "-PR" in args:
+        scanner_in_docker = getattr(self, "scanner_in_docker", getattr(self, "in_docker", False))
+        if not scanner_in_docker:
             return list(args)
         adjusted = list(args)
-        if not self._docker_raw_scan_capable:
+        prefer_connect = self._prefer_docker_tcp_connect_scan()
+        if prefer_connect or not self._docker_raw_scan_capable:
             adjusted = ["-sT" if a == "-sS" else a for a in adjusted]
+        privileged_flags = {"-sS", "-sU", "-O", "-A", "-PR", "-PE", "-PP", "-PM"}
+        if self._docker_raw_scan_capable and "--privileged" not in adjusted:
+            if any(flag in adjusted for flag in privileged_flags):
+                adjusted.insert(0, "--privileged")
+        if "-sn" in args or "-PR" in args:
+            return adjusted
         if any(flag in adjusted for flag in ("-sT", "-sS", "-sV", "-O", "-A", "-p", "-p-", "--top-ports")) and "-Pn" not in adjusted:
             adjusted.insert(0, "-Pn")
         return adjusted
@@ -167,7 +225,7 @@ class ToolsClient:
         timeout: int = 300,
         on_line: Optional[Callable[[str], Coroutine]] = None,
     ) -> Dict[str, Any]:
-        """POST to a streaming SSE endpoint, calling on_line for each stdout line.
+        """POST to a streaming SSE endpoint, calling on_line for output lines.
 
         Returns the final result dict (same shape as _post).
         Falls back to the non-streaming endpoint if SSE fails.
@@ -190,8 +248,12 @@ class ToolsClient:
                         event = json.loads(raw_line[6:])
                     except json.JSONDecodeError:
                         continue
-                    if event.get("type") == "stdout" and on_line:
-                        await on_line(event.get("line", ""))
+                    event_type = event.get("type")
+                    if event_type in {"stdout", "stderr"} and on_line:
+                        line = event.get("line", "")
+                        if event_type == "stderr":
+                            line = f"[stderr] {line}"
+                        await on_line(line)
                     elif event.get("type") == "result":
                         result = event.get("data", {})
         except Exception as exc:
@@ -316,6 +378,18 @@ class ToolsClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def check_updates(self) -> Dict[str, Any]:
+        """Return sidecar scanner update guidance.
+
+        The sidecar compares installed scanners with the image's pinned
+        latest-known versions. EDQ reports that state but does not mutate
+        scanner binaries at runtime.
+        """
+        client = self._get_client(15)
+        resp = await client.get(f"{self.base_url}/check-updates", headers=self._headers, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
     async def nmap(
         self,
         target: str,
@@ -406,6 +480,131 @@ class ToolsClient:
             {"target": target, "count": count, "timeout": 30},
             timeout=30,
         )
+
+    async def tcp_probe(
+        self,
+        target: str,
+        ports: List[int],
+        connect_timeout: float = 1.0,
+        concurrency: int = 64,
+        max_hosts: int = 1024,
+        timeout: int = 60,
+        stop_on_first_open: bool = False,
+    ) -> Dict[str, Any]:
+        """Probe TCP reachability from the scanner agent network namespace."""
+        payload = {
+            "target": target,
+            "ports": ports,
+            "connect_timeout": connect_timeout,
+            "concurrency": concurrency,
+            "max_hosts": max_hosts,
+            "stop_on_first_open": stop_on_first_open,
+        }
+        try:
+            return await self._post("/scan/tcp-probe", payload, timeout=timeout)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in {404, 405}:
+                raise
+            logger.warning(
+                "Scanner agent does not expose /scan/tcp-probe; falling back to nmap TCP connect probe"
+            )
+            return await self._tcp_probe_via_nmap(target, ports, timeout=timeout)
+
+    async def _tcp_probe_via_nmap(
+        self,
+        target: str,
+        ports: List[int],
+        timeout: int = 60,
+    ) -> Dict[str, Any]:
+        """Compatibility fallback for older scanner agents without /scan/tcp-probe."""
+        port_list = ",".join(str(port) for port in ports if isinstance(port, int) and 1 <= port <= 65535)
+        if not port_list:
+            return {"target": target, "ports": ports, "hosts": [], "duration_seconds": 0}
+
+        result = await self.nmap(
+            target,
+            [
+                "-Pn",
+                "-sT",
+                "-p",
+                port_list,
+                "--max-retries",
+                "1",
+                "--host-timeout",
+                "5s",
+                "-T4",
+                "-n",
+                "-oX",
+                "-",
+            ],
+            timeout=timeout,
+        )
+        hosts = self._parse_tcp_probe_nmap_xml(result.get("stdout", ""))
+        return {
+            "target": target,
+            "ports": ports,
+            "hosts": hosts,
+            "duration_seconds": result.get("duration_seconds", 0),
+            "fallback": "nmap",
+        }
+
+    def _parse_tcp_probe_nmap_xml(self, stdout: str) -> List[Dict[str, Any]]:
+        try:
+            root = ElementTree.fromstring(stdout)
+        except Exception:
+            return []
+
+        hosts: List[Dict[str, Any]] = []
+        for host_node in root.findall("host"):
+            ip = None
+            for address in host_node.findall("address"):
+                if address.attrib.get("addrtype") in {"ipv4", "ipv6"}:
+                    ip = address.attrib.get("addr")
+                    break
+            if not ip:
+                continue
+
+            responses: List[Dict[str, Any]] = []
+            open_ports: List[Dict[str, Any]] = []
+            first_refused_port: int | None = None
+
+            ports_node = host_node.find("ports")
+            if ports_node is not None:
+                for port_node in ports_node.findall("port"):
+                    try:
+                        port = int(port_node.attrib.get("portid", "0"))
+                    except ValueError:
+                        continue
+                    state_node = port_node.find("state")
+                    nmap_state = state_node.attrib.get("state") if state_node is not None else None
+                    if nmap_state == "open":
+                        state = "open"
+                        open_ports.append({"port": port, "service": "", "version": ""})
+                    elif nmap_state == "closed":
+                        state = "refused"
+                        if first_refused_port is None:
+                            first_refused_port = port
+                    else:
+                        state = "none"
+                    responses.append({"port": port, "state": state})
+
+            source = None
+            if open_ports:
+                source = f"tcp:{open_ports[0]['port']}"
+            elif first_refused_port is not None:
+                source = f"tcp_refused:{first_refused_port}"
+
+            hosts.append(
+                {
+                    "ip": ip,
+                    "reachable": bool(open_ports) or first_refused_port is not None,
+                    "source": source,
+                    "open_ports": open_ports,
+                    "responses": responses,
+                }
+            )
+
+        return hosts
 
     async def arp_cache(self, target: str) -> Dict[str, Any]:
         """Ping target then read ARP cache to get MAC address."""

@@ -41,6 +41,10 @@ class TestPortSkips:
         skips = self.fp._compute_port_skips({22, 80, 443})
         assert "U15" not in skips
 
+    def test_ssh_service_on_nonstandard_port_keeps_u15(self):
+        skips = self.fp._compute_port_skips({2222, 80}, {2222: "ssh"})
+        assert "U15" not in skips
+
     def test_no_rtsp_skips_u37(self):
         skips = self.fp._compute_port_skips({80})
         assert "U37" in skips
@@ -59,9 +63,14 @@ class TestPortSkips:
         for tid in ["U14", "U16", "U17", "U18", "U35"]:
             assert tid not in skips
 
-    def test_no_snmp_skips_u31(self):
+    def test_http_service_on_nonstandard_port_keeps_http_tests(self):
+        skips = self.fp._compute_port_skips({8080}, {8080: "http-proxy"})
+        for tid in ["U14", "U16", "U17", "U18", "U35"]:
+            assert tid not in skips
+
+    def test_no_snmp_keeps_u31_for_negative_exposure_result(self):
         skips = self.fp._compute_port_skips({80})
-        assert "U31" in skips
+        assert "U31" not in skips
 
     def test_snmp_161_keeps_u31(self):
         skips = self.fp._compute_port_skips({80, 161})
@@ -71,17 +80,17 @@ class TestPortSkips:
         skips = self.fp._compute_port_skips({80, 162})
         assert "U31" not in skips
 
-    def test_no_upnp_skips_u32(self):
+    def test_no_upnp_keeps_u32_for_negative_exposure_result(self):
         skips = self.fp._compute_port_skips({80})
-        assert "U32" in skips
+        assert "U32" not in skips
 
     def test_upnp_present_keeps_u32(self):
         skips = self.fp._compute_port_skips({80, 1900})
         assert "U32" not in skips
 
-    def test_no_mdns_skips_u33(self):
+    def test_no_mdns_keeps_u33_for_negative_exposure_result(self):
         skips = self.fp._compute_port_skips({80})
-        assert "U33" in skips
+        assert "U33" not in skips
 
     def test_mdns_present_keeps_u33(self):
         skips = self.fp._compute_port_skips({80, 5353})
@@ -95,7 +104,7 @@ class TestPortSkips:
     def test_empty_ports_skips_everything(self):
         skips = self.fp._compute_port_skips(set())
         expected = {"U10", "U11", "U12", "U13", "U14", "U15", "U16", "U17",
-                    "U18", "U31", "U32", "U33", "U35", "U37"}
+                    "U18", "U35", "U37"}
         assert set(skips) == expected
 
 
@@ -270,6 +279,32 @@ class TestFingerprintEndToEnd:
         # Device should be updated
         await db_session.refresh(device)
         assert device.category == DeviceCategory.CONTROLLER
+
+    @pytest.mark.asyncio
+    async def test_fingerprint_does_not_skip_ports_without_trusted_scan(self, db_session):
+        """Scanner failure must not be treated as proof that HTTP/SSH/TLS are closed."""
+        from app.models.device import Device, DeviceCategory
+
+        device = Device(
+            ip_address="192.168.1.10",
+            oui_vendor="EasyIO",
+            category=DeviceCategory.UNKNOWN,
+        )
+        db_session.add(device)
+        await db_session.flush()
+        await db_session.refresh(device)
+
+        fp = DeviceFingerprinter()
+        result = await fp.fingerprint(
+            db_session,
+            device.id,
+            {},
+            {"oui_vendor": "EasyIO"},
+            allow_port_skips=False,
+        )
+
+        assert result.category == "controller"
+        assert result.skip_test_ids == []
 
     @pytest.mark.asyncio
     async def test_fingerprint_ip_camera(self, db_session):

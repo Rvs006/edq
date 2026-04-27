@@ -298,6 +298,7 @@ export interface ReportTemplate {
   key: string
   name?: string
   label?: string
+  description?: string
   category?: string
   device_category?: string
 }

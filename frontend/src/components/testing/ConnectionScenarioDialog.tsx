@@ -16,7 +16,7 @@ const scenarios: {
   label: string
   description: string
   icon: React.ElementType
-  intensity: string
+  routing: string
   warning?: boolean
 }[] = [
   {
@@ -24,21 +24,21 @@ const scenarios: {
     label: 'Scenario 1 - Direct Cable',
     description: 'Device connected directly to the test laptop via Ethernet cable.',
     icon: Cable,
-    intensity: 'Full scan intensity',
+    routing: 'Automatic where tools support it',
   },
   {
     value: 'test_lab',
     label: 'Scenario 2 - Test Lab',
     description: 'Device on an isolated test network.',
     icon: Building2,
-    intensity: 'Moderate scan intensity',
+    routing: 'Scenario-sensitive tests use manual evidence',
   },
   {
     value: 'site_network',
     label: 'Scenario 3 - Site Network',
     description: 'Device on a live production network.',
     icon: Wifi,
-    intensity: 'Low scan intensity',
+    routing: 'Scenario-sensitive tests use manual evidence',
     warning: true,
   },
 ]
@@ -83,7 +83,7 @@ export default function ConnectionScenarioDialog({
               </Dialog.Close>
             </div>
             <Dialog.Description className="text-sm text-zinc-500 dark:text-slate-400 mt-1">
-              Select the connection scenario for the device under test. This determines scan intensity and whether some tests are rerouted to guided manual review.
+              Select the connection scenario for the device under test. This determines whether scenario-sensitive tests are rerouted to guided manual review.
             </Dialog.Description>
           </div>
 
@@ -122,7 +122,7 @@ export default function ConnectionScenarioDialog({
                     </div>
                     <p className="text-xs text-zinc-500 mt-0.5">{scenario.description}</p>
                     <p className="text-[10px] text-zinc-400 mt-0.5 font-medium uppercase tracking-wider">
-                      {scenario.intensity}
+                      {scenario.routing}
                     </p>
                   </div>
                   <div
@@ -148,7 +148,7 @@ export default function ConnectionScenarioDialog({
                     <p className="text-sm font-medium text-red-800">Live Network Warning</p>
                     <p className="text-xs text-red-600 mt-0.5">
                       Scanning a device on a production network may cause service disruption.
-                      Scan intensity will be reduced to minimise risk.
+                      Scenario-sensitive tests will be rerouted to manual review.
                     </p>
                   </div>
                 </div>

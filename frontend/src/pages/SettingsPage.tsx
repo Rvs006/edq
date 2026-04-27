@@ -127,20 +127,20 @@ function ProfileSettings({ user }: { user: { full_name?: string | null; username
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label">Username</label>
-            <input type="text" value={(user?.username as string) || ''} aria-label="Username" className="input bg-zinc-50" disabled />
+            <label htmlFor="profile-username" className="label">Username</label>
+            <input id="profile-username" type="text" value={(user?.username as string) || ''} aria-label="Username" className="input bg-zinc-50" disabled />
           </div>
           <div>
-            <label className="label">Email</label>
-            <input type="email" value={editing ? form.email : ((user?.email as string) || '')} onChange={e => setForm({ ...form, email: e.target.value })} aria-label="Email" className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
+            <label htmlFor="profile-email" className="label">Email</label>
+            <input id="profile-email" type="email" value={editing ? form.email : ((user?.email as string) || '')} onChange={e => setForm({ ...form, email: e.target.value })} aria-label="Email" className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
           </div>
           <div>
-            <label className="label">Full Name</label>
-            <input type="text" value={editing ? form.full_name : ((user?.full_name as string) || '')} onChange={e => setForm({ ...form, full_name: e.target.value })} aria-label="Full name" className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
+            <label htmlFor="profile-full-name" className="label">Full Name</label>
+            <input id="profile-full-name" type="text" value={editing ? form.full_name : ((user?.full_name as string) || '')} onChange={e => setForm({ ...form, full_name: e.target.value })} aria-label="Full name" className={`input ${editing ? '' : 'bg-zinc-50'}`} disabled={!editing} />
           </div>
           <div>
-            <label className="label">Role</label>
-            <input type="text" value={(user?.role as string) || ''} aria-label="Role" className="input bg-zinc-50 capitalize" disabled />
+            <label htmlFor="profile-role" className="label">Role</label>
+            <input id="profile-role" type="text" value={(user?.role as string) || ''} aria-label="Role" className="input bg-zinc-50 capitalize" disabled />
           </div>
         </div>
 
@@ -242,6 +242,7 @@ function TwoFactorSettings() {
               maxLength={6}
               value={disableCode}
               onChange={e => setDisableCode(e.target.value.replace(/\D/g, ''))}
+              aria-label="Current two-factor code"
               className="input text-center font-mono tracking-widest"
               placeholder="6-digit code"
             />
@@ -249,6 +250,7 @@ function TwoFactorSettings() {
               type="password"
               value={disablePassword}
               onChange={e => setDisablePassword(e.target.value)}
+              aria-label="Password to disable two-factor authentication"
               className="input"
               placeholder="Your password"
             />
@@ -430,6 +432,7 @@ function SystemStatus() {
     databaseHealthy,
     toolsHealthy,
     toolVersions,
+    scannerUpdates,
     lastChecked,
   } = useOnlineStatus()
 
@@ -451,6 +454,17 @@ function SystemStatus() {
     { label: 'Database', ok: databaseHealthy, detail: databaseHealthy ? 'Connected' : 'Unavailable' },
     { label: 'Tools Sidecar', ok: toolsHealthy, detail: toolsHealthy ? 'Connected' : 'Unavailable' },
   ]
+  const outdatedTools = Object.entries(scannerUpdates?.tools || {}).filter(([, info]) => info.up_to_date === false)
+  const scannerUpdateTone = scannerUpdates?.status === 'outdated'
+    ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200'
+    : scannerUpdates?.status === 'ok'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200'
+      : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+  const scannerUpdateLabel = scannerUpdates?.status === 'outdated'
+    ? 'Scanner image update available'
+    : scannerUpdates?.status === 'ok'
+      ? 'Scanner image current'
+      : 'Scanner update status unknown'
 
   return (
     <div className="card p-5">
@@ -490,6 +504,31 @@ function SystemStatus() {
           })}
         </div>
       </div>
+
+      {scannerUpdates && (
+        <div className={`mt-4 rounded-lg border p-3 ${scannerUpdateTone}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-semibold">{scannerUpdateLabel}</span>
+            {scannerUpdates.checked_at && (
+              <span className="text-[11px] opacity-75">
+                Checked {new Date(scannerUpdates.checked_at).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+          {scannerUpdates.message && (
+            <p className="mt-1 text-xs opacity-90">{scannerUpdates.message}</p>
+          )}
+          {outdatedTools.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {outdatedTools.map(([key, info]) => (
+                <span key={key} className="rounded-full bg-black/5 dark:bg-white/10 px-2 py-0.5 text-[11px] font-mono">
+                  {toolLabels[key] || key}: {info.installed} -&gt; {info.latest_known}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {lastChecked && (
         <p className="text-[11px] text-zinc-400 mt-3">
@@ -571,8 +610,9 @@ function BrandingSettings() {
 
       <form onSubmit={handleSave} className="space-y-4 max-w-md">
         <div>
-          <label className="label">Company Name</label>
+          <label htmlFor="branding-company-name" className="label">Company Name</label>
           <input
+            id="branding-company-name"
             type="text"
             value={form.company_name}
             onChange={(e) => setForm({ ...form, company_name: e.target.value })}
@@ -582,24 +622,25 @@ function BrandingSettings() {
         </div>
 
         <div>
-          <label className="label">Company Logo</label>
+          <label htmlFor="branding-logo-file" className="label">Company Logo</label>
           <div className="flex items-center gap-3">
             {logoPreview && (
               <img src={logoPreview} alt="Logo preview" className="w-12 h-12 object-contain rounded border border-zinc-200 bg-zinc-50 p-1" />
             )}
-            <label className="btn-secondary cursor-pointer text-sm py-1.5 px-3">
+            <label htmlFor="branding-logo-file" className="btn-secondary cursor-pointer text-sm py-1.5 px-3">
               <Upload className="w-3.5 h-3.5" />
               Upload Logo
-              <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
             </label>
+            <input id="branding-logo-file" type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
           </div>
           <p className="text-[11px] text-zinc-400 mt-1">PNG or JPEG, max 5MB. Used in report headers.</p>
         </div>
 
         <div>
-          <label className="label">Brand Color</label>
+          <label htmlFor="branding-primary-color" className="label">Brand Color</label>
           <div className="flex items-center gap-2">
             <input
+              id="branding-primary-color"
               type="color"
               value={form.primary_color}
               onChange={(e) => setForm({ ...form, primary_color: e.target.value })}
@@ -607,9 +648,11 @@ function BrandingSettings() {
               className="w-10 h-10 rounded border border-zinc-200 cursor-pointer"
             />
             <input
+              id="branding-primary-color-text"
               type="text"
               value={form.primary_color}
               onChange={(e) => setForm({ ...form, primary_color: e.target.value })}
+              aria-label="Brand color hex value"
               className="input w-28 font-mono text-sm"
               placeholder="#2563eb"
             />
@@ -617,8 +660,9 @@ function BrandingSettings() {
         </div>
 
         <div>
-          <label className="label">Report Footer Text</label>
+          <label htmlFor="branding-footer-text" className="label">Report Footer Text</label>
           <textarea
+            id="branding-footer-text"
             value={form.footer_text}
             onChange={(e) => setForm({ ...form, footer_text: e.target.value })}
             className="input min-h-[80px]"
@@ -730,6 +774,7 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
           </div>
           <label className="inline-flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-slate-300">
             <input
+              id="protocol-enabled"
               type="checkbox"
               checked={form.enabled}
               onChange={(e) => setField('enabled', e.target.checked)}
@@ -741,8 +786,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="label">Bind Host</label>
+            <label htmlFor="protocol-bind-host" className="label">Bind Host</label>
             <input
+              id="protocol-bind-host"
               type="text"
               value={form.bind_host}
               onChange={(e) => setField('bind_host', e.target.value)}
@@ -752,8 +798,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
             />
           </div>
           <div>
-            <label className="label">Observer Timeout (seconds)</label>
+            <label htmlFor="protocol-timeout-seconds" className="label">Observer Timeout (seconds)</label>
             <input
+              id="protocol-timeout-seconds"
               type="number"
               min={1}
               max={300}
@@ -764,8 +811,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
             />
           </div>
           <div>
-            <label className="label">DNS Port</label>
+            <label htmlFor="protocol-dns-port" className="label">DNS Port</label>
             <input
+              id="protocol-dns-port"
               type="number"
               min={1}
               max={65535}
@@ -776,8 +824,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
             />
           </div>
           <div>
-            <label className="label">NTP Port</label>
+            <label htmlFor="protocol-ntp-port" className="label">NTP Port</label>
             <input
+              id="protocol-ntp-port"
               type="number"
               min={1}
               max={65535}
@@ -788,8 +837,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
             />
           </div>
           <div>
-            <label className="label">DHCP Port</label>
+            <label htmlFor="protocol-dhcp-port" className="label">DHCP Port</label>
             <input
+              id="protocol-dhcp-port"
               type="number"
               min={1}
               max={65535}
@@ -800,8 +850,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
             />
           </div>
           <div>
-            <label className="label">DHCP Lease Seconds</label>
+            <label htmlFor="protocol-dhcp-lease-seconds" className="label">DHCP Lease Seconds</label>
             <input
+              id="protocol-dhcp-lease-seconds"
               type="number"
               min={60}
               max={86400}
@@ -820,8 +871,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="label">Offer IP</label>
+              <label htmlFor="protocol-dhcp-offer-ip" className="label">Offer IP</label>
               <input
+                id="protocol-dhcp-offer-ip"
                 type="text"
                 value={form.dhcp_offer_ip}
                 onChange={(e) => setField('dhcp_offer_ip', e.target.value)}
@@ -831,8 +883,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
               />
             </div>
             <div>
-              <label className="label">Subnet Mask</label>
+              <label htmlFor="protocol-dhcp-subnet-mask" className="label">Subnet Mask</label>
               <input
+                id="protocol-dhcp-subnet-mask"
                 type="text"
                 value={form.dhcp_subnet_mask}
                 onChange={(e) => setField('dhcp_subnet_mask', e.target.value)}
@@ -842,8 +895,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
               />
             </div>
             <div>
-              <label className="label">Router IP</label>
+              <label htmlFor="protocol-dhcp-router-ip" className="label">Router IP</label>
               <input
+                id="protocol-dhcp-router-ip"
                 type="text"
                 value={form.dhcp_router_ip}
                 onChange={(e) => setField('dhcp_router_ip', e.target.value)}
@@ -853,8 +907,9 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
               />
             </div>
             <div>
-              <label className="label">DNS Server IP</label>
+              <label htmlFor="protocol-dhcp-dns-server" className="label">DNS Server IP</label>
               <input
+                id="protocol-dhcp-dns-server"
                 type="text"
                 value={form.dhcp_dns_server}
                 onChange={(e) => setField('dhcp_dns_server', e.target.value)}

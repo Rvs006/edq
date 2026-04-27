@@ -177,4 +177,25 @@ describe('DevicesPage', () => {
     })
     expect(await screen.findByText('Click a result to open it')).toBeInTheDocument()
   })
+
+  it('rejects malformed and over-wide subnet discovery input before calling the API', async () => {
+    const user = userEvent.setup()
+    renderWithProviders()
+
+    await user.click(screen.getByRole('button', { name: 'Discover' }))
+    await user.click(screen.getByRole('button', { name: 'Subnet Scan' }))
+
+    const subnetInput = screen.getByPlaceholderText('192.168.1.0/24')
+    await user.type(subnetInput, '999.999.999.999/24')
+    await user.click(screen.getByRole('button', { name: 'Start Discovery' }))
+    expect(await screen.findByText('Enter a valid CIDR subnet, for example 192.168.1.0/24.')).toBeInTheDocument()
+
+    await user.clear(subnetInput)
+    await user.type(subnetInput, '10.0.0.0/8')
+    await user.click(screen.getByRole('button', { name: 'Start Discovery' }))
+    // Assert the over-wide subnet error message is shown to the user
+    expect(await screen.findByText(/subnet.*too large|exceeds.*limit/i)).toBeInTheDocument()
+
+    expect(mockDiscoveryScan).not.toHaveBeenCalled()
+  })
 })

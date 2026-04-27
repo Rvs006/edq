@@ -24,6 +24,27 @@ def get_cable_handler(run_id: str) -> "WobblyCableHandler | None":
     return _active_handlers.get(run_id)
 
 
+def _tcp_stack_responded(probe_method: str | None) -> bool:
+    return bool(probe_method) and (
+        probe_method.startswith("tcp:")
+        or probe_method.startswith("tcp_refused:")
+    )
+
+
+def _service_probe_satisfied(
+    probe_method: str | None,
+    known_service_ports: list[int],
+) -> bool:
+    if not probe_method:
+        return False
+    if probe_method.startswith("tcp:"):
+        return True
+    # A refused TCP connection proves the device stack is present. Treat that
+    # as enough only before EDQ has a known open-service baseline; once known
+    # ports exist, refused/closed means the expected service is down.
+    return not known_service_ports and probe_method.startswith("tcp_refused:")
+
+
 class WobblyCableHandler:
     FAIL_THRESHOLD = 2
     RETRY_INTERVAL = 5
@@ -32,12 +53,21 @@ class WobblyCableHandler:
     PING_INTERVAL = 2
     MAX_PING_INTERVAL = 30
     TCP_GRACE_SECONDS = 45
+    SERVICE_WARNING_THRESHOLD = 3
 
-    def __init__(self, ip: str, run_id: str, ws_manager, probe_ports: list[int] | None = None):
+    def __init__(
+        self,
+        ip: str,
+        run_id: str,
+        ws_manager,
+        probe_ports: list[int] | None = None,
+        known_service_ports: list[int] | None = None,
+    ):
         self.ip = ip
         self.run_id = run_id
         self.manager = ws_manager
         self.probe_ports = probe_ports or []
+        self.known_service_ports = known_service_ports or []
         self.is_running = True
         self.is_paused = False
         # When True, the monitor loop will NOT auto-resume even if the
@@ -50,15 +80,27 @@ class WobblyCableHandler:
         # a cable reconnection.  Prevents the "flapping" bug where TCP
         # services haven't started yet but ICMP is already up.
         self._tcp_grace_until: float = 0.0
+        self._service_warning_failures = 0
         # Tracks why the run was paused: "cable" or "service"
         self._pause_reason: str | None = None
         _active_handlers[self.run_id] = self
 
-    def update_probe_ports(self, ports: list[int]) -> None:
+    def update_probe_ports(
+        self,
+        ports: list[int],
+        known_service_ports: list[int] | None = None,
+    ) -> None:
         """Hot-update the port list used for TCP reachability probes."""
         self.probe_ports = ports
+        if known_service_ports is not None:
+            self.known_service_ports = known_service_ports
 
-    def update_target(self, ip: str, probe_ports: list[int] | None = None) -> None:
+    def update_target(
+        self,
+        ip: str,
+        probe_ports: list[int] | None = None,
+        known_service_ports: list[int] | None = None,
+    ) -> None:
         """Hot-update the target IP (and optionally ports) while a run is paused.
 
         This is a synchronous method called from async route handlers that
@@ -77,6 +119,8 @@ class WobblyCableHandler:
             self.ip = ip
         if probe_ports is not None:
             self.probe_ports = probe_ports
+        if known_service_ports is not None:
+            self.known_service_ports = known_service_ports
 
     async def check_connectivity(self, require_tcp: bool = True) -> bool:
         """Return True when the device is reachable.
@@ -86,11 +130,15 @@ class WobblyCableHandler:
         sufficient to prove the cable is connected.
         """
         try:
-            _reachable, probe_method = await probe_device_connectivity(self.ip, self.probe_ports)
+            _reachable, probe_method = await probe_device_connectivity(
+                self.ip,
+                self.probe_ports,
+                trust_icmp_only=True,
+            )
             if not probe_method:
                 return False
             if require_tcp:
-                return probe_method.startswith("tcp:")
+                return _tcp_stack_responded(probe_method)
             return True
         except Exception as exc:
             logger.warning("Connectivity probe error for %s: %s", self.ip, exc)
@@ -104,10 +152,14 @@ class WobblyCableHandler:
         banners when the cable is fine but services are down.
         """
         try:
-            reachable, probe_method = await probe_device_connectivity(self.ip, self.probe_ports)
+            reachable, probe_method = await probe_device_connectivity(
+                self.ip,
+                self.probe_ports,
+                trust_icmp_only=True,
+            )
             if not reachable or not probe_method:
                 return (False, False, None)
-            tcp_ok = probe_method.startswith("tcp:")
+            tcp_ok = _service_probe_satisfied(probe_method, self.known_service_ports)
             return (True, tcp_ok, probe_method)
         except Exception as exc:
             logger.warning("Connectivity probe error for %s: %s", self.ip, exc)
@@ -150,12 +202,16 @@ class WobblyCableHandler:
                         "data": {
                             "reachable": cable_ok,
                             "tcp_reachable": service_ok,
+                            "service_expected": bool(self.known_service_ports),
+                            "probe_method": _probe_method,
                             "consecutive_failures": self.consecutive_failures,
                             "fail_threshold": self.FAIL_THRESHOLD,
                             "paused": self.is_paused,
                             "in_grace": in_grace,
                             "manually_paused": self.is_manually_paused,
                             "pause_reason": self._pause_reason,
+                            "service_unreachable_count": self._service_warning_failures,
+                            "service_warning_threshold": self.SERVICE_WARNING_THRESHOLD,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         },
                     },
@@ -183,10 +239,20 @@ class WobblyCableHandler:
                     probe_interval = self.PING_INTERVAL
 
                     # Cable fine but no TCP services — warn (don't pause)
-                    if not service_ok and not in_grace and not self.is_paused:
-                        await self._broadcast_service_warning()
+                    if (
+                        self.known_service_ports
+                        and not service_ok
+                        and not in_grace
+                        and not self.is_paused
+                    ):
+                        self._service_warning_failures += 1
+                        if self._service_warning_failures == self.SERVICE_WARNING_THRESHOLD:
+                            await self._broadcast_service_warning()
+                    else:
+                        self._service_warning_failures = 0
                 else:
                     # Both ICMP and TCP failed — true cable disconnect
+                    self._service_warning_failures = 0
                     if in_grace:
                         logger.debug(
                             "Probe failed for %s but in grace period (%ds left)",
@@ -220,11 +286,18 @@ class WobblyCableHandler:
         """Pause the test run and broadcast a cable disconnect event."""
         self.is_paused = True
         self._pause_reason = reason
-        logger.warning(
-            "Cable disconnected detected for run %s (device %s) - pausing",
-            self.run_id,
-            self.ip,
-        )
+        if reason == "service":
+            logger.warning(
+                "Service ports unreachable for run %s (device %s) - pausing",
+                self.run_id,
+                self.ip,
+            )
+        else:
+            logger.warning(
+                "Cable disconnected detected for run %s (device %s) - pausing",
+                self.run_id,
+                self.ip,
+            )
 
         try:
             async with async_session() as session:
@@ -255,14 +328,23 @@ class WobblyCableHandler:
             except Exception as exc:
                 logger.warning("Failed to kill active scans for %s: %s", self.ip, exc)
 
+        event_type = "cable_service_unreachable" if reason == "service" else "cable_disconnected"
+        default_message = (
+            "Device is reachable but service ports are unavailable - testing paused"
+            if reason == "service"
+            else "Device connectivity lost - testing paused"
+        )
         await self.manager.broadcast(
             f"test-run:{self.run_id}",
             {
-                "type": "cable_disconnected",
+                "type": event_type,
                 "data": {
                     "run_id": self.run_id,
                     "device_ip": self.ip,
-                    "message": message or "Device connectivity lost - testing paused",
+                    "message": message or default_message,
+                    "reason": reason,
+                    "reachable": reason == "service",
+                    "tcp_reachable": False,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             },
@@ -306,6 +388,7 @@ class WobblyCableHandler:
                     "type": "cable_probe",
                     "data": {
                         "reachable": reachable,
+                        "service_expected": bool(self.known_service_ports),
                         "consecutive_failures": self.consecutive_failures,
                         "fail_threshold": self.FAIL_THRESHOLD,
                         "paused": self.is_paused,
@@ -348,6 +431,7 @@ class WobblyCableHandler:
             self._pause_reason = None
             self.consecutive_failures = 0
             self._tcp_grace_until = time.monotonic() + self.TCP_GRACE_SECONDS
+            self._service_warning_failures = 0
 
     async def _resume_testing(self) -> None:
         """Resume the test run after reconnection (idempotent)."""
@@ -361,6 +445,7 @@ class WobblyCableHandler:
             # Start TCP grace period — don't require TCP for 45s after resume
             # because services need time to bind ports after link-up.
             self._tcp_grace_until = time.monotonic() + self.TCP_GRACE_SECONDS
+            self._service_warning_failures = 0
 
         logger.info("Resuming test run %s after cable reconnection (TCP grace %ds)", self.run_id, self.TCP_GRACE_SECONDS)
 
@@ -442,6 +527,12 @@ class WobblyCableHandler:
                         f"Device {self.ip} responds to ping but no service ports are open. "
                         "The cable is connected — services may be starting up."
                     ),
+                    "reason": "service",
+                    "reachable": True,
+                    "tcp_reachable": False,
+                    "service_expected": bool(self.known_service_ports),
+                    "service_unreachable_count": self._service_warning_failures,
+                    "service_warning_threshold": self.SERVICE_WARNING_THRESHOLD,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             },

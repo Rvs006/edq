@@ -13,7 +13,7 @@ export interface UniversalTest {
 export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U01', name: 'Ping Response', tier: 'automatic', category: 'Network', essential: true },
   { id: 'U02', name: 'MAC Address Vendor Lookup', tier: 'automatic', category: 'Network', essential: true },
-  { id: 'U03', name: 'Switch Negotiation', tier: 'automatic', category: 'Network', essential: false },
+  { id: 'U03', name: 'Switch Negotiation', tier: 'guided_manual', category: 'Network', essential: false },
   { id: 'U04', name: 'DHCP Behaviour', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U05', name: 'IPv6 Support Detection', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U06', name: 'Full TCP Port Scan', tier: 'automatic', category: 'Network', essential: true },

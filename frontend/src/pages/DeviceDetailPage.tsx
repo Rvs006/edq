@@ -81,13 +81,13 @@ export default function DeviceDetailPage() {
   const autoDetectMutation = useMutation({
     mutationFn: () => discoveryApi.scan({ ip_address: device!.ip_address! }),
     onSuccess: (resp) => {
-      queryClient.invalidateQueries({ queryKey: ['device', id] })
       const found = resp.data.devices?.length ?? 0
       if (found > 0) {
+        queryClient.invalidateQueries({ queryKey: ['device', id] })
         toast.success('Device scan complete')
       } else {
         const msg = resp.data.message || 'No device responded at that IP address. Check the cable, power, and network path.'
-        toast(msg)
+        toast.error(msg)
       }
     },
     onError: (err: unknown) => {
@@ -190,6 +190,10 @@ export default function DeviceDetailPage() {
   }
 
   const isDhcpWithoutIp = device.addressing_mode === 'dhcp' && !device.ip_address
+  const autoDetectData = autoDetectMutation.data?.data
+  const autoDetectFound = (autoDetectData?.devices?.length ?? autoDetectData?.devices_found ?? 0) > 0
+  const autoDetectNoDeviceMessage =
+    autoDetectData?.message || 'No device responded at that IP address. Check the cable, power, and network path.'
 
   const infoFields = [
     ['IP Address', device.ip_address || (device.addressing_mode === 'dhcp' ? 'Awaiting DHCP assignment' : null)],
@@ -283,10 +287,16 @@ export default function DeviceDetailPage() {
             )}
           </div>
         </div>
-        {autoDetectMutation.isSuccess && (
+        {autoDetectMutation.isSuccess && autoDetectFound && (
           <div className="mt-3 p-3 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-400 flex items-center gap-2">
             <RefreshCw className="w-4 h-4" />
             Device re-scanned successfully. Information updated.
+          </div>
+        )}
+        {autoDetectMutation.isSuccess && !autoDetectFound && (
+          <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {autoDetectNoDeviceMessage}
           </div>
         )}
         {autoDetectMutation.isError && (

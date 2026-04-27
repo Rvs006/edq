@@ -10,7 +10,7 @@ It replaces fragmented terminal work, spreadsheet transcription, and manual repo
 
 1. Register or discover a device.
 2. Auto-profile the device and load the right qualification setup.
-3. Run 43 universal checks: 29 automated and 14 guided manual.
+3. Run 59 active universal checks: 27 automated and 32 guided manual.
 4. Review findings, overrides, and audit history.
 5. Generate Excel, Word, PDF, or CSV deliverables.
 
@@ -113,10 +113,6 @@ ShieldMyRepo uses a standard letter grade scale:
 Run a full local scan from the repo root with either:
 
 ```bash
-npm run security:scan
-```
-
-```bash
 ./scripts/security-scan.sh
 ```
 
@@ -125,10 +121,6 @@ npm run security:scan
 ```
 
 To regenerate JSON only:
-
-```bash
-npm run security:scan:json
-```
 
 ```bash
 ./scripts/security-scan.sh json
@@ -146,16 +138,6 @@ Check local ShieldMyRepo health with:
 
 Run the full local security flow (doctor -> scan -> doctor) with:
 
-```bash
-npm run security:all
-```
-
-```bash
-npm run security:all:sh
-```
-
-On Windows you can also run the repo-root launcher:
-
 ```powershell
 .\security-all.cmd --no-pause
 ```
@@ -168,13 +150,6 @@ You also have dedicated Windows launchers:
 .\security-doctor.cmd --no-pause
 .\security-scan.cmd --no-pause
 .\security-all.cmd --no-pause
-.\security-update.cmd --no-pause
-```
-
-You can also update the global ShieldMyRepo install with:
-
-```powershell
-npm run security:update
 ```
 
 For the complete security tooling reference, see [SECURITY_TOOLING.md](SECURITY_TOOLING.md).
@@ -212,7 +187,7 @@ Generated outputs are written to:
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.
 - Single-IP discovery uses an AND-gate reachability check: a target must answer **both** a fresh TCP/ICMP probe and nmap's ARP-bypass ping before the full scan runs. This prevents stale-ARP ghost results on recently unplugged devices.
-- Frontend and backend development can run locally outside Docker; the tools sidecar remains Docker-backed on Windows. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
+- Frontend and backend development can run locally outside Docker. Scanner execution is Docker-backed by default, with an explicit Windows host-scanner mode for direct-Ethernet discovery. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
 - Historical product and engineering specs remain in `docs/` as archive material only and should not be treated as the current operational guide.
 
 ## Archived Reference

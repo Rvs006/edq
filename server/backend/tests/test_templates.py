@@ -44,6 +44,19 @@ async def test_create_template_deduplicates_test_ids_preserving_order(client: As
 
 
 @pytest.mark.asyncio
+async def test_create_template_rejects_deprecated_or_unknown_test_ids(client: AsyncClient):
+    headers = await register_and_login(client, "tplrejectdeprecated", role="admin")
+    resp = await client.post("/api/test-templates/", json={
+        "name": "Invalid Template",
+        "test_ids": ["U01", "U36", "UX99"],
+    }, headers=headers)
+
+    assert resp.status_code == 422
+    assert "U36" in resp.text
+    assert "UX99" in resp.text
+
+
+@pytest.mark.asyncio
 async def test_get_template(client: AsyncClient):
     """Get a single template by ID."""
     headers = await register_and_login(client, "tplget", role="admin")
@@ -127,3 +140,6 @@ async def test_get_test_library(client: AsyncClient):
     assert len(library) > 0
     assert "test_id" in library[0]
     assert "name" in library[0]
+    by_id = {test["test_id"]: test for test in library}
+    assert by_id["U03"]["tier"] == "guided_manual"
+    assert "U36" not in by_id

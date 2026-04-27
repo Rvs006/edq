@@ -314,11 +314,18 @@ class NmapParser:
         """Parse `ip neigh show` output for MAC address.
 
         Example output: '192.168.1.10 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE'
+        Windows `arp -a` output is also accepted.
         """
         import re
         mac_match = re.search(r"lladdr\s+([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})", stdout)
         if mac_match:
             return {"mac_address": mac_match.group(1).upper()}
+        mac_match = re.search(
+            r"\b([0-9a-fA-F]{2}(?:[-:][0-9a-fA-F]{2}){5})\b",
+            stdout,
+        )
+        if mac_match:
+            return {"mac_address": mac_match.group(1).replace("-", ":").upper()}
         return {"mac_address": None}
 
     def parse_dhcp_discover(self, xml_output: str) -> dict[str, Any]:

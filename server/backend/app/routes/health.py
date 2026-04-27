@@ -66,10 +66,15 @@ async def prometheus_metrics(request: Request):
     Returns operational metrics in Prometheus text exposition format.
 
     When ``METRICS_API_KEY`` is configured, requests must include
-    ``Authorization: Bearer <key>``.  When no key is set the endpoint
-    remains open for easy Prometheus scraping.
+    ``Authorization: Bearer <key>``. In cloud/production, an API key is
+    required before metrics are exposed.
     """
     # --- auth gate -------------------------------------------------------
+    if settings.ENVIRONMENT == "cloud" and not settings.METRICS_API_KEY:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "METRICS_API_KEY is required in cloud environment"},
+        )
     if settings.METRICS_API_KEY:
         auth_header = request.headers.get("Authorization", "")
         if (

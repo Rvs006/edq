@@ -25,7 +25,7 @@ describe('LandingPage', () => {
     expect(screen.getByText('Automated Security Scans')).toBeInTheDocument()
     expect(screen.getByText('Guided Manual Tests')).toBeInTheDocument()
     expect(screen.getByText('Report Generation')).toBeInTheDocument()
-    expect(screen.getByText('Tools Sidecar')).toBeInTheDocument()
+    expect(screen.getByText('Scanner Agent')).toBeInTheDocument()
     expect(screen.getByText('Review & Audit')).toBeInTheDocument()
   })
 
@@ -63,7 +63,7 @@ describe('LandingPage', () => {
     renderLandingPage()
 
     expect(screen.getByText('What EDQ Does')).toBeInTheDocument()
-    expect(screen.getByText(/60 tests \(29 automated \+ 31 guided manual\)/)).toBeInTheDocument()
+    expect(screen.getByText(/59 active tests \(27 automated \+ 32 guided manual\)/)).toBeInTheDocument()
     expect(screen.getByText(/Export Excel, Word, and PDF reports/)).toBeInTheDocument()
   })
 

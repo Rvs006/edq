@@ -10,7 +10,7 @@ from typing import Any
 
 
 WEAK_TLS_VERSIONS = {"SSLv2", "SSLv3", "TLSv1", "TLSv1.0", "TLSv1.1", "TLS 1", "TLS 1.0", "TLS 1.1"}
-WEAK_CIPHER_KEYWORDS = {"RC4", "DES", "3DES", "NULL", "EXPORT", "anon", "MD5"}
+WEAK_CIPHER_KEYWORDS = {"rc4", "des", "3des", "null", "export", "anon", "md5"}
 
 
 class TestsslParser:
@@ -81,7 +81,7 @@ class TestsslParser:
             elif self._is_cert_entry(item_id):
                 self._process_cert(item_id, finding, result)
             elif item_id.lower() in ("hsts", "hsts_(http_strict_transport_security)"):
-                result["hsts"] = severity not in ("WARN", "HIGH", "CRITICAL", "MEDIUM")
+                result["hsts"] = self._hsts_is_present(finding, severity)
                 if "max-age" in finding.lower():
                     self._extract_hsts_max_age(finding, result)
             elif severity in ("WARN", "HIGH", "CRITICAL", "MEDIUM"):
@@ -132,7 +132,7 @@ class TestsslParser:
             if "sslv2" in line_lower and "offered" in line_lower:
                 result["tls_versions"].append("SSLv2")
                 result["weak_versions"].append("SSLv2")
-            if "hsts" in line_lower and ("yes" in line_lower or "offered" in line_lower):
+            if "hsts" in line_lower and self._hsts_is_present(line, ""):
                 result["hsts"] = True
             if "not valid after" in line_lower or "certificate expires" in line_lower:
                 parts = line.strip().split()
@@ -162,11 +162,13 @@ class TestsslParser:
 
     def _process_protocol(self, item_id: str, finding: str, severity: str, result: dict) -> None:
         version_map = {
-            "sslv2": "SSLv2", "sslv3": "SSLv3",
-            "tls1": "TLSv1.0", "tls1_0": "TLSv1.0",
-            "tls1_1": "TLSv1.1",
-            "tls1_2": "TLSv1.2",
             "tls1_3": "TLSv1.3",
+            "tls1_2": "TLSv1.2",
+            "tls1_1": "TLSv1.1",
+            "tls1_0": "TLSv1.0",
+            "tls1": "TLSv1.0",
+            "sslv3": "SSLv3",
+            "sslv2": "SSLv2",
         }
         item_lower = item_id.lower().replace(" ", "_")
         for key, version in version_map.items():
@@ -185,7 +187,7 @@ class TestsslParser:
         result["ciphers"].append(cipher_info)
         if severity in ("WARN", "HIGH", "CRITICAL", "MEDIUM"):
             result["weak_ciphers"].append(cipher_info)
-        elif any(kw in finding.upper() for kw in WEAK_CIPHER_KEYWORDS):
+        elif any(kw in finding.lower() for kw in WEAK_CIPHER_KEYWORDS):
             result["weak_ciphers"].append(cipher_info)
 
     def _process_cert(self, item_id: str, finding: str, result: dict) -> None:
@@ -209,6 +211,14 @@ class TestsslParser:
         match = re.search(r"max-age[=:]\s*(\d+)", finding, re.IGNORECASE)
         if match:
             result["hsts_max_age"] = int(match.group(1))
+
+    def _hsts_is_present(self, finding: str, severity: str) -> bool:
+        lowered = (finding or "").lower()
+        if any(marker in lowered for marker in ("not offered", "not present", "missing", "disabled", "max-age=0", "max-age: 0")):
+            return False
+        if severity.upper() in ("WARN", "HIGH", "CRITICAL", "MEDIUM"):
+            return False
+        return "yes" in lowered or "offered" in lowered or "max-age" in lowered or severity.upper() in ("OK", "INFO", "LOW")
 
 
 testssl_parser = TestsslParser()

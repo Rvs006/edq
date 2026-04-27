@@ -82,3 +82,53 @@ async def test_start_batch_skips_unreachable_ip(
     saved_scan = await db_session.get(NetworkScan, scan_id)
     assert saved_scan is not None
     assert saved_scan.selected_test_ids == ["U03", "U01", "U02"]
+
+
+@pytest.mark.asyncio
+async def test_start_batch_returns_error_when_all_selected_ips_are_unreachable(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = await register_and_login(client, suffix="ghostbatchall", role="admin")
+    user_result = await db_session.execute(select(User).where(User.username == "ghostbatchalluser"))
+    user_id = user_result.scalar_one().id
+
+    template = TemplateModel(name="ghost-all-template", test_ids=["U01"], version="1.0", is_default=True)
+    db_session.add(template)
+    scan = NetworkScan(
+        cidr="192.168.78.0/24",
+        connection_scenario="test_lab",
+        status=NetworkScanStatus.PENDING,
+        created_by=user_id,
+        devices_found=[{"ip": "192.168.78.10"}],
+    )
+    db_session.add(scan)
+    await db_session.commit()
+
+    async def fake_probe(_ip, *args, **kwargs):
+        return (False, "icmp_only_untrusted")
+
+    def fail_launch(_run_id, test_plan_id=None):
+        raise AssertionError("No test run should be launched when all selected IPs are unreachable")
+
+    monkeypatch.setattr("app.routes.network_scan.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.routes.network_scan.launch_test_run", fail_launch)
+
+    resp = await client.post(
+        "/api/v1/network-scan/start",
+        json={
+            "scan_id": scan.id,
+            "device_ips": ["192.168.78.10"],
+            "test_ids": ["U01"],
+            "connection_scenario": "test_lab",
+        },
+        headers=headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "error"
+    assert body["run_ids"] == []
+    assert body["skipped_unreachable"] == ["192.168.78.10"]
+    assert "No selected devices were reachable" in body["error_message"]

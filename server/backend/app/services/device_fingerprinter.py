@@ -148,6 +148,8 @@ class DeviceFingerprinter:
         device_id: str,
         u08_data: dict[str, Any],
         u02_data: dict[str, Any],
+        *,
+        allow_port_skips: bool = True,
     ) -> FingerprintResult:
         """Run fingerprinting and return which tests to skip.
 
@@ -169,8 +171,14 @@ class DeviceFingerprinter:
         if result is None:
             result = self._heuristic_classify(open_ports, services, vendor)
 
-        # 3. Compute which tests to skip based on detected ports
-        port_skip_reasons = self._compute_port_skips(open_ports, services)
+        # 3. Compute which tests to skip based on detected ports.
+        # If the scan feeding the fingerprinter failed, absence of ports is
+        # unknown, not proof that the device lacks HTTP/SSH/TLS.
+        port_skip_reasons = (
+            self._compute_port_skips(open_ports, services)
+            if allow_port_skips
+            else {}
+        )
         # Merge profile-level skips (no specific reason) with port-based skips
         for tid in result.skip_test_ids:
             if tid not in port_skip_reasons:
@@ -339,6 +347,14 @@ class DeviceFingerprinter:
         Returns a dict mapping test_id → human-readable skip reason.
         """
         skips: dict[str, str] = {}
+        services = services or {}
+
+        def _has_service_port(*keywords: str, common_ports: set[int] | None = None) -> bool:
+            common_ports = common_ports or set()
+            if open_ports & common_ports:
+                return True
+            lowered = [svc.lower() for svc in services.values()]
+            return any(any(keyword in svc for keyword in keywords) for svc in lowered)
 
         # No HTTPS/TLS → skip TLS tests. Check port 443 first, then any HTTPS service.
         has_https = 443 in open_ports
@@ -353,31 +369,24 @@ class DeviceFingerprinter:
             for tid in ("U10", "U11", "U12", "U13"):
                 skips[tid] = reason
 
-        # No SSH (22) → skip SSH audit
-        if 22 not in open_ports:
-            skips["U15"] = "Skipped — port 22 (SSH) is not open on this device."
+        # No SSH service → skip SSH audit
+        if not _has_service_port("ssh", common_ports={22}):
+            skips["U15"] = "Skipped — no SSH service detected on this device."
 
-        # No RTSP (554) → skip RTSP auth test
-        if 554 not in open_ports:
-            skips["U37"] = "Skipped — port 554 (RTSP) is not open on this device. No video stream to test."
+        # No RTSP service → skip RTSP auth test
+        if not _has_service_port("rtsp", common_ports={554, 8554}):
+            skips["U37"] = "Skipped — no RTSP service detected on this device. No video stream to test."
 
         # No HTTP at all → skip HTTP-specific tests
-        if 80 not in open_ports and 443 not in open_ports:
-            reason = "Skipped — no HTTP/HTTPS service detected (ports 80 and 443 both closed)."
+        has_http = _has_service_port(
+            "http",
+            "www",
+            common_ports={80, 443, 8000, 8008, 8080, 8081, 8443, 8888},
+        )
+        if not has_http:
+            reason = "Skipped — no HTTP/HTTPS service detected."
             for tid in ("U14", "U16", "U17", "U18", "U35"):
                 skips[tid] = reason
-
-        # No SNMP → skip SNMP version check
-        if 161 not in open_ports and 162 not in open_ports:
-            skips["U31"] = "Skipped — ports 161/162 (SNMP) are not open on this device."
-
-        # No UPnP → skip UPnP check
-        if 1900 not in open_ports:
-            skips["U32"] = "Skipped — port 1900 (UPnP/SSDP) is not open on this device."
-
-        # No mDNS → skip mDNS check
-        if 5353 not in open_ports:
-            skips["U33"] = "Skipped — port 5353 (mDNS/Bonjour) is not open on this device."
 
         return skips
 

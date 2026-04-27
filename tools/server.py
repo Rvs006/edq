@@ -1,18 +1,23 @@
-"""EDQ Tools Sidecar — REST API wrapper for security scanning tools."""
+"""EDQ scanner agent — REST API wrapper for security scanning tools."""
 
 import base64
+import errno
 import hmac
 import ipaddress
+import json
 import os
+import platform
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import tempfile
 import threading
 import time
 
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple, Union
 
 from functools import wraps
@@ -133,7 +138,7 @@ ALLOWED_NMAP_SCRIPTS = frozenset({
     "ssl-cert", "ssl-enum-ciphers", "ssh-hostkey", "ssh2-enum-algos",
     "smb-os-discovery", "smb-protocols", "smb-security-mode",
     "snmp-info", "snmp-brute", "ftp-anon", "telnet-encryption",
-    "nbstat", "ntp-info", "dns-zone-transfer",
+    "nbstat", "ntp-info", "dns-zone-transfer", "bacnet-info",
     # Additional protocol scripts
     "upnp-info",
     "dhcp-discover",
@@ -144,8 +149,8 @@ ALLOWED_FLAGS = {
     "nmap": {
         "-sn", "-sS", "-sT", "-sU", "-sV", "-sC", "-A", "-O", "-Pn", "-p", "-p-",
         "-T0", "-T1", "-T2", "-T3", "-T4", "-T5", "--top-ports", "--open",
-        "-v", "-vv", "--version-intensity",
-        "--script", "-F", "-n", "-R", "-6", "--max-rate", "-", "-oX",
+        "-v", "-vv", "--version-intensity", "--stats-every",
+        "--script", "-F", "-n", "-R", "-6", "--max-rate", "--privileged", "-", "-oX",
         "--min-rate", "--max-retries", "--defeat-rst-ratelimit", "--send-ip", "-PR", "-e",
         "--host-timeout", "--traceroute", "--osscan-guess",
         # Host-discovery probe types — needed to reliably find devices whose
@@ -266,6 +271,174 @@ def _lookup_mac_vendor(mac: str) -> str | None:
     return _load_mac_vendor_cache().get(prefix)
 
 
+def _running_in_docker() -> bool:
+    if os.path.exists("/.dockerenv"):
+        return True
+
+    try:
+        with open("/proc/1/cgroup", encoding="utf-8", errors="ignore") as handle:
+            cgroup = handle.read().lower()
+        return any(marker in cgroup for marker in ("docker", "containerd", "kubepods"))
+    except OSError:
+        return False
+
+
+def _runtime_info() -> dict[str, str | bool]:
+    in_docker = _running_in_docker()
+    return {
+        "os": platform.system() or os.name,
+        "platform": platform.platform(),
+        "in_docker": in_docker,
+        "scanner_mode": "docker" if in_docker else "host",
+    }
+
+
+def _is_windows() -> bool:
+    return os.name == "nt" or platform.system().lower().startswith("windows")
+
+
+def _env_truthy(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_windows_ipconfig(stdout: str) -> list[dict[str, str]]:
+    interfaces: list[dict[str, str]] = []
+    current_name = ""
+    current_ip = ""
+    current_mask = ""
+
+    def flush_current() -> None:
+        nonlocal current_ip, current_mask
+        if not current_ip or not current_mask:
+            return
+        try:
+            ip_obj = ipaddress.ip_address(current_ip)
+            network = ipaddress.ip_network(f"{current_ip}/{current_mask}", strict=False)
+        except ValueError:
+            return
+        if ip_obj.is_loopback or network.prefixlen == 32:
+            return
+        interfaces.append(
+            {
+                "label": current_name or f"Host Interface ({network})",
+                "type": "direct" if ip_obj.is_link_local else "ethernet",
+                "cidr": str(network),
+                "host_ip": current_ip,
+            }
+        )
+
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        adapter_match = re.match(r"^(?:.+\s)?adapter\s+(.+):$", line, re.IGNORECASE)
+        if adapter_match:
+            flush_current()
+            current_name = adapter_match.group(1).strip()
+            current_ip = ""
+            current_mask = ""
+            continue
+
+        if "IPv4 Address" in line or line.lower().startswith("ipv4"):
+            ip_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
+            if ip_match:
+                current_ip = ip_match.group(1)
+            continue
+
+        if "Subnet Mask" in line:
+            mask_match = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})", line)
+            if mask_match:
+                current_mask = mask_match.group(1)
+
+    flush_current()
+    return interfaces
+
+
+def _detect_host_interfaces() -> tuple[list[dict], str | None, dict]:
+    interfaces: list[dict] = []
+    debug: dict = {"mode": "host_interfaces"}
+
+    if _is_windows() and shutil.which("ipconfig"):
+        try:
+            result = subprocess.run(
+                ["ipconfig", "/all"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=10,
+            )
+            debug["ipconfig_exit_code"] = result.returncode
+            for item in _parse_windows_ipconfig(result.stdout):
+                network = ipaddress.ip_network(item["cidr"], strict=False)
+                host_ip = item["host_ip"]
+                interfaces.append(
+                    {
+                        "label": item["label"],
+                        "type": item["type"],
+                        "cidr": str(network),
+                        "hosts_found": 1,
+                        "sample_hosts": [host_ip],
+                        "reachable": True,
+                    }
+                )
+        except Exception as exc:
+            debug["ipconfig_error"] = str(exc)
+
+    elif shutil.which("ip"):
+        try:
+            result = subprocess.run(
+                ["ip", "-o", "-4", "addr", "show", "scope", "global"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            debug["ip_addr_exit_code"] = result.returncode
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) < 4 or parts[2] != "inet":
+                    continue
+                device = parts[1]
+                address = parts[3]
+                try:
+                    interface = ipaddress.ip_interface(address)
+                except ValueError:
+                    continue
+                network = interface.network
+                if interface.ip.is_loopback:
+                    continue
+                interfaces.append(
+                    {
+                        "label": f"{device} ({network})",
+                        "type": "direct" if interface.ip.is_link_local else "ethernet",
+                        "cidr": str(network),
+                        "hosts_found": 1,
+                        "sample_hosts": [str(interface.ip)],
+                        "reachable": True,
+                    }
+                )
+        except Exception as exc:
+            debug["ip_addr_error"] = str(exc)
+
+    seen_cidrs: set[str] = set()
+    deduped: list[dict] = []
+    host_ip = None
+    for interface in interfaces:
+        cidr = interface.get("cidr")
+        if not cidr or cidr in seen_cidrs:
+            continue
+        seen_cidrs.add(cidr)
+        deduped.append(interface)
+        sample_hosts = interface.get("sample_hosts") or []
+        if not host_ip and sample_hosts:
+            host_ip = sample_hosts[0]
+
+    return deduped, host_ip, debug
+
+
 def _parse_neighbor_table(stdout: str, subnet: str | None = None) -> list[dict[str, str | None]]:
     network = None
     if subnet:
@@ -276,15 +449,21 @@ def _parse_neighbor_table(stdout: str, subnet: str | None = None) -> list[dict[s
 
     entries: list[dict[str, str | None]] = []
     seen_ips: set[str] = set()
+    current_device = None
 
     for raw_line in stdout.splitlines():
         line = raw_line.strip()
         if not line:
             continue
 
+        interface_match = re.match(r"^Interface:\s+(?P<dev>.+?)\s+---", line, re.IGNORECASE)
+        if interface_match:
+            current_device = interface_match.group("dev").strip()
+            continue
+
         ip = None
         mac = None
-        device = None
+        device = current_device
         state = None
 
         parts = line.split()
@@ -304,6 +483,8 @@ def _parse_neighbor_table(stdout: str, subnet: str | None = None) -> list[dict[s
                 mac_index = parts.index("lladdr")
                 if mac_index + 1 < len(parts):
                     mac = _normalize_mac_address(parts[mac_index + 1])
+            if not mac and len(parts) >= 2:
+                mac = _normalize_mac_address(parts[1])
             last_token = parts[-1].strip().upper()
             if last_token.isalpha():
                 state = last_token
@@ -331,6 +512,8 @@ def _parse_neighbor_table(stdout: str, subnet: str | None = None) -> list[dict[s
             continue
 
         if not mac or state in {"INCOMPLETE", "FAILED"}:
+            continue
+        if mac == "FF:FF:FF:FF:FF:FF":
             continue
 
         entries.append(
@@ -366,6 +549,24 @@ def _validate_target(target: str) -> str:
     if not _is_valid_target(target):
         raise ValueError(f"Invalid target format: {target}")
     return target
+
+
+def _validate_testssl_target(target: str) -> str:
+    target = target.strip()
+    if _is_valid_target(target):
+        return target
+    host = ""
+    port_text = ""
+    if target.startswith("[") and "]:" in target:
+        host, port_text = target[1:].split("]:", 1)
+    elif target.count(":") == 1:
+        host, port_text = target.rsplit(":", 1)
+    if not host or not port_text.isdigit():
+        raise ValueError(f"Invalid target format: {target}")
+    port = int(port_text)
+    if port < 1 or port > 65535 or not _is_valid_target(host):
+        raise ValueError(f"Invalid target format: {target}")
+    return f"{host}:{port}"
 
 
 def _validate_targets(target: str) -> str:
@@ -494,6 +695,41 @@ def _validate_args_for_tool(args: list, tool_name: str) -> list:
     return sanitised
 
 
+def _is_ip_or_cidr_arg(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        pass
+    try:
+        ipaddress.ip_network(value, strict=False)
+        return "/" in value
+    except ValueError:
+        return False
+
+
+def _validate_no_extra_ip_targets(args: list[str], target: str, tool_name: str) -> None:
+    allowed_targets = set(target.split())
+    extras = [
+        arg for arg in args
+        if _is_ip_or_cidr_arg(arg) and arg not in allowed_targets
+    ]
+    if extras:
+        raise ValueError(
+            f"Unexpected positional target(s) in {tool_name} args: {', '.join(extras[:3])}"
+        )
+
+
+def _validate_hydra_target_arg(target: str, args: list[str]) -> None:
+    try:
+        ipaddress.ip_address(target)
+    except ValueError:
+        return
+    target_args = [arg for arg in args if _is_ip_or_cidr_arg(arg)]
+    if target_args != [target]:
+        raise ValueError("Hydra args must include exactly the validated target and no other IP/CIDR targets")
+
+
 def _run_tool(cmd: list, timeout: int, target: str = "") -> dict:
     start = time.time()
     proc = None
@@ -554,7 +790,12 @@ def _parse_scan_request(tool_name=None):
         return None, None, None, ("Missing 'target' field", 400)
 
     try:
-        target = _validate_targets(target) if tool_name == "nmap" else _validate_target(target)
+        if tool_name == "nmap":
+            target = _validate_targets(target)
+        elif tool_name == "testssl":
+            target = _validate_testssl_target(target)
+        else:
+            target = _validate_target(target)
     except ValueError as e:
         return None, None, None, (str(e), 400)
 
@@ -564,6 +805,8 @@ def _parse_scan_request(tool_name=None):
             args = _validate_args_for_tool(args, tool_name)
         else:
             args = _validate_args(args)
+        if tool_name in {"nmap", "testssl", "ssh-audit", "nikto", "snmpwalk"}:
+            _validate_no_extra_ip_targets(args, target, tool_name)
     except ValueError as e:
         return None, None, None, (str(e), 400)
 
@@ -575,21 +818,35 @@ def _parse_scan_request(tool_name=None):
     return target, args, timeout, None
 
 
-ESSENTIAL_TOOLS = {"nmap", "ssh_audit"}
+ESSENTIAL_TOOLS = {"nmap", "testssl", "ssh_audit", "hydra", "nikto", "snmpwalk"}
 
 
 # ---------------------------------------------------------------------------
 # Concurrency limit — max concurrent subprocess scans
 # ---------------------------------------------------------------------------
-MAX_CONCURRENT_SCANS = int(os.environ.get("MAX_CONCURRENT_SCANS", "10"))
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        app.logger.warning("Invalid integer for %s; using %d", name, default)
+        return default
+
+
+_TOOL_VERSION_CACHE_TTL = _env_int("EDQ_TOOL_VERSION_CACHE_SECONDS", 300)
+_TOOL_VERSION_TIMEOUT_SECONDS = _env_int("EDQ_TOOL_VERSION_TIMEOUT_SECONDS", 2)
+_tool_version_cache: dict[str, object] = {"versions": None, "ts": 0.0}
+_tool_version_lock = threading.Lock()
+
+
+MAX_CONCURRENT_SCANS = _env_int("MAX_CONCURRENT_SCANS", 10)
 _scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
 
 
 # ---------------------------------------------------------------------------
-# Per-target rate limiter — max 30 scans per target per minute
+# Per-target rate limiter — configurable max scans per target per minute.
 # ---------------------------------------------------------------------------
-_RATE_LIMIT_MAX = 30
-_RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_MAX = _env_int("EDQ_TOOLS_RATE_LIMIT_PER_TARGET_PER_MINUTE", 120)
+_RATE_LIMIT_WINDOW = _env_int("EDQ_TOOLS_RATE_LIMIT_WINDOW_SECONDS", 60)
 _rate_limit_store: dict[str, list[float]] = defaultdict(list)
 _rate_limit_lock = threading.Lock()
 
@@ -608,6 +865,12 @@ def _check_rate_limit(target: str) -> bool:
         return True
 
 
+def _rate_limit_response() -> tuple[Response, int]:
+    return jsonify({
+        "error": f"Rate limit exceeded: max {_RATE_LIMIT_MAX} scans per target per {_RATE_LIMIT_WINDOW}s"
+    }), 429
+
+
 @app.route("/health", methods=["GET"])
 def health() -> Response:
     tools_status = {}
@@ -615,24 +878,38 @@ def health() -> Response:
         tools_status[key] = _tool_available(binary)
 
     overall = "healthy" if all(tools_status.get(k) for k in ESSENTIAL_TOOLS) else "degraded"
-    return jsonify({"status": overall, "tools": tools_status})
+    return jsonify({"status": overall, "tools": tools_status, "runtime": _runtime_info()})
 
 
-def _tcp_probe(ip: str, ports: tuple = (80, 443, 53, 22, 8080, 8443), timeout: float = 1.5) -> bool:
+@app.route("/", methods=["GET"])
+def root() -> Response:
+    """Browser-friendly scanner status page."""
+    return jsonify({
+        "service": "EDQ scanner agent",
+        "status_endpoint": "/health",
+        "authenticated_endpoints": [
+            "/versions",
+            "/detect-networks",
+            "/scan/nmap",
+            "/scan/ping",
+            "/scan/tcp-probe",
+            "/scan/neighbors",
+        ],
+        "note": "Use /health in a browser. Scan endpoints require X-Tools-Key.",
+        "runtime": _runtime_info(),
+    })
+
+
+_NETWORK_DETECT_TCP_PORTS = (80, 443, 22, 445)
+_NETWORK_DETECT_TCP_TIMEOUT = 0.2
+
+
+def _tcp_probe(ip: str, ports: tuple = (80, 443, 53, 22, 8080, 8443), timeout: float = 0.35) -> bool:
     """Quick TCP connect probe — returns True if any port responds."""
-    import socket as _sock
     for port in ports:
-        try:
-            s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
-            s.settimeout(timeout)
-            s.connect((ip, port))
-            s.close()
+        _probed_port, state = _tcp_probe_port_detail(ip, port, timeout)
+        if state in {"open", "refused"}:
             return True
-        except (OSError, _sock.timeout):
-            try:
-                s.close()
-            except Exception:
-                pass
     return False
 
 
@@ -686,6 +963,21 @@ def detect_networks() -> Response:
     interfaces: list[dict] = []
     host_ip = None
     debug_info: dict = {}
+    in_docker = _running_in_docker()
+
+    if not in_docker:
+        interfaces, host_ip, debug_info = _detect_host_interfaces()
+        return jsonify({
+            "interfaces": interfaces,
+            "host_ip": host_ip,
+            "in_docker": False,
+            "scanner_mode": "host",
+            "scan_recommendation": (
+                "Host scanner detected. Discovery, TCP probes, ARP lookup, and "
+                "interface detection run from the host network namespace."
+            ),
+            "debug": debug_info,
+        })
 
     # -- Step 1: Resolve the Docker host IP --
     try:
@@ -706,9 +998,16 @@ def detect_networks() -> Response:
         ]
         for cidr, probe_ips in candidates:
             # Fast path: try Python socket probe first (faster than nmap)
-            reachable_via_socket = any(_tcp_probe(ip) for ip in probe_ips)
-            if reachable_via_socket:
-                found_ips = [ip for ip in probe_ips if _tcp_probe(ip)]
+            found_ips = [
+                ip
+                for ip in probe_ips
+                if _tcp_probe(
+                    ip,
+                    ports=_NETWORK_DETECT_TCP_PORTS,
+                    timeout=_NETWORK_DETECT_TCP_TIMEOUT,
+                )
+            ]
+            if found_ips:
                 label = f"Office/VPN ({cidr})" if cidr.startswith("10.") else f"Local Network ({cidr})"
                 interfaces.append({
                     "label": label,
@@ -720,12 +1019,15 @@ def detect_networks() -> Response:
                 })
                 continue
 
+            if not _env_truthy("EDQ_DETECT_NETWORKS_DEEP_SCAN"):
+                continue
+
             # Slow path: try nmap TCP connect if socket probe failed
             try:
                 result = subprocess.run(
                     ["nmap", "-sT", "-Pn", "--top-ports", "10", "-T4",
-                     "--max-retries", "1", "--host-timeout", "5s"] + probe_ips,
-                    capture_output=True, text=True, timeout=15,
+                     "--max-retries", "0", "--host-timeout", "2s"] + probe_ips,
+                    capture_output=True, text=True, timeout=5,
                 )
                 if "open" in result.stdout:
                     found_ips = []
@@ -779,7 +1081,11 @@ def detect_networks() -> Response:
             cidr = sub["cidr"]
             gateway = sub.get("gateway")
             # Verify the gateway is reachable via TCP probe
-            if gateway and _tcp_probe(gateway):
+            if gateway and _tcp_probe(
+                gateway,
+                ports=_NETWORK_DETECT_TCP_PORTS,
+                timeout=_NETWORK_DETECT_TCP_TIMEOUT,
+            ):
                 label = f"Local Network ({cidr})"
                 if cidr.startswith("10."):
                     label = f"Office/VPN ({cidr})"
@@ -801,7 +1107,11 @@ def detect_networks() -> Response:
                 ("10.0.0.0/24", ["10.0.0.1"]),
             ]:
                 for gw in gateways:
-                    if _tcp_probe(gw, timeout=2.0):
+                    if _tcp_probe(
+                        gw,
+                        ports=_NETWORK_DETECT_TCP_PORTS,
+                        timeout=_NETWORK_DETECT_TCP_TIMEOUT,
+                    ):
                         interfaces.append({
                             "label": f"Local Network ({cidr})",
                             "type": "ethernet",
@@ -815,44 +1125,223 @@ def detect_networks() -> Response:
                     break
 
     # -- Step 4: Link-local detection (direct Cat6 cable — 169.254.x.x) --
-    try:
-        result = subprocess.run(
-            ["nmap", "-sn", "169.254.0.0/16", "--max-retries", "0", "-T5"],
-            capture_output=True, text=True, timeout=10,
-        )
-        link_local_hosts = result.stdout.count("Nmap scan report for")
-        if link_local_hosts > 0:
-            found_ips = []
-            for line in result.stdout.splitlines():
-                if "Nmap scan report for" in line:
-                    parts = line.split()
-                    ip_part = parts[-1].strip("()")
-                    if ip_part.startswith("169.254."):
-                        found_ips.append(ip_part)
-            if found_ips:
-                interfaces.append({
-                    "label": "Direct Cable Connection (link-local)",
-                    "type": "direct",
-                    "cidr": "169.254.0.0/16",
-                    "hosts_found": len(found_ips),
-                    "sample_hosts": found_ips[:5],
-                    "reachable": True,
-                })
-    except (subprocess.TimeoutExpired, Exception):
-        pass
-
-    # Detect if running in Docker (for scan flag recommendations)
-    in_docker = os.path.exists("/.dockerenv") or os.path.isfile("/proc/1/cgroup")
+    if _env_truthy("EDQ_DETECT_LINK_LOCAL_SCAN"):
+        try:
+            result = subprocess.run(
+                ["nmap", "-sn", "169.254.0.0/16", "--max-retries", "0", "-T5"],
+                capture_output=True, text=True, timeout=10,
+            )
+            link_local_hosts = result.stdout.count("Nmap scan report for")
+            if link_local_hosts > 0:
+                found_ips = []
+                for line in result.stdout.splitlines():
+                    if "Nmap scan report for" in line:
+                        parts = line.split()
+                        ip_part = parts[-1].strip("()")
+                        if ip_part.startswith("169.254."):
+                            found_ips.append(ip_part)
+                if found_ips:
+                    interfaces.append({
+                        "label": "Direct Cable Connection (link-local)",
+                        "type": "direct",
+                        "cidr": "169.254.0.0/16",
+                        "hosts_found": len(found_ips),
+                        "sample_hosts": found_ips[:5],
+                        "reachable": True,
+                    })
+        except (subprocess.TimeoutExpired, Exception):
+            pass
 
     return jsonify({
         "interfaces": interfaces,
         "host_ip": host_ip,
         "in_docker": in_docker,
+        "scanner_mode": "docker" if in_docker else "host",
         "scan_recommendation": (
             "Docker detected — EDQ will prefer raw SYN scans when privileges are available, "
             "otherwise it falls back to TCP connect (-sT -Pn)."
         ) if in_docker else None,
         "debug": debug_info,
+    })
+
+
+_TCP_REFUSED_ERRNOS = {
+    errno.ECONNREFUSED,
+    errno.ECONNRESET,
+    10061,  # WSAECONNREFUSED
+    10054,  # WSAECONNRESET
+}
+
+
+def _validate_tcp_ports(raw_ports) -> list[int]:
+    if raw_ports is None:
+        raw_ports = [80, 443, 22, 23, 554, 8080, 8443, 1883, 8883, 502, 47808]
+    if not isinstance(raw_ports, list):
+        raise ValueError("'ports' must be a list")
+
+    ports: list[int] = []
+    seen: set[int] = set()
+    for raw_port in raw_ports:
+        try:
+            port = int(raw_port)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid TCP port: {raw_port}")
+        if port < 1 or port > 65535:
+            raise ValueError(f"Invalid TCP port: {port}")
+        if port not in seen:
+            seen.add(port)
+            ports.append(port)
+        if len(ports) >= 100:
+            break
+
+    if not ports:
+        raise ValueError("At least one TCP port is required")
+    return ports
+
+
+def _expand_tcp_probe_targets(target: str, max_hosts: int) -> list[str]:
+    target = str(target or "").strip()
+    if not target:
+        raise ValueError("Missing 'target' field")
+
+    tokens = target.split()
+    if len(tokens) > 1:
+        if len(tokens) > max_hosts:
+            raise ValueError(f"Too many probe targets; max {max_hosts}")
+        expanded: list[str] = []
+        for token in tokens:
+            if not _is_valid_target(token):
+                raise ValueError(f"Invalid target format: {token}")
+            expanded.append(token)
+        return expanded
+
+    if not _is_valid_target(target):
+        raise ValueError(f"Invalid target format: {target}")
+
+    try:
+        network = ipaddress.ip_network(target, strict=False)
+    except ValueError:
+        return [target]
+
+    addresses = list(network) if network.prefixlen >= 31 else list(network.hosts())
+    if len(addresses) > max_hosts:
+        raise ValueError(f"Target expands to {len(addresses)} hosts; max {max_hosts}")
+    return [str(address) for address in addresses]
+
+
+def _tcp_probe_port_detail(ip: str, port: int, timeout: float) -> tuple[int, str]:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(timeout)
+        result = sock.connect_ex((ip, port))
+        if result == 0:
+            return port, "open"
+        if result in _TCP_REFUSED_ERRNOS:
+            return port, "refused"
+        return port, "none"
+    except OSError as exc:
+        if getattr(exc, "errno", None) in _TCP_REFUSED_ERRNOS:
+            return port, "refused"
+        return port, "none"
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+
+def _tcp_probe_host_detail(
+    ip: str,
+    ports: list[int],
+    timeout: float,
+    stop_on_first_open: bool = False,
+) -> dict:
+    responses: list[dict] = []
+    open_ports: list[dict] = []
+    first_refused_port: int | None = None
+
+    for port in ports:
+        probed_port, state = _tcp_probe_port_detail(ip, port, timeout)
+        responses.append({"port": probed_port, "state": state})
+        if state == "open":
+            open_ports.append({"port": probed_port, "service": "", "version": ""})
+            if stop_on_first_open:
+                break
+        elif state == "refused" and first_refused_port is None:
+            first_refused_port = probed_port
+
+    reachable = bool(open_ports) or first_refused_port is not None
+    source = None
+    if open_ports:
+        source = f"tcp:{open_ports[0]['port']}"
+    elif first_refused_port is not None:
+        source = f"tcp_refused:{first_refused_port}"
+
+    return {
+        "ip": ip,
+        "reachable": reachable,
+        "source": source,
+        "open_ports": open_ports,
+        "responses": responses,
+    }
+
+
+@app.route("/scan/tcp-probe", methods=["POST"])
+@require_api_key
+def scan_tcp_probe() -> Union[Response, Tuple[Response, int]]:
+    """Probe TCP reachability from the scanner agent network namespace."""
+    data = request.get_json(force=True, silent=True)
+    if not data or not data.get("target"):
+        return jsonify({"error": "Missing 'target' field"}), 400
+
+    try:
+        max_hosts = min(max(int(data.get("max_hosts", 1024)), 1), 4096)
+        concurrency = min(max(int(data.get("concurrency", 64)), 1), 256)
+        connect_timeout = min(max(float(data.get("connect_timeout", 1.0)), 0.1), 10.0)
+        stop_on_first_open = bool(data.get("stop_on_first_open", False))
+        ports = _validate_tcp_ports(data.get("ports"))
+        targets = _expand_tcp_probe_targets(str(data["target"]), max_hosts)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    rate_key = targets[0] if targets else str(data["target"])
+    if not _check_rate_limit(rate_key):
+        return _rate_limit_response()
+
+    started = time.time()
+    results_by_ip: dict[str, dict] = {}
+    workers = min(concurrency, max(len(targets), 1))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(
+                _tcp_probe_host_detail,
+                ip,
+                ports,
+                connect_timeout,
+                stop_on_first_open,
+            ): ip
+            for ip in targets
+        }
+        for future in as_completed(future_map):
+            ip = future_map[future]
+            try:
+                results_by_ip[ip] = future.result()
+            except Exception as exc:
+                results_by_ip[ip] = {
+                    "ip": ip,
+                    "reachable": False,
+                    "source": None,
+                    "open_ports": [],
+                    "responses": [],
+                    "error": str(exc),
+                }
+
+    hosts = [results_by_ip[ip] for ip in targets if ip in results_by_ip]
+    return jsonify({
+        "target": str(data["target"]),
+        "ports": ports,
+        "hosts": hosts,
+        "duration_seconds": round(time.time() - started, 2),
     })
 
 
@@ -867,7 +1356,7 @@ def scan_nmap() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "nmap not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
@@ -891,7 +1380,7 @@ def scan_testssl() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "testssl.sh not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
@@ -927,7 +1416,7 @@ def scan_ssh_audit() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "ssh-audit not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
@@ -958,16 +1447,19 @@ def scan_hydra() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "hydra not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
 
     try:
         # Do not append target — the caller includes target+service in args
+        _validate_hydra_target_arg(target, args)
         cmd = ["hydra"] + args
         result = _run_tool(cmd, timeout, target=target)
         return jsonify(result)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     finally:
         _scan_semaphore.release()
 
@@ -983,7 +1475,7 @@ def scan_nikto() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "nikto not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
@@ -1007,7 +1499,7 @@ def scan_snmpwalk() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": "snmpwalk not available"}), 503
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
@@ -1033,7 +1525,7 @@ def scan_ping() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": str(e)}), 400
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     try:
         count = min(int(data.get("count", 3)), 10)
@@ -1041,7 +1533,7 @@ def scan_ping() -> Union[Response, Tuple[Response, int]]:
     except (TypeError, ValueError):
         return jsonify({"error": "'count' and 'timeout' must be integers"}), 400
 
-    cmd = ["ping", "-c", str(count), "-W", "2", target]
+    cmd = ["ping", "-n", str(count), "-w", "2000", target] if _is_windows() else ["ping", "-c", str(count), "-W", "2", target]
     result = _run_tool(cmd, timeout)
     return jsonify(result)
 
@@ -1060,13 +1552,22 @@ def scan_arp_cache() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"error": str(e)}), 400
 
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     # Step 1: ping to populate ARP cache
-    _run_tool(["ping", "-c", "1", "-W", "2", target], timeout=5)
+    ping_cmd = ["ping", "-n", "1", "-w", "2000", target] if _is_windows() else ["ping", "-c", "1", "-W", "2", target]
+    _run_tool(ping_cmd, timeout=5)
 
     # Step 2: read ARP cache
-    result = _run_tool(["ip", "neigh", "show", target], timeout=5)
+    if _is_windows() and shutil.which("arp"):
+        result = _run_tool(["arp", "-a", target], timeout=5)
+    elif shutil.which("ip"):
+        result = _run_tool(["ip", "neigh", "show", target], timeout=5)
+    elif shutil.which("arp"):
+        result = _run_tool(["arp", "-an"], timeout=5)
+    else:
+        return jsonify({"error": "Neighbor table tool unavailable"}), 503
+    result["entries"] = _parse_neighbor_table(result.get("stdout", ""), target)
     return jsonify(result)
 
 
@@ -1083,7 +1584,7 @@ def scan_neighbors() -> Union[Response, Tuple[Response, int]]:
 
     rate_key = subnet or "__neighbors__"
     if not _check_rate_limit(rate_key):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
 
     if shutil.which("ip"):
         result = _run_tool(["ip", "neigh", "show"], timeout=5)
@@ -1118,6 +1619,13 @@ def scan_mac_vendor() -> Union[Response, Tuple[Response, int]]:
 @require_api_key
 def tool_versions() -> Response:
     """Return installed tool versions."""
+    now = time.time()
+    with _tool_version_lock:
+        cached_versions = _tool_version_cache.get("versions")
+        cached_at = float(_tool_version_cache.get("ts") or 0.0)
+        if isinstance(cached_versions, dict) and now - cached_at < _TOOL_VERSION_CACHE_TTL:
+            return jsonify({"versions": cached_versions, "cached": True})
+
     version_cmds = {
         "nmap": ["nmap", "--version"],
         "testssl": ["testssl.sh", "--version"],
@@ -1129,11 +1637,21 @@ def tool_versions() -> Response:
     versions = {}
     for tool, cmd in version_cmds.items():
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            output = (result.stdout.strip() or result.stderr.strip())
-            versions[tool] = output.split("\n")[0][:100] if output else "installed"
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=_TOOL_VERSION_TIMEOUT_SECONDS,
+            )
+            output = result.stdout.strip() or result.stderr.strip()
+            versions[tool] = _clean_version_output(output) if output else "installed"
+        except subprocess.TimeoutExpired:
+            versions[tool] = "installed" if _tool_available(ALLOWED_TOOLS.get(tool, tool)) else "unavailable"
         except Exception:
             versions[tool] = "unavailable"
+    with _tool_version_lock:
+        _tool_version_cache["versions"] = dict(versions)
+        _tool_version_cache["ts"] = now
     return jsonify({"versions": versions})
 
 
@@ -1149,12 +1667,51 @@ LATEST_KNOWN_VERSIONS = {
 
 _VERSION_PARSE = {
     "nmap": re.compile(r"Nmap version ([\d.]+)"),
-    "testssl": re.compile(r"testssl\.sh\s+([\d.]+)"),
-    "ssh_audit": re.compile(r"([\d.]+)"),
+    "testssl": re.compile(r"testssl\.sh\s+(?:version\s+)?([\d.]+)", re.IGNORECASE),
+    "ssh_audit": re.compile(r"ssh-audit\s+v([\d.]+)", re.IGNORECASE),
     "hydra": re.compile(r"Hydra v([\d.]+)"),
     "nikto": re.compile(r"Nikto\s+v?([\d.]+)"),
     "snmpwalk": re.compile(r"NET-SNMP version:\s*([\d.]+)"),
 }
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _clean_version_output(output: str) -> str:
+    cleaned = _ANSI_ESCAPE_RE.sub("", output or "")
+    for line in cleaned.splitlines():
+        line = line.strip()
+        if line and any(char.isalnum() for char in line):
+            return line[:100]
+    return "installed"
+
+
+def _parse_installed_version(tool: str, output: str) -> str | None:
+    cleaned = _ANSI_ESCAPE_RE.sub("", output or "")
+    pattern = _VERSION_PARSE.get(tool)
+    if not pattern:
+        return None
+    match = pattern.search(cleaned)
+    return match.group(1).strip().rstrip(".") if match else None
+
+
+def _version_parts(value: str | None) -> tuple[int, ...] | None:
+    if not value or value == "unknown":
+        return None
+    parts = [int(part) for part in re.findall(r"\d+", value)]
+    return tuple(parts) if parts else None
+
+
+def _is_installed_version_current(installed: str | None, latest: str) -> bool | None:
+    installed_parts = _version_parts(installed)
+    latest_parts = _version_parts(latest)
+    if installed_parts is None or latest_parts is None:
+        return None
+    max_len = max(len(installed_parts), len(latest_parts))
+    installed_padded = installed_parts + (0,) * (max_len - len(installed_parts))
+    latest_padded = latest_parts + (0,) * (max_len - len(latest_parts))
+    return installed_padded >= latest_padded
 
 
 @app.route("/check-updates", methods=["GET"])
@@ -1175,31 +1732,39 @@ def check_updates() -> Response:
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             output = (proc.stdout.strip() or proc.stderr.strip())
-            pattern = _VERSION_PARSE.get(tool)
-            if pattern and output:
-                match = pattern.search(output)
-                if match:
-                    installed = match.group(1)
+            if output:
+                installed = _parse_installed_version(tool, output)
         except Exception:
             pass
 
         latest = LATEST_KNOWN_VERSIONS.get(tool, "unknown")
-        up_to_date = (installed == latest) if installed else None
+        up_to_date = _is_installed_version_current(installed, latest)
         results[tool] = {
             "installed": installed or "unknown",
             "latest_known": latest,
             "up_to_date": up_to_date,
-            "action": "none" if up_to_date else "rebuild image to update",
+            "action": (
+                "none"
+                if up_to_date is True
+                else "rebuild image to update"
+                if up_to_date is False
+                else "check manually"
+            ),
         }
 
-    any_outdated = any(not r["up_to_date"] for r in results.values())
+    any_outdated = any(r["up_to_date"] is False for r in results.values())
+    any_unknown = any(r["up_to_date"] is None for r in results.values())
     return jsonify({
         "tools": results,
         "image_rebuild_recommended": any_outdated,
         "update_instructions": (
-            "Run 'docker compose build tools' to rebuild with latest pinned versions. "
-            "Do NOT auto-update tools at runtime — untested versions may break scans."
-        ) if any_outdated else "All tools are up to date.",
+            "Run 'docker compose up -d --build backend' to rebuild with latest pinned scanner versions. "
+            "Do not auto-update tools at runtime; untested versions may break scans."
+        ) if any_outdated else (
+            "One or more scanner versions could not be parsed; check the scanner image manually."
+            if any_unknown else
+            "All scanner tools are at or above the image's latest-known pinned versions."
+        ),
     })
 
 
@@ -1256,11 +1821,27 @@ def rotate_key() -> Union[Response, Tuple[Response, int]]:
 def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
     """Generator yielding SSE events: stdout lines then final result JSON."""
     import json as _json
+    import queue
+    import threading
+
     start = time.time()
     stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
     stderr_text = ""
     exit_code = -1
     proc = None
+    events: "queue.Queue[tuple[str, str]]" = queue.Queue()
+
+    def _reader(stream, stream_name: str) -> None:
+        try:
+            for line in iter(stream.readline, ""):
+                events.put((stream_name, line))
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -1268,18 +1849,61 @@ def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
         )
         if target:
             _track_proc(target, proc)
-        # Read stdout line by line
-        for line in proc.stdout:
-            stdout_lines.append(line)
-            yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
-        proc.wait(timeout=timeout)
-        exit_code = proc.returncode
-        stderr_text = proc.stderr.read() if proc.stderr else ""
-    except subprocess.TimeoutExpired:
-        if proc:
-            proc.kill()
-            proc.wait()
-        stderr_text = f"Command timed out after {timeout}s"
+
+        readers = []
+        if proc.stdout:
+            readers.append(threading.Thread(target=_reader, args=(proc.stdout, "stdout"), daemon=True))
+        if proc.stderr:
+            readers.append(threading.Thread(target=_reader, args=(proc.stderr, "stderr"), daemon=True))
+        for reader in readers:
+            reader.start()
+
+        deadline = time.monotonic() + timeout
+        timed_out = False
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 and proc.poll() is None:
+                timed_out = True
+                proc.kill()
+                break
+
+            try:
+                stream_name, line = events.get(timeout=min(max(remaining, 0.0), 0.25))
+            except queue.Empty:
+                if proc.poll() is not None:
+                    break
+                continue
+
+            if stream_name == "stdout":
+                stdout_lines.append(line)
+                yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
+            else:
+                stderr_lines.append(line)
+                yield f"data: {_json.dumps({'type': 'stderr', 'line': line})}\n\n"
+
+        proc.wait(timeout=5)
+
+        for reader in readers:
+            reader.join(timeout=1.0)
+
+        # Drain any lines read just before process exit/kill.
+        while True:
+            try:
+                stream_name, line = events.get_nowait()
+            except queue.Empty:
+                break
+            if stream_name == "stdout":
+                stdout_lines.append(line)
+                yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
+            else:
+                stderr_lines.append(line)
+                yield f"data: {_json.dumps({'type': 'stderr', 'line': line})}\n\n"
+
+        exit_code = -1 if timed_out else proc.returncode
+        stderr_text = "".join(stderr_lines)
+        if timed_out:
+            timeout_msg = f"Command timed out after {timeout}s"
+            stderr_text = f"{stderr_text}\n{timeout_msg}".strip()
     except Exception as e:
         if proc and proc.poll() is None:
             proc.kill()
@@ -1317,7 +1941,7 @@ def stream_nmap() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("nmap"):
         return jsonify({"error": "nmap not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["nmap"] + args + target.split()
@@ -1336,7 +1960,7 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("testssl.sh"):
         return jsonify({"error": "testssl.sh not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
 
@@ -1346,26 +1970,83 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
 
     def _stream_testssl_gen():
         import json as _json
+        import queue
+
         start = time.time()
         stdout_lines = []
+        stderr_lines = []
         stderr_text = ""
         exit_code = -1
         proc = None
+        events: "queue.Queue[tuple[str, str]]" = queue.Queue()
+
+        def _reader(stream, stream_name: str) -> None:
+            try:
+                for line in iter(stream.readline, ""):
+                    events.put((stream_name, line))
+            finally:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
         try:
             cmd = ["testssl.sh", "--jsonfile", json_output_path] + args + [target]
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
             _track_proc(target, proc)
-            for line in proc.stdout:
-                stdout_lines.append(line)
-                yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
-            proc.wait(timeout=timeout)
-            exit_code = proc.returncode
-            stderr_text = proc.stderr.read() if proc.stderr else ""
-        except subprocess.TimeoutExpired:
-            if proc:
-                proc.kill()
-                proc.wait()
-            stderr_text = f"Command timed out after {timeout}s"
+
+            readers = []
+            if proc.stdout:
+                readers.append(threading.Thread(target=_reader, args=(proc.stdout, "stdout"), daemon=True))
+            if proc.stderr:
+                readers.append(threading.Thread(target=_reader, args=(proc.stderr, "stderr"), daemon=True))
+            for reader in readers:
+                reader.start()
+
+            deadline = time.monotonic() + timeout
+            timed_out = False
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 and proc.poll() is None:
+                    timed_out = True
+                    proc.kill()
+                    break
+
+                try:
+                    stream_name, line = events.get(timeout=min(max(remaining, 0.0), 0.25))
+                except queue.Empty:
+                    if proc.poll() is not None:
+                        break
+                    continue
+
+                if stream_name == "stdout":
+                    stdout_lines.append(line)
+                    yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
+                else:
+                    stderr_lines.append(line)
+                    yield f"data: {_json.dumps({'type': 'stderr', 'line': line})}\n\n"
+
+            proc.wait(timeout=5)
+            for reader in readers:
+                reader.join(timeout=1.0)
+
+            while True:
+                try:
+                    stream_name, line = events.get_nowait()
+                except queue.Empty:
+                    break
+                if stream_name == "stdout":
+                    stdout_lines.append(line)
+                    yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
+                else:
+                    stderr_lines.append(line)
+                    yield f"data: {_json.dumps({'type': 'stderr', 'line': line})}\n\n"
+
+            exit_code = -1 if timed_out else proc.returncode
+            stderr_text = "".join(stderr_lines)
+            if timed_out:
+                timeout_msg = f"Command timed out after {timeout}s"
+                stderr_text = f"{stderr_text}\n{timeout_msg}".strip()
         except Exception as e:
             if proc and proc.poll() is None:
                 proc.kill()
@@ -1409,12 +2090,12 @@ def stream_ssh_audit() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("ssh-audit"):
         return jsonify({"error": "ssh-audit not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["ssh-audit"] + args + [target]
     return Response(
-        _guarded_stream(_run_tool_stream(cmd, timeout)),
+        _guarded_stream(_run_tool_stream(cmd, timeout, target=target)),
         mimetype="text/event-stream",
     )
 
@@ -1434,10 +2115,15 @@ def stream_hydra() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("hydra"):
         return jsonify({"error": "hydra not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     # Do not append target — the caller includes target+service in args
+    try:
+        _validate_hydra_target_arg(target, args)
+    except ValueError as exc:
+        _scan_semaphore.release()
+        return jsonify({"error": str(exc)}), 400
     cmd = ["hydra"] + args
     return Response(
         _guarded_stream(_run_tool_stream(cmd, timeout, target=target)),
@@ -1454,12 +2140,12 @@ def stream_nikto() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("nikto"):
         return jsonify({"error": "nikto not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["nikto"] + args + ["-h", target]
     return Response(
-        _guarded_stream(_run_tool_stream(cmd, timeout)),
+        _guarded_stream(_run_tool_stream(cmd, timeout, target=target)),
         mimetype="text/event-stream",
     )
 
@@ -1473,7 +2159,7 @@ def stream_snmpwalk() -> Union[Response, Tuple[Response, int]]:
     if not _tool_available("snmpwalk"):
         return jsonify({"error": "snmpwalk not available"}), 503
     if not _check_rate_limit(target):
-        return jsonify({"error": "Rate limit exceeded: max 30 scans per target per minute"}), 429
+        return _rate_limit_response()
     if not _scan_semaphore.acquire(blocking=False):
         return jsonify({"error": "Too many concurrent scans, please retry later"}), 503
     cmd = ["snmpwalk"] + args + [target]
@@ -1486,4 +2172,6 @@ def stream_snmpwalk() -> Union[Response, Tuple[Response, int]]:
 # Production entry point — use gunicorn in Docker (see Dockerfile CMD).
 # This block is only used for local development.
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8001, debug=False)
+    host = os.environ.get("EDQ_SCANNER_HOST", "0.0.0.0")
+    port = int(os.environ.get("EDQ_SCANNER_PORT", os.environ.get("PORT", "8001")))
+    app.run(host=host, port=port, debug=False)

@@ -7,6 +7,60 @@ from app.services.test_engine import TestEngine
 
 
 @pytest.mark.asyncio
+async def test_dispatch_u05_ipv4_target_is_not_scanned(monkeypatch: pytest.MonkeyPatch):
+    async def fail_nmap_stream(*args, **kwargs):
+        raise AssertionError("IPv4 targets should not be scanned with nmap -6")
+
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fail_nmap_stream)
+
+    engine = TestEngine()
+    parsed, raw = await engine._dispatch_test(
+        "U05",
+        "192.168.4.68",
+        "run-u05",
+        SimpleNamespace(mac_address=None),
+        "direct",
+    )
+
+    assert raw is None
+    assert parsed["ipv6_assessed"] is False
+
+
+@pytest.mark.asyncio
+async def test_dispatch_u09_filters_inconclusive_udp_ports():
+    run_id = "run-u09-open-filtered"
+    test_engine_module._PORT_SCAN_CACHE[f"{run_id}_u07"] = {
+        "scan_info": {"type": "udp", "protocol": "udp"},
+        "hosts": [{"ip": "192.168.4.68", "status": "up"}],
+        "open_ports": [
+            {
+                "port": 9999,
+                "protocol": "udp",
+                "state": "open|filtered",
+                "service": "unknown",
+            }
+        ],
+    }
+
+    try:
+        engine = TestEngine()
+        parsed, raw = await engine._dispatch_test(
+            "U09",
+            "192.168.4.68",
+            run_id,
+            SimpleNamespace(mac_address=None),
+            "direct",
+        )
+    finally:
+        test_engine_module._PORT_SCAN_CACHE.pop(run_id, None)
+        test_engine_module._PORT_SCAN_CACHE.pop(f"{run_id}_u07", None)
+        test_engine_module._PORT_SCAN_CACHE.pop(f"{run_id}_u08", None)
+
+    assert raw is None
+    assert parsed["open_ports"] == []
+
+
+@pytest.mark.asyncio
 async def test_dispatch_u04_uses_dhcp_observer_details(monkeypatch: pytest.MonkeyPatch):
     async def fake_observe_dhcp_activity(*, expected_mac: str | None, timeout_seconds=None, port=None):
         assert expected_mac == "AA:BB:CC:DD:EE:FF"

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   isActiveTestRunStatus,
+  isExecutingTestRunStatus,
   normalizeTestResult,
   normalizeTestRun,
   normalizeTestRunProgressMessage,
@@ -15,6 +16,9 @@ describe('testContracts', () => {
     expect(normalizeTestRunStatus('error')).toBe('failed')
     expect(isActiveTestRunStatus('awaiting_review')).toBe(false)
     expect(isActiveTestRunStatus('completed')).toBe(false)
+    expect(isActiveTestRunStatus('pending')).toBe(true)
+    expect(isExecutingTestRunStatus('pending')).toBe(false)
+    expect(isExecutingTestRunStatus('running')).toBe(true)
   })
 
   it('normalizes legacy run payload fields at the boundary', () => {

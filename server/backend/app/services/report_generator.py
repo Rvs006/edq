@@ -11,6 +11,7 @@ import subprocess
 import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,16 +24,19 @@ logger = logging.getLogger(__name__)
 
 _ILLEGAL_XML_CHARS = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]")
 _MAPPINGS_DIR = Path(__file__).resolve().parent / "cell_mappings"
+_ELECTRACOM_REPORT_LOGO = "electracom-logo.png"
 
 TEMPLATE_FILES = {
     "pelco_camera": "1TS - Pelco SMLE1-15V5-3H Camera Device Qualification Rev 2.xlsx",
     "easyio_controller": "EasyIO FW08 - Device Testing Plan - v1.1.xlsx",
+    "sauter_680_as": "Sauter - 680-AS - IP Device Qualification Template C00.xlsx",
     "generic": "[MANUFACTURER] - [MODEL] - IP Device Qualification Template (Rev00) C00.xlsx",
 }
 
 TEMPLATE_INFO = {
     "pelco_camera": {"name": "Pelco Camera (Rev 2)", "device_category": "camera", "description": "Pelco camera workbook."},
     "easyio_controller": {"name": "EasyIO Controller", "device_category": "controller", "description": "EasyIO controller workbook."},
+    "sauter_680_as": {"name": "Sauter 680-AS (C00)", "device_category": "controller", "description": "Sauter 680-AS qualification workbook."},
     "generic": {"name": "Generic IP Device (Rev00 C00)", "device_category": "generic", "description": "Canonical generic 3-sheet workbook."},
 }
 
@@ -61,6 +65,70 @@ def _resolve_templates_dir() -> Path:
 
 
 _TEMPLATES_DIR = _resolve_templates_dir()
+
+
+@lru_cache(maxsize=1)
+def _repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "AGENTS.md").exists() or (parent / "docker-compose.yml").exists():
+            return parent
+    return here.parents[2]
+
+
+def _resolve_existing_path(candidates: list[Path]) -> Path | None:
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved.is_file():
+            return resolved
+    return None
+
+
+@lru_cache(maxsize=1)
+def _resolve_electracom_report_logo_path() -> Path | None:
+    root = _repo_root()
+    backend_root = Path(__file__).resolve().parents[2]
+    return _resolve_existing_path(
+        [
+            root / "frontend" / "public" / _ELECTRACOM_REPORT_LOGO,
+            Path.cwd() / "assets" / _ELECTRACOM_REPORT_LOGO,
+            root / "assets" / _ELECTRACOM_REPORT_LOGO,
+            backend_root / "assets" / _ELECTRACOM_REPORT_LOGO,
+        ]
+    )
+
+
+def _resolve_uploaded_logo_path(logo_path: str) -> Path | None:
+    if not logo_path:
+        return None
+    raw = Path(logo_path)
+    if raw.is_absolute():
+        candidates = [raw]
+    else:
+        filename = raw.name
+        candidates = [
+            Path(settings.UPLOAD_DIR) / "branding" / filename,
+            Path(settings.UPLOAD_DIR) / filename,
+        ]
+        if str(raw) == filename:
+            candidates.append(Path.cwd() / filename)
+    return _resolve_existing_path(candidates)
+
+
+def _scaled_logo_pixels(logo_path: Path, width_px: int = 190) -> tuple[int, int]:
+    try:
+        from PIL import Image
+
+        with Image.open(logo_path) as image:
+            source_width, source_height = image.size
+        if source_width <= 0 or source_height <= 0:
+            return width_px, 35
+        return width_px, max(1, round(width_px * source_height / source_width))
+    except Exception:
+        return width_px, 35
 
 _VERDICT_MAP = {
     "pass": "PASS",
@@ -497,8 +565,9 @@ def build_report_document(
     del whitelist_entries
     if template_key not in TEMPLATE_FILES:
         raise ValueError(f"Unknown template_key '{template_key}'")
+    enabled_ids = set(enabled_test_ids or [])
     filtered_results = sorted(
-        [r for r in test_results if not enabled_test_ids or getattr(r, "test_id", None) in set(enabled_test_ids)],
+        [r for r in test_results if not enabled_ids or getattr(r, "test_id", None) in enabled_ids],
         key=_test_sort_key,
     )
     mapping = _load_mapping(template_key)
@@ -559,11 +628,15 @@ def build_report_document(
             brief_column = cols.get("brief_description") or cols.get("test_description")
             description_column = cols.get("test_description") or brief_column
             essential_column = cols.get("essential_test", cols.get("essential_pass"))
+            engineer_notes_column = cols.get("engineer_notes")
             script_column = cols.get("script_flag")
             for row_index in range(start, start + count):
                 number = str(ws[f"{cols['test_number']}{row_index}"].value or "").strip()
                 source_ids = sources.get(number, [])
                 source = next((result_by_id[test_id] for test_id in source_ids if test_id in result_by_id), None)
+                comment = _comment(source) if source else ""
+                if source and not engineer_notes_column:
+                    comment = comment or _engineer_notes(source)
                 rows.append(
                     ReportRow(
                         test_number=number,
@@ -571,7 +644,7 @@ def build_report_document(
                         test_description=str(ws[f"{description_column}{row_index}"].value or "") if description_column else "",
                         essential_test=str(ws[f"{essential_column}{row_index}"].value or "") if essential_column else "",
                         test_result=_VERDICT_MAP.get((_safe_attr(source, "verdict") or "").lower(), _safe_attr(source, "verdict").upper()) if source else "",
-                        test_comments=_comment(source) if source else "",
+                        test_comments=comment,
                         engineer_notes=_engineer_notes(source) if source else "",
                         script_flag=str(ws[f"{script_column}{row_index}"].value or "") if script_column else "",
                         template_backed=True,
@@ -628,6 +701,32 @@ def _output_path(test_run: Any, template_key: str, extension: str) -> Path:
     return output_dir / f"EDQ_Report_{test_run.id!s}_{template_key}_{stamp}{extension}"
 
 
+def _add_openpyxl_logo(ws: Any, logo_path: Path | None, cell: str, width_px: int = 190) -> None:
+    if logo_path is None:
+        return
+    try:
+        from openpyxl.drawing.image import Image as ExcelImage
+
+        width, height = _scaled_logo_pixels(logo_path, width_px)
+        image = ExcelImage(str(logo_path))
+        image.width = width
+        image.height = height
+        ws.add_image(image, cell)
+        match = re.match(r"^[A-Z]+(\d+)$", cell, re.IGNORECASE)
+        if match:
+            row_number = int(match.group(1))
+            ws.row_dimensions[row_number].height = max(
+                ws.row_dimensions[row_number].height or 0,
+                height * 0.75 + 4,
+            )
+    except Exception as exc:
+        logger.warning("Failed to add report logo to worksheet %s: %s", ws.title, exc)
+
+
+def _logo_display_name(path: Path | None) -> str:
+    return path.name if path else ""
+
+
 def _write_generic_excel_report(path: Path, report: ReportDocument) -> None:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
@@ -644,12 +743,17 @@ def _write_generic_excel_report(path: Path, report: ReportDocument) -> None:
     title_font = Font(color="FFFFFF", bold=True, size=14)
     header_font = Font(bold=True)
     wrap = Alignment(vertical="top", wrap_text=True)
+    issuer_logo = _resolve_electracom_report_logo_path()
+    client_logo = _resolve_uploaded_logo_path(report.branding.logo_path)
 
-    summary_ws.merge_cells("A1:H1")
-    summary_ws["A1"] = "IP Device Qualification Report"
-    summary_ws["A1"].fill = title_fill
-    summary_ws["A1"].font = title_font
-    summary_ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    _add_openpyxl_logo(summary_ws, issuer_logo, "A1", width_px=190)
+    if client_logo:
+        _add_openpyxl_logo(summary_ws, client_logo, "G1", width_px=150)
+    summary_ws.merge_cells("C1:F1" if client_logo else "C1:H1")
+    summary_ws["C1"] = "IP Device Qualification Report"
+    summary_ws["C1"].fill = title_fill
+    summary_ws["C1"].font = title_font
+    summary_ws["C1"].alignment = Alignment(horizontal="center", vertical="center")
     summary_ws["A2"] = f"Template Profile: {TEMPLATE_INFO[report.template_key]['name']}"
 
     row = 4
@@ -670,6 +774,7 @@ def _write_generic_excel_report(path: Path, report: ReportDocument) -> None:
     summary_ws.column_dimensions["B"].width = 110
     summary_ws.freeze_panes = "A4"
 
+    _add_openpyxl_logo(results_ws, issuer_logo, "A1", width_px=150)
     results_ws.merge_cells("B1:J1")
     results_ws["B1"] = "Per-Test Results and Evidence"
     results_ws["B1"].fill = title_fill
@@ -779,7 +884,7 @@ async def generate_excel_report(
     elif report.template_path.exists() and report.mapping:
         # Build cell updates per sheet — ZIP-level patcher preserves ALL
         # template assets (images, drawings, printer settings, styles, etc.)
-        from app.services.xlsx_template_patcher import patch_xlsx
+        from app.services.xlsx_template_patcher import XlsxImageInsert, patch_xlsx
 
         sheet_updates: dict[str, dict[str, str | None]] = {}
 
@@ -825,7 +930,35 @@ async def generate_excel_report(
         if additional_sheet and additional_cells:
             sheet_updates[additional_sheet] = additional_cells
 
-        await asyncio.to_thread(patch_xlsx, report.template_path, path, sheet_updates)
+        image_inserts: list[XlsxImageInsert] = []
+        issuer_logo = _resolve_electracom_report_logo_path()
+        if issuer_logo:
+            issuer_width, issuer_height = _scaled_logo_pixels(issuer_logo, width_px=190)
+            image_inserts.append(
+                XlsxImageInsert(
+                    sheet_name=synopsis_sheet,
+                    image_path=issuer_logo,
+                    cell="A1",
+                    width_px=issuer_width,
+                    height_px=issuer_height,
+                    description="Electracom report logo",
+                )
+            )
+        client_logo = _resolve_uploaded_logo_path(report.branding.logo_path)
+        if client_logo:
+            client_width, client_height = _scaled_logo_pixels(client_logo, width_px=150)
+            image_inserts.append(
+                XlsxImageInsert(
+                    sheet_name=synopsis_sheet,
+                    image_path=client_logo,
+                    cell="I1",
+                    width_px=client_width,
+                    height_px=client_height,
+                    description="Client branding logo",
+                )
+            )
+
+        await asyncio.to_thread(patch_xlsx, report.template_path, path, sheet_updates, image_inserts)
     else:
         # Fallback: no template to preserve — plain openpyxl workbook
         from openpyxl import Workbook
@@ -851,6 +984,7 @@ async def generate_word_report(
     readiness_summary: Optional[dict[str, Any]] = None,
 ) -> str:
     from docx import Document
+    from docx.shared import Inches
 
     report = build_report_document(
         test_run,
@@ -864,8 +998,20 @@ async def generate_word_report(
         readiness_summary,
     )
     doc = Document()
+    issuer_logo = _resolve_electracom_report_logo_path()
+    client_logo = _resolve_uploaded_logo_path(report.branding.logo_path)
+    header_paragraph = doc.sections[0].header.paragraphs[0]
+    if issuer_logo:
+        try:
+            header_paragraph.add_run().add_picture(str(issuer_logo), width=Inches(1.9))
+        except Exception as exc:
+            logger.warning("Failed to add Electracom logo to Word report: %s", exc)
+    if client_logo:
+        try:
+            header_paragraph.add_run("  ").add_picture(str(client_logo), width=Inches(1.35))
+        except Exception as exc:
+            logger.warning("Failed to add client logo to Word report: %s", exc)
     if report.branding.company_name:
-        doc.sections[0].header.paragraphs[0].text = report.branding.company_name
         doc.add_paragraph(report.branding.company_name)
     if report.branding.footer_text:
         doc.sections[0].footer.paragraphs[0].text = report.branding.footer_text
@@ -901,19 +1047,19 @@ async def generate_word_report(
     return str(path)
 
 
-async def _generate_pdf_via_libreoffice(docx_path: str) -> str:
+async def _generate_pdf_via_libreoffice(source_path: str) -> str:
     import asyncio
-    output_dir = str(Path(docx_path).parent)
+    output_dir = str(Path(source_path).parent)
     proc = await asyncio.create_subprocess_exec(
         "libreoffice", "--headless", "--norestore", "--convert-to", "pdf",
-        "--outdir", output_dir, docx_path,
+        "--outdir", output_dir, source_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
     if proc.returncode != 0:
         raise RuntimeError(f"LibreOffice conversion failed: {stderr.decode()[:200]}")
-    pdf_path = Path(docx_path).with_suffix(".pdf")
+    pdf_path = Path(source_path).with_suffix(".pdf")
     if not pdf_path.exists():
         raise RuntimeError(f"Expected PDF file not found at {pdf_path}")
     return str(pdf_path)
@@ -948,6 +1094,21 @@ async def _generate_pdf_via_fpdf(
         pdf.set_compression(False)
     pdf.set_auto_page_break(auto=True, margin=10)
     pdf.add_page()
+    issuer_logo = _resolve_electracom_report_logo_path()
+    client_logo = _resolve_uploaded_logo_path(report.branding.logo_path)
+    logo_top = pdf.get_y()
+    if issuer_logo:
+        try:
+            pdf.image(str(issuer_logo), x=pdf.l_margin, y=logo_top, w=55)
+        except Exception as exc:
+            logger.warning("Failed to add Electracom logo to PDF report: %s", exc)
+    if client_logo:
+        try:
+            pdf.image(str(client_logo), x=max(pdf.w - pdf.r_margin - 40, pdf.l_margin + 60), y=logo_top, w=40)
+        except Exception as exc:
+            logger.warning("Failed to add client logo to PDF report: %s", exc)
+    if issuer_logo or client_logo:
+        pdf.set_y(logo_top + 14)
     if report.branding.company_name:
         pdf.set_font("Helvetica", "B", 14)
         pdf.cell(0, 8, report.branding.company_name, new_x="LMARGIN", new_y="NEXT")
@@ -1005,18 +1166,33 @@ async def generate_pdf_report(
 
     if use_libreoffice:
         try:
-            docx_path = await generate_word_report(
-                test_run,
-                test_results,
-                report_config,
-                include_synopsis,
-                enabled_test_ids,
-                whitelist_entries,
-                template_key,
-                branding_settings,
-                readiness_summary,
-            )
-            return await _generate_pdf_via_libreoffice(docx_path)
+            mapping = _load_mapping(template_key)
+            template_path = _TEMPLATES_DIR / TEMPLATE_FILES.get(template_key, "")
+            if template_key != "generic" and mapping and template_path.exists():
+                source_path = await generate_excel_report(
+                    test_run,
+                    test_results,
+                    report_config,
+                    template_key,
+                    enabled_test_ids,
+                    whitelist_entries,
+                    include_synopsis,
+                    branding_settings,
+                    readiness_summary,
+                )
+            else:
+                source_path = await generate_word_report(
+                    test_run,
+                    test_results,
+                    report_config,
+                    include_synopsis,
+                    enabled_test_ids,
+                    whitelist_entries,
+                    template_key,
+                    branding_settings,
+                    readiness_summary,
+                )
+            return await _generate_pdf_via_libreoffice(source_path)
         except Exception:
             logger.warning("LibreOffice PDF conversion failed, falling back to fpdf2")
 
@@ -1056,12 +1232,17 @@ async def generate_csv_report(
         readiness_summary,
     )
     path = _output_path(test_run, template_key, ".csv")
+    issuer_logo = _resolve_electracom_report_logo_path()
+    client_logo = _resolve_uploaded_logo_path(report.branding.logo_path)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow([report.summary_section_title])
         writer.writerow(["Field", "Value"])
         writer.writerow(["Template Profile", TEMPLATE_INFO[report.template_key]["name"]])
         writer.writerow(["Company Name", report.branding.company_name])
+        writer.writerow(["Report Logo", _logo_display_name(issuer_logo)])
+        if client_logo:
+            writer.writerow(["Client Logo", _logo_display_name(client_logo)])
         writer.writerow(
             [
                 "Readiness Status",

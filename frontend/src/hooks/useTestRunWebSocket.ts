@@ -22,6 +22,11 @@ export function useTestRunWebSocket(runId: string | undefined) {
   const [cableProbe, setCableProbe] = useState<{
     reachable: boolean
     tcpReachable: boolean
+    serviceExpected: boolean
+    inGrace: boolean
+    serviceUnreachableCount: number
+    serviceWarningThreshold: number
+    probeMethod: string
     consecutiveFailures: number
     failThreshold: number
     timestamp: string
@@ -83,7 +88,7 @@ export function useTestRunWebSocket(runId: string | undefined) {
           const next = [...prev, msg]
           return next.length > 500 ? next.slice(-500) : next
         })
-        if (msg.type !== 'stdout_line' && msg.type !== 'cable_probe') {
+        if (msg.type !== 'stdout_line' && msg.type !== 'cable_probe' && msg.type !== 'keepalive') {
           setLastProgress(msg)
         }
 
@@ -127,6 +132,11 @@ export function useTestRunWebSocket(runId: string | undefined) {
           const probeData = {
             reachable: Boolean(msg.data.reachable),
             tcpReachable: Boolean(msg.data.tcp_reachable),
+            serviceExpected: Boolean(msg.data.service_expected),
+            inGrace: Boolean(msg.data.in_grace),
+            serviceUnreachableCount: Number(msg.data.service_unreachable_count) || 0,
+            serviceWarningThreshold: Number(msg.data.service_warning_threshold) || 3,
+            probeMethod: String(msg.data.probe_method || ''),
             consecutiveFailures: Number(msg.data.consecutive_failures) || 0,
             failThreshold: Number(msg.data.fail_threshold) || 3,
             timestamp: String(msg.data.timestamp || ''),
@@ -140,10 +150,15 @@ export function useTestRunWebSocket(runId: string | undefined) {
             setCableStatus('reconnecting')
           } else if (msg.data.paused && !probeData.reachable) {
             setCableStatus('disconnected')
-          } else if (!msg.data.paused && probeData.reachable && !probeData.tcpReachable) {
-            setCableStatus('service_unreachable')
-          } else if (!msg.data.paused && probeData.reachable && probeData.tcpReachable) {
-            setCableStatus('connected')
+          } else if (!msg.data.paused && probeData.reachable) {
+            setCableStatus(
+              probeData.serviceExpected
+              && !probeData.inGrace
+              && !probeData.tcpReachable
+              && probeData.serviceUnreachableCount >= probeData.serviceWarningThreshold
+                ? 'service_unreachable'
+                : 'connected',
+            )
           }
         }
 

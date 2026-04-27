@@ -89,6 +89,26 @@ describe('API module', () => {
     expect(typeof healthApi.systemStatus).toBe('function')
   })
 
+  it('uses an extended timeout for bulk network discovery', () => {
+    const { networkScanApi } = apiModule
+
+    networkScanApi.discover({
+      cidr: '192.168.4.0/24',
+      connection_scenario: 'direct',
+      test_ids: ['U01'],
+    })
+
+    expect(mockAxios.post).toHaveBeenCalledWith(
+      '/network-scan/discover',
+      {
+        cidr: '192.168.4.0/24',
+        connection_scenario: 'direct',
+        test_ids: ['U01'],
+      },
+      { timeout: 180000 },
+    )
+  })
+
   it('normalizes test run responses returned through the API wrapper', async () => {
     const { testRunsApi } = apiModule
     mockAxios.get.mockResolvedValueOnce({

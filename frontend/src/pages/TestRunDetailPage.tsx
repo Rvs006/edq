@@ -20,8 +20,8 @@ import TestDetail, { type TestResultDetail } from '@/components/testing/TestDeta
 import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
 import SessionControls from '@/components/testing/SessionControls'
 import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDialog'
-import type { TestResult } from '@/lib/types'
-import { isActiveTestRunStatus, toLocalDateString } from '@/lib/testContracts'
+import type { TestResult, TestRun } from '@/lib/types'
+import { isActiveTestRunStatus, isExecutingTestRunStatus, toLocalDateString } from '@/lib/testContracts'
 import { normalizeTemplateName } from '@/lib/templateNames'
 import {
   buildProgressSegments,
@@ -32,6 +32,41 @@ import {
 } from '@/lib/testRunDetailPage'
 import { summarizeRunProgress } from '@/lib/testUi'
 import { formatConnectionScenarioLabel } from '@/lib/universal-tests'
+
+type CurrentTestMeta = {
+  test_id: string
+  test_name: string
+  status: string
+}
+
+type ReportTemplateKey = 'generic' | 'pelco_camera' | 'easyio_controller' | 'sauter_680_as'
+
+function getCurrentTestFromMetadata(metadata: TestRun['run_metadata'] | undefined): CurrentTestMeta | null {
+  const value = metadata?.current_test
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const current = value as Record<string, unknown>
+  const testId = typeof current.test_id === 'string' ? current.test_id : ''
+  if (!testId) return null
+  return {
+    test_id: testId,
+    test_name: typeof current.test_name === 'string' && current.test_name.trim() ? current.test_name : testId,
+    status: typeof current.status === 'string' ? current.status : 'running',
+  }
+}
+
+function inferReportTemplateKey(run: TestRun | undefined): ReportTemplateKey {
+  const text = [
+    run?.template_name,
+    run?.device_manufacturer,
+    run?.device_model,
+    run?.device_name,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  if (text.includes('easyio') || text.includes('easy io')) return 'easyio_controller'
+  if (text.includes('pelco')) return 'pelco_camera'
+  if (text.includes('sauter') || text.includes('680-as') || text.includes('680 as')) return 'sauter_680_as'
+  return 'generic'
+}
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -57,7 +92,7 @@ export default function TestRunDetailPage() {
     refetchInterval: (query: { state: { data?: unknown } }) => {
       // WebSocket provides real-time updates — skip polling entirely when live.
       const d = query.state.data as Record<string, unknown> | undefined
-      if (!isActiveTestRunStatus(d?.status)) return false
+      if (!isExecutingTestRunStatus(d?.status)) return false
       // Slow fallback poll when WS is unavailable (was 3s — caused polling storm).
       return wsHealthyRef.current ? 30000 : 10000
     },
@@ -69,14 +104,14 @@ export default function TestRunDetailPage() {
     enabled: !!id,
     refetchInterval: () => {
       // WebSocket invalidates this query on test_complete/run_complete messages.
-      if (!isActiveTestRunStatus(run?.status)) return false
+      if (!isExecutingTestRunStatus(run?.status)) return false
       // Slow fallback poll when WS is unavailable (was 5s — caused polling storm).
       return wsHealthyRef.current ? 30000 : 10000
     },
   })
 
   const ws = useTestRunWebSocket(
-    run && isActiveTestRunStatus(run.status) ? id : undefined
+    run && isExecutingTestRunStatus(run.status) ? id : undefined
   )
 
   // Keep the ref in sync with the live WS connection state so that
@@ -139,9 +174,31 @@ export default function TestRunDetailPage() {
     }
   }, [ws.reconnectCount, id, queryClient])
 
+  const currentTestFromRun = useMemo(
+    () => getCurrentTestFromMetadata(run?.run_metadata),
+    [run?.run_metadata]
+  )
+
   const runningTestId = useMemo(() => {
-    return getRunningTestIdFromProgress(ws.lastProgress)
-  }, [ws.lastProgress])
+    const wsRunningTestId = getRunningTestIdFromProgress(ws.lastProgress)
+    if (wsRunningTestId) return wsRunningTestId
+    if (
+      !ws.lastProgress
+      && isExecutingTestRunStatus(run?.status)
+      && currentTestFromRun?.status === 'running'
+    ) {
+      return currentTestFromRun.test_id
+    }
+    return null
+  }, [currentTestFromRun, run?.status, ws.lastProgress])
+
+  useEffect(() => {
+    if (ws.lastProgress || !currentTestFromRun || selectionPinnedRef.current) return
+    const running = (results as TestResult[]).find((r) => r.test_id === currentTestFromRun.test_id)
+    if (running) {
+      setSelectedTestId(running.id)
+    }
+  }, [currentTestFromRun, results, ws.lastProgress])
 
   const sidebarResults: TestResultItem[] = useMemo(
     () =>
@@ -230,8 +287,9 @@ export default function TestRunDetailPage() {
     if (isActioning) return
     setIsActioning(true)
     try {
-      if (scenario !== 'direct_cable') {
-        await testRunsApi.update(id!, { connection_scenario: scenario })
+      const nextScenario = scenario === 'direct_cable' ? 'direct' : scenario
+      if (run?.status === 'pending' && nextScenario !== run.connection_scenario) {
+        await testRunsApi.update(id!, { connection_scenario: nextScenario })
       }
       const resp = await testRunsApi.start(id!)
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
@@ -303,6 +361,7 @@ export default function TestRunDetailPage() {
       const resp = await reportsApi.generate({
         test_run_id: id!,
         report_type: 'excel',
+        template_key: inferReportTemplateKey(run),
         include_synopsis: !!run?.synopsis,
       })
       toast.success('Report generated successfully')
@@ -464,13 +523,22 @@ export default function TestRunDetailPage() {
 
   const compactSummaryItems = useMemo(() => {
     const items: string[] = []
-    if (readinessSummary) items.push(`${readinessSummary.label} (${readinessSummary.score}/10)`)
+    if (readinessSummary) {
+      if (readinessSummary.level === 'in_progress' && isActiveTestRunStatus(run?.status)) {
+        items.push(runProgressSummary.progressLabel)
+      } else {
+        items.push(`${readinessSummary.label} (${readinessSummary.score}/10)`)
+      }
+    }
     return items
-  }, [readinessSummary])
+  }, [readinessSummary, run?.status, runProgressSummary.progressLabel])
 
   const compactSummaryText = useMemo(() => {
     if (run?.status === 'awaiting_manual' && pendingManualCount > 0) {
       return `${pendingManualCount} manual test${pendingManualCount > 1 ? 's' : ''} still need evidence.`
+    }
+    if (readinessSummary?.level === 'in_progress' && isActiveTestRunStatus(run?.status)) {
+      return runProgressSummary.detailText
     }
     if (readinessSummary?.summary) return readinessSummary.summary
     return runProgressSummary.detailText
@@ -751,7 +819,9 @@ export default function TestRunDetailPage() {
           isActioning={isActioning}
           runningTestName={
             runIsExecuting && runningTestId
-              ? (results as TestResult[]).find((r) => r.test_id === runningTestId)?.test_name || runningTestId
+              ? (results as TestResult[]).find((r) => r.test_id === runningTestId)?.test_name
+                || currentTestFromRun?.test_name
+                || runningTestId
               : null
           }
           progressPct={run.progress_pct ?? progressPct}

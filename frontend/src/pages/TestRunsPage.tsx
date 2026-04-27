@@ -13,7 +13,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 import Callout from '@/components/common/Callout'
-import { isActiveTestRunStatus, toLocalDateString, toLocalDateOnly } from '@/lib/testContracts'
+import { isExecutingTestRunStatus, toLocalDateString, toLocalDateOnly } from '@/lib/testContracts'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 
 /* ── Status filter config with labels, icons, groups, tooltips ── */
@@ -115,7 +115,7 @@ export default function TestRunsPage() {
     queryFn: () => testRunsApi.list({ status: statusFilter || undefined, device_id: deviceId }).then(r => r.data),
     refetchInterval: (query) => {
       const data = query.state.data as TestRun[] | undefined
-      const hasActive = data?.some((r) => isActiveTestRunStatus(r.status))
+      const hasActive = data?.some((r) => isExecutingTestRunStatus(r.status))
       return hasActive ? 3000 : false
     },
   })
@@ -350,7 +350,12 @@ export default function TestRunsPage() {
       )}
 
       <AnimatePresence>
-        {showCreateModal && <CreateRunModal onClose={() => setShowCreateModal(false)} />}
+      {showCreateModal && (
+        <CreateRunModal
+          onClose={() => setShowCreateModal(false)}
+          onCreated={(runId) => navigate(`/test-runs/${runId}`)}
+        />
+      )}
       </AnimatePresence>
     </div>
   )
@@ -358,7 +363,7 @@ export default function TestRunsPage() {
 
 /* ── Create Run Modal with duplicate detection ── */
 
-function CreateRunModal({ onClose }: { onClose: () => void }) {
+function CreateRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (runId: string) => void }) {
   const [deviceId, setDeviceId] = useState('')
   const [templateId, setTemplateId] = useState('')
   const [loading, setLoading] = useState(false)
@@ -372,15 +377,25 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
 
   const { data: devices } = useQuery({
     queryKey: ['devices-list'],
-    queryFn: () => devicesApi.list().then(r => r.data),
+    queryFn: () => devicesApi.list({ limit: 200 }).then(r => r.data),
   })
   const { data: templates } = useQuery({
     queryKey: ['templates-list'],
     queryFn: () => templatesApi.list().then(r => r.data),
   })
 
+  const selectedDevice = (devices as Device[] | undefined)?.find((device) => device.id === deviceId)
+  const selectedDeviceText = [
+    selectedDevice?.manufacturer,
+    selectedDevice?.oui_vendor,
+    selectedDevice?.model,
+    selectedDevice?.hostname,
+  ].filter(Boolean).join(' ').toLowerCase()
+  const recommendedTemplate = selectedDeviceText.includes('easyio')
+    ? (templates as TestTemplate[] | undefined)?.find((template) => template.name.toLowerCase().includes('easyio'))
+    : undefined
   const defaultTemplate = (templates as TestTemplate[] | undefined)?.find(t => t.is_default)
-  const effectiveTemplateId = templateId || defaultTemplate?.id || ''
+  const effectiveTemplateId = templateId || recommendedTemplate?.id || defaultTemplate?.id || ''
 
   // Check for duplicates when device+template selection changes
   useEffect(() => {
@@ -403,13 +418,14 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
     }
     setLoading(true)
     try {
-      await testRunsApi.create({ device_id: deviceId, template_id: effectiveTemplateId })
+      const created = await testRunsApi.create({ device_id: deviceId, template_id: effectiveTemplateId })
       queryClient.invalidateQueries({ queryKey: ['test-runs'] })
       queryClient.invalidateQueries({ queryKey: ['test-runs-all-for-counts'] })
       queryClient.invalidateQueries({ queryKey: ['run-stats'] })
       queryClient.invalidateQueries({ queryKey: ['recent-runs'] })
       toast.success('Test run created')
       onClose()
+      onCreated(created.data.id)
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to create test run'))
     } finally {
@@ -446,7 +462,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
           <div>
             <label className="label">Test Template</label>
             <select
-              value={templateId || defaultTemplate?.id || ''}
+              value={effectiveTemplateId}
               onChange={(e) => setTemplateId(e.target.value)}
               aria-label="Select test template"
               className="input"
@@ -455,7 +471,7 @@ function CreateRunModal({ onClose }: { onClose: () => void }) {
               <option value="">Select a template...</option>
               {templates?.map((t: TestTemplate) => (
                 <option key={t.id} value={t.id}>
-                        {normalizeTemplateName(t.name) || 'Unnamed template'} ({t.test_ids?.length || 0} tests){t.is_default ? ' — Recommended' : ''}
+                        {normalizeTemplateName(t.name) || 'Unnamed template'} ({t.test_ids?.length || 0} tests){t.id === recommendedTemplate?.id ? ' - Recommended for device' : t.is_default ? ' - Recommended' : ''}
                 </option>
               ))}
             </select>

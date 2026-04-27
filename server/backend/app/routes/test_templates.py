@@ -18,6 +18,18 @@ from app.utils.collections import ordered_unique
 router = APIRouter()
 
 
+def _validate_active_test_ids(test_ids: list[str]) -> list[str]:
+    active_ids = {test["test_id"] for test in get_active_tests()}
+    deduped = ordered_unique(test_ids)
+    invalid = [test_id for test_id in deduped if test_id not in active_ids]
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported or deprecated test id(s): {', '.join(invalid)}",
+        )
+    return deduped
+
+
 @router.get("/library")
 async def get_test_library(_: User = Depends(get_current_active_user)):
     """Return the active universal test library."""
@@ -47,7 +59,7 @@ async def create_template(
 ):
     clean = sanitize_dict(data.model_dump(), ["name", "description"])
     if "test_ids" in clean and clean["test_ids"]:
-        clean["test_ids"] = ordered_unique(clean["test_ids"])
+        clean["test_ids"] = _validate_active_test_ids(clean["test_ids"])
     template = TestTemplate(**clean, created_by=user.id)
     db.add(template)
     await db.flush()
@@ -89,7 +101,7 @@ async def update_template(
     if "description" in updates:
         template.description = updates["description"]
     if "test_ids" in updates:
-        template.test_ids = ordered_unique(updates["test_ids"])
+        template.test_ids = _validate_active_test_ids(updates["test_ids"])
     if "whitelist_id" in updates:
         template.whitelist_id = updates["whitelist_id"]
     if "cell_mappings" in updates:

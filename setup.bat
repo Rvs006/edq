@@ -79,7 +79,7 @@ echo.
 echo Waiting for services to start...
 set "READY=0"
 for /L %%I in (1,1,30) do (
-  docker compose exec -T backend curl -sf http://localhost:8000/api/health >nul 2>nul
+  docker compose exec -T backend curl -sf http://localhost:8000/api/v1/health >nul 2>nul
   if not errorlevel 1 (
     set "READY=1"
     goto :ready

@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 import DeviceDetailPage from '@/pages/DeviceDetailPage'
+import { discoveryApi } from '@/lib/api'
+import toast from 'react-hot-toast'
 
 const mockRole = {
   value: 'engineer' as 'engineer' | 'reviewer' | 'admin',
@@ -117,5 +120,31 @@ describe('DeviceDetailPage', () => {
 
     expect(await screen.findByText('cam-lobby')).toBeInTheDocument()
     expect(screen.getByLabelText('Delete device')).toBeInTheDocument()
+  })
+
+  it('shows an unreachable warning when auto-detect finds no device', async () => {
+    vi.mocked(discoveryApi.scan).mockResolvedValue({
+      data: {
+        status: 'complete',
+        target: '192.168.1.100',
+        devices_found: 0,
+        devices: [],
+        message: 'Device 192.168.1.100 is not reachable. Check that the cable is connected and the device is powered on.',
+      },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: {} as any,
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders()
+
+    expect(await screen.findByText('cam-lobby')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /auto-detect/i }))
+
+    expect(await screen.findByText(/Device 192\.168\.1\.100 is not reachable/)).toBeInTheDocument()
+    expect(screen.queryByText('Device re-scanned successfully. Information updated.')).not.toBeInTheDocument()
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('192.168.1.100 is not reachable'))
   })
 })

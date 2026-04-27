@@ -14,6 +14,7 @@ import TopologyMap from '@/components/devices/TopologyMap'
 import LatencySparkline from '@/components/devices/LatencySparkline'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
 import { useAuth } from '@/contexts/AuthContext'
+import { isValidIpv4, parseIpv4Cidr } from '@/lib/ipValidation'
 
 const CATEGORIES = ['camera', 'controller', 'intercom', 'access_panel', 'lighting', 'hvac', 'iot_sensor', 'meter', 'unknown']
 
@@ -413,9 +414,16 @@ function DiscoverModal({ onClose, projectId }: { onClose: () => void; projectId?
       setInlineError('Enter a valid IPv4 address, for example 192.168.1.10.')
       return
     }
-    if (mode === 'subnet' && !isValidCidr(trimmedTarget)) {
-      setInlineError('Enter a valid CIDR subnet, for example 192.168.1.0/24.')
-      return
+    if (mode === 'subnet') {
+      const cidr = parseIpv4Cidr(trimmedTarget)
+      if (!cidr.formatValid) {
+        setInlineError('Enter a valid CIDR subnet, for example 192.168.1.0/24.')
+        return
+      }
+      if (!cidr.prefixInRange) {
+        setInlineError('Subnet is too large. CIDR prefix must be between /16 and /32.')
+        return
+      }
     }
 
     setLoading(true)
@@ -590,7 +598,7 @@ function DiscoverModal({ onClose, projectId }: { onClose: () => void; projectId?
             <Callout variant="warning">
               {mode === 'ip'
                 ? 'No device responded at that IP address. Check the address, power, and network path.'
-                : 'No devices responded on that subnet. Verify the CIDR range and confirm the sidecar can reach that network.'}
+                : 'No devices responded on that subnet. Verify the CIDR range and confirm the scanner agent can reach that network.'}
             </Callout>
           )}
         </form>
@@ -605,18 +613,11 @@ export function hasDiscoverySignal(dev: Pick<DiscoveredDevice, 'open_ports' | 'm
 }
 
 function isValidIp(ip: string): boolean {
-  return /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(ip)
+  return isValidIpv4(ip)
 }
 
 function isValidMac(mac: string): boolean {
   return /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(mac)
-}
-
-function isValidCidr(cidr: string): boolean {
-  const [ip, prefix] = cidr.split('/')
-  if (!prefix) return false
-  const prefixNum = Number(prefix)
-  return isValidIp(ip) && Number.isInteger(prefixNum) && prefixNum >= 0 && prefixNum <= 32
 }
 
 function AddDeviceModal({ onClose, projectId }: { onClose: () => void; projectId?: string }) {

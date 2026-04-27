@@ -33,16 +33,18 @@ import {
 } from '@/lib/universal-tests'
 import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import { useAuth } from '@/contexts/AuthContext'
+import { parseIpv4Cidr } from '@/lib/ipValidation'
 import toast from 'react-hot-toast'
 
 const LiveTerminal = lazy(() => import('@/components/testing/LiveTerminal'))
+const DEFAULT_CIDR = '192.168.1.0/24'
 
 export default function NetworkScanPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [savedState] = useState(() => loadPersistedScanState())
   const [step, setStep] = useState<NetworkScanStep>(savedState.step)
-  const [cidr, setCidr] = useState('192.168.1.0/24')
+  const [cidr, setCidr] = useState(DEFAULT_CIDR)
   const [scenario, setScenario] = useState('test_lab')
   const [selectedTests, setSelectedTests] = useState<Set<string>>(new Set(SCENARIO_PRESELECTS.test_lab))
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Network']))
@@ -76,12 +78,11 @@ export default function NetworkScanPage() {
     fetchAuthorizedNets()
   }, [fetchAuthorizedNets])
 
-  const cidrValid = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(cidr)
-  const cidrPrefix = cidr.split('/')[1] ? parseInt(cidr.split('/')[1]) : 0
-  const cidrPrefixInRange = cidrPrefix >= 16 && cidrPrefix <= 30
-  const hostCount = cidrValid && cidrPrefixInRange
-    ? Math.pow(2, 32 - cidrPrefix) - 2
-    : 0
+  const cidrCheck = parseIpv4Cidr(cidr)
+  const cidrValid = cidrCheck.formatValid
+  const cidrPrefix = cidrCheck.prefix
+  const cidrPrefixInRange = cidrCheck.prefixInRange
+  const hostCount = cidrCheck.hostCount
 
   useEffect(() => {
     const preselected = SCENARIO_PRESELECTS[scenario] || []
@@ -149,7 +150,7 @@ export default function NetworkScanPage() {
   }
 
   const handleDiscover = async () => {
-    if (!cidrValid) return
+    if (!cidrValid || !cidrPrefixInRange) return
     setDiscovering(true)
     setMonitorError(null)
     try {
@@ -192,9 +193,21 @@ export default function NetworkScanPage() {
         test_ids: Array.from(selectedTests),
         connection_scenario: scenario,
       })
-      setScanStatus(normalizeNetworkScanStatus(res.data.status) || 'scanning')
-      setStep('monitor')
-      toast.success('Batch scan started')
+      const nextStatus = normalizeNetworkScanStatus(res.data.status) || 'scanning'
+      setScanStatus(nextStatus)
+      if (nextStatus === 'error' || nextStatus === 'complete') {
+        setResults(res.data.results || [])
+        setMonitorError(res.data.error_message || null)
+        setStep('results')
+        if (nextStatus === 'error') {
+          toast.error(res.data.error_message || 'No tests were started')
+        } else {
+          toast.success('Batch scan completed')
+        }
+      } else {
+        setStep('monitor')
+        toast.success('Batch scan started')
+      }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } }
       toast.error(error.response?.data?.detail || 'Failed to start batch scan')
@@ -226,7 +239,7 @@ export default function NetworkScanPage() {
   }, [step, scanId])
 
   useEffect(() => {
-    if (step !== 'results' || !scanId) return
+    if (step !== 'results' || !scanId || scanStatus === 'error') return
     const fetchFinal = async () => {
       try {
         const res = await networkScanApi.results(scanId)
@@ -237,7 +250,7 @@ export default function NetworkScanPage() {
       }
     }
     fetchFinal()
-  }, [step, scanId])
+  }, [step, scanId, scanStatus])
 
   return (
     <div className="page-container" data-tour="scan-config">
@@ -377,7 +390,7 @@ function ConfigureStep({
   const [detectedNets, setDetectedNets] = useState<{ label: string; cidr: string; type: string; hosts_found: number; sample_hosts: string[] }[]>([])
 
   useEffect(() => {
-    if (authorizedNets.length === 1 && !cidr) {
+    if (authorizedNets.length === 1 && (!cidr || cidr === DEFAULT_CIDR)) {
       setCidr(authorizedNets[0].cidr)
     }
   }, [authorizedNets, cidr, setCidr])
@@ -486,10 +499,10 @@ function ConfigureStep({
               value={cidr}
               onChange={e => setCidr(e.target.value)}
               placeholder="192.168.1.0/24"
-              className={`input ${cidr && !cidrValid ? 'border-red-300 focus:border-red-400' : ''}`}
+              className={`input ${cidr && (!cidrValid || !cidrPrefixInRange) ? 'border-red-300 focus:border-red-400' : ''}`}
             />
             {cidr && !cidrValid && <p className="text-xs text-red-500 mt-1">Invalid CIDR format</p>}
-            {cidr && cidrValid && !cidrPrefixInRange && <p className="text-xs text-red-500 mt-1">CIDR prefix must be between /16 and /30</p>}
+            {cidr && cidrValid && !cidrPrefixInRange && <p className="text-xs text-red-500 mt-1">CIDR prefix must be between /16 and /32</p>}
           </div>
           <div className="sm:w-48">
             <label className="label">Possible IPs in range</label>
@@ -525,7 +538,7 @@ function ConfigureStep({
         {scenario === 'site_network' && (
           <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-amber-700">Scenario 3 uses conservative scan settings to minimise disruption. Scenario-sensitive tests are rerouted to guided manual review.</p>
+            <p className="text-xs text-amber-700">Scenario 3 reroutes scenario-sensitive tests to guided manual review. Use it only where production-network scanning is approved.</p>
           </div>
         )}
       </div>
@@ -610,7 +623,7 @@ function ConfigureStep({
         <button
           type="button"
           onClick={onDiscover}
-          disabled={!cidrValid || hostCount === 0 || selectedTests.size === 0 || discovering}
+          disabled={!cidrValid || !cidrPrefixInRange || hostCount === 0 || selectedTests.size === 0 || discovering}
           className="btn-primary"
         >
           {discovering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}

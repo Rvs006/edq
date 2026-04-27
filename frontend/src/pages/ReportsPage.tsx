@@ -12,6 +12,7 @@ const TEMPLATE_OPTIONS = [
   { key: 'generic', label: 'Generic IP Device (C00)', category: 'generic' },
   { key: 'pelco_camera', label: 'Pelco Camera (Rev 2)', category: 'camera' },
   { key: 'easyio_controller', label: 'EasyIO Controller', category: 'controller' },
+  { key: 'sauter_680_as', label: 'Sauter 680-AS (C00)', category: 'controller' },
 ]
 
 type ReportFormat = 'excel' | 'word' | 'pdf' | 'csv'
@@ -150,7 +151,7 @@ export default function ReportsPage() {
     }
   }
 
-  const availableTemplates = templates || TEMPLATE_OPTIONS
+  const availableTemplates = templates?.length ? templates : TEMPLATE_OPTIONS
   const selectedFormatPreview = FORMAT_PREVIEW[reportType]
 
   const formatGroups: FormatGroup[] = [
@@ -298,16 +299,14 @@ export default function ReportsPage() {
           <div className="card p-4">
             <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Template Formats</h3>
             <div className="space-y-2">
-              {[
-                { name: 'Generic C00', desc: 'Universal IP device workbook with mapped rows reused across every export format.' },
-                { name: 'Pelco Camera', desc: 'Camera qualification profile shared by Excel, CSV, Word, and PDF generation.' },
-                { name: 'EasyIO Controller', desc: 'Controller profile aligned to the current EDQ workflow across all output types.' },
-              ].map(fw => (
-                <div key={fw.name} className="flex items-center gap-2 py-1">
+              {availableTemplates.map((template: ReportTemplate) => (
+                <div key={template.key} className="flex items-center gap-2 py-1">
                   <div className="w-2 h-2 rounded-full bg-brand-500" />
                   <div>
-                    <p className="text-sm font-medium text-zinc-900 dark:text-slate-100">{fw.name}</p>
-                    <p className="text-xs text-zinc-500">{fw.desc}</p>
+                    <p className="text-sm font-medium text-zinc-900 dark:text-slate-100">{template.name || template.label}</p>
+                    <p className="text-xs text-zinc-500">
+                      {template.description || `${template.device_category || template.category || 'Device'} profile shared across report outputs.`}
+                    </p>
                   </div>
                 </div>
               ))}

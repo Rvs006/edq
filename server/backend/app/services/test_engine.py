@@ -5,11 +5,18 @@ Streams progress via WebSocket and integrates the Wobbly Cable Handler.
 """
 
 import asyncio
+import hashlib
+import ipaddress
+import json
 import logging
+import os
 import re
+import socket
+import ssl
 import time
 from datetime import datetime, timezone
 from typing import Any
+from xml.etree import ElementTree
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,8 +40,12 @@ from app.services.parsers.testssl_parser import testssl_parser
 from app.services.parsers.ssh_audit_parser import ssh_audit_parser
 from app.services.parsers.hydra_parser import hydra_parser
 from app.services.evaluation import evaluate_result
-from app.services.connectivity_probe import extract_probe_ports, probe_device_connectivity
-from app.services.mac_vendor import resolve_mac_vendor
+from app.services.connectivity_probe import (
+    extract_known_probe_ports,
+    extract_probe_ports,
+    probe_device_connectivity,
+)
+from app.services.mac_vendor import normalize_mac, resolve_mac_vendor
 from app.services.run_readiness import (
     build_run_readiness_summary,
     merge_readiness_into_metadata,
@@ -114,6 +125,290 @@ class _BoundedDict(dict):
 _PORT_SCAN_CACHE: dict[str, dict[str, Any]] = _BoundedDict(_MAX_CACHE_SIZE)
 _TESTSSL_CACHE: dict[str, dict[str, Any]] = _BoundedDict(_MAX_CACHE_SIZE)
 
+_DOCKER_TCP_BASELINE_PORTS = (
+    22, 23, 53, 80, 135, 137, 139, 443, 445, 502, 554, 1883, 47808,
+    8000, 8008, 8080, 8081, 8443, 8883, 9100,
+)
+_COMMON_SERVICE_BY_PORT = {
+    22: "ssh",
+    23: "telnet",
+    53: "domain",
+    80: "http",
+    135: "msrpc",
+    137: "netbios-ns",
+    139: "netbios-ssn",
+    443: "https",
+    445: "microsoft-ds",
+    502: "modbus",
+    554: "rtsp",
+    1883: "mqtt",
+    47808: "bacnet",
+    8000: "http-alt",
+    8008: "http",
+    8080: "http-proxy",
+    8081: "http",
+    8443: "https-alt",
+    8883: "secure-mqtt",
+    9100: "jetdirect",
+}
+
+
+def _port_evidence_score(port: dict[str, Any]) -> int:
+    """Score how much service detail a parsed port entry carries."""
+    score = 0
+    service = str(port.get("service") or "").strip().lower()
+    if service and service != "unknown":
+        score += 2
+    for field in ("version", "product", "extra_info"):
+        if str(port.get(field) or "").strip():
+            score += 3
+    if port.get("scripts"):
+        score += 4
+    return score
+
+
+def _merge_port_evidence(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Keep the richer port evidence while preserving non-empty existing fields."""
+    primary, secondary = (
+        (incoming, existing)
+        if _port_evidence_score(incoming) > _port_evidence_score(existing)
+        else (existing, incoming)
+    )
+    merged = dict(secondary)
+    for key, value in primary.items():
+        if value not in (None, "", [], {}):
+            merged[key] = value
+    return merged
+
+
+def _merge_nmap_scan_data(*scans: dict[str, Any] | None) -> dict[str, Any]:
+    """Merge parsed nmap results while preserving TCP/UDP protocol evidence."""
+    merged: dict[str, Any] = {"hosts": [], "open_ports": [], "scan_info": {}}
+    port_indexes: dict[tuple[str, int, str], int] = {}
+    seen_hosts: set[tuple[str | None, str]] = set()
+
+    for scan in scans:
+        if not isinstance(scan, dict) or not scan:
+            continue
+        if scan.get("scan_info") and not merged.get("scan_info"):
+            merged["scan_info"] = scan["scan_info"]
+        for host in scan.get("hosts") or []:
+            if not isinstance(host, dict):
+                continue
+            key = (host.get("ip"), host.get("status", ""))
+            if key not in seen_hosts:
+                seen_hosts.add(key)
+                merged["hosts"].append(host)
+        for port in scan.get("open_ports") or []:
+            if not isinstance(port, dict) or port.get("port") is None:
+                continue
+            key = (
+                str(port.get("protocol") or "tcp").lower(),
+                int(port["port"]),
+                str(port.get("state") or "open").lower(),
+            )
+            if key in port_indexes:
+                idx = port_indexes[key]
+                merged["open_ports"][idx] = _merge_port_evidence(merged["open_ports"][idx], port)
+            else:
+                port_indexes[key] = len(merged["open_ports"])
+                merged["open_ports"].append(port)
+    return merged
+
+
+def _has_tcp_scan_evidence(scan_data: dict[str, Any] | None) -> bool:
+    """True when scan data includes TCP/service evidence suitable for port skips."""
+    if not isinstance(scan_data, dict) or not scan_data:
+        return False
+    scan_info = scan_data.get("scan_info") or {}
+    protocol = str(scan_info.get("protocol") or "").lower()
+    scan_type = str(scan_info.get("type") or "").lower()
+    if protocol == "tcp" or scan_type in {"syn", "connect"}:
+        return True
+    return any(
+        str(port.get("protocol") or "tcp").lower() == "tcp"
+        for port in scan_data.get("open_ports") or []
+        if isinstance(port, dict)
+    )
+
+
+def _filter_definite_open_ports(scan_data: dict[str, Any]) -> dict[str, Any]:
+    """Return scan data with inconclusive open|filtered ports removed."""
+    filtered = dict(scan_data)
+    filtered["open_ports"] = [
+        port for port in scan_data.get("open_ports", [])
+        if isinstance(port, dict) and _is_definite_open_port(port)
+    ]
+    return filtered
+
+
+def _is_definite_open_port(port: dict[str, Any], *, script_id: str | None = None) -> bool:
+    """Treat UDP open|filtered as inconclusive unless script output proves service response."""
+    state = str(port.get("state") or "").lower()
+    if state == "open":
+        return True
+    if script_id and state == "open|filtered":
+        return any(script.get("id") == script_id for script in port.get("scripts", []) or [])
+    return False
+
+
+def _is_http_service(port: dict[str, Any]) -> bool:
+    service = str(port.get("service") or "").lower()
+    port_num = int(port.get("port") or 0)
+    return (
+        "http" in service
+        or "www" in service
+        or port_num in {80, 443, 8000, 8008, 8080, 8081, 8443, 8888}
+    )
+
+
+def _is_https_service(port: dict[str, Any]) -> bool:
+    service = str(port.get("service") or "").lower()
+    port_num = int(port.get("port") or 0)
+    return "https" in service or "ssl/http" in service or port_num in {443, 8443, 4443}
+
+
+def _port_candidates_from_device(device: Device) -> list[int]:
+    ports: list[int] = []
+    seen: set[int] = set()
+
+    def add_port(value: Any) -> None:
+        try:
+            port = int(value)
+        except (TypeError, ValueError):
+            return
+        if 1 <= port <= 65535 and port not in seen:
+            seen.add(port)
+            ports.append(port)
+
+    for item in getattr(device, "open_ports", None) or []:
+        if isinstance(item, dict):
+            add_port(item.get("port"))
+        else:
+            add_port(item)
+    for port in _DOCKER_TCP_BASELINE_PORTS:
+        add_port(port)
+    return ports[:100]
+
+
+def _tcp_probe_to_scan_data(
+    device_ip: str,
+    payload: dict[str, Any],
+    probed_ports: list[int],
+) -> dict[str, Any]:
+    hosts = payload.get("hosts", []) if isinstance(payload, dict) else []
+    host = hosts[0] if hosts and isinstance(hosts[0], dict) else {}
+    open_ports = []
+    for entry in host.get("open_ports", []) if isinstance(host, dict) else []:
+        if not isinstance(entry, dict) or entry.get("port") is None:
+            continue
+        port = int(entry["port"])
+        open_ports.append({
+            "port": port,
+            "protocol": "tcp",
+            "state": "open",
+            "service": entry.get("service") or _COMMON_SERVICE_BY_PORT.get(port, ""),
+            "version": entry.get("version") or "",
+            "product": entry.get("product") or "",
+            "extra_info": entry.get("extra_info") or "",
+            "scripts": entry.get("scripts") or [],
+        })
+
+    return {
+        "hosts": [{
+            "ip": host.get("ip") or device_ip,
+            "status": "up" if host.get("reachable") or open_ports else "unknown",
+            "ports": open_ports,
+            "os": None,
+            "hostname": None,
+            "scripts": [],
+        }],
+        "open_ports": open_ports,
+        "scan_info": {
+            "type": "tcp-probe",
+            "protocol": "tcp",
+            "numservices": str(len(probed_ports)),
+        },
+        "scan_note": "Docker scanner fast TCP inventory; use host scanner mode for true all-65535 raw scans.",
+    }
+
+
+def _merge_tls_probe_fallback(parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(parsed)
+    for key, value in fallback.items():
+        if key in {"tls_versions", "weak_versions", "ciphers", "weak_ciphers", "vulnerabilities"}:
+            existing = list(merged.get(key) or [])
+            for item in value or []:
+                if item not in existing:
+                    existing.append(item)
+            merged[key] = existing
+        elif value not in (None, "", [], {}) and not merged.get(key):
+            merged[key] = value
+    return merged
+
+
+def _nmap_xml_or_raise(test_id: str, raw: dict[str, Any]) -> str:
+    """Return nmap XML stdout, or raise so scanner failures cannot look like closed ports."""
+    if not isinstance(raw, dict):
+        raise RuntimeError(f"{test_id} nmap failed: invalid sidecar response")
+
+    if raw.get("error"):
+        raise RuntimeError(f"{test_id} nmap failed: {raw['error']}")
+
+    stdout = raw.get("stdout") or ""
+    exit_code = raw.get("exit_code")
+    if exit_code not in (None, 0):
+        if "<nmaprun" in stdout and "</nmaprun>" in stdout:
+            try:
+                ElementTree.fromstring(stdout)
+            except ElementTree.ParseError as exc:
+                raise RuntimeError(f"{test_id} nmap returned invalid XML: {exc}") from exc
+            logger.warning(
+                "%s nmap exited %s but returned parseable XML; preserving scan evidence",
+                test_id,
+                exit_code,
+            )
+            return stdout
+        details = (raw.get("stderr") or raw.get("stdout") or "").strip()
+        suffix = f": {details[:500]}" if details else ""
+        raise RuntimeError(f"{test_id} nmap exited {exit_code}{suffix}")
+
+    if not stdout.strip():
+        raise RuntimeError(f"{test_id} nmap returned no XML output")
+    try:
+        ElementTree.fromstring(stdout)
+    except ElementTree.ParseError as exc:
+        raise RuntimeError(f"{test_id} nmap returned invalid XML: {exc}") from exc
+    return stdout
+
+
+def _udp_inconclusive_result(ports: list[int], reason: str) -> dict[str, Any]:
+    return {
+        "hosts": [],
+        "open_ports": [
+            {
+                "port": port,
+                "protocol": "udp",
+                "state": "open|filtered",
+                "service": _COMMON_SERVICE_BY_PORT.get(port, ""),
+            }
+            for port in ports
+        ],
+        "scan_info": {"type": "udp-probe", "protocol": "udp"},
+        "scan_error": reason,
+    }
+
+
+def _has_nmap_scan_evidence(scan_data: dict[str, Any] | None) -> bool:
+    """True when parsed nmap data came from a real scan, even if no ports were open."""
+    if not isinstance(scan_data, dict) or not scan_data:
+        return False
+    return bool(
+        scan_data.get("open_ports")
+        or scan_data.get("hosts")
+        or scan_data.get("scan_info")
+    )
+
 
 def _infer_os_from_services(open_ports: list[dict[str, Any]]) -> str | None:
     """Infer OS from service banners when nmap -O fails."""
@@ -124,12 +419,16 @@ def _infer_os_from_services(open_ports: list[dict[str, Any]]) -> str | None:
         service = (p.get("service", "") or "").lower()
         product = (p.get("product", "") or "").lower()
         combined = f"{service} {version} {product}"
-        if any(kw in combined for kw in ("microsoft", "windows", "iis", "msrpc", "netbios", "microsoft-ds")):
+        if any(kw in combined for kw in ("dropbear", "busybox", "samba", "uhttpd")):
+            os_hints.append("Embedded Linux/Unix")
+        elif any(kw in combined for kw in ("windows", "iis", "msrpc")):
             os_hints.append("Windows")
         elif any(kw in combined for kw in ("ubuntu", "debian", "centos", "fedora", "red hat")):
             os_hints.append("Linux")
         elif "openssh" in combined and "windows" not in combined:
             os_hints.append("Linux/Unix")
+        elif "microsoft" in combined and "microsoft-ds" not in combined:
+            os_hints.append("Windows")
         elif "cisco" in combined:
             os_hints.append("Cisco IOS")
         elif "apple" in combined or "macos" in combined:
@@ -158,6 +457,10 @@ class TestEngine:
         status: TestRunStatus | None = None,
         run_metadata: dict[str, Any] | None = None,
         started_at: datetime | None = None,
+        current_test_id: str | None = None,
+        current_test_name: str | None = None,
+        current_test_started_at: datetime | None = None,
+        clear_current_test: bool = False,
     ) -> None:
         async with async_session() as db:
             run_row = await db.get(TestRun, run_id)
@@ -169,8 +472,27 @@ class TestEngine:
                 run_row.status = status
             if started_at is not None and not run_row.started_at:
                 run_row.started_at = started_at
-            if run_metadata is not None:
-                run_row.run_metadata = run_metadata
+            if (
+                run_metadata is not None
+                or current_test_id is not None
+                or clear_current_test
+            ):
+                existing_metadata = (
+                    run_row.run_metadata if isinstance(run_row.run_metadata, dict) else {}
+                )
+                metadata = dict(run_metadata) if isinstance(run_metadata, dict) else dict(existing_metadata)
+                if clear_current_test:
+                    metadata.pop("current_test", None)
+                if current_test_id is not None:
+                    metadata["current_test"] = {
+                        "test_id": current_test_id,
+                        "test_name": current_test_name or current_test_id,
+                        "status": "running",
+                        "started_at": (
+                            current_test_started_at or utcnow_naive()
+                        ).isoformat(),
+                    }
+                run_row.run_metadata = metadata
             await db.commit()
 
     async def run(self, test_run_id: str, test_plan_id: str | None = None) -> None:
@@ -231,9 +553,9 @@ class TestEngine:
 
             whitelist_entries = await self._load_whitelist(db, template.whitelist_id)
 
-            existing_meta = run.run_metadata or {}
-            if isinstance(existing_meta, dict):
-                existing_meta["tool_versions"] = tool_versions
+            existing_meta = dict(run.run_metadata) if isinstance(run.run_metadata, dict) else {}
+            existing_meta["tool_versions"] = tool_versions
+            existing_meta.pop("current_test", None)
             run.run_metadata = existing_meta
             await db.commit()
 
@@ -249,6 +571,7 @@ class TestEngine:
             test_run_id,
             manager,
             probe_ports=probe_ports,
+            known_service_ports=getattr(readiness, "known_probe_ports", None) or [],
         )
         # Apply the shared route/engine readiness decision before starting tests.
         # connection. ICMP alone isn't sufficient — a gateway/router on the
@@ -294,6 +617,7 @@ class TestEngine:
                     "network. Testing is paused until connectivity is restored."
                 ),
                 kill_tools=False,
+                reason="service" if readiness.reason == "service_unreachable" else "cable",
             )
 
         try:
@@ -404,7 +728,6 @@ class TestEngine:
                     ).tier
 
                 if effective_tier == "guided_manual":
-                    completed += 1
                     async with async_session() as db:
                         result_row = await db.get(TestResult, test_result.id)
                         if result_row and result_row.verdict == TestVerdict.PENDING:
@@ -418,7 +741,6 @@ class TestEngine:
                         test_run_id,
                         completed_tests=completed,
                         total_tests=total,
-                        status=TestRunStatus.AWAITING_MANUAL,
                     )
 
                     await manager.broadcast(f"test-run:{test_run_id}", {
@@ -443,7 +765,10 @@ class TestEngine:
                     # before starting the test. This catches cable disconnects
                     # that happened between the monitor's poll interval.
                     pre_reachable, _ = await probe_device_connectivity(
-                        current_device_ip, probe_ports=probe_ports, tcp_timeout=2.0
+                        current_device_ip,
+                        probe_ports=probe_ports,
+                        tcp_timeout=2.0,
+                        trust_icmp_only=True,
                     )
                     if not pre_reachable:
                         logger.warning(
@@ -457,6 +782,17 @@ class TestEngine:
                             await self._wait_while_paused(test_run_id)
                             continue  # retry from top after cable resumes
 
+                    test_started_at = utcnow_naive()
+                    await self._persist_run_progress(
+                        test_run_id,
+                        completed_tests=completed,
+                        total_tests=total,
+                        status=TestRunStatus.RUNNING,
+                        current_test_id=test_result.test_id,
+                        current_test_name=test_result.test_name,
+                        current_test_started_at=test_started_at,
+                    )
+
                     await manager.broadcast(f"test-run:{test_run_id}", {
                         "type": "test_start",
                         "data": {
@@ -467,7 +803,6 @@ class TestEngine:
                         },
                     })
 
-                    test_started_at = utcnow_naive()
                     verdict, comment, parsed, raw_out, duration = await self._run_single_test(
                         test_def,
                         current_device_ip,
@@ -527,6 +862,7 @@ class TestEngine:
                     completed_tests=completed,
                     total_tests=total,
                     status=TestRunStatus.RUNNING,
+                    clear_current_test=True,
                 )
 
         except asyncio.CancelledError:
@@ -734,8 +1070,25 @@ class TestEngine:
         the result in run metadata, and broadcasts a device_classified event.
         """
         try:
-            # Gather U08 data (service detection)
+            # Prefer U08 service detection for fingerprinting, but fall back to
+            # U06's port scan if service detection failed. Missing scan data
+            # must not be interpreted as "all ports are closed".
             u08_data = _PORT_SCAN_CACHE.get(f"{test_run_id}_u08", {})
+            u06_data = _PORT_SCAN_CACHE.get(test_run_id, {})
+            u07_data = _PORT_SCAN_CACHE.get(f"{test_run_id}_u07", {})
+            if _has_nmap_scan_evidence(u08_data):
+                scan_data = _merge_nmap_scan_data(u08_data, u07_data)
+                scan_source = "U08+U07" if _has_nmap_scan_evidence(u07_data) else "U08"
+            elif _has_nmap_scan_evidence(u06_data):
+                scan_data = _merge_nmap_scan_data(u06_data, u07_data)
+                scan_source = "U06+U07" if _has_nmap_scan_evidence(u07_data) else "U06"
+            elif _has_nmap_scan_evidence(u07_data):
+                scan_data = u07_data
+                scan_source = "U07"
+            else:
+                scan_data = {}
+                scan_source = "none"
+            allow_port_skips = _has_tcp_scan_evidence(scan_data)
 
             # Gather U02 data from the device record (already parsed)
             u02_data = {
@@ -745,7 +1098,11 @@ class TestEngine:
 
             async with async_session() as db:
                 result = await fingerprinter.fingerprint(
-                    db, device.id, u08_data, u02_data
+                    db,
+                    device.id,
+                    scan_data,
+                    u02_data,
+                    allow_port_skips=allow_port_skips,
                 )
 
                 # Store fingerprint in run metadata
@@ -760,6 +1117,7 @@ class TestEngine:
                         "matched_profile_name": result.matched_profile_name,
                         "skip_test_ids": result.skip_test_ids,
                         "reason": result.reason,
+                        "port_scan_source": scan_source,
                     }
                     run_row.run_metadata = meta
                     await db.commit()
@@ -790,6 +1148,113 @@ class TestEngine:
                 "data": {"test_id": test_id, "stdout_line": line},
             })
         return on_line
+
+    async def _docker_tcp_inventory(
+        self,
+        device_ip: str,
+        device: Device,
+    ) -> tuple[dict[str, Any], str]:
+        """Fast TCP inventory for Docker Desktop/bridge scanner deployments.
+
+        Docker connect scans across the WSL/bridge boundary can time out on
+        `-p-` before reaching useful ports. This verifies known/common service
+        ports quickly so U06 produces actionable values instead of a false
+        empty result.
+        """
+        ports = _port_candidates_from_device(device)
+        payload = await tools_client.tcp_probe(
+            device_ip,
+            ports=ports,
+            connect_timeout=1.0,
+            concurrency=min(len(ports), 64),
+            max_hosts=1,
+            timeout=30,
+        )
+        parsed = _tcp_probe_to_scan_data(device_ip, payload, ports)
+        return parsed, json.dumps(payload, sort_keys=True)
+
+    def _tls_probe_sync(self, host: str, port: int) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "tls_versions": [],
+            "weak_versions": [],
+            "ciphers": [],
+            "weak_ciphers": [],
+            "vulnerabilities": [],
+            "cert_valid": False,
+            "cert_not_before": None,
+            "cert_not_after": None,
+            "cert_expiry": None,
+            "cert_subject": None,
+            "cert_issuer": None,
+            "hsts": None,
+            "hsts_checked": False,
+            "fallback_probe": "python-ssl",
+            "target_port": port,
+        }
+        cert_der: bytes | None = None
+        version_map = [
+            ("TLSv1.0", getattr(ssl.TLSVersion, "TLSv1", None)),
+            ("TLSv1.1", getattr(ssl.TLSVersion, "TLSv1_1", None)),
+            ("TLSv1.2", getattr(ssl.TLSVersion, "TLSv1_2", None)),
+            ("TLSv1.3", getattr(ssl.TLSVersion, "TLSv1_3", None)),
+        ]
+        for label, version in version_map:
+            if version is None:
+                continue
+            try:
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                context.minimum_version = version
+                context.maximum_version = version
+                with socket.create_connection((host, port), timeout=4) as sock:
+                    with context.wrap_socket(sock, server_hostname=host) as tls_sock:
+                        negotiated = tls_sock.version() or label
+                        if label not in result["tls_versions"]:
+                            result["tls_versions"].append(label)
+                        cipher = tls_sock.cipher()
+                        if cipher:
+                            name, protocol, bits = cipher
+                            cipher_entry = {"name": name, "protocol": protocol, "bits": bits}
+                            if cipher_entry not in result["ciphers"]:
+                                result["ciphers"].append(cipher_entry)
+                        if cert_der is None:
+                            cert_der = tls_sock.getpeercert(binary_form=True)
+            except Exception:
+                continue
+
+        result["weak_versions"] = [
+            version for version in result["tls_versions"]
+            if version in {"SSLv2", "SSLv3", "TLSv1.0", "TLSv1.1"}
+        ]
+        if cert_der:
+            try:
+                from cryptography import x509
+
+                cert = x509.load_der_x509_certificate(cert_der)
+                result["cert_subject"] = cert.subject.rfc4514_string()
+                result["cert_issuer"] = cert.issuer.rfc4514_string()
+                try:
+                    not_before = cert.not_valid_before_utc
+                    not_after = cert.not_valid_after_utc
+                except AttributeError:
+                    not_before = cert.not_valid_before
+                    not_after = cert.not_valid_after
+                result["cert_not_before"] = not_before.isoformat()
+                result["cert_not_after"] = not_after.isoformat()
+                result["cert_expiry"] = result["cert_not_after"]
+                now = datetime.now(timezone.utc)
+                if not_before.tzinfo is None:
+                    not_before = not_before.replace(tzinfo=timezone.utc)
+                if not_after.tzinfo is None:
+                    not_after = not_after.replace(tzinfo=timezone.utc)
+                result["cert_valid"] = not_before <= now <= not_after and cert.issuer != cert.subject
+            except Exception as exc:
+                logger.debug("TLS certificate fallback parse failed for %s:%s: %s", host, port, exc)
+        return result
+
+    async def _tls_probe_fallback(self, host: str, port: int) -> dict[str, Any]:
+        return await asyncio.to_thread(self._tls_probe_sync, host, port)
 
     async def _dispatch_test(
         self,
@@ -847,12 +1312,31 @@ class TestEngine:
                 try:
                     await tools_client.ping(device_ip, count=1)
                     arp_result = await tools_client.arp_cache(device_ip)
+                    for entry in arp_result.get("entries", []) if isinstance(arp_result, dict) else []:
+                        if not isinstance(entry, dict):
+                            continue
+                        if str(entry.get("ip") or "") == device_ip and entry.get("mac"):
+                            parsed["mac_address"] = entry["mac"]
+                            if entry.get("vendor"):
+                                parsed["oui_vendor"] = entry["vendor"]
+                            break
                     arp_data = nmap_parser.parse_arp_cache(arp_result.get("stdout", ""))
-                    if arp_data.get("mac_address"):
+                    if not parsed.get("mac_address") and arp_data.get("mac_address"):
                         parsed["mac_address"] = arp_data["mac_address"]
                 except Exception:
                     logger.debug("U02: ARP cache fallback failed for %s", device_ip)
-            vendor = await resolve_mac_vendor(parsed.get("mac_address"), parsed.get("oui_vendor"))
+            device_mac = normalize_mac(getattr(device, "mac_address", None))
+            if not parsed.get("mac_address") and device_mac:
+                parsed["mac_address"] = device_mac
+                if getattr(device, "oui_vendor", None):
+                    parsed["oui_vendor"] = device.oui_vendor
+                parsed["source"] = "device_record"
+            vendor_hint = (
+                parsed.get("oui_vendor")
+                or getattr(device, "oui_vendor", None)
+                or getattr(device, "manufacturer", None)
+            )
+            vendor = await resolve_mac_vendor(parsed.get("mac_address"), vendor_hint)
             if vendor:
                 parsed["oui_vendor"] = vendor
             return (parsed, raw.get("stdout"))
@@ -866,6 +1350,10 @@ class TestEngine:
                 and settings.PROTOCOL_OBSERVER_ENABLED
             ):
                 mac = getattr(device, "mac_address", None)
+                if not mac and getattr(device, "id", None):
+                    async with async_session() as db:
+                        fresh_device = await db.get(Device, device.id)
+                        mac = getattr(fresh_device, "mac_address", None) if fresh_device else None
                 stripped_mac = mac.strip() if mac else ""
                 if stripped_mac:
                     try:
@@ -882,15 +1370,16 @@ class TestEngine:
                                 },
                                 None,
                             )
-                    except OSError as exc:
+                    except Exception as exc:
                         logger.debug("U04 DHCP observer unavailable for %s: %s", device_ip, exc)
             try:
                 raw = await tools_client.nmap_stream(
                     device_ip, ["-sU", "-p", "67", "--script", "dhcp-discover", "-oX", "-"],
                     timeout=30, on_line=on_line
                 )
-                parsed = nmap_parser.parse_dhcp_discover(raw.get("stdout", ""))
-                return (parsed, raw.get("stdout"))
+                xml_out = _nmap_xml_or_raise("U04", raw)
+                parsed = nmap_parser.parse_dhcp_discover(xml_out)
+                return (parsed, xml_out)
             except Exception as exc:
                 logger.debug("U04: DHCP discover failed for %s", device_ip)
                 return (
@@ -902,33 +1391,90 @@ class TestEngine:
                 )
 
         if test_id == "U05":
+            try:
+                target_ip = ipaddress.ip_address(device_ip)
+            except ValueError:
+                target_ip = None
+            if target_ip and target_ip.version == 4:
+                return (
+                    {
+                        "ipv6_supported": False,
+                        "ipv6_assessed": False,
+                        "reason": "No IPv6 address is recorded for this device; the current test run target is IPv4.",
+                    },
+                    None,
+                )
             raw = await tools_client.nmap_stream(device_ip, ["-6", "-sn"], timeout=60, on_line=on_line)
             parsed = nmap_parser.parse_ipv6(raw)
+            parsed["ipv6_assessed"] = True
             return (parsed, raw.get("stdout"))
 
         if test_id == "U06":
+            if (
+                getattr(tools_client, "scanner_in_docker", False)
+                and getattr(tools_client, "backend_in_docker", False)
+            ):
+                try:
+                    parsed, raw_out = await self._docker_tcp_inventory(device_ip, device)
+                    _PORT_SCAN_CACHE[run_id] = parsed
+                    from app.services.wobbly_cable import get_cable_handler
+                    _handler = get_cable_handler(run_id)
+                    if _handler and parsed.get("open_ports"):
+                        _handler.update_probe_ports(
+                            extract_probe_ports(parsed["open_ports"]),
+                            known_service_ports=extract_known_probe_ports(parsed["open_ports"]),
+                        )
+                    return (parsed, raw_out)
+                except Exception as exc:
+                    logger.warning("U06 Docker TCP inventory failed for %s; falling back to nmap -p-: %s", device_ip, exc)
+
             raw = await tools_client.nmap_stream(
-                device_ip, ["-sS", "-p-", "-T4", "--min-rate", "500", "--max-retries", "2", "--defeat-rst-ratelimit", "--open", "-oX", "-"], timeout=600, on_line=on_line
+                device_ip,
+                [
+                    "-sS", "-p-", "-T4", "--min-rate", "500",
+                    "--max-retries", "1", "--host-timeout", "180s",
+                    "--stats-every", "15s", "--defeat-rst-ratelimit",
+                    "--open", "-n", "-oX", "-",
+                ],
+                timeout=240,
+                on_line=on_line,
             )
-            if raw.get("exit_code") not in (None, 0):
-                logger.warning("U06 nmap exited %s: %s", raw.get("exit_code"), raw.get("stderr", ""))
-            xml_out = raw.get("stdout", "")
+            xml_out = _nmap_xml_or_raise("U06", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            if not parsed.get("open_ports"):
+                try:
+                    fallback, fallback_raw = await self._docker_tcp_inventory(device_ip, device)
+                    if fallback.get("open_ports"):
+                        parsed = _merge_nmap_scan_data(parsed, fallback)
+                        parsed["scan_note"] = (
+                            "Full scan returned no open ports; known/common ports were verified "
+                            "with TCP connect fallback."
+                        )
+                        xml_out = f"{xml_out}\n\nTCP probe fallback:\n{fallback_raw}"
+                except Exception as exc:
+                    logger.debug("U06 TCP fallback found no ports for %s: %s", device_ip, exc)
             _PORT_SCAN_CACHE[run_id] = parsed
             # Hot-update the cable handler's probe ports with newly discovered ports
             from app.services.wobbly_cable import get_cable_handler
             _handler = get_cable_handler(run_id)
             if _handler and parsed.get("open_ports"):
-                _handler.update_probe_ports(extract_probe_ports(parsed["open_ports"]))
+                _handler.update_probe_ports(
+                    extract_probe_ports(parsed["open_ports"]),
+                    known_service_ports=extract_known_probe_ports(parsed["open_ports"]),
+                )
             return (parsed, xml_out)
 
         if test_id == "U07":
             raw = await tools_client.nmap_stream(
-                device_ip, ["-sU", "--top-ports", "100", "--open", "-oX", "-"], timeout=300, on_line=on_line
+                device_ip,
+                ["-sU", "--top-ports", "100", "--max-retries", "1", "--host-timeout", "60s", "--open", "-n", "-oX", "-"],
+                timeout=90,
+                on_line=on_line,
             )
-            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            xml_out = _nmap_xml_or_raise("U07", raw)
+            parsed = nmap_parser.parse_xml(xml_out)
             _PORT_SCAN_CACHE[f"{run_id}_u07"] = parsed
-            return (parsed, raw.get("stdout"))
+            return (parsed, xml_out)
 
         if test_id == "U08":
             # Use U06's discovered ports if available for consistency
@@ -944,28 +1490,39 @@ class TestEngine:
             raw = await tools_client.nmap_stream(
                 device_ip, u08_args, timeout=300, on_line=on_line
             )
-            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            xml_out = _nmap_xml_or_raise("U08", raw)
+            parsed = nmap_parser.parse_xml(xml_out)
             # Store U08 data as fallback for U09 when U06 cache is empty
             _PORT_SCAN_CACHE[f"{run_id}_u08"] = parsed
-            return (parsed, raw.get("stdout"))
+            return (parsed, xml_out)
 
         if test_id == "U09":
-            cached = _PORT_SCAN_CACHE.get(run_id)
-            if cached and cached.get("open_ports"):
-                return (cached, None)
+            cached = _merge_nmap_scan_data(
+                _PORT_SCAN_CACHE.get(run_id),
+                _PORT_SCAN_CACHE.get(f"{run_id}_u07"),
+                _PORT_SCAN_CACHE.get(f"{run_id}_u08"),
+            )
+            if _has_nmap_scan_evidence(cached):
+                return (_filter_definite_open_ports(cached), None)
             # Fallback: use U08 service detection data if U06 full scan was empty
             u08_cached = _PORT_SCAN_CACHE.get(f"{run_id}_u08")
             if u08_cached and u08_cached.get("open_ports"):
                 logger.info("U09: using U08 service scan data as fallback (U06 cache empty)")
                 return (u08_cached, None)
             raw = await tools_client.nmap(
-                device_ip, ["-sS", "-p-", "-T4", "--open", "-oX", "-"], timeout=600
+                device_ip,
+                [
+                    "-sS", "-p-", "-T4", "--min-rate", "500",
+                    "--max-retries", "1", "--host-timeout", "180s",
+                    "--stats-every", "15s", "--defeat-rst-ratelimit",
+                    "--open", "-n", "-oX", "-",
+                ],
+                timeout=240,
             )
-            if raw.get("exit_code") not in (None, 0):
-                logger.warning("U09 nmap exited %s: %s", raw.get("exit_code"), raw.get("stderr", ""))
-            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            xml_out = _nmap_xml_or_raise("U09", raw)
+            parsed = nmap_parser.parse_xml(xml_out)
             _PORT_SCAN_CACHE[run_id] = parsed
-            return (parsed, raw.get("stdout"))
+            return (parsed, xml_out)
 
         if test_id in ("U10", "U11", "U12", "U13"):
             cached = _TESTSSL_CACHE.get(run_id)
@@ -985,12 +1542,32 @@ class TestEngine:
                 if found:
                     tls_port = found[0]
             target = f"{device_ip}:{tls_port}" if tls_port != 443 else device_ip
+            fast_tls_probe = os.environ.get("EDQ_FAST_TLS_PROBE", "true").strip().lower() not in {
+                "0", "false", "no", "off"
+            }
+            if fast_tls_probe:
+                try:
+                    parsed = await self._tls_probe_fallback(device_ip, tls_port)
+                    if parsed.get("tls_versions"):
+                        _TESTSSL_CACHE[run_id] = parsed
+                        return (parsed, None)
+                except Exception as exc:
+                    logger.debug("Fast TLS probe failed for %s:%s: %s", device_ip, tls_port, exc)
+
             raw = await tools_client.testssl_stream(target, ["--ip", "one", "--fast"], timeout=300, on_line=on_line)
             output_file = raw.get("output_file", "")
             if output_file:
                 parsed = testssl_parser.parse(output_file)
             else:
                 parsed = testssl_parser.parse_from_stdout(raw.get("stdout", ""))
+            if not parsed.get("tls_versions"):
+                try:
+                    parsed = _merge_tls_probe_fallback(
+                        parsed,
+                        await self._tls_probe_fallback(device_ip, tls_port),
+                    )
+                except Exception as exc:
+                    logger.debug("TLS fallback probe failed for %s:%s: %s", device_ip, tls_port, exc)
             _TESTSSL_CACHE[run_id] = parsed
             return (parsed, raw.get("stdout"))
 
@@ -1003,28 +1580,110 @@ class TestEngine:
             nikto_args = []
             port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
             open_ports = port_cache.get("open_ports", [])
-            http_ports = [p["port"] for p in open_ports if p.get("service") in ("http", "https", "ssl/http", "ssl/https")]
+            http_candidates = [
+                p for p in open_ports
+                if p.get("port") is not None and _is_definite_open_port(p) and _is_http_service(p)
+            ]
+            http_ports = [int(p["port"]) for p in http_candidates]
             if http_ports:
                 nikto_args.extend(["-p", str(http_ports[0])])
-                if any(p.get("service") in ("https", "ssl/http", "ssl/https") for p in open_ports if p["port"] == http_ports[0]):
+                if any(_is_https_service(p) for p in http_candidates if int(p["port"]) == http_ports[0]):
                     nikto_args.append("-ssl")
             raw = await tools_client.nikto_stream(device_ip, nikto_args, timeout=300, on_line=on_line)
             parsed = {"raw": raw.get("stdout", ""), "stdout": raw.get("stdout", "")}
             return (parsed, raw.get("stdout"))
 
         if test_id == "U15":
-            raw = await tools_client.ssh_audit_stream(device_ip, ["-j"], timeout=120, on_line=on_line)
+            port_cache = _merge_nmap_scan_data(
+                _PORT_SCAN_CACHE.get(run_id),
+                _PORT_SCAN_CACHE.get(f"{run_id}_u08"),
+            )
+            ssh_ports = [
+                int(p["port"]) for p in port_cache.get("open_ports", [])
+                if p.get("port") is not None
+                and _is_definite_open_port(p)
+                and (int(p["port"]) == 22 or str(p.get("service") or "").lower() == "ssh")
+            ]
+            ssh_port = ssh_ports[0] if ssh_ports else 22
+            args = ["-j"] if ssh_port == 22 else ["-p", str(ssh_port), "-j"]
+            raw = await tools_client.ssh_audit_stream(device_ip, args, timeout=120, on_line=on_line)
             parsed = ssh_audit_parser.parse(raw)
+            parsed["target_port"] = ssh_port
             return (parsed, raw.get("stdout"))
 
         if test_id == "U16":
+            port_cache = _merge_nmap_scan_data(
+                _PORT_SCAN_CACHE.get(run_id),
+                _PORT_SCAN_CACHE.get(f"{run_id}_u08"),
+            )
+            web_ports = [
+                p for p in port_cache.get("open_ports", [])
+                if _is_definite_open_port(p) and _is_http_service(p)
+            ]
+            if _has_nmap_scan_evidence(port_cache) and not web_ports:
+                return (
+                    {
+                        "found_credentials": [],
+                        "services_tested": [],
+                        "check_ran": False,
+                        "reason": "No HTTP/HTTPS service detected for default credential testing.",
+                    },
+                    None,
+                )
+            ordered_web_ports = sorted(
+                web_ports,
+                key=lambda p: (0 if int(p.get("port") or 0) == 80 else 1, int(p.get("port") or 0)),
+            )
+            for candidate in ordered_web_ports or [{"port": 80, "service": "http"}]:
+                candidate_port = int(candidate.get("port") or 80)
+                candidate_service = "https-get" if _is_https_service(candidate) else "http-get"
+                easyio_result = await self._check_easyio_default_credentials(
+                    device_ip,
+                    candidate_port,
+                    candidate_service,
+                )
+                if easyio_result is not None:
+                    return (easyio_result, json.dumps(easyio_result, sort_keys=True))
+
+            selected = ordered_web_ports[0] if ordered_web_ports else {"port": 80, "service": "http"}
+            selected_port = int(selected.get("port") or 80)
+            service = "https-get" if _is_https_service(selected) else "http-get"
+            auth_surface = await self._detect_http_auth_surface(device_ip, selected_port, service)
+            if not auth_surface.get("auth_required"):
+                return (
+                    {
+                        "found_credentials": [],
+                        "services_tested": [
+                            {
+                                "service": service,
+                                "port": selected_port,
+                                "protocol": "tcp",
+                            }
+                        ],
+                        "check_ran": False,
+                        "reason": auth_surface.get("reason") or "No HTTP authentication challenge or login form detected.",
+                    },
+                    None,
+                )
+            args = ["-C", "/usr/share/wordlists/common.txt", "-f"]
+            if (service == "http-get" and selected_port != 80) or (service == "https-get" and selected_port != 443):
+                args.extend(["-s", str(selected_port)])
+            args.extend([device_ip, service])
             raw = await tools_client.hydra_stream(
                 device_ip,
-                ["-C", "/usr/share/wordlists/common.txt", "-f", device_ip, "http-get"],
+                args,
                 timeout=120,
                 on_line=on_line,
             )
             parsed = hydra_parser.parse(raw)
+            parsed["services_tested"] = [
+                {
+                    "service": service,
+                    "port": selected_port,
+                    "protocol": "tcp",
+                }
+            ]
+            parsed["check_ran"] = bool((raw.get("stdout") or "").strip())
             return (parsed, raw.get("stdout"))
 
         if test_id == "U17":
@@ -1036,8 +1695,19 @@ class TestEngine:
             return (parsed, None)
 
         if test_id == "U19":
-            raw = await tools_client.nmap_stream(device_ip, ["-O", "--osscan-guess", "-oX", "-"], timeout=120, on_line=on_line)
-            parsed = nmap_parser.parse_os_fingerprint(raw.get("stdout", ""))
+            try:
+                raw = await tools_client.nmap_stream(
+                    device_ip,
+                    ["-O", "--osscan-guess", "--host-timeout", "75s", "-oX", "-"],
+                    timeout=90,
+                    on_line=on_line,
+                )
+                xml_out = _nmap_xml_or_raise("U19", raw)
+                parsed = nmap_parser.parse_xml(xml_out)
+            except Exception as exc:
+                logger.debug("U19 OS scan failed for %s: %s", device_ip, exc)
+                parsed = {"os_scan_inconclusive": True, "os_scan_error": str(exc)}
+                xml_out = str(exc)
             # Fallback: infer OS from service versions if -O failed
             if not parsed.get("os_fingerprint"):
                 svc_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u08") or _PORT_SCAN_CACHE.get(run_id)
@@ -1045,7 +1715,7 @@ class TestEngine:
                     inferred = _infer_os_from_services(svc_cache["open_ports"])
                     if inferred:
                         parsed["os_fingerprint"] = inferred
-            return (parsed, raw.get("stdout"))
+            return (parsed, xml_out)
 
         if test_id == "U26":
             if connection_scenario == "direct" and settings.PROTOCOL_OBSERVER_ENABLED:
@@ -1064,26 +1734,40 @@ class TestEngine:
                             },
                             None,
                         )
-                except OSError as exc:
+                except Exception as exc:
                     logger.debug("U26 NTP observer unavailable for %s: %s", device_ip, exc)
             udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
             ntp_port = next(
-                (p for p in udp_cache.get("open_ports", []) if p.get("port") == 123),
+                (
+                    p for p in udp_cache.get("open_ports", [])
+                    if p.get("port") == 123 and _is_definite_open_port(p, script_id="ntp-info")
+                ),
                 None,
+            )
+            ntp_inconclusive = any(
+                p.get("port") == 123 and str(p.get("state") or "").lower() == "open|filtered"
+                for p in udp_cache.get("open_ports", [])
             )
             raw_out = None
             if ntp_port is None:
                 raw = await tools_client.nmap_stream(
                     device_ip,
-                    ["-sU", "-sV", "-p", "123", "--script", "ntp-info", "--open", "-oX", "-"],
+                    ["-sU", "-p", "123", "--script", "ntp-info", "--host-timeout", "30s", "--open", "-oX", "-"],
                     timeout=60,
                     on_line=on_line,
                 )
-                raw_out = raw.get("stdout")
-                udp_parsed = nmap_parser.parse_xml(raw_out or "")
+                raw_out = _nmap_xml_or_raise("U26", raw)
+                udp_parsed = nmap_parser.parse_xml(raw_out)
                 ntp_port = next(
-                    (p for p in udp_parsed.get("open_ports", []) if p.get("port") == 123),
+                    (
+                        p for p in udp_parsed.get("open_ports", [])
+                        if p.get("port") == 123 and _is_definite_open_port(p, script_id="ntp-info")
+                    ),
                     None,
+                )
+                ntp_inconclusive = ntp_inconclusive or any(
+                    p.get("port") == 123 and str(p.get("state") or "").lower() == "open|filtered"
+                    for p in udp_parsed.get("open_ports", [])
                 )
 
             script_output = ""
@@ -1104,6 +1788,7 @@ class TestEngine:
                     "ntp_version": ntp_version or (ntp_port.get("version") if ntp_port else None),
                     "ntp_script_output": script_output,
                     "ntp_observed_sync": False,
+                    "ntp_inconclusive": ntp_port is None and ntp_inconclusive,
                 },
                 raw_out,
             )
@@ -1111,22 +1796,36 @@ class TestEngine:
         if test_id == "U28":
             udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
             bacnet_port = next(
-                (p for p in udp_cache.get("open_ports", []) if p.get("port") == 47808),
+                (
+                    p for p in udp_cache.get("open_ports", [])
+                    if p.get("port") == 47808 and _is_definite_open_port(p, script_id="bacnet-info")
+                ),
                 None,
+            )
+            bacnet_inconclusive = any(
+                p.get("port") == 47808 and str(p.get("state") or "").lower() == "open|filtered"
+                for p in udp_cache.get("open_ports", [])
             )
             raw_out = None
             if bacnet_port is None:
                 raw = await tools_client.nmap_stream(
                     device_ip,
-                    ["-sU", "-sV", "-p", "47808", "--script", "bacnet-info", "--open", "-oX", "-"],
-                    timeout=90,
+                    ["-sU", "-p", "47808", "--script", "bacnet-info", "--host-timeout", "30s", "--open", "-oX", "-"],
+                    timeout=60,
                     on_line=on_line,
                 )
-                raw_out = raw.get("stdout")
-                udp_parsed = nmap_parser.parse_xml(raw_out or "")
+                raw_out = _nmap_xml_or_raise("U28", raw)
+                udp_parsed = nmap_parser.parse_xml(raw_out)
                 bacnet_port = next(
-                    (p for p in udp_parsed.get("open_ports", []) if p.get("port") == 47808),
+                    (
+                        p for p in udp_parsed.get("open_ports", [])
+                        if p.get("port") == 47808 and _is_definite_open_port(p, script_id="bacnet-info")
+                    ),
                     None,
+                )
+                bacnet_inconclusive = bacnet_inconclusive or any(
+                    p.get("port") == 47808 and str(p.get("state") or "").lower() == "open|filtered"
+                    for p in udp_parsed.get("open_ports", [])
                 )
 
             bacnet_script = None
@@ -1142,6 +1841,7 @@ class TestEngine:
                     "bacnet_version": bacnet_port.get("version") if bacnet_port else None,
                     "bacnet_details": (bacnet_script or {}).get("details") or {},
                     "bacnet_script_output": (bacnet_script or {}).get("output") or "",
+                    "bacnet_inconclusive": bacnet_port is None and bacnet_inconclusive,
                 },
                 raw_out,
             )
@@ -1162,26 +1862,38 @@ class TestEngine:
                             },
                             None,
                         )
-                except OSError as exc:
+                except Exception as exc:
                     logger.debug("U29 DNS observer unavailable for %s: %s", device_ip, exc)
             udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
             dns_port = next(
-                (p for p in udp_cache.get("open_ports", []) if p.get("port") == 53),
+                (p for p in udp_cache.get("open_ports", []) if p.get("port") == 53 and _is_definite_open_port(p)),
                 None,
+            )
+            dns_inconclusive = any(
+                p.get("port") == 53 and str(p.get("state") or "").lower() == "open|filtered"
+                for p in udp_cache.get("open_ports", [])
             )
             raw_out = None
             if dns_port is None:
-                raw = await tools_client.nmap_stream(
-                    device_ip,
-                    ["-sU", "-sV", "-p", "53", "--open", "-oX", "-"],
-                    timeout=45,
-                    on_line=on_line,
-                )
-                raw_out = raw.get("stdout")
-                udp_parsed = nmap_parser.parse_xml(raw_out or "")
+                try:
+                    raw = await tools_client.nmap_stream(
+                        device_ip,
+                        ["-sU", "-p", "53", "--max-retries", "1", "--host-timeout", "30s", "--open", "-n", "-oX", "-"],
+                        timeout=45,
+                        on_line=on_line,
+                    )
+                    raw_out = _nmap_xml_or_raise("U29", raw)
+                    udp_parsed = nmap_parser.parse_xml(raw_out)
+                except Exception as exc:
+                    udp_parsed = _udp_inconclusive_result([53], str(exc))
+                    raw_out = str(exc)
                 dns_port = next(
-                    (p for p in udp_parsed.get("open_ports", []) if p.get("port") == 53),
+                    (p for p in udp_parsed.get("open_ports", []) if p.get("port") == 53 and _is_definite_open_port(p)),
                     None,
+                )
+                dns_inconclusive = dns_inconclusive or any(
+                    p.get("port") == 53 and str(p.get("state") or "").lower() == "open|filtered"
+                    for p in udp_parsed.get("open_ports", [])
                 )
             return (
                 {
@@ -1189,23 +1901,35 @@ class TestEngine:
                     "dns_service": dns_port.get("service") if dns_port else None,
                     "dns_version": dns_port.get("version") if dns_port else None,
                     "dns_observed_requests": False,
+                    "dns_inconclusive": dns_port is None and dns_inconclusive,
                 },
                 raw_out,
             )
 
         if test_id == "U31":
-            raw = await tools_client.nmap_stream(
-                device_ip, ["-sU", "-p", "161,162", "-sV", "--script", "snmp-info", "-oX", "-"], timeout=120, on_line=on_line
-            )
-            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-            snmp_ports = [p for p in parsed.get("open_ports", []) if p.get("port") in (161, 162)]
+            try:
+                raw = await tools_client.nmap_stream(
+                    device_ip,
+                    ["-sU", "-p", "161,162", "--max-retries", "1", "--host-timeout", "30s", "--open", "-n", "-oX", "-"],
+                    timeout=45,
+                    on_line=on_line,
+                )
+                xml_out = _nmap_xml_or_raise("U31", raw)
+                parsed = nmap_parser.parse_xml(xml_out)
+            except Exception as exc:
+                parsed = _udp_inconclusive_result([161, 162], str(exc))
+                xml_out = str(exc)
+            snmp_ports = [
+                p for p in parsed.get("open_ports", [])
+                if p.get("port") in (161, 162) and _is_definite_open_port(p, script_id="snmp-info")
+            ]
             snmpwalk_output = ""
             if snmp_ports:
                 for version in ["2c", "1"]:
                     try:
                         sw_raw = await tools_client.snmpwalk(
                             device_ip,
-                            ["-v", version, "-c", "public", "-t", "5", "-r", "0", "-On", device_ip, "1.3.6.1.2.1.1.1.0"],
+                            ["-v", version, "-c", "public", "-t", "5", "-r", "0", "-On"],
                             timeout=15,
                         )
                         sw_out = sw_raw.get("stdout", "")
@@ -1213,46 +1937,102 @@ class TestEngine:
                             snmpwalk_output += f"\n--- snmpwalk v{version} ---\n{sw_out}"
                     except Exception:
                         pass
-            combined_stdout = (raw.get("stdout", "") or "") + snmpwalk_output
+            combined_stdout = xml_out + snmpwalk_output
             parsed["snmpwalk_output"] = snmpwalk_output
             return (parsed, combined_stdout)
 
         if test_id == "U32":
-            raw = await tools_client.nmap_stream(
-                device_ip, ["-sU", "-p", "1900", "-sV", "--script", "upnp-info", "-oX", "-"], timeout=120, on_line=on_line
-            )
-            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-            return (parsed, raw.get("stdout"))
+            try:
+                raw = await tools_client.nmap_stream(
+                    device_ip,
+                    ["-sU", "-p", "1900", "--max-retries", "1", "--host-timeout", "30s", "--open", "-n", "-oX", "-"],
+                    timeout=45,
+                    on_line=on_line,
+                )
+                xml_out = _nmap_xml_or_raise("U32", raw)
+                parsed = nmap_parser.parse_xml(xml_out)
+            except Exception as exc:
+                parsed = _udp_inconclusive_result([1900], str(exc))
+                xml_out = str(exc)
+            return (parsed, xml_out)
 
         if test_id == "U33":
-            raw = await tools_client.nmap_stream(
-                device_ip, ["-sU", "-p", "5353", "-sV", "-oX", "-"], timeout=120, on_line=on_line
-            )
-            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-            return (parsed, raw.get("stdout"))
+            try:
+                raw = await tools_client.nmap_stream(
+                    device_ip,
+                    ["-sU", "-p", "5353", "--max-retries", "1", "--host-timeout", "30s", "--open", "-n", "-oX", "-"],
+                    timeout=45,
+                    on_line=on_line,
+                )
+                xml_out = _nmap_xml_or_raise("U33", raw)
+                parsed = nmap_parser.parse_xml(xml_out)
+            except Exception as exc:
+                parsed = _udp_inconclusive_result([5353], str(exc))
+                xml_out = str(exc)
+            return (parsed, xml_out)
 
         if test_id == "U34":
-            cached = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08")
-            if cached:
-                open_ports = {p["port"] for p in cached.get("open_ports", [])}
-                telnet_open = 23 in open_ports
-                ftp_open = 21 in open_ports
-                return ({"telnet_open": telnet_open, "ftp_open": ftp_open, "insecure_ports": sorted(open_ports & {21, 23, 69, 110, 143})}, None)
+            cached = _merge_nmap_scan_data(
+                _PORT_SCAN_CACHE.get(run_id),
+                _PORT_SCAN_CACHE.get(f"{run_id}_u07"),
+                _PORT_SCAN_CACHE.get(f"{run_id}_u08"),
+            )
+            if _has_nmap_scan_evidence(cached):
+                open_pairs = {
+                    (str(p.get("protocol") or "tcp").lower(), int(p["port"]))
+                    for p in cached.get("open_ports", [])
+                    if p.get("port") is not None and _is_definite_open_port(p)
+                }
+                insecure_ports = sorted(
+                    port for protocol, port in open_pairs
+                    if (protocol, port) in {("tcp", 21), ("tcp", 23), ("tcp", 110), ("tcp", 143), ("udp", 69)}
+                )
+                return (
+                    {
+                        "telnet_open": ("tcp", 23) in open_pairs,
+                        "ftp_open": ("tcp", 21) in open_pairs,
+                        "insecure_ports": insecure_ports,
+                    },
+                    None,
+                )
             raw = await tools_client.nmap(
                 device_ip, ["-sS", "-p", "21,23,69,110,143", "--open", "-oX", "-"], timeout=60
             )
-            parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
-            open_ports = {p["port"] for p in parsed.get("open_ports", [])}
-            return ({"telnet_open": 23 in open_ports, "ftp_open": 21 in open_ports, "insecure_ports": sorted(open_ports)}, raw.get("stdout"))
+            xml_out = _nmap_xml_or_raise("U34", raw)
+            parsed = nmap_parser.parse_xml(xml_out)
+            udp_raw = await tools_client.nmap(
+                device_ip, ["-sU", "-p", "69", "--open", "-oX", "-"], timeout=60
+            )
+            udp_xml_out = _nmap_xml_or_raise("U34", udp_raw)
+            udp_parsed = nmap_parser.parse_xml(udp_xml_out)
+            combined = _merge_nmap_scan_data(parsed, udp_parsed)
+            open_pairs = {
+                (str(p.get("protocol") or "tcp").lower(), int(p["port"]))
+                for p in combined.get("open_ports", [])
+                if p.get("port") is not None and _is_definite_open_port(p)
+            }
+            insecure_ports = sorted(
+                port for protocol, port in open_pairs
+                if (protocol, port) in {("tcp", 21), ("tcp", 23), ("tcp", 110), ("tcp", 143), ("udp", 69)}
+            )
+            return (
+                {
+                    "telnet_open": ("tcp", 23) in open_pairs,
+                    "ftp_open": ("tcp", 21) in open_pairs,
+                    "insecure_ports": insecure_ports,
+                },
+                xml_out + "\n" + udp_xml_out,
+            )
 
         if test_id == "U36":
             try:
                 raw = await tools_client.nmap_stream(
                     device_ip, ["-sV", "--script", "banner", "--open", "-oX", "-"], timeout=180, on_line=on_line
                 )
-                parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+                xml_out = _nmap_xml_or_raise("U36", raw)
+                parsed = nmap_parser.parse_xml(xml_out)
                 if parsed.get("open_ports"):
-                    return (parsed, raw.get("stdout"))
+                    return (parsed, xml_out)
             except Exception as exc:
                 logger.debug("U36 banner scan failed for %s: %s", device_ip, exc)
             u08_cached = _PORT_SCAN_CACHE.get(f"{run_id}_u08")
@@ -1265,6 +2045,162 @@ class TestEngine:
             return (parsed, None)
 
         return ({}, None)
+
+    async def _detect_http_auth_surface(
+        self,
+        device_ip: str,
+        port: int,
+        service: str,
+    ) -> dict[str, Any]:
+        """Detect whether a web endpoint actually presents an auth surface."""
+        import httpx
+
+        scheme = "https" if service.startswith("https") or port == 443 else "http"
+        url = f"{scheme}://{device_ip}:{port}" if port not in (80, 443) else f"{scheme}://{device_ip}"
+        try:
+            async with httpx.AsyncClient(timeout=10, verify=False, follow_redirects=True) as client:
+                resp = await client.get(url)
+        except Exception as exc:
+            return {"auth_required": False, "reason": f"HTTP auth surface probe failed: {exc}"}
+
+        if resp.status_code == 401 or resp.headers.get("www-authenticate"):
+            return {"auth_required": True, "auth_type": "basic", "url": url}
+
+        body = (resp.text or "").lower()
+        if "<form" in body and ("password" in body or "passwd" in body or "login" in body):
+            if "authtoken" in body or "user[authhash]" in body:
+                return {
+                    "auth_required": False,
+                    "auth_type": "tokenized_form",
+                    "url": str(resp.url),
+                    "reason": "Tokenized web login detected; generic Hydra form check is not applicable.",
+                }
+            return {"auth_required": True, "auth_type": "form", "url": str(resp.url)}
+
+        return {
+            "auth_required": False,
+            "url": str(resp.url),
+            "reason": f"Endpoint returned HTTP {resp.status_code} without an authentication challenge.",
+        }
+
+    async def _check_easyio_default_credentials(
+        self,
+        device_ip: str,
+        port: int,
+        service: str,
+    ) -> dict[str, Any] | None:
+        """Check EasyIO CPT tokenized login without treating public pages as auth success."""
+        import httpx
+
+        scheme = "https" if service.startswith("https") or port == 443 else "http"
+        base = f"{scheme}://{device_ip}:{port}" if port not in (80, 443) else f"{scheme}://{device_ip}"
+        signin_url = f"{base}/sdcard/cpt/app/signin.php"
+        headers = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"}
+        common_pairs = [
+            ("admin", "admin"),
+            ("admin", "password"),
+            ("admin", "1234"),
+            ("admin", "12345"),
+            ("admin", "123456"),
+            ("admin", "admin123"),
+            ("admin", "Password1"),
+            ("admin", "changeme"),
+            ("admin", "default"),
+            ("admin", "welcome"),
+            ("root", "root"),
+            ("root", "password"),
+            ("root", "toor"),
+            ("root", "1234"),
+            ("root", "changeme"),
+            ("user", "user"),
+            ("user", "password"),
+            ("user", "1234"),
+            ("guest", "guest"),
+            ("guest", "password"),
+            ("operator", "operator"),
+            ("service", "service"),
+            ("test", "test"),
+            ("demo", "demo"),
+            ("support", "support"),
+            ("monitor", "monitor"),
+            ("manager", "manager"),
+        ]
+
+        try:
+            async with httpx.AsyncClient(timeout=8, verify=False, follow_redirects=True) as client:
+                landing = await client.get(f"{base}/sdcard/cpt/app/signin.php")
+                if "signin cpt graphics" not in (landing.text or "").lower():
+                    return None
+                for username, password in common_pairs:
+                    try:
+                        token_resp = await client.get(
+                            signin_url,
+                            params={"user[name]": username},
+                            headers=headers,
+                        )
+                        content_type = token_resp.headers.get("content-type", "")
+                        if "json" not in content_type.lower() and not token_resp.text.strip().startswith("{"):
+                            continue
+                        token = (token_resp.json().get("authToken") or "").strip()
+                        if "_" not in token:
+                            continue
+                        token1, token2 = token.split("_", 1)
+                        hash1 = hashlib.sha1(f"{password}{token1}".encode()).hexdigest()
+                        auth_hash = hashlib.sha1(f"{hash1}{token2}".encode()).hexdigest()
+                        login_resp = await client.post(
+                            signin_url,
+                            data={
+                                "user[name]": username,
+                                "user[authHash]": auth_hash,
+                                "remember_me": "false",
+                            },
+                            headers=headers,
+                        )
+                        try:
+                            payload = login_resp.json()
+                        except Exception:
+                            payload = {}
+                    except Exception as exc:
+                        logger.debug("EasyIO credential attempt failed for %s: %s", username, exc)
+                        continue
+                    if payload.get("redirectUrl") and not payload.get("error"):
+                        return {
+                            "found_credentials": [
+                                {
+                                    "login": username,
+                                    "password": password,
+                                    "service": "easyio-cpt-form",
+                                    "host": device_ip,
+                                }
+                            ],
+                            "services_tested": [
+                                {
+                                    "service": "easyio-cpt-form",
+                                    "port": port,
+                                    "protocol": "tcp",
+                                    "path": "/sdcard/cpt/app/signin.php",
+                                }
+                            ],
+                            "check_ran": True,
+                            "method": "easyio-cpt-token",
+                        }
+
+            return {
+                "found_credentials": [],
+                "services_tested": [
+                    {
+                        "service": "easyio-cpt-form",
+                        "port": port,
+                        "protocol": "tcp",
+                        "path": "/sdcard/cpt/app/signin.php",
+                    }
+                ],
+                "check_ran": True,
+                "method": "easyio-cpt-token",
+            }
+        except Exception as exc:
+            logger.debug("EasyIO default credential probe failed for %s: %s", device_ip, exc)
+            return None
 
     async def _test_brute_force_protection(self, device_ip: str) -> dict[str, Any]:
         """Test brute force protection by sending rapid login attempts.
@@ -1304,6 +2240,16 @@ class TestEngine:
                     body = resp.text.lower()
                     # Look for common login form patterns
                     if "<form" in body and ("password" in body or "passwd" in body or "login" in body):
+                        if "authtoken" in body or "user[authhash]" in body:
+                            return {
+                                "lockout_detected": False,
+                                "auth_type": "tokenized_form",
+                                "attempts": 0,
+                                "error": "",
+                                "lockout_duration_seconds": None,
+                                "check_ran": False,
+                                "reason": "Tokenized web login detected; generic lockout probing is not applicable without a device-specific authenticator.",
+                            }
                         auth_type = "http-post-form"
                         # Try common login paths
                         scheme = "https" if use_ssl else "http"
@@ -1318,6 +2264,31 @@ class TestEngine:
                         form_fields = f"{form_path}:username=^USER^&password=^PASS^:F=incorrect:H=Content-Type: application/x-www-form-urlencoded"
                     elif resp.status_code == 401:
                         auth_type = "http-get"
+                    else:
+                        signin_url = f"{resp.url.scheme}://{device_ip}/sdcard/cpt/app/signin.php"
+                        try:
+                            signin = await client.get(signin_url)
+                            if "signin cpt graphics" in (signin.text or "").lower():
+                                return {
+                                    "lockout_detected": False,
+                                    "auth_type": "tokenized_form",
+                                    "attempts": 0,
+                                    "error": "",
+                                    "lockout_duration_seconds": None,
+                                    "check_ran": False,
+                                    "reason": "EasyIO tokenized web login detected; generic lockout probing is not applicable without the EasyIO authenticator.",
+                                }
+                        except Exception:
+                            pass
+                        return {
+                            "lockout_detected": False,
+                            "auth_type": "none",
+                            "attempts": 0,
+                            "error": "",
+                            "lockout_duration_seconds": None,
+                            "check_ran": False,
+                            "reason": f"HTTP endpoint returned {resp.status_code} without an authentication challenge.",
+                        }
         except Exception as e:
             logger.debug("Auth type detection failed for %s: %s", device_ip, e)
 
@@ -1479,7 +2450,7 @@ class TestEngine:
         open_ports = port_cache.get("open_ports", [])
         candidate_ports = [
             p for p in open_ports
-            if p.get("service") in ("https", "ssl/http", "ssl/https", "http")
+            if p.get("port") is not None and _is_definite_open_port(p) and _is_http_service(p)
         ]
         if not candidate_ports:
             return {
@@ -1493,24 +2464,34 @@ class TestEngine:
 
         https_candidates = [
             p for p in candidate_ports
-            if p.get("service") in ("https", "ssl/http", "ssl/https")
+            if _is_https_service(p)
         ]
         target_port = (https_candidates or candidate_ports)[0]["port"]
         target_service = (https_candidates or candidate_ports)[0].get("service") or "http"
-        scheme = "https" if target_service in ("https", "ssl/http", "ssl/https") else "http"
+        scheme = "https" if _is_https_service(https_candidates[0] if https_candidates else {"port": target_port, "service": target_service}) else "http"
         url = f"{scheme}://{device_ip}:{target_port}" if target_port not in (80, 443) else f"{scheme}://{device_ip}"
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=15,
-                verify=settings.SSL_VERIFY_DEVICES,
-                follow_redirects=True,
-            ) as client:
-                try:
-                    resp = await client.head(url)
-                except httpx.HTTPError:
-                    resp = await client.get(url)
-        except Exception as exc:
+        verify_attempts = [settings.SSL_VERIFY_DEVICES]
+        if scheme == "https" and settings.SSL_VERIFY_DEVICES:
+            verify_attempts.append(False)
+
+        last_error: Exception | None = None
+        for verify in verify_attempts:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=15,
+                    verify=verify,
+                    follow_redirects=True,
+                ) as client:
+                    try:
+                        resp = await client.head(url)
+                    except httpx.HTTPError:
+                        resp = await client.get(url)
+                break
+            except Exception as exc:
+                last_error = exc
+        else:
+            exc = last_error or RuntimeError("No HTTP response")
             logger.debug("HTTP header capture failed for %s: %s", device_ip, exc)
             return {
                 "http_service_detected": True,
@@ -1522,7 +2503,10 @@ class TestEngine:
                 "error": str(exc),
             }
 
-        status_line = f"HTTP/{resp.http_version} {resp.status_code} {resp.reason_phrase}"
+        http_version = resp.http_version
+        if not http_version.upper().startswith("HTTP/"):
+            http_version = f"HTTP/{http_version}"
+        status_line = f"{http_version} {resp.status_code} {resp.reason_phrase}"
         header_lines = [f"{name}: {value}" for name, value in resp.headers.items()]
         return {
             "http_service_detected": True,
@@ -1604,7 +2588,9 @@ class TestEngine:
             failed = sum(1 for r in all_results if r.verdict == TestVerdict.FAIL)
             advisory = sum(1 for r in all_results if r.verdict == TestVerdict.ADVISORY)
             na = sum(1 for r in all_results if r.verdict == TestVerdict.NA)
+            info = sum(1 for r in all_results if r.verdict == TestVerdict.INFO)
             errors = sum(1 for r in all_results if r.verdict == TestVerdict.ERROR)
+            skipped = sum(1 for r in all_results if r.verdict == TestVerdict.SKIPPED_SAFE_MODE)
             pending_manual = sum(
                 1 for r in all_results
                 if r.verdict == TestVerdict.PENDING and r.tier == TestTier.GUIDED_MANUAL
@@ -1614,18 +2600,20 @@ class TestEngine:
                 r for r in all_results
                 if r.verdict == TestVerdict.FAIL and r.is_essential == "yes"
             )
+            completed_count = passed + failed + advisory + na + info + errors + skipped
 
             run = await db.get(TestRun, run_id)
             if run is None:
                 return
 
             run.passed_tests = passed
-            run.failed_tests = failed
+            run.failed_tests = failed + errors
             run.advisory_tests = advisory
             run.na_tests = na
-            run.completed_tests = passed + failed + advisory + na + errors
-            run.progress_pct = 100.0 if run.total_tests else 0.0
-            metadata = run.run_metadata if isinstance(run.run_metadata, dict) else {}
+            run.completed_tests = completed_count
+            run.progress_pct = self._progress_for(run.total_tests, completed_count)
+            metadata = dict(run.run_metadata) if isinstance(run.run_metadata, dict) else {}
+            metadata.pop("current_test", None)
             metadata["trust_tier_counts"] = {
                 "release_blocking": sum(
                     1
@@ -1650,6 +2638,9 @@ class TestEngine:
             }
             metadata["pending_manual_count"] = pending_manual
             metadata["completed_result_count"] = run.completed_tests
+            metadata["info_count"] = info
+            metadata["error_count"] = errors
+            metadata["skipped_safe_mode_count"] = skipped
             run.run_metadata = metadata
 
             if pending_manual > 0:
@@ -1663,6 +2654,8 @@ class TestEngine:
                     run.overall_verdict = TestRunVerdict.FAIL
                 elif failed > 0:
                     run.overall_verdict = TestRunVerdict.FAIL
+                elif errors > 0:
+                    run.overall_verdict = TestRunVerdict.INCOMPLETE
                 elif advisory > 0:
                     run.overall_verdict = TestRunVerdict.QUALIFIED_PASS
                 else:
@@ -1689,6 +2682,8 @@ class TestEngine:
                 "failed": failed,
                 "advisory": advisory,
                 "na": na,
+                "info": info,
+                "errors": errors,
                 "pending_manual": pending_manual,
             },
         })
@@ -1752,6 +2747,9 @@ class TestEngine:
         if run:
             run.status = TestRunStatus.FAILED
             run.completed_at = utcnow_naive()
+            metadata = dict(run.run_metadata) if isinstance(run.run_metadata, dict) else {}
+            metadata.pop("current_test", None)
+            run.run_metadata = metadata
             await db.commit()
 
         await manager.broadcast(f"test-run:{run.id if run else 'unknown'}", {

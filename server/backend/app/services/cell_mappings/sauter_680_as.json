@@ -1,32 +1,31 @@
 {
-  "template_name": "easyio_fw08",
-  "synopsis_sheet": "Synopsis",
-  "testplan_sheet": "01 Test - Questions",
-  "whitelist_sheet": "Protocol Whitelist",
-  "nessus_sheet": "01 Test - Nessus",
+  "template_name": "sauter_680_as_c00",
+  "synopsis_sheet": "TEST SUMMARY",
+  "testplan_sheet": "TESTPLAN",
   "metadata_cells": {
-    "manufacturer": "E13",
-    "model": "E14",
-    "serial": "E15",
-    "firmware": "E16",
-    "tester_name": "E19",
-    "start_date": "E20",
-    "end_date": "E21",
-    "overall_result": "E24",
-    "synopsis_text": "B28"
+    "test_attempt": "G7",
+    "date_range": "G8",
+    "system": "G9",
+    "system_owner": "G10",
+    "manufacturer": "G11",
+    "model": "G12",
+    "firmware": "G13",
+    "serial": "G14",
+    "tester_name": "G15",
+    "overall_result": "G16",
+    "summary_text": "B19"
   },
-  "testplan_start_row": 14,
-  "testplan_row_count": 46,
+  "testplan_start_row": 11,
+  "testplan_row_count": 43,
   "testplan_columns": {
     "test_number": "B",
-    "test_description": "C",
-    "essential_pass": "D",
-    "test_result": "E",
-    "test_comments": "F",
-    "script_flag": "G",
-    "engineer_notes": "H"
+    "brief_description": "C",
+    "test_description": "D",
+    "essential_test": "E",
+    "test_result": "F",
+    "test_comments": "G"
   },
-  "testplan_header_row": 13,
+  "testplan_header_row": 10,
   "row_sources": {
     "1": ["U03"],
     "2": ["U44"],
@@ -76,8 +75,12 @@
     "pass": "PASS",
     "qualified_pass": "QUALIFIED PASS",
     "fail": "FAIL",
-    "advisory": "INFO",
+    "advisory": "ADVISORY",
     "info": "INFO",
-    "na": "N/A"
+    "na": "N/A",
+    "error": "ERROR",
+    "pending": "PENDING",
+    "running": "RUNNING",
+    "incomplete": "INCOMPLETE"
   }
 }

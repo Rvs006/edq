@@ -18,10 +18,13 @@ from app.logging_config import (
     configure_logging,
     reset_request_log_context,
 )
+from app.middleware.rate_limit import check_rate_limit
 
 configure_logging()
 configure_sentry()
 logger = logging.getLogger("edq.main")
+_MAX_CLIENT_ERROR_BODY_BYTES = 16 * 1024
+_MAX_CLIENT_ERROR_FIELD_CHARS = 2000
 from app.models.database import init_db
 from app.security.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.routes import (
@@ -645,13 +648,30 @@ def create_app() -> FastAPI:
     async def receive_client_error(request: Request):
         """Receive frontend error reports via navigator.sendBeacon."""
         try:
+            check_rate_limit(request, max_requests=30, window_seconds=60, action="client_error")
+            content_length = request.headers.get("content-length")
+            if content_length:
+                try:
+                    if int(content_length) > _MAX_CLIENT_ERROR_BODY_BYTES:
+                        return Response(status_code=413)
+                except ValueError:
+                    return Response(status_code=400)
             body = await request.body()
+            if len(body) > _MAX_CLIENT_ERROR_BODY_BYTES:
+                return Response(status_code=413)
             import json
             data = json.loads(body)
+
+            def _safe_field(name: str, default: str = "") -> str:
+                value = data.get(name, default)
+                if value is None:
+                    return default
+                return str(value)[:_MAX_CLIENT_ERROR_FIELD_CHARS]
+
             logger.warning(
                 "Frontend error at %s: %s",
-                data.get("url", "unknown"),
-                data.get("message", "unknown"),
+                _safe_field("url", "unknown"),
+                _safe_field("message", "unknown"),
             )
             already_captured = bool(data.get("capturedByFrontendSentry"))
             if settings.SENTRY_DSN and not already_captured:
@@ -664,17 +684,17 @@ def create_app() -> FastAPI:
                         scope.set_context(
                             "frontend_error",
                             {
-                                "url": data.get("url", "unknown"),
-                                "message": data.get("message", "unknown"),
-                                "stack": data.get("stack"),
-                                "component_stack": data.get("componentStack"),
-                                "timestamp": data.get("timestamp"),
+                                "url": _safe_field("url", "unknown"),
+                                "message": _safe_field("message", "unknown"),
+                                "stack": _safe_field("stack"),
+                                "component_stack": _safe_field("componentStack"),
+                                "timestamp": _safe_field("timestamp"),
                                 "user_agent": request.headers.get("user-agent", ""),
-                                "telemetry": data.get("telemetry"),
+                                "telemetry": str(data.get("telemetry", ""))[:_MAX_CLIENT_ERROR_FIELD_CHARS],
                             },
                         )
                         sentry_sdk.capture_message(
-                            f"Frontend error: {data.get('message', 'unknown error')}",
+                            f"Frontend error: {_safe_field('message', 'unknown error')}",
                             level="error",
                         )
                 except Exception:

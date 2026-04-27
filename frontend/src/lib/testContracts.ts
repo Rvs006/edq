@@ -38,6 +38,13 @@ const ACTIVE_RUN_STATUSES = new Set<TestRunStatus>([
   'awaiting_manual',
 ])
 
+const EXECUTING_RUN_STATUSES = new Set<TestRunStatus>([
+  'selecting_interface',
+  'syncing',
+  'running',
+  'paused_cable',
+])
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -97,6 +104,10 @@ export function normalizeTestRunStatus(status: unknown): TestRunStatus {
 
 export function isActiveTestRunStatus(status: unknown): boolean {
   return ACTIVE_RUN_STATUSES.has(normalizeTestRunStatus(status))
+}
+
+export function isExecutingTestRunStatus(status: unknown): boolean {
+  return EXECUTING_RUN_STATUSES.has(normalizeTestRunStatus(status))
 }
 
 export function normalizeTestRun(raw: Record<string, unknown>): TestRun {

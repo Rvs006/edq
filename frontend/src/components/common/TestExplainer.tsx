@@ -25,9 +25,9 @@ const TEST_EXPLAINERS: Record<string, { what: string; why: string; pass: string;
     fail: 'MAC address not in OUI database — manufacturer could not be confirmed.',
   },
   U03: {
-    what: 'Checks Ethernet link speed and duplex negotiation between the device and the switch.',
+    what: 'Records Ethernet link speed and duplex negotiation evidence from the switch or host interface.',
     why: 'Misconfigured link settings (e.g., half-duplex) can cause packet loss and instability.',
-    pass: 'Link negotiated at expected speed and full duplex.',
+    pass: 'Engineer evidence shows expected speed and full duplex.',
     fail: 'Half-duplex detected or speed mismatch with switch port configuration.',
   },
   U04: {
@@ -37,10 +37,10 @@ const TEST_EXPLAINERS: Record<string, { what: string; why: string; pass: string;
     fail: 'Could not determine DHCP behaviour — check device network settings manually.',
   },
   U05: {
-    what: 'Probes the device to check if IPv6 is enabled and responding.',
+    what: 'Probes an IPv6 target when one is recorded for the device.',
     why: 'Unmanaged IPv6 interfaces can bypass IPv4-only firewall rules and create hidden attack surfaces.',
-    pass: 'IPv6 status determined — either enabled (for awareness) or disabled.',
-    fail: 'IPv6 is active but may not be managed by network policy.',
+    pass: 'IPv6 response was assessed and recorded for awareness.',
+    fail: 'IPv6 could not be assessed without an IPv6 device address.',
   },
   U06: {
     what: 'Scans all 65,535 TCP ports to discover every open service on the device.',

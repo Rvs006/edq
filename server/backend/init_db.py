@@ -24,7 +24,7 @@ from app.models.sync_queue import SyncQueue
 from app.models.protocol_whitelist import ProtocolWhitelist
 from app.models.project import Project
 from app.security.auth import hash_password, verify_password
-from app.services.test_library import UNIVERSAL_TESTS
+from app.services.test_library import get_active_tests
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 import uuid
@@ -224,7 +224,8 @@ def _seed_local_test_users(db: Session) -> None:
 
 
 def _dedup_template_test_ids(db: Session) -> None:
-    """Remove duplicate entries from test_ids JSON arrays in all templates."""
+    """Remove duplicate and deprecated entries from test_ids JSON arrays."""
+    active_ids = {test["test_id"] for test in get_active_tests()}
     templates = db.query(TestTemplate).all()
     for tmpl in templates:
         raw = tmpl.test_ids
@@ -235,7 +236,7 @@ def _dedup_template_test_ids(db: Session) -> None:
         seen: set = set()
         deduped = []
         for tid in raw:
-            if tid not in seen:
+            if tid in active_ids and tid not in seen:
                 seen.add(tid)
                 deduped.append(tid)
         if len(deduped) != len(raw):
@@ -343,8 +344,9 @@ def _seed_device_profiles(db: Session, admin: User, whitelist: ProtocolWhitelist
 
 
 def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist) -> None:
-    all_test_ids = [t["test_id"] for t in UNIVERSAL_TESTS]
-    essential_ids = [t["test_id"] for t in UNIVERSAL_TESTS if t.get("is_essential")]
+    active_tests = get_active_tests()
+    all_test_ids = [t["test_id"] for t in active_tests]
+    essential_ids = [t["test_id"] for t in active_tests if t.get("is_essential")]
 
     full_templates = db.query(TestTemplate).filter(
         TestTemplate.name.in_(["Full Security Assessment", "Universal (Smart Profiling)"])
@@ -357,6 +359,8 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
         full_tmpl.name = "Full Security Assessment"
         full_tmpl.test_ids = all_test_ids
         full_tmpl.description = f"Complete {len(all_test_ids)}-test qualification suite covering all security domains"
+        full_tmpl.whitelist_id = full_tmpl.whitelist_id or whitelist.id
+        full_tmpl.report_config = full_tmpl.report_config or {"template_key": "generic", "device_category": "generic"}
         full_tmpl.is_default = True
     else:
         db.add(TestTemplate(
@@ -375,6 +379,8 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
     if essential_tmpl:
         essential_tmpl.test_ids = essential_ids
         essential_tmpl.description = f"Minimum required tests for device qualification ({len(essential_ids)} essential tests)"
+        essential_tmpl.whitelist_id = essential_tmpl.whitelist_id or whitelist.id
+        essential_tmpl.report_config = essential_tmpl.report_config or {"template_key": "generic", "device_category": "generic"}
     else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
@@ -392,6 +398,8 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
     if pelco_tmpl:
         pelco_tmpl.test_ids = all_test_ids
         pelco_tmpl.description = f"Full {len(all_test_ids)}-test qualification for Pelco camera devices (Rev 2 format)"
+        pelco_tmpl.whitelist_id = pelco_tmpl.whitelist_id or whitelist.id
+        pelco_tmpl.report_config = pelco_tmpl.report_config or {"template_key": "pelco_camera", "device_category": "camera"}
     else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
@@ -409,6 +417,8 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
     if easyio_tmpl:
         easyio_tmpl.test_ids = all_test_ids
         easyio_tmpl.description = f"Full {len(all_test_ids)}-test qualification for EasyIO building controllers (v1.1 format)"
+        easyio_tmpl.whitelist_id = easyio_tmpl.whitelist_id or whitelist.id
+        easyio_tmpl.report_config = easyio_tmpl.report_config or {"template_key": "easyio_controller", "device_category": "controller"}
     else:
         db.add(TestTemplate(
             id=str(uuid.uuid4()),
@@ -430,6 +440,8 @@ def _seed_test_templates(db: Session, admin: User, whitelist: ProtocolWhitelist)
         ext_template.name = "Extended Qualification"
         ext_template.test_ids = all_test_ids
         ext_template.description = f"Full {len(all_test_ids)}-test qualification matching the Electracom Excel template including Wi-Fi, PoE, MQTT detailed, and SOAK tests."
+        ext_template.whitelist_id = ext_template.whitelist_id or whitelist.id
+        ext_template.report_config = ext_template.report_config or {"template_key": "generic", "device_category": "generic"}
     else:
         ext_template = TestTemplate(
             id=str(uuid.uuid4()),

@@ -14,7 +14,6 @@ _ACTIVE_STATUSES = {
     TestRunStatus.RUNNING.value,
     TestRunStatus.PAUSED_MANUAL.value,
     TestRunStatus.PAUSED_CABLE.value,
-    TestRunStatus.AWAITING_MANUAL.value,
 }
 
 _DEFAULT_TRUST_TIER_COUNTS = {
