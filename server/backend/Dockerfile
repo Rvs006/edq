@@ -138,6 +138,6 @@ USER edq
 EXPOSE 8000 8001
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=30s \
-    CMD wget -qO /dev/null http://localhost:8000/api/v1/health && case "${EDQ_START_INTERNAL_TOOLS:-true}" in false|0|no|off) exit 0 ;; *) wget -qO /dev/null http://localhost:8001/health ;; esac
+    CMD wget -qO /dev/null http://localhost:8000/api/v1/health && case "$(printf '%s' "${EDQ_START_INTERNAL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in false|0|no|off) exit 0 ;; *) wget -qO /dev/null http://localhost:8001/health ;; esac
 
 ENTRYPOINT ["/app/entrypoint.sh"]
