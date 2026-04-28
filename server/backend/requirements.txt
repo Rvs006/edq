@@ -18,7 +18,7 @@ lxml>=5.0.0
 python-docx==1.2.0
 fpdf2==2.8.7
 websockets==16.0
-redis[hiredis]==6.4.0
+redis[hiredis]==7.4.0
 defusedxml==0.7.1
 python-dotenv==1.2.2
 alembic==1.18.4
