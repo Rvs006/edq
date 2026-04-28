@@ -27,7 +27,7 @@ def _make_test_run():
     )
     engineer = SimpleNamespace(full_name="Engineer One")
     return SimpleNamespace(
-        id="run-12345678",
+        id="12345678-1234-1234-1234-123456789abc",
         created_at=datetime(2026, 4, 10, tzinfo=timezone.utc),
         completed_at=datetime(2026, 4, 10, tzinfo=timezone.utc),
         overall_verdict="pass",
@@ -183,6 +183,15 @@ def test_output_path_uses_full_run_uuid(tmp_path, monkeypatch):
     path = report_generator._output_path(run, "generic", ".xlsx")
 
     assert "12345678-1234-1234-1234-123456789abc" in path.name
+
+
+def test_output_path_rejects_non_uuid_run_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+    run = _make_test_run()
+    run.id = "../not-a-run-id"
+
+    with pytest.raises(ValueError):
+        report_generator._output_path(run, "generic", ".xlsx")
 
 
 @pytest.mark.asyncio

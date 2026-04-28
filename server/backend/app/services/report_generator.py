@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import textwrap
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -32,6 +33,20 @@ TEMPLATE_FILES = {
     "sauter_680_as": "Sauter - 680-AS - IP Device Qualification Template C00.xlsx",
     "generic": "[MANUFACTURER] - [MODEL] - IP Device Qualification Template (Rev00) C00.xlsx",
 }
+TEMPLATE_MAPPING_FILES = {
+    "pelco_camera": "pelco_camera.json",
+    "easyio_controller": "easyio_controller.json",
+    "sauter_680_as": "sauter_680_as.json",
+    "generic": "generic.json",
+}
+REPORT_EXTENSIONS = {".xlsx", ".docx", ".pdf", ".csv"}
+REPORT_OUTPUT_FILENAME_RE = re.compile(
+    r"^EDQ_Report_"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_"
+    r"(?:generic|pelco_camera|easyio_controller|sauter_680_as)_"
+    r"\d{8}_\d{6}\.(?:xlsx|docx)$",
+    re.IGNORECASE,
+)
 
 TEMPLATE_INFO = {
     "pelco_camera": {"name": "Pelco Camera (Rev 2)", "device_category": "camera", "description": "Pelco camera workbook."},
@@ -235,8 +250,39 @@ def _safe_attr(obj: Any, attr: str, default: str = "") -> str:
     return default if value is None else str(value)
 
 
+def _validate_template_key(template_key: str) -> str:
+    if template_key not in TEMPLATE_FILES:
+        raise ValueError("Unknown template key")
+    return template_key
+
+
+def _validate_report_extension(extension: str) -> str:
+    if extension not in REPORT_EXTENSIONS:
+        raise ValueError("Unsupported report extension")
+    return extension
+
+
+def _safe_test_run_id(test_run: Any) -> str:
+    return str(uuid.UUID(str(test_run.id)))
+
+
+def _report_source_file(source_path: str) -> Path:
+    source_name = str(source_path).replace("\\", "/").rsplit("/", 1)[-1]
+    if not REPORT_OUTPUT_FILENAME_RE.fullmatch(source_name):
+        raise RuntimeError("Invalid report source filename")
+
+    output_dir = Path(settings.REPORT_DIR).resolve()
+    for candidate in output_dir.iterdir():
+        if candidate.name == source_name and candidate.is_file():
+            resolved = candidate.resolve()
+            if resolved.is_relative_to(output_dir):
+                return resolved
+    raise RuntimeError("Report source file not found")
+
+
 def _load_mapping(template_key: str) -> dict[str, Any]:
-    path = _MAPPINGS_DIR / f"{template_key}.json"
+    safe_template_key = _validate_template_key(template_key)
+    path = _MAPPINGS_DIR / TEMPLATE_MAPPING_FILES[safe_template_key]
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
@@ -563,8 +609,7 @@ def build_report_document(
     readiness_summary: Optional[dict[str, Any]] = None,
 ) -> ReportDocument:
     del whitelist_entries
-    if template_key not in TEMPLATE_FILES:
-        raise ValueError(f"Unknown template_key '{template_key}'")
+    template_key = _validate_template_key(template_key)
     enabled_ids = set(enabled_test_ids or [])
     filtered_results = sorted(
         [r for r in test_results if not enabled_ids or getattr(r, "test_id", None) in enabled_ids],
@@ -689,16 +734,19 @@ def get_available_templates() -> list[dict[str, Any]]:
             "device_category": info["device_category"],
             "description": info["description"],
             "template_exists": (_TEMPLATES_DIR / TEMPLATE_FILES[key]).exists(),
-            "mapping_exists": (_MAPPINGS_DIR / f"{key}.json").exists(),
+            "mapping_exists": (_MAPPINGS_DIR / TEMPLATE_MAPPING_FILES[key]).exists(),
         })
     return items
 
 
 def _output_path(test_run: Any, template_key: str, extension: str) -> Path:
-    output_dir = Path(settings.REPORT_DIR)
+    output_dir = Path(settings.REPORT_DIR).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    run_id = _safe_test_run_id(test_run)
+    safe_template_key = _validate_template_key(template_key)
+    safe_extension = _validate_report_extension(extension)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    return output_dir / f"EDQ_Report_{test_run.id!s}_{template_key}_{stamp}{extension}"
+    return output_dir / f"EDQ_Report_{run_id}_{safe_template_key}_{stamp}{safe_extension}"
 
 
 def _add_openpyxl_logo(ws: Any, logo_path: Path | None, cell: str, width_px: int = 190) -> None:
@@ -1049,17 +1097,19 @@ async def generate_word_report(
 
 async def _generate_pdf_via_libreoffice(source_path: str) -> str:
     import asyncio
-    output_dir = str(Path(source_path).parent)
+    output_dir_path = Path(settings.REPORT_DIR).resolve()
+    source_file = _report_source_file(source_path)
+    output_dir = str(output_dir_path)
     proc = await asyncio.create_subprocess_exec(
         "libreoffice", "--headless", "--norestore", "--convert-to", "pdf",
-        "--outdir", output_dir, source_path,
+        "--outdir", output_dir, str(source_file),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
     if proc.returncode != 0:
         raise RuntimeError(f"LibreOffice conversion failed: {stderr.decode()[:200]}")
-    pdf_path = Path(source_path).with_suffix(".pdf")
+    pdf_path = source_file.with_suffix(".pdf")
     if not pdf_path.exists():
         raise RuntimeError(f"Expected PDF file not found at {pdf_path}")
     return str(pdf_path)
@@ -1162,12 +1212,13 @@ async def generate_pdf_report(
     branding_settings: Any = None,
     readiness_summary: Optional[dict[str, Any]] = None,
 ) -> str:
+    template_key = _validate_template_key(template_key)
     use_libreoffice = os.getenv("EDQ_USE_LIBREOFFICE", "").lower() in ("1", "true", "yes")
 
     if use_libreoffice:
         try:
             mapping = _load_mapping(template_key)
-            template_path = _TEMPLATES_DIR / TEMPLATE_FILES.get(template_key, "")
+            template_path = _TEMPLATES_DIR / TEMPLATE_FILES[template_key]
             if template_key != "generic" and mapping and template_path.exists():
                 source_path = await generate_excel_report(
                     test_run,

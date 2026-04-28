@@ -78,17 +78,12 @@ async def _refresh_dhcp_device_ip(
     if logger:
         if previous_ip and previous_ip != device.ip_address:
             logger.info(
-                "Refreshed DHCP device %s IP address from %s to %s %s",
-                device.mac_address,
-                previous_ip,
-                device.ip_address,
+                "Refreshed DHCP device IP address %s",
                 log_context,
             )
         elif previous_ip != device.ip_address:
             logger.info(
-                "Auto-discovered DHCP device %s IP address as %s %s",
-                device.mac_address,
-                device.ip_address,
+                "Auto-discovered DHCP device IP address %s",
                 log_context,
             )
     return True

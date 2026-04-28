@@ -128,6 +128,65 @@ BLOCKED_ARGS = {"&&", "||", ";", "|", "`", "$", "(", ")", "{", "}", "<", ">", "\
 
 MAX_ARG_LENGTH = 200  # Maximum length per individual argument
 
+_TRACEBACK_HEADER_RE = re.compile(r"^Traceback \(most recent call last\):$")
+_TRACEBACK_FRAME_RE = re.compile(r'^\s*File ".+", line \d+, in .+$')
+_TRACEBACK_EXCEPTION_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):")
+
+
+def _sanitize_stderr(text: str) -> str:
+    """Remove Python traceback frames from stderr before returning tool output."""
+    if not text:
+        return ""
+
+    cleaned: list[str] = []
+    in_traceback = False
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\r\n")
+        stripped = line.strip()
+        if _TRACEBACK_HEADER_RE.match(stripped):
+            in_traceback = True
+            if not cleaned or cleaned[-1] != "[stderr traceback omitted]":
+                cleaned.append("[stderr traceback omitted]")
+            continue
+        if in_traceback:
+            if (
+                _TRACEBACK_FRAME_RE.match(line)
+                or stripped.startswith(("raise ", "return ", "yield ", "await "))
+                or stripped.startswith("^")
+                or _TRACEBACK_EXCEPTION_RE.match(stripped)
+            ):
+                continue
+            in_traceback = False
+        cleaned.append(line)
+
+    return "\n".join(cleaned)
+
+
+def _sanitize_stderr_line(line: str, in_traceback: bool) -> tuple[str, bool]:
+    """Streaming variant of _sanitize_stderr that preserves traceback state."""
+    raw_line = line.rstrip("\r\n")
+    stripped = raw_line.strip()
+    if _TRACEBACK_HEADER_RE.match(stripped):
+        return "[stderr traceback omitted]", True
+    if _TRACEBACK_FRAME_RE.match(raw_line):
+        return "[stderr traceback omitted]" if not in_traceback else "", True
+    if in_traceback:
+        if (
+            stripped.startswith(("raise ", "return ", "yield ", "await "))
+            or stripped.startswith("^")
+        ):
+            return "", True
+        if _TRACEBACK_EXCEPTION_RE.match(stripped):
+            return "", False
+        if stripped:
+            return "", True
+        return "", False
+    return raw_line, False
+
+
+def _internal_tool_error() -> str:
+    return "Scanner command failed"
+
 # Whitelist of safe nmap scripts — only these may be passed to --script
 ALLOWED_NMAP_SCRIPTS = frozenset({
     "default", "safe", "discovery", "version", "auth", "broadcast",
@@ -747,7 +806,7 @@ def _run_tool(cmd: list, timeout: int, target: str = "") -> dict:
         return {
             "exit_code": proc.returncode,
             "stdout": stdout,
-            "stderr": stderr,
+            "stderr": _sanitize_stderr(stderr),
             "duration_seconds": duration,
             "output_file": None,
         }
@@ -771,7 +830,7 @@ def _run_tool(cmd: list, timeout: int, target: str = "") -> dict:
         return {
             "exit_code": -1,
             "stdout": "",
-            "stderr": str(e),
+            "stderr": _internal_tool_error(),
             "duration_seconds": duration,
             "output_file": None,
         }
@@ -796,8 +855,8 @@ def _parse_scan_request(tool_name=None):
             target = _validate_testssl_target(target)
         else:
             target = _validate_target(target)
-    except ValueError as e:
-        return None, None, None, (str(e), 400)
+    except ValueError:
+        return None, None, None, ("Invalid target", 400)
 
     args = data.get("args", [])
     try:
@@ -807,8 +866,8 @@ def _parse_scan_request(tool_name=None):
             args = _validate_args(args)
         if tool_name in {"nmap", "testssl", "ssh-audit", "nikto", "snmpwalk"}:
             _validate_no_extra_ip_targets(args, target, tool_name)
-    except ValueError as e:
-        return None, None, None, (str(e), 400)
+    except ValueError:
+        return None, None, None, ("Invalid scan arguments", 400)
 
     try:
         timeout = min(int(data.get("timeout", 300)), 600)
@@ -1830,6 +1889,7 @@ def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
     stderr_text = ""
     exit_code = -1
     proc = None
+    stderr_in_traceback = False
     events: "queue.Queue[tuple[str, str]]" = queue.Queue()
 
     def _reader(stream, stream_name: str) -> None:
@@ -1878,8 +1938,10 @@ def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
                 stdout_lines.append(line)
                 yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
             else:
-                stderr_lines.append(line)
-                yield f"data: {_json.dumps({'type': 'stderr', 'line': line})}\n\n"
+                safe_line, stderr_in_traceback = _sanitize_stderr_line(line, stderr_in_traceback)
+                if safe_line:
+                    stderr_lines.append(safe_line)
+                    yield f"data: {_json.dumps({'type': 'stderr', 'line': safe_line})}\n\n"
 
         proc.wait(timeout=5)
 
@@ -1896,11 +1958,13 @@ def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
                 stdout_lines.append(line)
                 yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
             else:
-                stderr_lines.append(line)
-                yield f"data: {_json.dumps({'type': 'stderr', 'line': line})}\n\n"
+                safe_line, stderr_in_traceback = _sanitize_stderr_line(line, stderr_in_traceback)
+                if safe_line:
+                    stderr_lines.append(safe_line)
+                    yield f"data: {_json.dumps({'type': 'stderr', 'line': safe_line})}\n\n"
 
         exit_code = -1 if timed_out else proc.returncode
-        stderr_text = "".join(stderr_lines)
+        stderr_text = _sanitize_stderr("\n".join(stderr_lines))
         if timed_out:
             timeout_msg = f"Command timed out after {timeout}s"
             stderr_text = f"{stderr_text}\n{timeout_msg}".strip()
@@ -1908,7 +1972,7 @@ def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
         if proc and proc.poll() is None:
             proc.kill()
             proc.wait()
-        stderr_text = str(e)
+        stderr_text = _internal_tool_error()
     finally:
         if proc and target:
             _untrack_proc(target, proc)
@@ -1978,6 +2042,7 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
         stderr_text = ""
         exit_code = -1
         proc = None
+        stderr_in_traceback = False
         events: "queue.Queue[tuple[str, str]]" = queue.Queue()
 
         def _reader(stream, stream_name: str) -> None:
@@ -2023,8 +2088,10 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
                     stdout_lines.append(line)
                     yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
                 else:
-                    stderr_lines.append(line)
-                    yield f"data: {_json.dumps({'type': 'stderr', 'line': line})}\n\n"
+                    safe_line, stderr_in_traceback = _sanitize_stderr_line(line, stderr_in_traceback)
+                    if safe_line:
+                        stderr_lines.append(safe_line)
+                        yield f"data: {_json.dumps({'type': 'stderr', 'line': safe_line})}\n\n"
 
             proc.wait(timeout=5)
             for reader in readers:
@@ -2039,11 +2106,13 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
                     stdout_lines.append(line)
                     yield f"data: {_json.dumps({'type': 'stdout', 'line': line})}\n\n"
                 else:
-                    stderr_lines.append(line)
-                    yield f"data: {_json.dumps({'type': 'stderr', 'line': line})}\n\n"
+                    safe_line, stderr_in_traceback = _sanitize_stderr_line(line, stderr_in_traceback)
+                    if safe_line:
+                        stderr_lines.append(safe_line)
+                        yield f"data: {_json.dumps({'type': 'stderr', 'line': safe_line})}\n\n"
 
             exit_code = -1 if timed_out else proc.returncode
-            stderr_text = "".join(stderr_lines)
+            stderr_text = _sanitize_stderr("\n".join(stderr_lines))
             if timed_out:
                 timeout_msg = f"Command timed out after {timeout}s"
                 stderr_text = f"{stderr_text}\n{timeout_msg}".strip()
@@ -2051,7 +2120,7 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
             if proc and proc.poll() is None:
                 proc.kill()
                 proc.wait()
-            stderr_text = str(e)
+            stderr_text = _internal_tool_error()
         finally:
             if proc:
                 _untrack_proc(target, proc)
@@ -2121,9 +2190,9 @@ def stream_hydra() -> Union[Response, Tuple[Response, int]]:
     # Do not append target — the caller includes target+service in args
     try:
         _validate_hydra_target_arg(target, args)
-    except ValueError as exc:
+    except ValueError:
         _scan_semaphore.release()
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": "Invalid hydra target arguments"}), 400
     cmd = ["hydra"] + args
     return Response(
         _guarded_stream(_run_tool_stream(cmd, timeout, target=target)),

@@ -1,11 +1,11 @@
 """Test Run management routes."""
 
 import logging
-import os
 import ipaddress
 import uuid
 from typing import List, Optional
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +52,16 @@ from app.routes.authorized_networks import get_active_networks, is_ip_authorized
 logger = logging.getLogger("edq.routes.test_runs")
 
 router = APIRouter()
+
+
+def _nessus_upload_path(run_id: str) -> Path:
+    safe_run_id = str(uuid.UUID(run_id))
+    upload_dir = (Path(settings.UPLOAD_DIR).resolve() / "nessus")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = (upload_dir / f"{safe_run_id}_{uuid.uuid4().hex[:8]}.nessus").resolve()
+    if not file_path.is_relative_to(upload_dir):
+        raise HTTPException(status_code=400, detail="Invalid run identifier")
+    return file_path
 
 
 async def _ensure_test_run_target_authorized(db: AsyncSession, user: User, device: Device) -> None:
@@ -848,17 +858,18 @@ async def upload_nessus(
     if len(content) > max_nessus:
         raise HTTPException(status_code=400, detail=f"Nessus file exceeds maximum size of {max_nessus // (1024*1024)}MB")
 
-    upload_dir = os.path.join(settings.UPLOAD_DIR, "nessus")
-    os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, f"{run_id}_{uuid.uuid4().hex[:8]}.nessus")
+    try:
+        file_path = _nessus_upload_path(run_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid run identifier")
 
-    with open(file_path, "wb") as f:
+    with file_path.open("wb") as f:
         f.write(content)
 
     try:
-        findings = nessus_parser.parse(file_path)
+        findings = nessus_parser.parse(str(file_path))
     except Exception:
-        os.remove(file_path)
+        file_path.unlink(missing_ok=True)
         logger.exception("Failed to parse .nessus file for run %s", run_id)
         raise HTTPException(status_code=400, detail="Failed to parse .nessus file")
 

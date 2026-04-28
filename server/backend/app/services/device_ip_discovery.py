@@ -265,11 +265,7 @@ async def discover_ip_for_mac(
                 try:
                     ipaddress.ip_address(candidate_ip)
                 except ValueError:
-                    logger.warning(
-                        "Ignoring invalid discovered IP %s for MAC %s",
-                        candidate_ip,
-                        normalized_mac,
-                    )
+                    logger.warning("Ignoring invalid discovered IP for DHCP MAC lookup")
                     continue
                 result.discovered_ip = candidate_ip
                 result.vendor = await resolve_mac_vendor(found_mac, host.get("vendor"))
