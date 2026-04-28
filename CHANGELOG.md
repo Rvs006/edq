@@ -10,6 +10,7 @@ The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summariz
 
 - Rebuilt the backend scanner runtime to avoid vulnerable Firebird, nghttp2, OpenJPEG, curl, and dnsutils package exposure.
 - Built Hydra from source without Firebird/nghttp2/OpenJPEG links.
+- Vendored pinned scanner source archives for testssl.sh, Hydra, and Nikto so backend builds no longer download those tools from GitHub during install.
 - Replaced backend and compose health checks with `wget`/BusyBox-compatible checks and normalized the `EDQ_START_INTERNAL_TOOLS` flag.
 - Confirmed GitHub CI and local Docker Scout scans pass after merge.
 

@@ -1,27 +1,34 @@
-# ---------- Stage 1: clone testssl.sh ----------
-# Use alpine/git (git + ca-certificates baked in) instead of ubuntu:24.04 +
-# apt-get. Avoids dependency on Ubuntu mirrors and cuts image layer count.
-FROM alpine/git:2.52.0 AS tools-builder
-# Pin to v3.2.3 release tag. For maximum security, pin to the commit SHA.
-RUN git clone --depth 1 --branch v3.2.3 https://github.com/drwetter/testssl.sh.git /opt/testssl && \
-    chmod +x /opt/testssl/testssl.sh
+# ---------- Stage 1: unpack vendored testssl.sh ----------
+FROM python:3.13-slim AS tools-builder
+
+ARG TESTSSL_SOURCE_SHA256=1c4bb10185a67592164eb870c717b8bdd03f290c8d68f9a8c658335ff5ac8b91
+
+COPY third_party/testssl-v3.2.3.tar.gz /tmp/testssl.tar.gz
+RUN mkdir -p /opt/testssl \
+    && echo "${TESTSSL_SOURCE_SHA256}  /tmp/testssl.tar.gz" | sha256sum -c - \
+    && tar xzf /tmp/testssl.tar.gz --strip-components=1 -C /opt/testssl \
+    && rm /tmp/testssl.tar.gz \
+    && chmod +x /opt/testssl/testssl.sh
 
 # ---------- Stage 2: build Hydra without Firebird support ----------
 FROM python:3.13-slim AS hydra-builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG HYDRA_VERSION=v9.5
+ARG HYDRA_SOURCE_SHA256=9dd193b011fdb3c52a17b0da61a38a4148ffcad731557696819d4721d1bee76b
 
 WORKDIR /build
+COPY third_party/hydra-v9.5.tar.gz .
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
-    git \
     libpcre2-dev \
     libssh-dev \
     libssl-dev \
     zlib1g-dev \
-    && git clone --depth 1 --branch "${HYDRA_VERSION}" https://github.com/vanhauser-thc/thc-hydra.git hydra \
+    && mkdir hydra \
+    && echo "${HYDRA_SOURCE_SHA256}  hydra-v9.5.tar.gz" | sha256sum -c - \
+    && tar xzf hydra-v9.5.tar.gz --strip-components=1 -C hydra \
+    && rm hydra-v9.5.tar.gz \
     && cd hydra \
     && ./configure \
     && make -j"$(nproc)" \
@@ -60,6 +67,7 @@ ENV XDG_CONFIG_HOME=/app/.config
 ARG INSTALL_LIBREOFFICE=false
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG NIKTO_SOURCE_SHA256=656554f9aeba8c462689582b59d141369dbcadac11141cd02752887f363430ec
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     wget \
@@ -91,13 +99,15 @@ RUN if [ "$INSTALL_LIBREOFFICE" = "true" ]; then \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
-# Install nikto from source (not in Debian repos)
-# NOTE: Verify the SHA256 hash of the downloaded archive matches the official release
-# before deploying to production (https://github.com/sullo/nikto/releases/tag/2.6.0).
-RUN cd /opt && wget -q https://github.com/sullo/nikto/archive/refs/tags/2.6.0.tar.gz \
-    && tar xzf 2.6.0.tar.gz && rm 2.6.0.tar.gz \
-    && ln -s /opt/nikto-2.6.0/program/nikto.pl /usr/local/bin/nikto \
-    && chmod +x /opt/nikto-2.6.0/program/nikto.pl
+# Install nikto from the vendored release archive. Keeping the archive in the
+# repo avoids Docker build failures on networks that block GitHub/codeload.
+COPY third_party/nikto-2.6.0.tar.gz /tmp/nikto.tar.gz
+RUN mkdir -p /opt/nikto \
+    && echo "${NIKTO_SOURCE_SHA256}  /tmp/nikto.tar.gz" | sha256sum -c - \
+    && tar xzf /tmp/nikto.tar.gz --strip-components=1 -C /opt/nikto \
+    && rm /tmp/nikto.tar.gz \
+    && ln -s /opt/nikto/program/nikto.pl /usr/local/bin/nikto \
+    && chmod +x /opt/nikto/program/nikto.pl
 
 # Copy testssl.sh from builder
 COPY --from=tools-builder /opt/testssl /opt/testssl
