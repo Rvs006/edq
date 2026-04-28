@@ -14,6 +14,7 @@ GitHub vulnerability alerts, Dependabot security updates, secret scanning, and p
 Current repository automation includes:
 
 - Dependabot configuration for GitHub Actions, frontend, Electron, backend Python dependencies, tools Python dependencies, and Dockerfiles.
+- Routine Dependabot version-update PRs are disabled with `open-pull-requests-limit: 0`; security updates remain enabled through GitHub security settings.
 - CodeQL workflow for Python and JavaScript/TypeScript.
 - Container security workflow that scans the backend image for critical and high CVEs.
 - Nightly full-verification workflow for broader backend, frontend, and Docker smoke coverage.
