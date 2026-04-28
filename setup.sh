@@ -100,7 +100,7 @@ echo "Waiting for services to start..."
 
 RETRIES=0
 MAX_RETRIES=30
-until docker compose exec -T backend curl -sf http://localhost:8000/api/v1/health >/dev/null 2>&1; do
+until docker compose exec -T backend wget -qO /dev/null http://localhost:8000/api/v1/health >/dev/null 2>&1; do
   RETRIES=$((RETRIES + 1))
   if [ "$RETRIES" -ge "$MAX_RETRIES" ]; then
     echo "WARNING: Backend did not become healthy within timeout. Check logs with: docker compose logs backend"

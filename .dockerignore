@@ -22,6 +22,7 @@ server/backend/uploads
 server/backend/test.db*
 server/backend/tmp_*.db
 server/backend/.venv
+server/backend/.venv-*
 tests/pytest-cache-files-*
 *.db
 backups

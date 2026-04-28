@@ -52,7 +52,7 @@ services:
           memory: 2G
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v1/health >/dev/null && case \"${EDQ_START_INTERNAL_TOOLS:-true}\" in false|0|no|off) exit 0 ;; *) curl -sf http://localhost:8001/health >/dev/null ;; esac"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8000/api/v1/health && case \"${EDQ_START_INTERNAL_TOOLS:-true}\" in false|0|no|off) exit 0 ;; *) wget -qO /dev/null http://localhost:8001/health ;; esac"]
       interval: 15s
       timeout: 5s
       retries: 5
