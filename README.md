@@ -2,6 +2,18 @@
 
 EDQ, short for Electracom Device Qualifier, is a local-first qualification app for smart building IP devices. It gives engineers one place to discover devices, run repeatable security checks, capture guided manual findings, and generate client-ready reports.
 
+## Current Readiness
+
+EDQ is **pilot-ready**, not unrestricted-production-ready.
+
+The current honest rating is **6.5 / 10**:
+
+- suitable for trusted engineers testing authorized private-network devices
+- not suitable for internet-facing exposure or scanning arbitrary IP ranges
+- not yet signed off for broad production without backup drills, monitoring, dependency scanning, and a controlled rollout plan
+
+See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for the full go/no-go view.
+
 ## What EDQ Is For
 
 EDQ is built for teams qualifying cameras, controllers, intercoms, sensors, meters, and other IP-connected building devices before they are accepted onto enterprise networks.
@@ -171,6 +183,7 @@ Generated outputs are written to:
 | [DEPLOY.md](DEPLOY.md) | Shared and production deployment guidance |
 | [SECURITY.md](SECURITY.md) | Current security model, secret handling, and operational controls |
 | [SECURITY_TOOLING.md](SECURITY_TOOLING.md) | ShieldMyRepo + security scanner reference |
+| [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Current production-readiness rating, pilot boundaries, and go/no-go checklist |
 | [REDIS.md](REDIS.md) | Optional Redis profile for shared-env rate limiting |
 | [CHANGELOG.md](CHANGELOG.md) | Curated history of major changes after the original v1.0 baseline |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and contribution notes |
@@ -189,6 +202,7 @@ Generated outputs are written to:
 - Single-IP discovery uses an AND-gate reachability check: a target must answer **both** a fresh TCP/ICMP probe and nmap's ARP-bypass ping before the full scan runs. This prevents stale-ARP ghost results on recently unplugged devices.
 - Frontend and backend development can run locally outside Docker. Scanner execution is Docker-backed by default, with an explicit Windows host-scanner mode for direct-Ethernet discovery. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
 - Historical product and engineering specs remain in `docs/` as archive material only and should not be treated as the current operational guide.
+- Only scan networks and devices your organization owns, administers, or has written permission to test.
 
 ## Archived Reference
 

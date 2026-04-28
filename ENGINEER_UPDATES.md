@@ -61,6 +61,14 @@ Windows PowerShell:
 
 Then open `http://localhost:3000`.
 
+If this update is part of a pilot or release validation, also run:
+
+```powershell
+.\scripts\e2e-test.ps1
+.\scripts\backend-test.ps1
+docker scout cves edq-backend:latest --only-severity critical,high
+```
+
 ## If Update Fails
 
 - If Git reports local changes, stop and clean up your work before updating.

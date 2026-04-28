@@ -2,6 +2,8 @@
 
 This is the primary guide for engineers testing EDQ locally on `http://localhost:3000`.
 
+EDQ is currently intended for controlled pilot use. Only scan devices and networks your organization owns, administers, or has written permission to test. Do not use EDQ to scan arbitrary public IPs or customer networks without authorization.
+
 ## Audience and Scope
 
 Use this guide if you are:
@@ -23,7 +25,7 @@ If you are doing frontend or backend development outside the full Docker stack, 
 Optional but useful:
 
 - `bash` for shell scripts on macOS, Linux, or Git Bash on Windows
-- `curl` for manual API checks
+- `curl` or `wget` for manual API checks
 
 ## Supported Local Config
 
@@ -151,6 +153,8 @@ Before testing subnet discovery:
 3. Add the CIDR ranges your team is allowed to scan, for example `192.168.1.0/24`
 
 If you skip this step, subnet discovery requests will be rejected.
+
+For pilot deployments, keep authorized ranges narrow. Add only the lab VLAN, bench subnet, or customer-approved CIDR that engineers are explicitly allowed to scan.
 
 ## Daily Operations
 

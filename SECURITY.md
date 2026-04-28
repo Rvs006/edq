@@ -2,6 +2,17 @@
 
 This document reflects the current application behavior in the repository. It is not a generic security policy.
 
+## Security Posture Summary
+
+EDQ has application-level security controls suitable for a controlled pilot: cookie auth, refresh-token rotation, CSRF protection, role-based access, scan authorization gates, audit logging, and a hardened backend image.
+
+Remaining production gaps are operational rather than purely code-level:
+
+- repository Dependabot, code scanning, and secret scanning are not currently enforced
+- deployment monitoring and alerting are optional and must be configured
+- backup restore has to be tested by the deployment owner
+- scan authorization depends on admin configuration and process discipline
+
 ## Authentication Model
 
 - Login accepts either username or email.
@@ -112,6 +123,7 @@ After first login, rotate the password through the app or reset the stored passw
 - EDQ includes active network scan tooling.
 - Subnet scanning is blocked until an admin adds authorized networks in the app.
 - The tools sidecar should never be exposed directly to untrusted networks.
+- Engineers should scan only devices and networks the organization owns, administers, or has written permission to test.
 
 ## Incident Response Basics
 

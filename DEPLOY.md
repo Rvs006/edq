@@ -4,6 +4,8 @@ This guide is for shared or production-style deployments. It is not the local en
 
 For local testing on a single laptop, use [INSTALL.md](INSTALL.md).
 
+For the current readiness rating and go/no-go checklist, read [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) before treating EDQ as production software.
+
 ## Deployment Model
 
 EDQ runs as three containers:
@@ -14,6 +16,13 @@ EDQ runs as three containers:
 
 Built-in production HTTPS support is provided through `docker-compose.prod.yml`.
 An optional alternative TLS overlay is also available through `docker-compose.tls.yml` if you prefer Caddy instead of the built-in nginx + certbot path.
+
+Current production posture:
+
+- supported deployment is a single Docker Compose host
+- access should stay private-network or VPN-only
+- high availability, automated restore drills, and centralized observability are deployment-owner responsibilities
+- active scanning must be limited through authorized networks and operational process.
 
 Tip: Set `ENVIRONMENT=cloud` in `.env` for production deployments — this auto-derives `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`, and Postgres defaults.
 
@@ -200,6 +209,9 @@ asyncio.run(reset())
 - authorized scan networks configured in the app
 - backups tested
 - log collection in place
+- dependency, code, and secret scanning enabled in GitHub or an equivalent platform
+- restore tested from a real backup before a wider rollout
+- pilot completed against representative devices and networks
 
 ## Notes
 

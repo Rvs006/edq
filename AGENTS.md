@@ -112,6 +112,7 @@ For local backend runs outside Docker, point `TOOLS_SIDECAR_URL` at the tool ser
 | `ENGINEER_UPDATES.md` | Existing engineers | Pull latest `main`, rebuild, verify |
 | `SECURITY.md` | Everyone | Security model and reporting |
 | `SECURITY_TOOLING.md` | Ops | Scanner and dependency audit tooling |
+| `PRODUCTION_READINESS.md` | Ops and leads | Current pilot/production readiness rating and go/no-go checklist |
 | `CONTRIBUTING.md` | Contributors | Branch, commit, and PR flow |
 | `CHANGELOG.md` | Everyone | Curated release history |
 | `REDIS.md` | Ops | Optional Redis profile guidance |

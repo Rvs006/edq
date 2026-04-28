@@ -2,6 +2,15 @@
 
 EDQ is wired to use a local/global ShieldMyRepo installation for repo security checks.
 
+For container dependency checks, use Docker Scout against the built backend image:
+
+```powershell
+docker scout cves edq-backend:latest
+docker scout cves edq-backend:latest --only-severity critical,high
+```
+
+GitHub Dependabot alerts, code scanning, and secret scanning are not currently enforced for this repository. Enable those or equivalent controls before treating EDQ as broadly production-ready.
+
 ## Available commands
 
 ### PowerShell
