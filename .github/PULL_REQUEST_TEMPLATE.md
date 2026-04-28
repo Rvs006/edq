@@ -12,6 +12,7 @@ Brief description of changes.
 - [ ] API regression run with `./scripts/e2e-test.sh` or `.\scripts\e2e-test.ps1` when API behavior changed
 - [ ] Backend tests run with `./scripts/backend-test.sh` or `.\scripts\backend-test.ps1` when backend code changed
 - [ ] Frontend tests run with `cd frontend && pnpm test` when frontend code changed
+- [ ] Docs reviewed for setup/deploy/security impact when behavior or operational posture changed
 
 ## Screenshots
 If applicable, add screenshots or screen recordings to demonstrate the changes.
@@ -21,3 +22,4 @@ If applicable, add screenshots or screen recordings to demonstrate the changes.
 - [ ] Type hints added (Python)
 - [ ] No console.log in production code
 - [ ] Error handling included
+- [ ] Production-readiness or deployment notes updated when release risk changed

@@ -41,6 +41,9 @@ Use current docs first:
 - [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md)
 - [DEPLOY.md](DEPLOY.md)
 - [SECURITY.md](SECURITY.md)
+- [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)
 - [CHANGELOG.md](CHANGELOG.md)
 
 Historical specs remain in `docs/` for reference only. They are not the current operational guide for setup, deployment, or API behavior.
+
+For documentation changes, update the root operational docs instead of editing archived specs unless the task explicitly asks to preserve historical context.

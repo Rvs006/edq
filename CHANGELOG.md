@@ -4,6 +4,21 @@ This is a curated change history for EDQ. It is intentionally grouped by meaning
 
 The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summarize notable changes after that point.
 
+## 2026-04-28
+
+### Backend image vulnerability remediation
+
+- Rebuilt the backend scanner runtime to avoid vulnerable Firebird, nghttp2, OpenJPEG, curl, and dnsutils package exposure.
+- Built Hydra from source without Firebird/nghttp2/OpenJPEG links.
+- Replaced backend and compose health checks with `wget`/BusyBox-compatible checks and normalized the `EDQ_START_INTERNAL_TOOLS` flag.
+- Confirmed GitHub CI and local Docker Scout scans pass after merge.
+
+### Documentation readiness audit
+
+- Added the current production-readiness rating and pilot go/no-go checklist.
+- Updated root operational docs to clarify pilot boundaries, authorized scanning requirements, and remaining production gaps.
+- Reaffirmed that archived files under `docs/` are not the current operational source of truth.
+
 ## 2026-04-22
 
 ### AI agent guidance migration
