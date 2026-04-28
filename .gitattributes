@@ -16,5 +16,6 @@
 *.xlsx binary
 *.png binary
 *.jpg binary
+*.tar.gz binary
 *.pdf binary
 *.db binary

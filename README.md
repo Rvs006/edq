@@ -69,6 +69,10 @@ Persistent state is stored in Docker volumes for:
 
 The supported local configuration file is the repo-root `.env`.
 
+Scanner tool release archives for the backend image are vendored under `third_party/`,
+so local installs do not require Docker to download Nikto, Hydra, or testssl.sh from
+GitHub during the build.
+
 ## Quick Start
 
 macOS or Linux:

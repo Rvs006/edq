@@ -59,6 +59,7 @@ What setup does:
 - creates the root `.env` from `.env.example` if needed
 - fills required secrets if they are missing or still set to placeholders
 - generates an initial admin password if needed
+- builds scanner tools from vendored release archives in `third_party/` instead of downloading them from GitHub during Docker build
 - starts the Docker services
 
 ### Manual path
@@ -246,6 +247,20 @@ docker exec edq-backend wget -qO - http://localhost:8001/health
 Expected: `{"status":"healthy","tools":{"hydra":true,"nikto":true,"nmap":true,"snmpwalk":true,"ssh_audit":true,"testssl":true}}`
 
 If any tool reports `false`, the rebuild did not complete — try again with `docker compose down -v` first (this wipes the database; only do it if you have no data to preserve).
+
+### Backend build fails while installing scanner tools
+
+The backend image uses scanner source archives committed under `third_party/` for `testssl.sh`, Hydra, and Nikto. Docker should not need direct access to GitHub or `codeload.github.com` to install those tools.
+
+If the build fails at a scanner archive checksum step, the local checkout is probably incomplete or corrupted. Fix it by refreshing the repo and rebuilding:
+
+```bash
+git pull
+docker compose build --no-cache backend
+docker compose up -d
+```
+
+If the build fails earlier at `apt-get`, `pip install`, or frontend package install, that is a general Docker/package-mirror network issue rather than the scanner-tool vendoring path.
 
 ### Login fails on localhost
 
