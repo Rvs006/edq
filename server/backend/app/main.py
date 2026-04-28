@@ -60,7 +60,14 @@ from app.routes import (
 _THIS_DIR = Path(__file__).resolve().parent
 _BACKEND_DIR = _THIS_DIR.parent
 _PROJECT_ROOT = _BACKEND_DIR.parent.parent
-FRONTEND_DIR = str(_PROJECT_ROOT / "frontend" / "dist")
+_FRONTEND_PATH = _PROJECT_ROOT / "frontend" / "dist"
+FRONTEND_DIR = str(_FRONTEND_PATH)
+_SPA_PUBLIC_FILES = {
+    "electracom-logo.png": _FRONTEND_PATH / "electracom-logo.png",
+    "favicon.svg": _FRONTEND_PATH / "favicon.svg",
+    "icon-white.png": _FRONTEND_PATH / "icon-white.png",
+    "icon.png": _FRONTEND_PATH / "icon.png",
+}
 
 CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CSRF_EXEMPT_PATHS = {
@@ -703,23 +710,19 @@ def create_app() -> FastAPI:
             logger.debug("Failed to log client error: %s", e)
         return Response(status_code=204)
 
-    if os.path.isdir(FRONTEND_DIR):
-        assets_dir = os.path.join(FRONTEND_DIR, "assets")
-        if os.path.isdir(assets_dir):
-            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+    if _FRONTEND_PATH.is_dir():
+        assets_dir = _FRONTEND_PATH / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
         @app.get("/{full_path:path}")
         async def serve_spa(request: Request, full_path: str):
             if full_path.startswith("api/") or full_path in ("docs", "redoc", "openapi.json"):
                 return JSONResponse(status_code=404, content={"detail": "Not Found"})
-            from pathlib import Path
-            file_path = os.path.join(FRONTEND_DIR, full_path)
-            resolved = Path(file_path).resolve()
-            if not resolved.is_relative_to(Path(FRONTEND_DIR).resolve()):
-                return JSONResponse(status_code=404, content={"detail": "Not Found"})
-            if full_path and os.path.isfile(file_path):
-                return FileResponse(file_path)
-            return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+            public_file = _SPA_PUBLIC_FILES.get(full_path)
+            if public_file and public_file.is_file():
+                return FileResponse(public_file)
+            return FileResponse(_FRONTEND_PATH / "index.html")
 
     return app
 

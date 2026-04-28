@@ -8,6 +8,8 @@ import type { TourState } from '@/lib/types'
 import { User, Lock, Sun, Moon, Loader2, Server, RotateCcw, Save, Palette, Upload, Shield, ShieldCheck, ShieldOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 
+const LOGO_PREVIEW_BASE_URL = '/api/settings/branding/logo'
+
 export default function SettingsPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('profile')
@@ -545,6 +547,8 @@ function BrandingSettings() {
   const [saving, setSaving] = useState(false)
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [logoPreviewVersion, setLogoPreviewVersion] = useState(0)
+  const [selectedLogoName, setSelectedLogoName] = useState<string | null>(null)
 
   useEffect(() => {
     brandingApi.get().then(res => {
@@ -554,7 +558,7 @@ function BrandingSettings() {
         primary_color: d.primary_color || '#2563eb',
         footer_text: d.footer_text || '',
       })
-      if (d.logo_path) setLogoPreview('/api/settings/branding/logo')
+      if (d.logo_path) setLogoPreview(LOGO_PREVIEW_BASE_URL)
     }).catch((err) => { console.error('Failed to fetch branding settings:', err) }).finally(() => setLoading(false))
   }, [])
 
@@ -565,6 +569,10 @@ function BrandingSettings() {
       await brandingApi.update(form)
       if (logoFile) {
         await brandingApi.uploadLogo(logoFile)
+        setLogoPreview(LOGO_PREVIEW_BASE_URL)
+        setLogoPreviewVersion(Date.now())
+        setLogoFile(null)
+        setSelectedLogoName(null)
       }
       toast.success('Branding settings saved')
     } catch (err: unknown) {
@@ -590,8 +598,10 @@ function BrandingSettings() {
       return
     }
     setLogoFile(file)
-    setLogoPreview(URL.createObjectURL(file))
+    setSelectedLogoName(file.name)
   }
+
+  const logoPreviewSrc = logoPreview ? `${logoPreview}?v=${logoPreviewVersion}` : null
 
   if (loading) {
     return (
@@ -624,15 +634,16 @@ function BrandingSettings() {
         <div>
           <label htmlFor="branding-logo-file" className="label">Company Logo</label>
           <div className="flex items-center gap-3">
-            {logoPreview && (
-              <img src={logoPreview} alt="Logo preview" className="w-12 h-12 object-contain rounded border border-zinc-200 bg-zinc-50 p-1" />
+            {logoPreviewSrc && (
+              <img src={logoPreviewSrc} alt="Logo preview" className="w-12 h-12 object-contain rounded border border-zinc-200 bg-zinc-50 p-1" />
             )}
             <label htmlFor="branding-logo-file" className="btn-secondary cursor-pointer text-sm py-1.5 px-3">
               <Upload className="w-3.5 h-3.5" />
               Upload Logo
             </label>
-            <input id="branding-logo-file" type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+            <input id="branding-logo-file" type="file" accept="image/png,image/jpeg" onChange={handleLogoChange} className="hidden" />
           </div>
+          {selectedLogoName && <p className="text-[11px] text-zinc-500 mt-1 truncate">{selectedLogoName}</p>}
           <p className="text-[11px] text-zinc-400 mt-1">PNG or JPEG, max 5MB. Used in report headers.</p>
         </div>
 

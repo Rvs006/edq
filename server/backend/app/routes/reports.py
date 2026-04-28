@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Literal, Optional
@@ -46,6 +45,28 @@ _REPORT_RUN_ID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     re.IGNORECASE,
 )
+_REPORT_FILENAME_RE = re.compile(
+    r"^EDQ_Report_"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_"
+    r"(?:generic|pelco_camera|easyio_controller|sauter_680_as)_"
+    r"\d{8}_\d{6}\.(?:xlsx|docx|pdf|csv)$",
+    re.IGNORECASE,
+)
+
+
+def _resolve_report_download_path(filename: str) -> tuple[Path | None, str]:
+    """Return a report path from the trusted report directory plus basename."""
+    safe_filename = Path(filename).name
+    if safe_filename != filename or not _REPORT_FILENAME_RE.fullmatch(safe_filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    report_dir = Path(settings.REPORT_DIR).resolve()
+    for candidate in report_dir.iterdir():
+        if candidate.name == safe_filename and candidate.is_file():
+            file_path = candidate.resolve()
+            if file_path.is_relative_to(report_dir):
+                return file_path, safe_filename
+    return None, safe_filename
 
 
 class ReportRequest(BaseModel):
@@ -227,7 +248,7 @@ async def generate_report(
                 status_code=400, detail="Invalid report type. Use 'excel', 'word', 'pdf', or 'csv'."
             )
 
-        filename = os.path.basename(file_path)
+        filename = Path(file_path).name
         await log_action(db, user, "report.generate", "report", data.test_run_id, {"type": data.report_type, "filename": filename}, request)
         return {
             "filename": filename,
@@ -254,14 +275,8 @@ async def download_report(
     user: User = Depends(get_current_active_user),
 ):
     """Download a generated report file."""
-    safe_filename = os.path.basename(filename)
-    safe_filename = safe_filename.replace('"', '').replace(';', '').replace('\n', '').replace('\r', '')
-    report_dir = Path(settings.REPORT_DIR).resolve()
-    file_path_resolved = (report_dir / safe_filename).resolve()
-    # Prevent path traversal — works correctly on case-insensitive Windows paths
-    if not file_path_resolved.is_relative_to(report_dir):
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    if not file_path_resolved.exists():
+    file_path_resolved, safe_filename = _resolve_report_download_path(filename)
+    if file_path_resolved is None:
         raise HTTPException(status_code=404, detail="Report file not found")
 
     run_id = _extract_report_run_id(safe_filename)
@@ -275,19 +290,19 @@ async def download_report(
     if user.role == UserRole.ENGINEER and tr.engineer_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    file_path_real = str(file_path_resolved)
-
     media_types = {
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".pdf": "application/pdf",
         ".csv": "text/csv",
     }
-    ext = os.path.splitext(safe_filename)[1].lower()
+    ext = file_path_resolved.suffix.lower()
     media_type = media_types.get(ext, "application/octet-stream")
 
     return FileResponse(
-        path=file_path_real,
+        # The path is selected from REPORT_DIR after strict report filename validation.
+        # codeql[py/path-injection]
+        path=file_path_resolved,
         filename=safe_filename,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
