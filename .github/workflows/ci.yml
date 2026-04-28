@@ -56,7 +56,7 @@ jobs:
     permissions: read-all
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
-      - uses: pnpm/action-setup@a8198c4bff370c8506180b035930dea56dbd5288
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
         with:
           version: 10
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
