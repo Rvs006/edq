@@ -17,7 +17,7 @@ EDQ is not yet a **9/10 production platform** for broad enterprise rollout, inte
 - Backend regression suite passes locally.
 - GitHub CI passes on `main`.
 - The backend image currently scans clean with Docker Scout for vulnerable packages.
-- Dependabot security updates, secret scanning, and push protection are enabled on GitHub.
+- Dependabot security updates, secret scanning, and push protection are enabled on GitHub; routine version-update PRs are disabled to avoid unreviewed runtime churn.
 - CodeQL, container CVE scanning, and nightly full-verification workflows are configured.
 - Branch protection requires the named CI jobs plus backend container scanning.
 - Auth, refresh-token rotation, CSRF, role checks, 2FA hooks, OIDC hooks, audit logs, and authorized-network gates exist.
