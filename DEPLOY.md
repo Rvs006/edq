@@ -6,6 +6,8 @@ For local testing on a single laptop, use [INSTALL.md](INSTALL.md).
 
 For the current readiness rating and go/no-go checklist, read [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) before treating EDQ as production software.
 
+For release gates, backup restore drills, monitoring, and scanner-governance checks, use [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md).
+
 ## Deployment Model
 
 EDQ runs as three containers:
@@ -148,6 +150,18 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T frontend nginx -s reload
 ```
 
+Backup:
+
+```bash
+./scripts/backup.sh ./backups
+```
+
+Restore drills should be performed on a separate host or disposable environment first. For PostgreSQL restore, use:
+
+```bash
+EDQ_RESTORE_CONFIRM=restore ./scripts/restore-postgres.sh ./backups/edq_YYYYMMDD_HHMMSS.sql
+```
+
 ## First Admin Tasks After Deployment
 
 1. Log in as `admin`
@@ -212,6 +226,7 @@ asyncio.run(reset())
 - dependency, code, and secret scanning enabled in GitHub or an equivalent platform
 - restore tested from a real backup before a wider rollout
 - pilot completed against representative devices and networks
+- release gate completed from [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md)
 
 ## Notes
 

@@ -19,6 +19,14 @@ The original `EDQ v1.0` baseline is commit `3a85953`. The entries below summariz
 - Updated root operational docs to clarify pilot boundaries, authorized scanning requirements, and remaining production gaps.
 - Reaffirmed that archived files under `docs/` are not the current operational source of truth.
 
+### Production-readiness hardening
+
+- Removed stale closed-PR branches so `main` is the only live branch.
+- Enabled GitHub vulnerability alerts, Dependabot security updates, secret scanning, and push protection.
+- Added Dependabot configuration, CodeQL analysis, backend container CVE scanning, and scheduled full verification workflows.
+- Added an operations runbook plus a guarded PostgreSQL restore helper for backup drills.
+- Patched frontend transitive dependency alerts for `follow-redirects` and `postcss` through pnpm overrides.
+
 ## 2026-04-22
 
 ### AI agent guidance migration

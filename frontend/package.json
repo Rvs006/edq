@@ -65,5 +65,11 @@
     "vite-plugin-compression2": "^2.5.3",
     "vitest": "^4.1.4"
   },
+  "pnpm": {
+    "overrides": {
+      "follow-redirects": "1.16.0",
+      "postcss": "8.5.10"
+    }
+  },
   "type": "module"
 }

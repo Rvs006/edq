@@ -4,7 +4,7 @@ This document is the current go/no-go view for EDQ. It is intentionally direct: 
 
 ## Current Rating
 
-**6.5 / 10 for controlled pilot use.**
+**7.5 / 10 after repository hardening, still requiring operational proof for 8.5-9 / 10.**
 
 EDQ is ready to give to trusted engineers for **controlled testing on authorized private-network IP devices**.
 
@@ -17,6 +17,9 @@ EDQ is not yet a **9/10 production platform** for broad enterprise rollout, inte
 - Backend regression suite passes locally.
 - GitHub CI passes on `main`.
 - The backend image currently scans clean with Docker Scout for vulnerable packages.
+- Dependabot security updates, secret scanning, and push protection are enabled on GitHub.
+- CodeQL, container CVE scanning, and nightly full-verification workflows are configured.
+- Branch protection requires the named CI jobs plus backend container scanning.
 - Auth, refresh-token rotation, CSRF, role checks, 2FA hooks, OIDC hooks, audit logs, and authorized-network gates exist.
 - Subnet discovery is blocked until an admin explicitly configures authorized CIDR ranges.
 - Report generation and core qualification workflows are implemented.
@@ -24,9 +27,8 @@ EDQ is not yet a **9/10 production platform** for broad enterprise rollout, inte
 ## What Is Not Ready Enough For Broad Production
 
 - The deployment model is a single Docker Compose host, not high availability.
-- Backup and restore are documented, but restore drills are not proven by CI.
-- No scheduled GitHub dependency, code-scanning, or secret-scanning enforcement is currently enabled on the repository.
-- CI uses targeted backend/frontend tests, not the full backend and frontend suites on every PR.
+- Backup and restore are documented, but restore drills still need real operational evidence.
+- CI uses targeted backend/frontend tests on every PR; full verification runs on schedule or manual dispatch.
 - Real-device scan behavior depends on local network conditions, Docker Desktop networking, host OS, privileges, and device responsiveness.
 - Windows direct-Ethernet discovery may need host-scanner mode for reliable ARP/ICMP/TCP behavior.
 - The tools sidecar contains active security tools. Misconfigured authorized networks could create operational risk.
@@ -64,8 +66,9 @@ Before a wider production rollout:
 - Rotate every placeholder secret
 - Configure authorized scan networks
 - Enable log collection and incident alerting
-- Enable repository dependency, code, and secret scanning
+- Confirm repository dependency, code, and secret scanning are green
 - Run at least one pilot against representative device types
+- Complete the release gate in [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md)
 
 ## Scale Interpretation
 
@@ -76,4 +79,4 @@ Before a wider production rollout:
 - **9:** production-ready for broader rollout with monitoring, backups, scanning governance, and recovery drills
 - **10:** mature multi-environment product with HA, automation, audit evidence, and regular security review
 
-EDQ is currently in the **6-7** band.
+EDQ is currently in the **7-8** band based on repository and CI posture. It reaches **8.5-9** only after restore drills, monitoring, and real-device pilot evidence are completed.
