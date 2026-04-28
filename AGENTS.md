@@ -109,6 +109,7 @@ For local backend runs outside Docker, point `TOOLS_SIDECAR_URL` at the tool ser
 | `INSTALL.md` | New engineers | First-time Docker stack install |
 | `LOCAL_DEVELOPMENT.md` | Contributors | Local frontend and backend dev loop |
 | `DEPLOY.md` | Ops | Production deploy, TLS, backup |
+| `OPERATIONS_RUNBOOK.md` | Ops and leads | Release gate, backup restore drills, monitoring, and scanner governance |
 | `ENGINEER_UPDATES.md` | Existing engineers | Pull latest `main`, rebuild, verify |
 | `SECURITY.md` | Everyone | Security model and reporting |
 | `SECURITY_TOOLING.md` | Ops | Scanner and dependency audit tooling |

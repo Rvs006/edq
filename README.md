@@ -6,11 +6,11 @@ EDQ, short for Electracom Device Qualifier, is a local-first qualification app f
 
 EDQ is **pilot-ready**, not unrestricted-production-ready.
 
-The current honest rating is **6.5 / 10**:
+The current honest rating is **7.5 / 10** after repository and CI hardening:
 
 - suitable for trusted engineers testing authorized private-network devices
 - not suitable for internet-facing exposure or scanning arbitrary IP ranges
-- not yet signed off for broad production without backup drills, monitoring, dependency scanning, and a controlled rollout plan
+- not yet signed off for broad production without backup drills, monitoring, and a controlled real-device pilot
 
 See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for the full go/no-go view.
 
@@ -106,7 +106,7 @@ Windows PowerShell:
 .\scripts\verify-app.ps1
 ```
 
-5. Change the password after first login
+1. Change the password after first login
 
 If you rotate the admin password before rerunning smoke scripts, pass the current password with `EDQ_ADMIN_PASS`, `-AdminPass`, or the matching PowerShell parameter. The root `.env` keeps the initial seed password only.
 
@@ -166,7 +166,6 @@ You also have dedicated Windows launchers:
 
 For the complete security tooling reference, see [SECURITY_TOOLING.md](SECURITY_TOOLING.md).
 
-
 Generated outputs are written to:
 
 - `reports/shieldmyrepo-report.md`
@@ -181,6 +180,7 @@ Generated outputs are written to:
 | [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) | Local frontend and backend development outside the full Docker stack |
 | [ENGINEER_UPDATES.md](ENGINEER_UPDATES.md) | Update-only workflow for existing local installs |
 | [DEPLOY.md](DEPLOY.md) | Shared and production deployment guidance |
+| [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md) | Release gates, backup restore drills, monitoring, and scanner governance |
 | [SECURITY.md](SECURITY.md) | Current security model, secret handling, and operational controls |
 | [SECURITY_TOOLING.md](SECURITY_TOOLING.md) | ShieldMyRepo + security scanner reference |
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Current production-readiness rating, pilot boundaries, and go/no-go checklist |

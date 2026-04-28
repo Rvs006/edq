@@ -7,6 +7,7 @@ Current operational documentation for EDQ lives in the repository root:
 - [LOCAL_DEVELOPMENT.md](../LOCAL_DEVELOPMENT.md)
 - [ENGINEER_UPDATES.md](../ENGINEER_UPDATES.md)
 - [DEPLOY.md](../DEPLOY.md)
+- [OPERATIONS_RUNBOOK.md](../OPERATIONS_RUNBOOK.md)
 - [SECURITY.md](../SECURITY.md)
 - [SECURITY_TOOLING.md](../SECURITY_TOOLING.md)
 - [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)
