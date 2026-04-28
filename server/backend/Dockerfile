@@ -7,7 +7,7 @@ RUN git clone --depth 1 --branch v3.2.3 https://github.com/drwetter/testssl.sh.g
     chmod +x /opt/testssl/testssl.sh
 
 # ---------- Stage 2: build Hydra without Firebird support ----------
-FROM python:3.13-slim AS hydra-builder
+FROM python:3.14-slim AS hydra-builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG HYDRA_VERSION=v9.5
@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* /build/hydra
 
 # ---------- Stage 3: build Python dependencies ----------
-FROM python:3.13-slim AS builder
+FROM python:3.14-slim AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -49,7 +49,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 RUN pip install --no-cache-dir --prefix=/install -r tools-requirements.txt
 
 # ---------- Stage 4: runtime (backend + tools combined) ----------
-FROM python:3.13-slim
+FROM python:3.14-slim
 ENV HOME=/home/edq
 ENV XDG_CACHE_HOME=/app/.cache
 ENV XDG_CONFIG_HOME=/app/.config
