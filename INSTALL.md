@@ -236,7 +236,7 @@ The `--no-cache` flag is the important one — it forces Docker to re-apt-instal
 Verification after rebuild:
 
 ```bash
-docker exec edq-backend curl -sf http://localhost:8001/health
+docker exec edq-backend wget -qO - http://localhost:8001/health
 ```
 
 Expected: `{"status":"healthy","tools":{"hydra":true,"nikto":true,"nmap":true,"snmpwalk":true,"ssh_audit":true,"testssl":true}}`

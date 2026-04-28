@@ -31,7 +31,7 @@ TOOLS_PID=$!
 ready=0
 i=0
 while [ "$i" -lt 30 ]; do
-    if curl -sf http://localhost:8001/health >/dev/null 2>&1; then
+    if wget -qO /dev/null http://localhost:8001/health >/dev/null 2>&1; then
         echo "[EDQ] Tools sidecar ready on :8001"
         ready=1
         break
@@ -60,9 +60,24 @@ fi
 # instead of letting them silently mark "Security Tools: Unavailable" in
 # the UI 30+ seconds after login.
 if [ -n "${TOOLS_API_KEY:-}" ] && [ -n "${sidecar_probe_url:-}" ]; then
-    auth_probe=$(curl -s -o /dev/null -w "%{http_code}" \
-        -H "X-Tools-Key: ${TOOLS_API_KEY}" \
-        "$sidecar_probe_url" 2>/dev/null || true)
+    auth_probe=$(SIDECAR_PROBE_URL="$sidecar_probe_url" python - <<'PY'
+import os
+import urllib.error
+import urllib.request
+
+request = urllib.request.Request(
+    os.environ["SIDECAR_PROBE_URL"],
+    headers={"X-Tools-Key": os.environ.get("TOOLS_API_KEY", "")},
+)
+try:
+    with urllib.request.urlopen(request, timeout=5) as response:
+        print(response.status)
+except urllib.error.HTTPError as exc:
+    print(exc.code)
+except Exception:
+    print("")
+PY
+    )
     if [ "$auth_probe" != "200" ]; then
         echo "[EDQ] WARNING: authenticated scanner /versions probe returned HTTP ${auth_probe:-<none>}."
         echo "[EDQ] Automated scans may be unavailable until TOOLS_SIDECAR_URL and TOOLS_API_KEY match the scanner agent."

@@ -6,13 +6,40 @@ FROM alpine/git:2.52.0 AS tools-builder
 RUN git clone --depth 1 --branch v3.2.3 https://github.com/drwetter/testssl.sh.git /opt/testssl && \
     chmod +x /opt/testssl/testssl.sh
 
-# ---------- Stage 2: build Python dependencies ----------
+# ---------- Stage 2: build Hydra without Firebird support ----------
+FROM python:3.13-slim AS hydra-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG HYDRA_VERSION=v9.5
+
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    git \
+    libpcre2-dev \
+    libssh-dev \
+    libssl-dev \
+    zlib1g-dev \
+    && git clone --depth 1 --branch "${HYDRA_VERSION}" https://github.com/vanhauser-thc/thc-hydra.git hydra \
+    && cd hydra \
+    && ./configure \
+    && make -j"$(nproc)" \
+    && install -m 0755 hydra /usr/local/bin/hydra \
+    && ! ldd /usr/local/bin/hydra | grep -E "libfbclient|libnghttp2|libopenjp2" \
+    && rm -rf /var/lib/apt/lists/* /build/hydra
+
+# ---------- Stage 3: build Python dependencies ----------
 FROM python:3.13-slim AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir --upgrade "pip>=26.0.1"
 
 # Build context is repo root; requirements is in server/backend/
 COPY server/backend/requirements.txt .
@@ -21,7 +48,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # Also install tools sidecar deps
 RUN pip install --no-cache-dir --prefix=/install -r tools-requirements.txt
 
-# ---------- Stage 3: runtime (backend + tools combined) ----------
+# ---------- Stage 4: runtime (backend + tools combined) ----------
 FROM python:3.13-slim
 ENV HOME=/home/edq
 ENV XDG_CACHE_HOME=/app/.cache
@@ -32,11 +59,11 @@ ENV XDG_CONFIG_HOME=/app/.config
 # workbook-backed template layout in PDF output.
 ARG INSTALL_LIBREOFFICE=false
 
+ARG DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
-    curl \
     wget \
     nmap \
-    hydra \
     openssh-client \
     iputils-ping \
     iproute2 \
@@ -50,9 +77,14 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libxml-writer-perl \
     snmp \
     procps \
-    dnsutils \
+    busybox \
+    libpcre2-8-0 \
+    libssh-4 \
+    && ln -s /bin/busybox /usr/local/bin/nslookup \
     && setcap cap_net_raw,cap_net_admin+ep /usr/bin/nmap \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir --upgrade "pip>=26.0.1"
 
 RUN if [ "$INSTALL_LIBREOFFICE" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends libreoffice-calc libreoffice-writer \
@@ -71,6 +103,12 @@ RUN cd /opt && wget -q https://github.com/sullo/nikto/archive/refs/tags/2.6.0.ta
 COPY --from=tools-builder /opt/testssl /opt/testssl
 RUN chmod +x /opt/testssl/testssl.sh && \
     ln -s /opt/testssl/testssl.sh /usr/local/bin/testssl.sh
+
+# Copy source-built Hydra from builder. The binary keeps EDQ's HTTP/HTTPS/SSH
+# credential checks without linking Firebird, nghttp2, or OpenJPEG libraries.
+COPY --from=hydra-builder /usr/local/bin/hydra /usr/local/bin/hydra
+RUN hydra -h 2>&1 | grep -q "Hydra v" && \
+    ! ldd /usr/local/bin/hydra | grep -E "libfbclient|libnghttp2|libopenjp2"
 
 # Copy installed Python packages from builder
 COPY --from=builder /install /usr/local
@@ -91,7 +129,7 @@ COPY tools/wordlists/ /usr/share/wordlists/
 RUN mkdir -p data uploads reports /app/.cache/dconf /app/.config /app/tools /home/edq && \
     chmod +x /app/entrypoint.sh
 
-# Run as non-root user. nmap has setcap for raw socket access (line 44).
+# Run as non-root user. nmap has setcap for raw socket access.
 # The tools API is only accessible on localhost (same container).
 RUN groupadd -r edq && useradd -r -g edq -d /home/edq -s /sbin/nologin edq \
     && chown -R edq:edq /app data uploads reports /home/edq
@@ -100,6 +138,6 @@ USER edq
 EXPOSE 8000 8001
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=30s \
-    CMD curl -sf http://localhost:8000/api/v1/health >/dev/null && case "${EDQ_START_INTERNAL_TOOLS:-true}" in false|0|no|off) exit 0 ;; *) curl -sf http://localhost:8001/health >/dev/null ;; esac
+    CMD wget -qO /dev/null http://localhost:8000/api/v1/health && case "$(printf '%s' "${EDQ_START_INTERNAL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in false|0|no|off) exit 0 ;; *) wget -qO /dev/null http://localhost:8001/health ;; esac
 
 ENTRYPOINT ["/app/entrypoint.sh"]
