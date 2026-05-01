@@ -3,6 +3,7 @@
 import asyncio
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -15,7 +16,8 @@ from sqlalchemy import update
 
 # Force a test-local configuration so pytest does not inherit the repo's
 # shared handoff settings from the root .env file.
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+_TEST_DATABASE_PATH = Path(tempfile.gettempdir()) / f"edq-backend-tests-{os.getpid()}.db"
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TEST_DATABASE_PATH.as_posix()}"
 os.environ["JWT_SECRET"] = "test-jwt-secret-not-for-production"
 os.environ["JWT_REFRESH_SECRET"] = "test-refresh-secret-not-for-production"
 os.environ["SECRET_KEY"] = "test-secret-key"

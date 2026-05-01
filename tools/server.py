@@ -864,10 +864,14 @@ def _parse_scan_request(tool_name=None):
             args = _validate_args_for_tool(args, tool_name)
         else:
             args = _validate_args(args)
-        if tool_name in {"nmap", "testssl", "ssh-audit", "nikto", "snmpwalk"}:
-            _validate_no_extra_ip_targets(args, target, tool_name)
     except ValueError:
         return None, None, None, ("Invalid scan arguments", 400)
+
+    if tool_name in {"nmap", "testssl", "ssh-audit", "nikto", "snmpwalk"}:
+        try:
+            _validate_no_extra_ip_targets(args, target, tool_name)
+        except ValueError as exc:
+            return None, None, None, (str(exc), 400)
 
     try:
         timeout = min(int(data.get("timeout", 300)), 600)
