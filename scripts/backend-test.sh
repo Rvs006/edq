@@ -12,4 +12,4 @@ docker compose run --rm --no-deps -T \
   --entrypoint sh \
   -v "$REPO_ROOT:/workspace" \
   backend \
-  -lc "cd /workspace/server/backend && python -m pip install --quiet -r requirements-dev.txt && python -m pytest tests/ -v --tb=short"
+  -lc "cd /workspace/server/backend && mkdir -p /tmp/edq-test-uploads /tmp/edq-test-reports && python -m pip install --quiet -r requirements-dev.txt && UPLOAD_DIR=/tmp/edq-test-uploads REPORT_DIR=/tmp/edq-test-reports python -m pytest tests/ -v --tb=short"
