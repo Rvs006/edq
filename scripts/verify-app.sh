@@ -165,7 +165,11 @@ for header in cookies:
 if not session_cookie:
     raise SystemExit('missing edq_session cookie')
 
-with urllib.request.urlopen(f\"{api_url}/test-runs/\", timeout=10) as resp:
+runs_request = urllib.request.Request(
+    f\"{api_url}/test-runs/\",
+    headers={\"Cookie\": session_cookie},
+)
+with urllib.request.urlopen(runs_request, timeout=10) as resp:
     runs = json.loads(resp.read().decode())
 if not runs:
     # Fresh install has no runs yet — legitimate precondition absence,

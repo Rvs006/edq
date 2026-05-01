@@ -25,6 +25,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - name: Write CI environment
+        run: |
+          cp .env.example .env
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path(".env")
+          values = {
+              "JWT_SECRET": "ci-jwt-secret-for-nightly",
+              "JWT_REFRESH_SECRET": "ci-refresh-secret-for-nightly",
+              "SECRET_KEY": "ci-secret-key-for-nightly",
+              "TOOLS_API_KEY": "ci-test-tools-key-32-character-value",
+              "INITIAL_ADMIN_PASSWORD": "ci-test-admin-password",
+              "POSTGRES_PASSWORD": "ci-test-postgres-password",
+              "DB_PASSWORD": "ci-test-postgres-password",
+              "COOKIE_SECURE": "false",
+              "DEBUG": "false",
+          }
+          lines = []
+          seen = set()
+          for line in path.read_text().splitlines():
+              if "=" in line and not line.lstrip().startswith("#"):
+                  key = line.split("=", 1)[0]
+                  if key in values:
+                      lines.append(f"{key}={values[key]}")
+                      seen.add(key)
+                      continue
+              lines.append(line)
+          for key, value in values.items():
+              if key not in seen:
+                  lines.append(f"{key}={value}")
+          path.write_text("\n".join(lines) + "\n")
+          PY
       - name: Run backend suite in backend image
         run: ./scripts/backend-test.sh
 
