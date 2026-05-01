@@ -79,5 +79,5 @@ jobs:
       - run: docker compose build
         env:
           INITIAL_ADMIN_PASSWORD: ci-test-admin-password
-          TOOLS_API_KEY: ci-test-tools-key
+          TOOLS_API_KEY: ci-test-tools-key-32-character-value
           POSTGRES_PASSWORD: ci-test-postgres-password

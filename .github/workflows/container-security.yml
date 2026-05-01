@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       INITIAL_ADMIN_PASSWORD: ci-test-admin-password
-      TOOLS_API_KEY: ci-test-tools-key
+      TOOLS_API_KEY: ci-test-tools-key-32-character-value
       POSTGRES_PASSWORD: ci-test-postgres-password
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd

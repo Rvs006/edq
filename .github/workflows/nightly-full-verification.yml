@@ -11,7 +11,7 @@ env:
   JWT_SECRET: ci-jwt-secret-for-nightly
   JWT_REFRESH_SECRET: ci-refresh-secret-for-nightly
   SECRET_KEY: ci-secret-key-for-nightly
-  TOOLS_API_KEY: ci-test-tools-key
+  TOOLS_API_KEY: ci-test-tools-key-32-character-value
   INITIAL_ADMIN_PASSWORD: ci-test-admin-password
   POSTGRES_PASSWORD: ci-test-postgres-password
   DB_NAME: edq
@@ -65,7 +65,7 @@ jobs:
               "JWT_SECRET": "ci-jwt-secret-for-nightly",
               "JWT_REFRESH_SECRET": "ci-refresh-secret-for-nightly",
               "SECRET_KEY": "ci-secret-key-for-nightly",
-              "TOOLS_API_KEY": "ci-test-tools-key",
+              "TOOLS_API_KEY": "ci-test-tools-key-32-character-value",
               "INITIAL_ADMIN_PASSWORD": "ci-test-admin-password",
               "POSTGRES_PASSWORD": "ci-test-postgres-password",
               "DB_PASSWORD": "ci-test-postgres-password",
