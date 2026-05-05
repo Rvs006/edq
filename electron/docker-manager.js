@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const util = require('util');
+const crypto = require('crypto');
 
 const execAsync = util.promisify(exec);
 const EDQ_PUBLIC_URL = process.env.EDQ_PUBLIC_URL || `http://localhost:${process.env.EDQ_PUBLIC_PORT || '3000'}`;
@@ -55,7 +56,7 @@ class DockerManager {
 
     this._ensureEnvFile();
 
-    if (onProgress) onProgress('Building containers (this may take a few minutes on first run)...');
+    onProgress?.('Building containers (this may take a few minutes on first run)...');
 
     const cmd = `docker compose -f "${this.composeFile}" -p ${this.projectName} up -d --build`;
 
@@ -70,7 +71,9 @@ class DockerManager {
 
       proc.stdout.on('data', (data) => {
         const line = data.toString().trim();
-        if (line && onProgress) onProgress(line);
+        if (line) {
+          onProgress?.(line);
+        }
       });
 
       proc.stderr.on('data', (data) => {
@@ -115,7 +118,7 @@ class DockerManager {
         const json = JSON.parse(result);
 
         if (json.status === 'ok') {
-          if (onProgress) onProgress('All services healthy!');
+          onProgress?.('All services healthy!');
           return true;
         }
 
@@ -176,7 +179,6 @@ class DockerManager {
 
     if (!fs.existsSync(envPath) && fs.existsSync(examplePath)) {
       const content = fs.readFileSync(examplePath, 'utf-8');
-      const crypto = require('crypto');
       const patched = content
         .replace(
           /^JWT_SECRET=.*$/m,

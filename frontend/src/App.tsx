@@ -29,6 +29,9 @@ import ProjectsPage from './pages/ProjectsPage'
 import NotFoundPage from './pages/NotFoundPage'
 import GuidedTour, { useTourState } from './components/tour/GuidedTour'
 
+const REVIEWER_ROLES = ['reviewer', 'admin'] as const
+const ADMIN_ROLES = ['admin'] as const
+
 function LoadingScreen() {
   return (
     <main id="main-content" tabIndex={-1} className="min-h-screen flex items-center justify-center bg-surface">
@@ -64,7 +67,7 @@ function LoginGate() {
   )
 }
 
-function RequireRole({ allowed, children }: { allowed: string[]; children: ReactNode }) {
+function RequireRole({ allowed, children }: { allowed: readonly string[]; children: ReactNode }) {
   const { user } = useAuth()
   if (!user) {
     return <Navigate to="/login" replace />
@@ -110,9 +113,9 @@ function AppShell() {
             <Route path="/templates" element={<TemplatesPage />} />
             <Route path="/whitelists" element={<WhitelistsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/review" element={<RequireRole allowed={['reviewer', 'admin']}><ReviewQueuePage /></RequireRole>} />
-            <Route path="/admin" element={<RequireRole allowed={['admin']}><AdminPage /></RequireRole>} />
-            <Route path="/audit-log" element={<RequireRole allowed={['reviewer', 'admin']}><AuditLogPage /></RequireRole>} />
+            <Route path="/review" element={<RequireRole allowed={REVIEWER_ROLES}><ReviewQueuePage /></RequireRole>} />
+            <Route path="/admin" element={<RequireRole allowed={ADMIN_ROLES}><AdminPage /></RequireRole>} />
+            <Route path="/audit-log" element={<RequireRole allowed={REVIEWER_ROLES}><AuditLogPage /></RequireRole>} />
             <Route path="/settings" element={<SettingsPage tourState={tour} />} />
             <Route path="/network-scan" element={<NetworkScanPage />} />
             <Route path="/test-plans" element={<TestPlansPage />} />

@@ -1,5 +1,6 @@
 const { autoUpdater } = require('electron-updater');
-const { dialog, Notification } = require('electron');
+const { dialog } = require('electron');
+const { version: currentVersion } = require('./package.json');
 
 function setupUpdater(mainWindow) {
   autoUpdater.autoDownload = false;
@@ -21,7 +22,7 @@ function setupUpdater(mainWindow) {
         type: 'info',
         title: 'Update Available',
         message: `EDQ v${info.version} is available.`,
-        detail: `A new version of EDQ is available. Would you like to download it now?\n\nCurrent: v${require('./package.json').version}\nNew: v${info.version}`,
+        detail: `A new version of EDQ is available. Would you like to download it now?\n\nCurrent: v${currentVersion}\nNew: v${info.version}`,
         buttons: ['Download', 'Later'],
         defaultId: 0,
       })
