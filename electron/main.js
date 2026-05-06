@@ -27,10 +27,7 @@ app.whenReady().then(async () => {
 
   const dockerAvailable = await dockerManager.checkDocker();
   if (!dockerAvailable) {
-    if (splashWindow) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    closeSplashWindow();
     await showDockerInstallGuide();
     app.quit();
     return;
@@ -43,10 +40,7 @@ app.whenReady().then(async () => {
       updateSplashStatus(line);
     });
   } catch (err) {
-    if (splashWindow) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    closeSplashWindow();
     dialog.showErrorBox(
       'EDQ Startup Error',
       `Failed to start services:\n\n${err.message}\n\nMake sure Docker Desktop is running and try again.`
@@ -62,10 +56,7 @@ app.whenReady().then(async () => {
       updateSplashStatus(status);
     });
   } catch (err) {
-    if (splashWindow) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    closeSplashWindow();
     dialog.showErrorBox(
       'EDQ Startup Error',
       `Services did not become healthy:\n\n${err.message}`
@@ -80,10 +71,7 @@ app.whenReady().then(async () => {
   mainWindow = createMainWindow();
 
   mainWindow.webContents.on('did-finish-load', () => {
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    closeSplashWindow();
     mainWindow.show();
   });
 
@@ -228,6 +216,13 @@ function updateSplashStatus(text) {
       )
       .catch(() => {});
   }
+}
+
+function closeSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+  }
+  splashWindow = null;
 }
 
 function registerIpcHandlers() {

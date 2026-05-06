@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const util = require('util');
+const crypto = require('crypto');
 
 const execAsync = util.promisify(exec);
 const EDQ_PUBLIC_URL = process.env.EDQ_PUBLIC_URL || `http://localhost:${process.env.EDQ_PUBLIC_PORT || '3000'}`;
@@ -11,6 +12,7 @@ class DockerManager {
   constructor() {
     this.projectName = 'edq';
     this.composeFile = this._resolveComposeFile();
+    this.composeDir = path.dirname(this.composeFile);
   }
 
   _resolveComposeFile() {
@@ -62,7 +64,7 @@ class DockerManager {
     return new Promise((resolve, reject) => {
       const proc = exec(cmd, {
         timeout: 600000,
-        cwd: path.dirname(this.composeFile),
+        cwd: this.composeDir,
         env: { ...process.env, COMPOSE_DOCKER_CLI_BUILD: '1', DOCKER_BUILDKIT: '1' },
       });
 
@@ -99,7 +101,7 @@ class DockerManager {
   async stopContainers() {
     try {
       const cmd = `docker compose -f "${this.composeFile}" -p ${this.projectName} down`;
-      await execAsync(cmd, { timeout: 60000, cwd: path.dirname(this.composeFile) });
+      await execAsync(cmd, { timeout: 60000, cwd: this.composeDir });
     } catch (err) {
       console.error('Failed to stop containers:', err.message);
     }
@@ -144,7 +146,7 @@ class DockerManager {
   async getStatus() {
     try {
       const cmd = `docker compose -f "${this.composeFile}" -p ${this.projectName} ps --format json`;
-      const { stdout } = await execAsync(cmd, { cwd: path.dirname(this.composeFile) });
+      const { stdout } = await execAsync(cmd, { cwd: this.composeDir });
 
       const lines = stdout.trim().split('\n').filter(Boolean);
       const containers = [];
@@ -163,7 +165,7 @@ class DockerManager {
     try {
       const svc = service ? ` ${service}` : '';
       const cmd = `docker compose -f "${this.composeFile}" -p ${this.projectName} logs --tail ${lines}${svc}`;
-      const { stdout } = await execAsync(cmd, { cwd: path.dirname(this.composeFile) });
+      const { stdout } = await execAsync(cmd, { cwd: this.composeDir });
       return stdout;
     } catch (err) {
       return `Failed to retrieve logs: ${err.message}`;
@@ -171,12 +173,11 @@ class DockerManager {
   }
 
   _ensureEnvFile() {
-    const envPath = path.join(path.dirname(this.composeFile), '.env');
-    const examplePath = path.join(path.dirname(this.composeFile), '.env.example');
+    const envPath = path.join(this.composeDir, '.env');
+    const examplePath = path.join(this.composeDir, '.env.example');
 
     if (!fs.existsSync(envPath) && fs.existsSync(examplePath)) {
       const content = fs.readFileSync(examplePath, 'utf-8');
-      const crypto = require('crypto');
       const patched = content
         .replace(
           /^JWT_SECRET=.*$/m,

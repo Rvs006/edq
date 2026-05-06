@@ -33,6 +33,7 @@ Regression commands:
 .\scripts\e2e-test.ps1
 ./scripts/backend-test.sh
 .\scripts\backend-test.ps1
+cd frontend && pnpm typecheck
 cd frontend && pnpm test
 ```
 
