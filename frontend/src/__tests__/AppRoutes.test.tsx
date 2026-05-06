@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 
 import App from '@/App'
@@ -31,12 +32,12 @@ vi.mock('@/contexts/AuthContext', () => ({
 }))
 
 vi.mock('@/components/layout/DashboardLayout', () => ({
-  default: ({ children }: { children: unknown }) => children,
+  default: ({ children }: { children: ReactNode }) => children,
 }))
 
 vi.mock('@/components/common/ErrorBoundary', () => ({
-  ErrorBoundary: ({ children }: { children: unknown }) => children,
-  PageErrorBoundary: ({ children }: { children: unknown }) => children,
+  ErrorBoundary: ({ children }: { children: ReactNode }) => children,
+  PageErrorBoundary: ({ children }: { children: ReactNode }) => children,
 }))
 
 vi.mock('@/components/common/SkipToContent', () => ({
