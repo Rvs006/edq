@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import type { InternalAxiosRequestConfig } from 'edq-http'
 
 import DeviceDetailPage from '@/pages/DeviceDetailPage'
 import { discoveryApi } from '@/lib/api'
@@ -134,7 +135,7 @@ describe('DeviceDetailPage', () => {
       status: 200,
       statusText: 'OK',
       headers: {},
-      config: {} as any,
+      config: {} as InternalAxiosRequestConfig,
     })
 
     const user = userEvent.setup()

@@ -8,6 +8,7 @@ const EDQ_PUBLIC_URL = process.env.EDQ_PUBLIC_URL || `http://localhost:${process
 
 let mainWindow = null;
 let splashWindow = null;
+let isQuitting = false;
 const dockerManager = new DockerManager();
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -159,7 +160,12 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', async (e) => {
+  if (isQuitting) {
+    return;
+  }
+
   e.preventDefault();
+  isQuitting = true;
   try {
     await dockerManager.stopContainers();
   } catch (_) {}

@@ -7,6 +7,10 @@ const util = require('util');
 const execAsync = util.promisify(exec);
 const EDQ_PUBLIC_URL = process.env.EDQ_PUBLIC_URL || `http://localhost:${process.env.EDQ_PUBLIC_PORT || '3000'}`;
 
+function writeError(message) {
+  process.stderr.write(`${message}\n`);
+}
+
 class DockerManager {
   constructor() {
     this.projectName = 'edq';
@@ -101,7 +105,7 @@ class DockerManager {
       const cmd = `docker compose -f "${this.composeFile}" -p ${this.projectName} down`;
       await execAsync(cmd, { timeout: 60000, cwd: path.dirname(this.composeFile) });
     } catch (err) {
-      console.error('Failed to stop containers:', err.message);
+      writeError(`Failed to stop containers: ${err.message}`);
     }
   }
 
