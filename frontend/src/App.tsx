@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
+import type { UserProfile } from './lib/types'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { ErrorBoundary, PageErrorBoundary } from './components/common/ErrorBoundary'
 import SkipToContent from './components/common/SkipToContent'
@@ -64,7 +65,9 @@ function LoginGate() {
   )
 }
 
-function RequireRole({ allowed, children }: { allowed: string[]; children: ReactNode }) {
+type UserRole = UserProfile['role']
+
+function RequireRole({ allowed, children }: { allowed: UserRole[]; children: ReactNode }) {
   const { user } = useAuth()
   if (!user) {
     return <Navigate to="/login" replace />
