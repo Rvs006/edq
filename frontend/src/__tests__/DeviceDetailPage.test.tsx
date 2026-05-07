@@ -3,9 +3,11 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { AxiosHeaders, type AxiosResponse } from 'edq-http'
 
 import DeviceDetailPage from '@/pages/DeviceDetailPage'
 import { discoveryApi } from '@/lib/api'
+import type { DiscoveryScanResponse } from '@/lib/types'
 import toast from 'react-hot-toast'
 
 const mockRole = {
@@ -123,7 +125,7 @@ describe('DeviceDetailPage', () => {
   })
 
   it('shows an unreachable warning when auto-detect finds no device', async () => {
-    vi.mocked(discoveryApi.scan).mockResolvedValue({
+    const scanResponse: AxiosResponse<DiscoveryScanResponse> = {
       data: {
         status: 'complete',
         target: '192.168.1.100',
@@ -134,8 +136,9 @@ describe('DeviceDetailPage', () => {
       status: 200,
       statusText: 'OK',
       headers: {},
-      config: {} as any,
-    })
+      config: { headers: new AxiosHeaders() },
+    }
+    vi.mocked(discoveryApi.scan).mockResolvedValue(scanResponse)
 
     const user = userEvent.setup()
     renderWithProviders()
