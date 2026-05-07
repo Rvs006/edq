@@ -25,7 +25,7 @@ class DockerManager {
         if (fs.existsSync(candidate)) {
           return candidate;
         }
-      } catch (_) {}
+      } catch {}
     }
 
     return candidates[0];
@@ -151,7 +151,7 @@ class DockerManager {
       for (const line of lines) {
         try {
           containers.push(JSON.parse(line));
-        } catch (_) {}
+        } catch {}
       }
       return containers;
     } catch {

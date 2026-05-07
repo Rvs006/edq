@@ -162,7 +162,7 @@ app.on('before-quit', async (e) => {
   e.preventDefault();
   try {
     await dockerManager.stopContainers();
-  } catch (_) {}
+  } catch {}
   app.exit(0);
 });
 
