@@ -1,18 +1,20 @@
 const { autoUpdater } = require('electron-updater');
 const { dialog, Notification } = require('electron');
 
+const updaterLogger = {
+  info: (msg) => console.info('[updater]', msg),
+  warn: (msg) => console.warn('[updater]', msg),
+  error: (msg) => console.error('[updater]', msg),
+};
+
 function setupUpdater(mainWindow) {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  autoUpdater.logger = {
-    info: (msg) => console.log('[updater]', msg),
-    warn: (msg) => console.warn('[updater]', msg),
-    error: (msg) => console.error('[updater]', msg),
-  };
+  autoUpdater.logger = updaterLogger;
 
   autoUpdater.on('checking-for-update', () => {
-    console.log('[updater] Checking for updates...');
+    updaterLogger.info('Checking for updates...');
   });
 
   autoUpdater.on('update-available', (info) => {
@@ -33,7 +35,7 @@ function setupUpdater(mainWindow) {
   });
 
   autoUpdater.on('update-not-available', () => {
-    console.log('[updater] No update available.');
+    updaterLogger.info('No update available.');
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -70,7 +72,7 @@ function setupUpdater(mainWindow) {
 
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
-      console.log('[updater] Update check skipped:', err.message);
+      updaterLogger.info(`Update check skipped: ${err.message}`);
     });
   }, 10000);
 }
