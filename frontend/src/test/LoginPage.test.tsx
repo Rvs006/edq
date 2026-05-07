@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router-dom'
+import type { InternalAxiosRequestConfig } from 'edq-http'
 
 const mockLogin = vi.fn()
+const axiosConfig = {} as InternalAxiosRequestConfig
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: vi.fn(),
@@ -51,7 +53,7 @@ describe('LoginPage', () => {
       logout: vi.fn(),
       refreshUser: vi.fn(),
     })
-    vi.mocked(authApi.oidcConfig).mockResolvedValue({ data: { enabled: false }, status: 200, statusText: 'OK', headers: {}, config: {} as any })
+    vi.mocked(authApi.oidcConfig).mockResolvedValue({ data: { enabled: false }, status: 200, statusText: 'OK', headers: {}, config: axiosConfig })
   })
 
   it('renders the login form with all required elements', async () => {
@@ -137,7 +139,7 @@ describe('LoginPage', () => {
     sessionStorage.setItem('edq_oidc_nonce', 'nonce-123')
     sessionStorage.setItem('edq_oidc_code_verifier', 'v'.repeat(43))
     window.history.replaceState({}, '', '/login?code=code-123&state=expected-state')
-    vi.mocked(authApi.oidcCallback).mockResolvedValue({ data: {}, status: 200, statusText: 'OK', headers: {}, config: {} as any })
+    vi.mocked(authApi.oidcCallback).mockResolvedValue({ data: {}, status: 200, statusText: 'OK', headers: {}, config: axiosConfig })
 
     await renderLoginPage()
 

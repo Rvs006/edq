@@ -35,9 +35,31 @@ function SeverityBadge({ severity }: { severity: string }) {
 
 const CATEGORIES = ['camera', 'controller', 'intercom', 'access_panel', 'lighting', 'hvac', 'iot_sensor', 'meter', 'unknown']
 
-const getDeviceField = (device: Device, key: string): string => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const val = (device as any)[key]
+type EditableDeviceField =
+  | 'hostname'
+  | 'manufacturer'
+  | 'model'
+  | 'firmware_version'
+  | 'category'
+  | 'location'
+  | 'mac_address'
+  | 'serial_number'
+
+const EDITABLE_DEVICE_FIELDS = new Set<string>([
+  'hostname',
+  'manufacturer',
+  'model',
+  'firmware_version',
+  'category',
+  'location',
+  'mac_address',
+  'serial_number',
+])
+
+const isEditableDeviceField = (key: string): key is EditableDeviceField => EDITABLE_DEVICE_FIELDS.has(key)
+
+const getDeviceField = (device: Device, key: EditableDeviceField): string => {
+  const val = device[key]
   return typeof val === 'string' ? val : val == null ? '' : String(val)
 }
 
@@ -138,6 +160,7 @@ export default function DeviceDetailPage() {
     try {
       const updates: Record<string, string> = {}
       for (const [key, value] of Object.entries(editForm)) {
+        if (!isEditableDeviceField(key)) continue
         const currentVal = getDeviceField(device, key)
         if (value !== currentVal) {
           updates[key] = value
