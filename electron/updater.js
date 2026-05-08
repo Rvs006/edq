@@ -1,5 +1,5 @@
 const { autoUpdater } = require('electron-updater');
-const { dialog, Notification } = require('electron');
+const { dialog } = require('electron');
 
 function setupUpdater(mainWindow) {
   autoUpdater.autoDownload = false;
