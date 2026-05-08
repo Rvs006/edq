@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { AxiosHeaders, type InternalAxiosRequestConfig } from 'edq-http'
 
 import DeviceDetailPage from '@/pages/DeviceDetailPage'
 import { discoveryApi } from '@/lib/api'
@@ -10,6 +11,10 @@ import toast from 'react-hot-toast'
 
 const mockRole = {
   value: 'engineer' as 'engineer' | 'reviewer' | 'admin',
+}
+
+const axiosConfig: InternalAxiosRequestConfig = {
+  headers: new AxiosHeaders(),
 }
 
 vi.mock('@/contexts/AuthContext', () => ({
@@ -134,7 +139,7 @@ describe('DeviceDetailPage', () => {
       status: 200,
       statusText: 'OK',
       headers: {},
-      config: {} as any,
+      config: axiosConfig,
     })
 
     const user = userEvent.setup()

@@ -1,18 +1,24 @@
 const { autoUpdater } = require('electron-updater');
-const { dialog, Notification } = require('electron');
+const { app, dialog, Notification } = require('electron');
+const { version: currentVersion } = require('./package.json');
+
+const updaterLogger = {
+  info: (msg) => {
+    if (!app.isPackaged) return;
+    process.stdout.write(`[updater] ${msg}\n`);
+  },
+  warn: (msg) => process.stderr.write(`[updater] ${msg}\n`),
+  error: (msg) => process.stderr.write(`[updater] ${msg}\n`),
+};
 
 function setupUpdater(mainWindow) {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  autoUpdater.logger = {
-    info: (msg) => console.log('[updater]', msg),
-    warn: (msg) => console.warn('[updater]', msg),
-    error: (msg) => console.error('[updater]', msg),
-  };
+  autoUpdater.logger = updaterLogger;
 
   autoUpdater.on('checking-for-update', () => {
-    console.log('[updater] Checking for updates...');
+    updaterLogger.info('Checking for updates...');
   });
 
   autoUpdater.on('update-available', (info) => {
@@ -21,7 +27,7 @@ function setupUpdater(mainWindow) {
         type: 'info',
         title: 'Update Available',
         message: `EDQ v${info.version} is available.`,
-        detail: `A new version of EDQ is available. Would you like to download it now?\n\nCurrent: v${require('./package.json').version}\nNew: v${info.version}`,
+        detail: `A new version of EDQ is available. Would you like to download it now?\n\nCurrent: v${currentVersion}\nNew: v${info.version}`,
         buttons: ['Download', 'Later'],
         defaultId: 0,
       })
@@ -33,7 +39,7 @@ function setupUpdater(mainWindow) {
   });
 
   autoUpdater.on('update-not-available', () => {
-    console.log('[updater] No update available.');
+    updaterLogger.info('No update available.');
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -65,12 +71,12 @@ function setupUpdater(mainWindow) {
   });
 
   autoUpdater.on('error', (err) => {
-    console.error('[updater] Error:', err.message);
+    updaterLogger.error(`Error: ${err.message}`);
   });
 
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
-      console.log('[updater] Update check skipped:', err.message);
+      updaterLogger.info(`Update check skipped: ${err.message}`);
     });
   }, 10000);
 }
