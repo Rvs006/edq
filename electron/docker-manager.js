@@ -105,6 +105,12 @@ class DockerManager {
     }
   }
 
+  async restartServices() {
+    await this.stopContainers();
+    await this.startContainers();
+    await this.waitForHealth();
+  }
+
   async waitForHealth(maxWait = 120000, onProgress) {
     const start = Date.now();
     let lastStatus = '';

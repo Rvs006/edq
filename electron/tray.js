@@ -1,4 +1,4 @@
-const { Tray, Menu, nativeImage, BrowserWindow } = require('electron');
+const { app, Tray, Menu, nativeImage, BrowserWindow, dialog } = require('electron');
 const path = require('path');
 
 let tray = null;
@@ -24,12 +24,9 @@ function setupTray(mainWindow, dockerManager) {
         click: async () => {
           tray.setToolTip('EDQ — Restarting services...');
           try {
-            await dockerManager.stopContainers();
-            await dockerManager.startContainers();
-            await dockerManager.waitForHealth();
+            await dockerManager.restartServices();
             tray.setToolTip('EDQ — Device Qualifier');
           } catch (err) {
-            const { dialog } = require('electron');
             dialog.showErrorBox('Restart Failed', err.message);
             tray.setToolTip('EDQ — Error');
           }
@@ -96,7 +93,6 @@ function setupTray(mainWindow, dockerManager) {
         label: 'Container Status',
         click: async () => {
           const status = await dockerManager.getStatus();
-          const { dialog } = require('electron');
 
           if (!status.length) {
             dialog.showMessageBox({
@@ -127,7 +123,6 @@ function setupTray(mainWindow, dockerManager) {
         label: 'Quit EDQ',
         click: async () => {
           tray.setToolTip('EDQ — Shutting down...');
-          const { app } = require('electron');
           app.quit();
         },
       },

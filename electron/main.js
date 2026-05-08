@@ -9,6 +9,7 @@ const EDQ_PUBLIC_URL = process.env.EDQ_PUBLIC_URL || `http://localhost:${process
 let mainWindow = null;
 let splashWindow = null;
 const dockerManager = new DockerManager();
+let isQuitting = false;
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -27,10 +28,7 @@ app.whenReady().then(async () => {
 
   const dockerAvailable = await dockerManager.checkDocker();
   if (!dockerAvailable) {
-    if (splashWindow) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    closeSplashWindow();
     await showDockerInstallGuide();
     app.quit();
     return;
@@ -43,10 +41,7 @@ app.whenReady().then(async () => {
       updateSplashStatus(line);
     });
   } catch (err) {
-    if (splashWindow) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    closeSplashWindow();
     dialog.showErrorBox(
       'EDQ Startup Error',
       `Failed to start services:\n\n${err.message}\n\nMake sure Docker Desktop is running and try again.`
@@ -62,10 +57,7 @@ app.whenReady().then(async () => {
       updateSplashStatus(status);
     });
   } catch (err) {
-    if (splashWindow) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    closeSplashWindow();
     dialog.showErrorBox(
       'EDQ Startup Error',
       `Services did not become healthy:\n\n${err.message}`
@@ -80,10 +72,7 @@ app.whenReady().then(async () => {
   mainWindow = createMainWindow();
 
   mainWindow.webContents.on('did-finish-load', () => {
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      splashWindow.close();
-      splashWindow = null;
-    }
+    closeSplashWindow();
     mainWindow.show();
   });
 
@@ -159,7 +148,13 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', async (e) => {
+  if (isQuitting) {
+    return;
+  }
+
   e.preventDefault();
+  isQuitting = true;
+
   try {
     await dockerManager.stopContainers();
   } catch (_) {}
@@ -230,6 +225,13 @@ function updateSplashStatus(text) {
   }
 }
 
+function closeSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+  }
+  splashWindow = null;
+}
+
 function registerIpcHandlers() {
   ipcMain.handle('get-app-version', () => app.getVersion());
 
@@ -238,9 +240,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('restart-services', async () => {
-    await dockerManager.stopContainers();
-    await dockerManager.startContainers();
-    await dockerManager.waitForHealth();
+    await dockerManager.restartServices();
     return { success: true };
   });
 }
