@@ -3,9 +3,11 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import type { AxiosResponse, InternalAxiosRequestConfig } from 'edq-http'
 
 import DeviceDetailPage from '@/pages/DeviceDetailPage'
 import { discoveryApi } from '@/lib/api'
+import type { DiscoveryScanResponse } from '@/lib/types'
 import toast from 'react-hot-toast'
 
 const mockRole = {
@@ -85,6 +87,18 @@ vi.mock('react-hot-toast', () => ({
   },
 }))
 
+const axiosConfigStub = {} as InternalAxiosRequestConfig
+
+function axiosResponse<T>(data: T): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: axiosConfigStub,
+  }
+}
+
 function renderWithProviders() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -123,19 +137,15 @@ describe('DeviceDetailPage', () => {
   })
 
   it('shows an unreachable warning when auto-detect finds no device', async () => {
-    vi.mocked(discoveryApi.scan).mockResolvedValue({
-      data: {
+    vi.mocked(discoveryApi.scan).mockResolvedValue(
+      axiosResponse<DiscoveryScanResponse>({
         status: 'complete',
         target: '192.168.1.100',
         devices_found: 0,
         devices: [],
         message: 'Device 192.168.1.100 is not reachable. Check that the cable is connected and the device is powered on.',
-      },
-      status: 200,
-      statusText: 'OK',
-      headers: {},
-      config: {} as any,
-    })
+      }),
+    )
 
     const user = userEvent.setup()
     renderWithProviders()

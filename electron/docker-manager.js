@@ -25,7 +25,9 @@ class DockerManager {
         if (fs.existsSync(candidate)) {
           return candidate;
         }
-      } catch (_) {}
+      } catch (err) {
+        console.warn(`Unable to inspect compose candidate ${candidate}:`, err.message);
+      }
     }
 
     return candidates[0];
@@ -151,7 +153,9 @@ class DockerManager {
       for (const line of lines) {
         try {
           containers.push(JSON.parse(line));
-        } catch (_) {}
+        } catch (err) {
+          console.warn('Ignoring malformed docker compose status line:', err.message);
+        }
       }
       return containers;
     } catch {
