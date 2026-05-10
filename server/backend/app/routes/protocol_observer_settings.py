@@ -40,6 +40,7 @@ class ProtocolObserverSettingsResponse(BaseModel):
     dhcp_subnet_mask: str = ""
     dhcp_router_ip: str = ""
     dhcp_dns_server: str = ""
+    dhcp_ntp_server: str = ""
     dhcp_lease_seconds: int = 300
 
 
@@ -54,6 +55,7 @@ class ProtocolObserverSettingsUpdate(BaseModel):
     dhcp_subnet_mask: Optional[str] = Field(None, max_length=64)
     dhcp_router_ip: Optional[str] = Field(None, max_length=64)
     dhcp_dns_server: Optional[str] = Field(None, max_length=64)
+    dhcp_ntp_server: Optional[str] = Field(None, max_length=64)
     dhcp_lease_seconds: Optional[int] = Field(None, ge=60, le=86400)
 
     @field_validator(
@@ -61,6 +63,7 @@ class ProtocolObserverSettingsUpdate(BaseModel):
         "dhcp_subnet_mask",
         "dhcp_router_ip",
         "dhcp_dns_server",
+        "dhcp_ntp_server",
         mode="before",
     )
     @classmethod

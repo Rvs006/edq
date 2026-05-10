@@ -701,6 +701,7 @@ type ProtocolObserverForm = {
   dhcp_subnet_mask: string
   dhcp_router_ip: string
   dhcp_dns_server: string
+  dhcp_ntp_server: string
   dhcp_lease_seconds: number
 }
 
@@ -718,6 +719,7 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
     dhcp_subnet_mask: '',
     dhcp_router_ip: '',
     dhcp_dns_server: '',
+    dhcp_ntp_server: '',
     dhcp_lease_seconds: 300,
   })
 
@@ -878,7 +880,7 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
         <div className="rounded-lg border border-zinc-200 dark:border-slate-700 p-4">
           <h3 className="text-sm font-medium text-zinc-900 dark:text-slate-100 mb-1">DHCP Offer Settings</h3>
           <p className="text-xs text-zinc-500 mb-4">
-            Leave these blank if you only want passive DHCP observation. Set them only when you have a safe isolated range for direct device testing.
+            Leave the offer IP blank for passive DHCP observation. When EDQ offers a lease, DNS and NTP default to the EDQ host address if left blank.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -924,6 +926,18 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
                 type="text"
                 value={form.dhcp_dns_server}
                 onChange={(e) => setField('dhcp_dns_server', e.target.value)}
+                className="input"
+                disabled={!isAdmin}
+                placeholder="192.168.4.1"
+              />
+            </div>
+            <div>
+              <label htmlFor="protocol-dhcp-ntp-server" className="label">NTP Server IP</label>
+              <input
+                id="protocol-dhcp-ntp-server"
+                type="text"
+                value={form.dhcp_ntp_server}
+                onChange={(e) => setField('dhcp_ntp_server', e.target.value)}
                 className="input"
                 disabled={!isAdmin}
                 placeholder="192.168.4.1"

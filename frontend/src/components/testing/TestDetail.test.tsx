@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import TestDetail, { type TestResultDetail } from './TestDetail'
@@ -14,6 +14,7 @@ const baseResult: TestResultDetail = {
   findings: null,
   verdict: 'pending',
   comment: null,
+  comment_override: null,
   engineer_notes: null,
   is_overridden: false,
   override_reason: null,
@@ -34,7 +35,6 @@ describe('TestDetail manual gating', () => {
         userRole="engineer"
         onSubmitManual={vi.fn()}
         onOverride={vi.fn()}
-        onSaveNotes={vi.fn()}
         isSubmitting={false}
         manualProgress={null}
       />
@@ -54,7 +54,6 @@ describe('TestDetail manual gating', () => {
         userRole="engineer"
         onSubmitManual={vi.fn()}
         onOverride={vi.fn()}
-        onSaveNotes={vi.fn()}
         isSubmitting={false}
         manualProgress={{ current: 1, total: 1 }}
       />
@@ -77,6 +76,8 @@ describe('TestDetail manual gating', () => {
             dhcp_lease_acknowledged: true,
             offered_ip: '192.168.4.68',
             dhcp_server: '192.168.4.1',
+            dhcp_dns_server: '192.168.4.1',
+            dhcp_ntp_server: '192.168.4.1',
             dhcp_events: [{ message_type: 3, observer_reply_label: 'ack' }],
           },
           comment: 'DHCP request traffic observed and lease acknowledged.',
@@ -87,7 +88,6 @@ describe('TestDetail manual gating', () => {
         userRole="engineer"
         onSubmitManual={vi.fn()}
         onOverride={vi.fn()}
-        onSaveNotes={vi.fn()}
         isSubmitting={false}
         manualProgress={null}
       />
@@ -97,5 +97,38 @@ describe('TestDetail manual gating', () => {
     expect(screen.getByText(/dhcp lease acknowledged/i)).toBeInTheDocument()
     expect(screen.getByText(/offered ip 192.168.4.68/i)).toBeInTheDocument()
     expect(screen.getByText(/server 192.168.4.1/i)).toBeInTheDocument()
+    expect(screen.getByText(/dns 192.168.4.1/i)).toBeInTheDocument()
+    expect(screen.getByText(/ntp 192.168.4.1/i)).toBeInTheDocument()
+  })
+
+  it('saves edited automatic test comments for report output', () => {
+    const onSaveComment = vi.fn().mockResolvedValue(undefined)
+    render(
+      <TestDetail
+        result={{
+          ...baseResult,
+          tier: 'automatic',
+          test_id: 'U16',
+          test_name: 'Default Credential Check',
+          verdict: 'na',
+          comment: 'Default credentials were not assessed.',
+        }}
+        liveOutput=""
+        isRunning={false}
+        runStatus="completed"
+        userRole="engineer"
+        onSubmitManual={vi.fn()}
+        onOverride={vi.fn()}
+        onSaveComment={onSaveComment}
+        isSubmitting={false}
+        manualProgress={null}
+      />
+    )
+
+    const comments = screen.getByLabelText(/comments/i)
+    fireEvent.change(comments, { target: { value: 'Confirmed N/A for this model.' } })
+    fireEvent.blur(comments)
+
+    expect(onSaveComment).toHaveBeenCalledWith('result-1', 'Confirmed N/A for this model.')
   })
 })

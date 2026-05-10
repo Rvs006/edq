@@ -6,7 +6,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.config import settings
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.security.auth import hash_password
 from .conftest import register_and_login
 
 
@@ -81,6 +82,51 @@ async def test_login_success_with_email_identifier(client: AsyncClient):
     })
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     assert resp.json()["message"] == "Login successful"
+
+
+@pytest.mark.asyncio
+async def test_headless_local_admin_password_change_preserves_seeded_password(client: AsyncClient, db_session):
+    """The local browser smoke suite must not drift the shared seeded admin password."""
+    db_session.add(User(
+        email="admin@electracom.co.uk",
+        username="admin",
+        password_hash=hash_password("SeedAdmin1"),
+        full_name="System Administrator",
+        role=UserRole.ADMIN,
+        is_active=True,
+    ))
+    await db_session.commit()
+
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "admin",
+        "password": "SeedAdmin1",
+    })
+    assert login_resp.status_code == 200
+
+    change_resp = await client.post(
+        "/api/auth/change-password",
+        json={
+            "current_password": "SeedAdmin1",
+            "new_password": "NewAdmin2",
+        },
+        headers={
+            "X-CSRF-Token": login_resp.json()["csrf_token"],
+            "User-Agent": "Mozilla/5.0 HeadlessChrome/120.0",
+        },
+    )
+    assert change_resp.status_code == 200
+
+    old_password_login = await client.post("/api/auth/login", json={
+        "username": "admin",
+        "password": "SeedAdmin1",
+    })
+    assert old_password_login.status_code == 200
+
+    new_password_login = await client.post("/api/auth/login", json={
+        "username": "admin",
+        "password": "NewAdmin2",
+    })
+    assert new_password_login.status_code == 401
 
 
 @pytest.mark.asyncio

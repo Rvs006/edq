@@ -110,6 +110,78 @@ async def test_batch_result_endpoint_not_writable(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_bulk_manual_result_update_applies_shared_verdict_and_comments(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    suffix = f"manualBulk{uuid.uuid4().hex[:6]}"
+    headers = await register_and_login(client, suffix=suffix)
+    engineer_id = await _get_user_id(db_session, f"{suffix}user")
+    device_id = await _create_device(db_session)
+    template = TemplateModel(name=f"{suffix}-template", test_ids=["U20", "U21"], version="1.0")
+    db_session.add(template)
+    await db_session.flush()
+    await db_session.refresh(template)
+
+    run = RunModel(
+        device_id=device_id,
+        template_id=template.id,
+        engineer_id=engineer_id,
+        connection_scenario="direct",
+        total_tests=2,
+        completed_tests=0,
+        status=RunStatus.AWAITING_MANUAL,
+    )
+    db_session.add(run)
+    await db_session.flush()
+    await db_session.refresh(run)
+
+    first = ResultModel(
+        test_run_id=run.id,
+        test_id="U20",
+        test_name="Network Disconnection Behaviour",
+        tier=ResultTier.GUIDED_MANUAL,
+        tool=None,
+        verdict=ResultVerdict.PENDING,
+        is_essential="no",
+        created_at=datetime.now(timezone.utc),
+    )
+    second = ResultModel(
+        test_run_id=run.id,
+        test_id="U21",
+        test_name="Web Interface Password Change",
+        tier=ResultTier.GUIDED_MANUAL,
+        tool=None,
+        verdict=ResultVerdict.PENDING,
+        is_essential="yes",
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([first, second])
+    await db_session.commit()
+
+    resp = await client.patch(
+        "/api/test-results/batch/manual",
+        json={
+            "result_ids": [first.id, second.id],
+            "verdict": "na",
+            "engineer_notes": "Not applicable to this device class.",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [item["id"] for item in body] == [first.id, second.id]
+    assert {item["verdict"] for item in body} == {"na"}
+    assert {item["engineer_notes"] for item in body} == {"Not applicable to this device class."}
+    assert {item["comment_override"] for item in body} == {"Not applicable to this device class."}
+
+    await db_session.refresh(run)
+    assert run.status == RunStatus.COMPLETED
+    assert run.completed_tests == 2
+    assert run.progress_pct == 100.0
+
+
+@pytest.mark.asyncio
 async def test_reviewer_can_override_and_engineer_cannot(
     client: AsyncClient,
     db_session: AsyncSession,

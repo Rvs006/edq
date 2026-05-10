@@ -232,8 +232,10 @@ export const testResultsApi = {
     withNormalizedData(api.get<Record<string, unknown>[]>('/test-results/', { params }), (data) => data.map(normalizeTestResult)),
   get: (id: string) =>
     withNormalizedData(api.get<Record<string, unknown>>(`/test-results/${id}`), normalizeTestResult),
-  update: (id: string, data: { verdict?: string; comment?: string; findings?: unknown; raw_output?: string; engineer_notes?: string }) =>
+  update: (id: string, data: { verdict?: string; comment?: string; comment_override?: string | null; findings?: unknown; raw_output?: string; engineer_notes?: string }) =>
     withNormalizedData(api.patch<Record<string, unknown>>(`/test-results/${id}`, data), normalizeTestResult),
+  bulkUpdateManual: (data: { result_ids: string[]; verdict: string; engineer_notes?: string }) =>
+    withNormalizedData(api.patch<Record<string, unknown>[]>('/test-results/batch/manual', data), (items) => items.map(normalizeTestResult)),
   override: (id: string, data: { verdict: string; comment?: string; override_reason: string }) =>
     withNormalizedData(api.post<Record<string, unknown>>(`/test-results/${id}/override`, data), normalizeTestResult),
 }
@@ -393,6 +395,7 @@ export const protocolObserverApi = {
     dhcp_subnet_mask: string
     dhcp_router_ip: string
     dhcp_dns_server: string
+    dhcp_ntp_server: string
     dhcp_lease_seconds: number
   }>('/settings/protocol-observer'),
   update: (data: {
@@ -406,6 +409,7 @@ export const protocolObserverApi = {
     dhcp_subnet_mask?: string
     dhcp_router_ip?: string
     dhcp_dns_server?: string
+    dhcp_ntp_server?: string
     dhcp_lease_seconds?: number
   }) => api.put('/settings/protocol-observer', data),
 }

@@ -42,13 +42,9 @@ const CATEGORIES = [
 const ALL_TEST_IDS = Array.from({ length: 43 }, (_, i) => `U${String(i + 1).padStart(2, '0')}`)
 
 const COMMON_SKIP_GROUPS = [
-  { label: 'TLS tests (U10-U13)', ids: ['U10', 'U11', 'U12', 'U13'] },
+  { label: 'TLS tests (U10-U12)', ids: ['U10', 'U11', 'U12'] },
   { label: 'SSH audit (U15)', ids: ['U15'] },
-  { label: 'HTTP tests (U14, U16-U18, U35)', ids: ['U14', 'U16', 'U17', 'U18', 'U35'] },
-  { label: 'SNMP (U31)', ids: ['U31'] },
-  { label: 'UPnP (U32)', ids: ['U32'] },
-  { label: 'mDNS (U33)', ids: ['U33'] },
-  { label: 'RTSP (U37)', ids: ['U37'] },
+  { label: 'HTTP tests (U16-U18, U35)', ids: ['U16', 'U17', 'U18', 'U35'] },
 ]
 
 const DEFAULT_RULES: FingerprintRules = {

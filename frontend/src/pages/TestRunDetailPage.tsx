@@ -6,7 +6,7 @@ import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   ArrowLeft, Loader2, Monitor,
-  FileText, Cpu, Menu, X, Fingerprint, Zap, Save
+  FileText, Cpu, Menu, X, Fingerprint, Save, ListChecks, CheckSquare, Square
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -40,6 +40,15 @@ type CurrentTestMeta = {
 }
 
 type ReportTemplateKey = 'generic' | 'pelco_camera' | 'easyio_controller' | 'sauter_680_as'
+
+const bulkVerdictOptions = [
+  { value: 'na', label: 'N/A' },
+  { value: 'pass', label: 'Pass' },
+  { value: 'fail', label: 'Fail' },
+  { value: 'advisory', label: 'Advisory' },
+]
+
+const EMPTY_RESULTS: TestResult[] = []
 
 function getCurrentTestFromMetadata(metadata: TestRun['run_metadata'] | undefined): CurrentTestMeta | null {
   const value = metadata?.current_test
@@ -84,6 +93,9 @@ export default function TestRunDetailPage() {
   const [scenarioDialogOpen, setScenarioDialogOpen] = useState(false)
   const [isActioning, setIsActioning] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [bulkManualSelectedIds, setBulkManualSelectedIds] = useState<string[]>([])
+  const [bulkManualVerdict, setBulkManualVerdict] = useState('na')
+  const [bulkManualNotes, setBulkManualNotes] = useState('')
 
   const { data: run, isLoading: runLoading } = useQuery({
     queryKey: ['test-run', id],
@@ -98,7 +110,7 @@ export default function TestRunDetailPage() {
     },
   })
 
-  const { data: results = [], isLoading: resultsLoading } = useQuery({
+  const { data: results = EMPTY_RESULTS, isLoading: resultsLoading } = useQuery({
     queryKey: ['test-results', id],
     queryFn: () => testResultsApi.list({ test_run_id: id }).then((r) => r.data),
     enabled: !!id,
@@ -232,6 +244,7 @@ export default function TestRunDetailPage() {
       findings: r.findings || null,
       verdict: r.verdict || null,
       comment: r.comment || null,
+      comment_override: r.comment_override || null,
       engineer_notes: r.engineer_notes || null,
       is_overridden: r.is_overridden ?? false,
       override_reason: r.override_reason || null,
@@ -420,6 +433,7 @@ export default function TestRunDetailPage() {
     try {
       await testResultsApi.update(resultId, {
         verdict,
+        comment_override: notes,
         engineer_notes: notes,
       })
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
@@ -436,19 +450,17 @@ export default function TestRunDetailPage() {
     }
   }
 
-  const handleSaveNotes = async (resultId: string, notes: string) => {
-    // Optimistic update - immediately update the cache
+  const handleSaveComment = async (resultId: string, comment: string) => {
+    const commentOverride = comment.trim() ? comment : null
     queryClient.setQueryData(['test-results', id], (old: TestResult[] | undefined) => {
       if (!old) return old
-      return old.map(r => r.id === resultId ? { ...r, engineer_notes: notes } : r)
+      return old.map(r => r.id === resultId ? { ...r, comment_override: commentOverride } : r)
     })
     try {
-      await testResultsApi.update(resultId, { engineer_notes: notes })
-      // No need to invalidate - we already updated the cache
+      await testResultsApi.update(resultId, { comment_override: commentOverride })
     } catch (err: unknown) {
-      // Revert on error
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
-      toast.error(getApiErrorMessage(err, 'Failed to save notes'))
+      toast.error(getApiErrorMessage(err, 'Failed to save comments'))
     }
   }
 
@@ -491,8 +503,56 @@ export default function TestRunDetailPage() {
   }, [results])
 
   const pendingManualCount = pendingManualIds.length
+  const pendingManualResults = useMemo(
+    () =>
+      (results as TestResult[]).filter(
+        (result) => result.tier === 'guided_manual' && (!result.verdict || result.verdict === 'pending')
+      ),
+    [results]
+  )
+  const bulkManualSelectedSet = useMemo(
+    () => new Set(bulkManualSelectedIds),
+    [bulkManualSelectedIds]
+  )
 
   const firstPendingManualId = pendingManualIds[0] || null
+
+  useEffect(() => {
+    const validIds = new Set(pendingManualResults.map((result) => result.id))
+    setBulkManualSelectedIds((current) => {
+      const next = current.filter((resultId) => validIds.has(resultId))
+      return next.length === current.length ? current : next
+    })
+  }, [pendingManualResults])
+
+  const toggleBulkManualSelection = useCallback((resultId: string) => {
+    setBulkManualSelectedIds((current) =>
+      current.includes(resultId)
+        ? current.filter((id) => id !== resultId)
+        : [...current, resultId]
+    )
+  }, [])
+
+  const handleApplyBulkManual = async () => {
+    if (bulkManualSelectedIds.length === 0) return
+    setIsSubmitting(true)
+    try {
+      await testResultsApi.bulkUpdateManual({
+        result_ids: bulkManualSelectedIds,
+        verdict: bulkManualVerdict,
+        engineer_notes: bulkManualNotes,
+      })
+      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      toast.success(`Updated ${bulkManualSelectedIds.length} manual tests`)
+      setBulkManualSelectedIds([])
+      setBulkManualNotes('')
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err, 'Failed to update manual tests'))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   // Auto-navigate to first pending manual test when run enters awaiting_manual
   useEffect(() => {
@@ -718,6 +778,91 @@ export default function TestRunDetailPage() {
         </SmartPrompt>
       </div>
 
+      {run.status === 'awaiting_manual' && pendingManualResults.length > 1 && (
+        <div className="flex-shrink-0 border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-900/40 px-4 py-2">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+            <div className="flex items-center gap-2 text-xs font-semibold text-zinc-600 dark:text-slate-300">
+              <ListChecks className="w-4 h-4 text-amber-500" />
+              <span>Bulk manual result</span>
+              <span className="rounded-full bg-white dark:bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-zinc-500 dark:text-slate-400">
+                {bulkManualSelectedIds.length} selected
+              </span>
+            </div>
+
+            <div className="flex flex-1 gap-1 overflow-x-auto pb-1 xl:pb-0">
+              {pendingManualResults.map((result) => {
+                const isSelected = bulkManualSelectedSet.has(result.id)
+                return (
+                  <button
+                    key={result.id}
+                    type="button"
+                    onClick={() => toggleBulkManualSelection(result.id)}
+                    title={`${result.test_id} - ${result.test_name}`}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors
+                      ${isSelected
+                        ? 'border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200'
+                        : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                      }`}
+                  >
+                    {isSelected ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                    <span className="font-mono">{result.test_id}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setBulkManualSelectedIds(pendingManualResults.map((result) => result.id))}
+                  className="btn-secondary text-xs"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkManualSelectedIds([])}
+                  className="btn-secondary text-xs"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Clear
+                </button>
+              </div>
+              <select
+                aria-label="Bulk manual verdict"
+                title="Bulk manual verdict"
+                value={bulkManualVerdict}
+                onChange={(event) => setBulkManualVerdict(event.target.value)}
+                className="input h-9 min-w-28 text-sm"
+              >
+                {bulkVerdictOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                aria-label="Bulk manual comments"
+                value={bulkManualNotes}
+                onChange={(event) => setBulkManualNotes(event.target.value)}
+                placeholder="Comments..."
+                className="input h-9 min-w-0 text-sm sm:w-64"
+              />
+              <button
+                type="button"
+                onClick={handleApplyBulkManual}
+                disabled={bulkManualSelectedIds.length === 0 || isSubmitting}
+                className="btn-primary h-9 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ListChecks className="w-4 h-4" />}
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <AnimatePresence>
         {cableAlertStatus !== 'connected' && (
           <motion.div
@@ -768,7 +913,7 @@ export default function TestRunDetailPage() {
               userRole={user?.role || 'engineer'}
               onSubmitManual={handleSubmitManual}
               onOverride={handleOverride}
-              onSaveNotes={handleSaveNotes}
+              onSaveComment={handleSaveComment}
               isSubmitting={isSubmitting}
               manualProgress={
                 selectedResult.tier === 'guided_manual'

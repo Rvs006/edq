@@ -75,7 +75,7 @@ const BUILTIN_PROFILES: DeviceProfile[] = [
     icon: Camera,
     description: 'RTSP/ONVIF video surveillance cameras with streaming capabilities',
     color: 'blue',
-    testIds: ['U01', 'U02', 'U06', 'U07', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19', 'U34', 'U35'],
+    testIds: ['U01', 'U02', 'U06', 'U07', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19', 'U35'],
   },
   {
     id: 'controller',
@@ -83,7 +83,7 @@ const BUILTIN_PROFILES: DeviceProfile[] = [
     icon: Cpu,
     description: 'Door controllers, alarm panels, and building management systems',
     color: 'purple',
-    testIds: ['U01', 'U02', 'U06', 'U08', 'U10', 'U11', 'U15', 'U16', 'U19', 'U34'],
+    testIds: ['U01', 'U02', 'U06', 'U08', 'U10', 'U11', 'U15', 'U16', 'U19'],
   },
   {
     id: 'iot_gateway',
@@ -99,7 +99,7 @@ const BUILTIN_PROFILES: DeviceProfile[] = [
     icon: Mic,
     description: 'SIP-based intercoms, door stations, and VoIP endpoints',
     color: 'amber',
-    testIds: ['U01', 'U02', 'U06', 'U08', 'U10', 'U11', 'U15', 'U16', 'U34', 'U35'],
+    testIds: ['U01', 'U02', 'U06', 'U08', 'U10', 'U11', 'U15', 'U16', 'U35'],
   },
   {
     id: 'generic',

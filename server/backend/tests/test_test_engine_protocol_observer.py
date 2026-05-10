@@ -70,6 +70,8 @@ async def test_dispatch_u04_uses_dhcp_observer_details(monkeypatch: pytest.Monke
             "offer_capable": True,
             "offered_ip": "192.168.4.68",
             "server_identifier": "192.168.4.1",
+            "dns_server": "192.168.4.1",
+            "ntp_server": "192.168.4.1",
             "events": [{"message_type": 3, "observer_reply_type": 5}],
         }
 
@@ -82,7 +84,7 @@ async def test_dispatch_u04_uses_dhcp_observer_details(monkeypatch: pytest.Monke
         "192.168.4.68",
         "run-u04",
         SimpleNamespace(mac_address="AA:BB:CC:DD:EE:FF"),
-        "direct",
+        "test_lab",
     )
 
     assert raw is None
@@ -91,6 +93,8 @@ async def test_dispatch_u04_uses_dhcp_observer_details(monkeypatch: pytest.Monke
     assert parsed["offer_capable"] is True
     assert parsed["offered_ip"] == "192.168.4.68"
     assert parsed["dhcp_server"] == "192.168.4.1"
+    assert parsed["dhcp_dns_server"] == "192.168.4.1"
+    assert parsed["dhcp_ntp_server"] == "192.168.4.1"
 
 
 @pytest.mark.asyncio

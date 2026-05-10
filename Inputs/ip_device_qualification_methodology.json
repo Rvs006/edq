@@ -151,9 +151,9 @@
       "test_number": 3,
       "brief_description": "DHCP #1",
       "category": "Layer 3 — IP",
-      "description": "Device accepts IP address and related data via DHCP.",
+      "description": "EDQ runs an isolated DHCP server on the tester host; the device accepts an IPv4 address and related network options from that EDQ DHCP service.",
       "essential_flag": "YES",
-      "expected_evidence": "DHCP lease observed; IP, subnet, gateway, DNS populated.",
+      "expected_evidence": "DHCP DISCOVER/OFFER/REQUEST/ACK observed; leased IP and subnet populated; DNS and NTP DHCP options point at the tester host; router/gateway populated where configured.",
       "applicability": {
         "applies_to": "all",
         "na_conditions": [
@@ -161,11 +161,11 @@
         ]
       },
       "device_agnosticism_pitfalls": "None significant.",
-      "typical_tooling": "isc-dhcp-server, tcpdump port 67/68, arp/neigh table read",
+      "typical_tooling": "EDQ protocol harness DHCP server, tcpdump port 67/68, arp/neigh table read",
       "destructive_level": "disruptive",
       "prerequisites": {
         "environment": [
-          "isolated_dhcp_server"
+          "edq_host_dhcp_server_on_isolated_segment"
         ],
         "tester_inputs": [],
         "preceding_tests": [
@@ -173,7 +173,7 @@
         ]
       },
       "evidence_artefacts_required": [
-        "dhcp_discover_offer_request_ack_pcap",
+        "dhcp_discover_offer_request_ack_pcap_with_dns_ntp_options",
         "dhcp_lease_record"
       ],
       "determinism_class": "deterministic"
@@ -182,9 +182,9 @@
       "test_number": 4,
       "brief_description": "DHCP #2",
       "category": "Layer 3 — IP",
-      "description": "Device accepts a changed IP address from the DHCP server without needing a reboot or port toggle.",
+      "description": "After the EDQ DHCP offer range changes, the device accepts an address from the new DHCP range without needing a reboot or port toggle.",
       "essential_flag": "YES",
-      "expected_evidence": "After DHCP range change, device renews lease on new range without manual intervention.",
+      "expected_evidence": "After EDQ DHCP range change, device renews or reacquires a lease on the new range without manual intervention; DNS and NTP DHCP options still point at the tester host.",
       "applicability": {
         "applies_to": "all",
         "na_conditions": [
@@ -192,11 +192,11 @@
         ]
       },
       "device_agnosticism_pitfalls": "None significant.",
-      "typical_tooling": "DHCP server range change + continuous ICMP/ARP monitoring",
+      "typical_tooling": "EDQ protocol harness DHCP range change + continuous ICMP/ARP monitoring",
       "destructive_level": "disruptive",
       "prerequisites": {
         "environment": [
-          "isolated_dhcp_server"
+          "edq_host_dhcp_server_on_isolated_segment"
         ],
         "tester_inputs": [],
         "preceding_tests": [

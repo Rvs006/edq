@@ -16,6 +16,7 @@ from app.services.run_readiness import (
     merge_readiness_into_metadata,
 )
 from app.schemas.test import (
+    TestResultBulkManualUpdate,
     TestResultOverrideRequest,
     TestResultResponse,
     TestResultUpdate,
@@ -174,6 +175,82 @@ async def list_results(
 
     result = await db.execute(query.order_by(TestResult.test_id).offset(skip).limit(limit))
     return result.scalars().all()
+
+
+@router.patch("/batch/manual", response_model=List[TestResultResponse])
+async def bulk_update_manual_results(
+    data: TestResultBulkManualUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    verdict = _parse_verdict(data.verdict)
+    updates = data.model_dump(exclude_unset=True)
+    sanitized = sanitize_dict(updates, ["engineer_notes"])
+    result_ids = set(data.result_ids)
+
+    query = (
+        select(TestResult, TestRun)
+        .join(TestRun, TestRun.id == TestResult.test_run_id)
+        .where(TestResult.id.in_(data.result_ids))
+    )
+    rows = list((await db.execute(query)).all())
+    found_ids = {test_result.id for test_result, _ in rows}
+    if found_ids != result_ids:
+        raise HTTPException(status_code=404, detail="One or more test results were not found")
+
+    runs_by_id = {test_run.id: test_run for _, test_run in rows}
+    if len(runs_by_id) != 1:
+        raise HTTPException(status_code=400, detail="Bulk manual updates must target one test run")
+
+    test_run = next(iter(runs_by_id.values()))
+    if user.role == UserRole.ENGINEER and test_run.engineer_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    for test_result, _ in rows:
+        tier_raw = test_result.tier.value if hasattr(test_result.tier, "value") else str(test_result.tier)
+        if tier_raw != "guided_manual":
+            raise HTTPException(
+                status_code=400,
+                detail="Bulk result updates are only available for guided manual tests",
+            )
+
+    now = utcnow_naive()
+    ordered_results = sorted(
+        (test_result for test_result, _ in rows),
+        key=lambda item: data.result_ids.index(item.id),
+    )
+    for test_result in ordered_results:
+        test_result.verdict = verdict
+        if test_result.started_at is None:
+            test_result.started_at = now
+        test_result.completed_at = None if verdict == TestVerdict.PENDING else now
+        if "engineer_notes" in sanitized:
+            notes = sanitized["engineer_notes"]
+            test_result.engineer_notes = notes
+            test_result.comment_override = notes
+
+    await _refresh_parent_run(db, test_run)
+    await db.commit()
+    for test_result in ordered_results:
+        await db.refresh(test_result)
+    await log_action(
+        db,
+        user,
+        "bulk_update",
+        "test_result",
+        test_run.id,
+        {
+            "fields": ["verdict", *(
+                ["engineer_notes", "comment_override"] if "engineer_notes" in sanitized else []
+            )],
+            "result_count": len(ordered_results),
+            "result_ids": data.result_ids,
+            "verdict": verdict.value,
+        },
+        request,
+    )
+    return ordered_results
 
 
 @router.get("/{result_id}", response_model=TestResultResponse)

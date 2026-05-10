@@ -398,6 +398,19 @@ def test_engineer_notes_resolved_as_separate_column_in_document():
     assert "[Engineer Notes:" not in row.test_comments
 
 
+def test_comment_override_is_used_for_report_comments():
+    result = _make_test_result_with_notes("Inspect after reboot")
+    result.comment_override = "Edited tester comment for the report."
+    report = report_generator.build_report_document(
+        _make_test_run(),
+        [result],
+        template_key="generic",
+    )
+
+    row = next(item for item in report.rows if item.test_comments == "Edited tester comment for the report.")
+    assert row.test_comments == "Edited tester comment for the report."
+
+
 @pytest.mark.asyncio
 async def test_generic_report_uses_one_row_per_test_and_keeps_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
@@ -463,6 +476,7 @@ async def test_protocol_settings_reload_drive_u04_exported_evidence(
             dhcp_subnet_mask="255.255.255.0",
             dhcp_router_ip="192.168.4.1",
             dhcp_dns_server="192.168.4.1",
+            dhcp_ntp_server="192.168.4.1",
             dhcp_lease_seconds=600,
         )
     )
@@ -482,6 +496,8 @@ async def test_protocol_settings_reload_drive_u04_exported_evidence(
             "offer_capable": True,
             "offered_ip": "192.168.4.68",
             "server_identifier": "192.168.4.1",
+            "dns_server": "192.168.4.1",
+            "ntp_server": "192.168.4.1",
             "events": [
                 {"message_type": 1, "observer_reply_type": 2},
                 {"message_type": 3, "observer_reply_type": 5},

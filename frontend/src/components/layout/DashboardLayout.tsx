@@ -18,7 +18,7 @@ const pageDescriptions: Record<string, string> = {
   '/devices': 'Register, discover, and manage all IP devices under test',
   '/devices/compare': 'Compare up to five devices side by side across attributes and recent outcomes',
   '/device-profiles': 'Fingerprint rules that auto-identify device types and skip irrelevant tests',
-  '/test-runs': 'Security qualification sessions - 59 active EDQ tests per device (27 automated, 32 guided manual)',
+  '/test-runs': 'Security qualification sessions - 48 active EDQ tests per device (19 automated, 29 guided manual)',
   '/network-scan': 'Bulk discovery for unknown IPs and multi-device subnet surveys',
   '/templates': 'Define which tests to include and map results to report cells',
   '/test-plans': 'Saved test configurations that can be reused across devices',

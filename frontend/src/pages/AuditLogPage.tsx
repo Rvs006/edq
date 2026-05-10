@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { auditApi } from '@/lib/api'
+import { auditApi, getApiErrorMessage } from '@/lib/api'
 import type { AuditLogEntry } from '@/lib/types'
 import { toLocalDateString } from '@/lib/testContracts'
 import { ListChecks, Loader2, Download } from 'lucide-react'
@@ -71,15 +71,20 @@ export default function AuditLogPage() {
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
       })
-      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const blob = res.data instanceof Blob
+        ? res.data
+        : new Blob([res.data], { type: 'text/csv;charset=utf-8' })
+      const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = 'audit_logs.csv'
+      document.body.appendChild(a)
       a.click()
-      window.URL.revokeObjectURL(url)
-      toast.success('CSV exported')
-    } catch {
-      toast.error('Failed to export CSV')
+      a.remove()
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+      toast.success('Export started')
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to export CSV'))
     }
   }
 

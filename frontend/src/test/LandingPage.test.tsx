@@ -63,7 +63,7 @@ describe('LandingPage', () => {
     renderLandingPage()
 
     expect(screen.getByText('What EDQ Does')).toBeInTheDocument()
-    expect(screen.getByText(/59 active tests \(27 automated \+ 32 guided manual\)/)).toBeInTheDocument()
+    expect(screen.getByText(/48 active tests \(19 automated \+ 29 guided manual\)/)).toBeInTheDocument()
     expect(screen.getByText(/Export Excel, Word, and PDF reports/)).toBeInTheDocument()
   })
 

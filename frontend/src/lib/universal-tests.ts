@@ -15,7 +15,7 @@ export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U02', name: 'MAC Address Vendor Lookup', tier: 'automatic', category: 'Network', essential: true },
   { id: 'U03', name: 'Switch Negotiation', tier: 'guided_manual', category: 'Network', essential: false },
   { id: 'U04', name: 'DHCP Behaviour', tier: 'automatic', category: 'Network', essential: false },
-  { id: 'U05', name: 'IPv6 Support Detection', tier: 'automatic', category: 'Network', essential: false },
+  { id: 'U05', name: 'IPv6 Support Detection', tier: 'guided_manual', category: 'Manual', essential: false },
   { id: 'U06', name: 'Full TCP Port Scan', tier: 'automatic', category: 'Network', essential: true },
   { id: 'U07', name: 'UDP Top-100 Port Scan', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U08', name: 'Service Version Detection', tier: 'automatic', category: 'Network', essential: false },
@@ -23,8 +23,8 @@ export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U10', name: 'TLS Version Assessment', tier: 'automatic', category: 'TLS', essential: true },
   { id: 'U11', name: 'Cipher Suite Strength', tier: 'automatic', category: 'TLS', essential: false },
   { id: 'U12', name: 'Certificate Validity', tier: 'automatic', category: 'TLS', essential: false },
-  { id: 'U13', name: 'HSTS Header Presence', tier: 'automatic', category: 'TLS', essential: false },
-  { id: 'U14', name: 'HTTP Security Headers', tier: 'automatic', category: 'Web', essential: false },
+  { id: 'U13', name: 'HSTS Header Presence (Merged into U35)', tier: 'automatic', category: 'TLS', essential: false, deprecated: true },
+  { id: 'U14', name: 'HTTP Security Headers (Merged into U35)', tier: 'automatic', category: 'Web', essential: false, deprecated: true },
   { id: 'U15', name: 'SSH Algorithm Assessment', tier: 'automatic', category: 'SSH', essential: false },
   { id: 'U16', name: 'Default Credential Check', tier: 'automatic', category: 'SSH', essential: true },
   { id: 'U17', name: 'Brute Force Protection', tier: 'automatic', category: 'SSH', essential: false },
@@ -41,18 +41,18 @@ export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U28', name: 'BACnet/IP Discovery', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U29', name: 'DNS Support Verification', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U30', name: 'Password Policy Assessment', tier: 'guided_manual', category: 'Manual', essential: false },
-  { id: 'U31', name: 'SNMP Version Check', tier: 'automatic', category: 'Network', essential: false },
-  { id: 'U32', name: 'UPnP/SSDP Exposure', tier: 'automatic', category: 'Network', essential: false },
-  { id: 'U33', name: 'mDNS/Bonjour Exposure', tier: 'automatic', category: 'Network', essential: false },
-  { id: 'U34', name: 'Telnet/Insecure Protocol Detection', tier: 'automatic', category: 'Network', essential: true },
-  { id: 'U35', name: 'Web Server Vulnerability Scan', tier: 'automatic', category: 'Web', essential: false },
+  { id: 'U31', name: 'SNMP Version Check (Retired)', tier: 'automatic', category: 'Network', essential: false, deprecated: true },
+  { id: 'U32', name: 'UPnP/SSDP Exposure (Retired)', tier: 'automatic', category: 'Network', essential: false, deprecated: true },
+  { id: 'U33', name: 'mDNS/Bonjour Exposure (Retired)', tier: 'automatic', category: 'Network', essential: false, deprecated: true },
+  { id: 'U34', name: 'Telnet/Insecure Protocol Detection (Retired)', tier: 'automatic', category: 'Network', essential: true, deprecated: true },
+  { id: 'U35', name: 'Web Server and HTTP Header Assessment', tier: 'automatic', category: 'Web', essential: false },
   { id: 'U36', name: 'Banner Grabbing / Info Leakage (Retired)', tier: 'guided_manual', category: 'Manual', essential: false, deprecated: true },
-  { id: 'U37', name: 'RTSP Stream Authentication', tier: 'automatic', category: 'Network', essential: false },
+  { id: 'U37', name: 'RTSP Stream Authentication (Retired)', tier: 'automatic', category: 'Network', essential: false, deprecated: true },
   { id: 'U38', name: 'MQTT Support & Security', tier: 'guided_manual', category: 'Manual', essential: false },
-  { id: 'U39', name: 'VLAN Tagging Support', tier: 'guided_manual', category: 'Manual', essential: false },
-  { id: 'U40', name: 'API Authentication Check', tier: 'guided_manual', category: 'Manual', essential: false },
-  { id: 'U41', name: 'Audit/Log Review', tier: 'guided_manual', category: 'Manual', essential: false },
-  { id: 'U42', name: 'Data-at-Rest Encryption', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U39', name: 'VLAN Tagging Support (Retired)', tier: 'guided_manual', category: 'Manual', essential: false, deprecated: true },
+  { id: 'U40', name: 'API Authentication Check (Retired)', tier: 'guided_manual', category: 'Manual', essential: false, deprecated: true },
+  { id: 'U41', name: 'Audit/Log Review (Retired)', tier: 'guided_manual', category: 'Manual', essential: false, deprecated: true },
+  { id: 'U42', name: 'Data-at-Rest Encryption (Retired)', tier: 'guided_manual', category: 'Manual', essential: false, deprecated: true },
   { id: 'U43', name: 'End-of-Life / Vendor Support', tier: 'guided_manual', category: 'Manual', essential: false },
   { id: 'U44', name: 'Static IP Configuration', tier: 'guided_manual', category: 'Manual', essential: false },
   { id: 'U45', name: 'Hostname Resolution', tier: 'guided_manual', category: 'Manual', essential: false },
@@ -77,7 +77,10 @@ export const TEST_CATEGORIES = ['Network', 'TLS', 'SSH', 'Web', 'Manual'] as con
 
 export const ACTIVE_UNIVERSAL_TESTS = UNIVERSAL_TESTS.filter((test) => !test.deprecated)
 
-const SCENARIO_MANUAL_TEST_IDS = new Set(['U03', 'U04', 'U09', 'U26', 'U28', 'U29', 'U34'])
+const SCENARIO_MANUAL_TEST_IDS: Record<string, Set<string>> = {
+  test_lab: new Set(['U03', 'U09', 'U28', 'U29']),
+  site_network: new Set(['U03', 'U04', 'U09', 'U26', 'U28', 'U29']),
+}
 const DIRECT_SCENARIOS = new Set(['direct', 'direct_cable'])
 
 export function getEffectiveTestTier(
@@ -86,7 +89,7 @@ export function getEffectiveTestTier(
 ): 'automatic' | 'guided_manual' {
   if (test.tier === 'guided_manual') return 'guided_manual'
   if (!scenario || DIRECT_SCENARIOS.has(scenario)) return test.tier
-  return SCENARIO_MANUAL_TEST_IDS.has(test.id) ? 'guided_manual' : test.tier
+  return SCENARIO_MANUAL_TEST_IDS[scenario]?.has(test.id) ? 'guided_manual' : test.tier
 }
 
 export function formatConnectionScenarioLabel(scenario?: string | null): string {

@@ -46,6 +46,9 @@ async def test_audit_logs_export_csv(client: AsyncClient):
     resp = await client.get("/api/audit-logs/export", headers=headers)
     assert resp.status_code == 200
     assert "text/csv" in resp.headers.get("content-type", "")
+    assert "attachment" in resp.headers.get("content-disposition", "")
+    assert "Timestamp,User,Action,Resource Type,Resource ID,Details,IP Address" in resp.text
+    assert "auth.login" in resp.text
 
 
 @pytest.mark.asyncio

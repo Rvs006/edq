@@ -81,7 +81,7 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
     },
     {
       label: 'Pass Rate',
-      value: runStatsQuery.isError ? '\u2014' : totalCompleted > 0 ? `${passRate}%` : '\u2014',
+      value: runStatsQuery.isError ? '\u2014' : `${passRate}%`,
       icon: Percent,
       iconColor: 'text-amber-600 dark:text-amber-400',
       iconBg: 'bg-amber-50 dark:bg-amber-950/50',

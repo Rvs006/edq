@@ -49,7 +49,7 @@ export interface ScanResult {
 }
 
 export const SCENARIO_PRESELECTS: Record<string, string[]> = {
-  test_lab: ['U01', 'U02', 'U06', 'U07', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19', 'U34'],
+  test_lab: ['U01', 'U02', 'U06', 'U07', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19'],
   direct: ['U01', 'U06', 'U08', 'U10', 'U16'],
   site_network: ['U01', 'U02', 'U06', 'U08'],
 }

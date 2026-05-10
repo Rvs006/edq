@@ -104,13 +104,17 @@ def test_parse_dhcp_packet_and_build_reply():
         subnet_mask="255.255.255.0",
         router_ip="192.168.4.1",
         dns_server="192.168.4.1",
+        ntp_server="192.168.4.1",
         lease_seconds=300,
     )
+    reply_options = protocol_observer_module._parse_dhcp_options(reply[240:])
 
     assert parsed is not None
     assert parsed["chaddr"] == "AA:BB:CC:DD:EE:FF"
     assert parsed["message_type"] == 1
     assert socket.inet_ntoa(reply[16:20]) == "192.168.4.68"
+    assert socket.inet_ntoa(reply_options[6]) == "192.168.4.1"
+    assert socket.inet_ntoa(reply_options[42]) == "192.168.4.1"
 
 
 def test_parse_dns_query_ignores_response_packets():
@@ -162,8 +166,10 @@ async def test_observe_dhcp_activity_marks_ack_when_request_is_answered(monkeypa
     monkeypatch.setattr(settings, "PROTOCOL_OBSERVER_DHCP_OFFER_IP", "192.168.4.68")
     monkeypatch.setattr(settings, "PROTOCOL_OBSERVER_DHCP_ROUTER_IP", "192.168.4.1")
     monkeypatch.setattr(settings, "PROTOCOL_OBSERVER_DHCP_SUBNET_MASK", "255.255.255.0")
-    monkeypatch.setattr(settings, "PROTOCOL_OBSERVER_DHCP_DNS_SERVER", "192.168.4.1")
+    monkeypatch.setattr(settings, "PROTOCOL_OBSERVER_DHCP_DNS_SERVER", "")
+    monkeypatch.setattr(settings, "PROTOCOL_OBSERVER_DHCP_NTP_SERVER", "")
     monkeypatch.setattr(protocol_observer_module, "_bind_udp_socket", lambda port: FakeSocket())
+    monkeypatch.setattr(protocol_observer_module, "_local_ip_for_target", lambda _target: "192.168.4.1")
     monkeypatch.setattr(protocol_observer_module.asyncio, "get_running_loop", lambda: fake_loop)
 
     observed = await observe_dhcp_activity(
@@ -176,6 +182,8 @@ async def test_observe_dhcp_activity_marks_ack_when_request_is_answered(monkeypa
     assert observed["lease_acknowledged"] is True
     assert observed["offered_ip"] == "192.168.4.68"
     assert observed["server_identifier"] == "192.168.4.1"
+    assert observed["dns_server"] == "192.168.4.1"
+    assert observed["ntp_server"] == "192.168.4.1"
     assert observed["observer_reply_types"] == [5]
     assert observed["events"][0]["observer_reply_type"] == 5
     assert observed["events"][0]["observer_reply_label"] == "ack"

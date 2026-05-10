@@ -995,14 +995,14 @@ function formatDuration(seconds: number | null): string {
 
 // Device relevance mapping: which test categories matter for each device type
 const DEVICE_RELEVANCE: Record<string, Set<string>> = {
-  camera: new Set(['U01','U02','U06','U07','U08','U09','U10','U11','U12','U13','U14','U16','U18','U19','U26','U34','U35','U37']),
-  controller: new Set(['U01','U02','U03','U04','U06','U07','U08','U09','U15','U16','U17','U19','U26','U28','U31','U34']),
-  intercom: new Set(['U01','U02','U06','U08','U10','U11','U12','U14','U16','U18','U19','U26','U34','U35','U37']),
-  access_panel: new Set(['U01','U02','U06','U08','U10','U14','U16','U18','U19','U26','U34','U35']),
-  hvac: new Set(['U01','U02','U03','U06','U08','U09','U15','U16','U19','U26','U28','U31','U34']),
-  lighting: new Set(['U01','U02','U06','U08','U09','U16','U19','U26','U32','U33','U34']),
-  iot_sensor: new Set(['U01','U02','U06','U08','U16','U19','U26','U32','U33','U34']),
-  meter: new Set(['U01','U02','U06','U08','U09','U15','U16','U19','U26','U31','U34']),
+  camera: new Set(['U01','U02','U06','U07','U08','U09','U10','U11','U12','U16','U18','U19','U26','U35']),
+  controller: new Set(['U01','U02','U03','U04','U06','U07','U08','U09','U15','U16','U17','U19','U26','U28']),
+  intercom: new Set(['U01','U02','U06','U08','U10','U11','U12','U16','U18','U19','U26','U35']),
+  access_panel: new Set(['U01','U02','U06','U08','U10','U16','U18','U19','U26','U35']),
+  hvac: new Set(['U01','U02','U03','U06','U08','U09','U15','U16','U19','U26','U28']),
+  lighting: new Set(['U01','U02','U06','U08','U09','U16','U19','U26']),
+  iot_sensor: new Set(['U01','U02','U06','U08','U16','U19','U26']),
+  meter: new Set(['U01','U02','U06','U08','U09','U15','U16','U19','U26']),
 }
 
 function getTestRelevance(testId: string, deviceCategory: string | null): 'high' | 'normal' | 'low' {

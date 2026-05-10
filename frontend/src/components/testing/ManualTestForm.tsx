@@ -90,14 +90,14 @@ export default function ManualTestForm({
 
       <div>
         <label htmlFor={`notes-${testId}`} className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">
-          Engineer Notes
+          Comments
         </label>
         <textarea
           id={`notes-${testId}`}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          placeholder="Observations, steps taken, or additional context..."
+          placeholder="Observations, steps taken, or why this test does not apply..."
           className="input resize-y text-sm"
         />
       </div>

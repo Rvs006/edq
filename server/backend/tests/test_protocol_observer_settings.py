@@ -63,6 +63,7 @@ async def test_update_protocol_observer_settings_updates_runtime_and_persists(cl
             "dhcp_subnet_mask": "255.255.255.0",
             "dhcp_router_ip": "192.168.4.1",
             "dhcp_dns_server": "192.168.4.1",
+            "dhcp_ntp_server": "192.168.4.1",
             "dhcp_lease_seconds": 600,
         },
         headers=headers,
@@ -72,8 +73,10 @@ async def test_update_protocol_observer_settings_updates_runtime_and_persists(cl
     payload = resp.json()
     assert payload["dns_port"] == 5300
     assert payload["dhcp_offer_ip"] == "192.168.4.68"
+    assert payload["dhcp_ntp_server"] == "192.168.4.1"
     assert settings.PROTOCOL_OBSERVER_DNS_PORT == 5300
     assert settings.PROTOCOL_OBSERVER_DHCP_OFFER_IP == "192.168.4.68"
+    assert settings.PROTOCOL_OBSERVER_DHCP_NTP_SERVER == "192.168.4.1"
 
     follow_up = await client.get("/api/settings/protocol-observer", headers=headers)
     assert follow_up.status_code == 200
@@ -107,6 +110,7 @@ async def test_load_protocol_observer_settings_from_db_applies_persisted_runtime
             dhcp_subnet_mask="255.255.255.0",
             dhcp_router_ip="192.168.4.1",
             dhcp_dns_server="192.168.4.1",
+            dhcp_ntp_server="192.168.4.1",
             dhcp_lease_seconds=900,
         )
     )
@@ -118,4 +122,5 @@ async def test_load_protocol_observer_settings_from_db_applies_persisted_runtime
     assert settings.PROTOCOL_OBSERVER_BIND_HOST == "127.0.0.1"
     assert settings.PROTOCOL_OBSERVER_DNS_PORT == 5301
     assert settings.PROTOCOL_OBSERVER_DHCP_OFFER_IP == "192.168.4.68"
+    assert settings.PROTOCOL_OBSERVER_DHCP_NTP_SERVER == "192.168.4.1"
     assert settings.PROTOCOL_OBSERVER_DHCP_LEASE_SECONDS == 900

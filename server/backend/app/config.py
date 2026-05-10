@@ -76,6 +76,7 @@ class Settings(BaseSettings):
 
     AGENT_API_KEY_LENGTH: int = 64
     AGENT_HEARTBEAT_TIMEOUT: int = 300
+    MIN_AGENT_VERSION: str = "1.0.0"
 
     AI_API_KEY: str = ""
     AI_API_URL: str = ""
@@ -94,7 +95,7 @@ class Settings(BaseSettings):
     METRICS_API_KEY: str = ""
 
     RATE_LIMIT_PER_MINUTE: int = 60
-    LOGIN_RATE_LIMIT_PER_MINUTE: int = 15
+    LOGIN_RATE_LIMIT_PER_MINUTE: int = 60
     DISCOVERY_RATE_LIMIT_PER_MINUTE: int = 30
     # Per-client global cap across all discovery/scan endpoints combined.
     # Bounds sweep-style abuse where per-target scope multiplied by N IPs
@@ -115,6 +116,7 @@ class Settings(BaseSettings):
     PROTOCOL_OBSERVER_DHCP_SUBNET_MASK: str = ""
     PROTOCOL_OBSERVER_DHCP_ROUTER_IP: str = ""
     PROTOCOL_OBSERVER_DHCP_DNS_SERVER: str = ""
+    PROTOCOL_OBSERVER_DHCP_NTP_SERVER: str = ""
     PROTOCOL_OBSERVER_DHCP_LEASE_SECONDS: int = 300
 
     OIDC_PROVIDER: str = ""

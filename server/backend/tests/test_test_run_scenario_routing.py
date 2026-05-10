@@ -23,7 +23,7 @@ async def _create_template(db: AsyncSession) -> str:
 
     template = TestTemplate(
         name=f"scenario-routing-{uuid.uuid4().hex[:6]}",
-        test_ids=["U01", "U03", "U04", "U09", "U26", "U28", "U29", "U34"],
+        test_ids=["U01", "U03", "U04", "U05", "U09", "U26", "U28", "U29", "U34"],
         version="1.0",
     )
     db.add(template)
@@ -65,8 +65,46 @@ async def test_create_run_reclassifies_scenario_sensitive_tests_to_manual(
     assert results["U01"]["tier"] == "automatic"
     assert results["U03"]["tier"] == "guided_manual"
     assert results["U04"]["tier"] == "guided_manual"
+    assert results["U05"]["tier"] == "guided_manual"
     assert results["U09"]["tier"] == "guided_manual"
     assert results["U26"]["tier"] == "guided_manual"
     assert results["U28"]["tier"] == "guided_manual"
     assert results["U29"]["tier"] == "guided_manual"
-    assert results["U34"]["tier"] == "guided_manual"
+    assert "U34" not in results
+
+
+@pytest.mark.asyncio
+async def test_lab_scenario_keeps_dhcp_and_ntp_synchronisation_automatic(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    headers = await register_and_login(client, suffix="scenarioLabNtp")
+    device_id = await _create_device(db_session)
+    template_id = await _create_template(db_session)
+    await db_session.commit()
+
+    run_resp = await client.post(
+        "/api/v1/test-runs/",
+        json={
+            "device_id": device_id,
+            "template_id": template_id,
+            "connection_scenario": "test_lab",
+        },
+        headers=headers,
+    )
+    assert run_resp.status_code == 201, run_resp.text
+    run_id = run_resp.json()["id"]
+
+    results_resp = await client.get(
+        "/api/v1/test-results/",
+        params={"test_run_id": run_id},
+        headers=headers,
+    )
+    assert results_resp.status_code == 200, results_resp.text
+    results = {item["test_id"]: item for item in results_resp.json()}
+
+    assert results["U26"]["tier"] == "automatic"
+    assert results["U03"]["tier"] == "guided_manual"
+    assert results["U04"]["tier"] == "automatic"
+    assert results["U05"]["tier"] == "guided_manual"
+    assert "U34" not in results
