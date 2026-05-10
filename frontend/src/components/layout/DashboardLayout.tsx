@@ -320,15 +320,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <header className="sticky top-[3px] z-20 bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
           <div className="flex items-center justify-between h-14 px-4 sm:px-6">
             <div className="flex items-center gap-3">
-              <button
+              <MobileMenuButton
+                expanded={sidebarOpen}
                 onClick={() => setSidebarOpen(true)}
-                aria-expanded={sidebarOpen}
-                aria-controls="mobile-navigation"
-                className="lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
-                title="Open menu"
-              >
-                <Menu className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
-              </button>
+              />
               <div className="min-w-0">
                 <h1 className="text-base font-semibold text-zinc-900 dark:text-slate-100">{pageTitle}</h1>
                 {pageDescription && (
@@ -537,6 +532,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   )
 }
 
+function MobileMenuButton({
+  expanded,
+  onClick,
+}: {
+  expanded: boolean
+  onClick: () => void
+}) {
+  const commonProps = {
+    onClick,
+    'aria-controls': 'mobile-navigation',
+    'aria-label': 'Open menu',
+    className: 'lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors',
+    title: 'Open menu',
+    type: 'button' as const,
+  }
+
+  if (expanded) {
+    return (
+      <button {...commonProps} aria-expanded="true">
+        <Menu className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
+      </button>
+    )
+  }
+
+  return (
+    <button {...commonProps} aria-expanded="false">
+      <Menu className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
+    </button>
+  )
+}
+
 function SidebarContent({
   isActive,
   onClose,
@@ -598,20 +624,11 @@ function SidebarContent({
         {sections.map((section) => (
           <div key={section.label} className="mb-4">
             {section.items.length > 1 ? (
-              <button
-                type="button"
+              <SidebarSectionToggle
+                collapsed={collapsedSections.has(section.label)}
+                label={section.label}
                 onClick={() => toggleSection(section.label)}
-                aria-expanded={!collapsedSections.has(section.label)}
-                aria-controls={`nav-section-${section.label}`}
-                className="flex items-center justify-between w-full px-3 mb-1.5 group"
-              >
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                  {section.label}
-                </p>
-                <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform ${
-                  collapsedSections.has(section.label) ? '-rotate-90' : ''
-                }`} />
-              </button>
+              />
             ) : (
               <div className="flex items-center justify-between w-full px-3 mb-1.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
@@ -660,5 +677,43 @@ function SidebarContent({
         </div>
       </div>
     </div>
+  )
+}
+
+function SidebarSectionToggle({
+  collapsed,
+  label,
+  onClick,
+}: {
+  collapsed: boolean
+  label: string
+  onClick: () => void
+}) {
+  const commonProps = {
+    type: 'button' as const,
+    onClick,
+    'aria-controls': `nav-section-${label}`,
+    className: 'flex items-center justify-between w-full px-3 mb-1.5 group',
+  }
+  const iconClassName = `w-3 h-3 text-zinc-400 transition-transform ${collapsed ? '-rotate-90' : ''}`
+
+  if (collapsed) {
+    return (
+      <button {...commonProps} aria-expanded="false">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+          {label}
+        </p>
+        <ChevronDown className={iconClassName} />
+      </button>
+    )
+  }
+
+  return (
+    <button {...commonProps} aria-expanded="true">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+        {label}
+      </p>
+      <ChevronDown className={iconClassName} />
+    </button>
   )
 }

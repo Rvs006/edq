@@ -179,8 +179,12 @@ export default function ProfileEditorDialog({
                     {profile?.id ? 'Edit Device Profile' : 'New Device Profile'}
                   </Dialog.Title>
                 </div>
-                <Dialog.Close className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors">
-                  <X className="w-4 h-4 text-zinc-400" />
+                <Dialog.Close
+                  aria-label="Close profile editor"
+                  className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
+                  title="Close profile editor"
+                >
+                  <X aria-hidden="true" className="w-4 h-4 text-zinc-400" />
                 </Dialog.Close>
               </div>
               <Dialog.Description className="text-sm text-zinc-500 dark:text-slate-400 mt-1">
@@ -192,10 +196,11 @@ export default function ProfileEditorDialog({
               {/* Basic Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
+                  <label htmlFor="profile-name" className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
                     Profile Name *
                   </label>
                   <input
+                    id="profile-name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -204,10 +209,11 @@ export default function ProfileEditorDialog({
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
+                  <label htmlFor="profile-manufacturer" className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
                     Manufacturer *
                   </label>
                   <input
+                    id="profile-manufacturer"
                     type="text"
                     value={manufacturer}
                     onChange={(e) => setManufacturer(e.target.value)}
@@ -216,10 +222,11 @@ export default function ProfileEditorDialog({
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
+                  <label htmlFor="profile-model-pattern" className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
                     Model Pattern
                   </label>
                   <input
+                    id="profile-model-pattern"
                     type="text"
                     value={modelPattern}
                     onChange={(e) => setModelPattern(e.target.value)}
@@ -228,10 +235,11 @@ export default function ProfileEditorDialog({
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
+                  <label htmlFor="profile-category" className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
                     Category
                   </label>
                   <select
+                    id="profile-category"
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className="input"
@@ -244,10 +252,11 @@ export default function ProfileEditorDialog({
               </div>
 
               <div>
-                <label className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
+                <label htmlFor="profile-description" className="text-sm font-medium text-zinc-700 dark:text-slate-300 mb-1.5 block">
                   Description
                 </label>
                 <textarea
+                  id="profile-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={2}
@@ -271,8 +280,14 @@ export default function ProfileEditorDialog({
                     {(rules.required_ports || []).map((port) => (
                       <span key={port} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-mono">
                         {port}
-                        <button onClick={() => removePort('required_ports', port)} className="hover:text-red-500">
-                          <X className="w-3 h-3" />
+                        <button
+                          type="button"
+                          onClick={() => removePort('required_ports', port)}
+                          aria-label={`Remove required port ${port}`}
+                          className="hover:text-red-500"
+                          title={`Remove required port ${port}`}
+                        >
+                          <X aria-hidden="true" className="w-3 h-3" />
                         </button>
                       </span>
                     ))}
@@ -306,8 +321,14 @@ export default function ProfileEditorDialog({
                     {(rules.optional_ports || []).map((port) => (
                       <span key={port} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 text-xs font-mono">
                         {port}
-                        <button onClick={() => removePort('optional_ports', port)} className="hover:text-red-500">
-                          <X className="w-3 h-3" />
+                        <button
+                          type="button"
+                          onClick={() => removePort('optional_ports', port)}
+                          aria-label={`Remove optional port ${port}`}
+                          className="hover:text-red-500"
+                          title={`Remove optional port ${port}`}
+                        >
+                          <X aria-hidden="true" className="w-3 h-3" />
                         </button>
                       </span>
                     ))}
@@ -341,8 +362,14 @@ export default function ProfileEditorDialog({
                     {rules.vendors.map((v) => (
                       <span key={v} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 text-xs">
                         {v}
-                        <button onClick={() => removeVendor(v)} className="hover:text-red-500">
-                          <X className="w-3 h-3" />
+                        <button
+                          type="button"
+                          onClick={() => removeVendor(v)}
+                          aria-label={`Remove vendor string ${v}`}
+                          className="hover:text-red-500"
+                          title={`Remove vendor string ${v}`}
+                        >
+                          <X aria-hidden="true" className="w-3 h-3" />
                         </button>
                       </span>
                     ))}
@@ -371,8 +398,14 @@ export default function ProfileEditorDialog({
                     {(rules.services || []).map((s) => (
                       <span key={s} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 text-xs">
                         {s}
-                        <button onClick={() => removeService(s)} className="hover:text-red-500">
-                          <X className="w-3 h-3" />
+                        <button
+                          type="button"
+                          onClick={() => removeService(s)}
+                          aria-label={`Remove service string ${s}`}
+                          className="hover:text-red-500"
+                          title={`Remove service string ${s}`}
+                        >
+                          <X aria-hidden="true" className="w-3 h-3" />
                         </button>
                       </span>
                     ))}
