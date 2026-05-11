@@ -589,6 +589,25 @@ def _parse_neighbor_table(stdout: str, subnet: str | None = None) -> list[dict[s
     return entries
 
 
+def _windows_arp_executable_candidates() -> list[str]:
+    candidates: list[str] = []
+    discovered = shutil.which("arp.exe")
+    if discovered:
+        candidates.append(discovered)
+    for path in (
+        "/mnt/c/Windows/System32/arp.exe",
+        "/mnt/c/WINDOWS/System32/arp.exe",
+    ):
+        if os.path.exists(path):
+            candidates.append(path)
+
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        if candidate not in unique_candidates:
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
 def _check_tool_version(binary: str) -> bool:
     try:
         subprocess.run(
@@ -1637,10 +1656,27 @@ def scan_arp_cache() -> Union[Response, Tuple[Response, int]]:
                 parsed_entries = fallback_entries
     elif shutil.which("ip"):
         result = _run_tool(["ip", "neigh", "show", target], timeout=5)
+        parsed_entries = _parse_neighbor_table(result.get("stdout", ""), target)
+        if not parsed_entries:
+            fallback_result = _run_tool(["ip", "neigh", "show"], timeout=5)
+            fallback_entries = _parse_neighbor_table(fallback_result.get("stdout", ""), target)
+            if fallback_entries:
+                result = fallback_result
+                result["fallback_used"] = "full_neighbor_table"
+                parsed_entries = fallback_entries
     elif shutil.which("arp"):
         result = _run_tool(["arp", "-an"], timeout=5)
     else:
         return jsonify({"error": "Neighbor table tool unavailable"}), 503
+    if not parsed_entries and not _is_windows():
+        for arp_exe in _windows_arp_executable_candidates():
+            fallback_result = _run_tool([arp_exe, "-a"], timeout=5)
+            fallback_entries = _parse_neighbor_table(fallback_result.get("stdout", ""), target)
+            if fallback_entries:
+                result = fallback_result
+                result["fallback_used"] = "windows_host_arp_table"
+                parsed_entries = fallback_entries
+                break
     result["entries"] = (
         parsed_entries
         if parsed_entries is not None
