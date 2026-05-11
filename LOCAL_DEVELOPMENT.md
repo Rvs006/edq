@@ -151,6 +151,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-edq.ps1
 
 That path should be preferred for direct-Ethernet device qualification on Windows. It keeps the app/database in Docker while running network-layer scanner operations from the Windows host network namespace.
 
+If the default ports are already occupied, pass alternate ports:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-edq.ps1 -PublicPort 3100 -BackendPort 8100 -ToolsPort 8101 -PostgresPort 55433
+```
+
 ### Start the backend locally
 
 From `server\backend`:

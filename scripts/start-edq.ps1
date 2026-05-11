@@ -1,5 +1,9 @@
 param(
     [int]$HostScannerPort = 8002,
+    [int]$PublicPort = 0,
+    [int]$BackendPort = 0,
+    [int]$ToolsPort = 0,
+    [int]$PostgresPort = 0,
     [switch]$NoBuild
 )
 
@@ -51,6 +55,18 @@ $env:TOOLS_SIDECAR_URL = "http://host.docker.internal:$HostScannerPort"
 $env:EDQ_SCANNER_MODE = "host"
 $env:EDQ_START_INTERNAL_TOOLS = "false"
 $env:HOST_ARP_HELPER_URL = "http://host.docker.internal:$HostScannerPort"
+if ($PublicPort -gt 0) {
+    $env:EDQ_PUBLIC_PORT = "$PublicPort"
+}
+if ($BackendPort -gt 0) {
+    $env:EDQ_BACKEND_PORT = "$BackendPort"
+}
+if ($ToolsPort -gt 0) {
+    $env:EDQ_TOOLS_PORT = "$ToolsPort"
+}
+if ($PostgresPort -gt 0) {
+    $env:EDQ_POSTGRES_PORT = "$PostgresPort"
+}
 
 Set-Location $RepoRoot
 if ($NoBuild) {
