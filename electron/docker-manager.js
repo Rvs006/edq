@@ -55,17 +55,24 @@ class DockerManager {
     }
 
     this._ensureEnvFile();
-    await this._ensureHostMacHelper(onProgress);
+    const hostScannerUrl = await this._ensureHostScanner(onProgress);
 
     if (onProgress) onProgress('Building containers (this may take a few minutes on first run)...');
 
     const cmd = `docker compose -f "${this.composeFile}" -p ${this.projectName} up -d --build`;
+    const composeEnv = { ...process.env, COMPOSE_DOCKER_CLI_BUILD: '1', DOCKER_BUILDKIT: '1' };
+    if (hostScannerUrl) {
+      composeEnv.TOOLS_SIDECAR_URL = hostScannerUrl;
+      composeEnv.EDQ_SCANNER_MODE = 'host';
+      composeEnv.EDQ_START_INTERNAL_TOOLS = 'false';
+      composeEnv.HOST_ARP_HELPER_URL = hostScannerUrl;
+    }
 
     return new Promise((resolve, reject) => {
       const proc = exec(cmd, {
         timeout: 600000,
         cwd: path.dirname(this.composeFile),
-        env: { ...process.env, COMPOSE_DOCKER_CLI_BUILD: '1', DOCKER_BUILDKIT: '1' },
+        env: composeEnv,
       });
 
       let stderr = '';
@@ -205,32 +212,35 @@ class DockerManager {
     }
   }
 
-  async _ensureHostMacHelper(onProgress) {
+  async _ensureHostScanner(onProgress) {
     if (process.platform !== 'win32') {
-      return;
+      return null;
     }
 
     const envDir = path.dirname(this.composeFile);
     const envPath = path.join(envDir, '.env');
-    const helperUrl = this._readEnvValue(envPath, 'HOST_ARP_HELPER_URL') || 'http://host.docker.internal:8002';
+    const scannerUrl =
+      this._readEnvValue(envPath, 'TOOLS_SIDECAR_URL').startsWith('http://host.docker.internal:')
+        ? this._readEnvValue(envPath, 'TOOLS_SIDECAR_URL')
+        : this._readEnvValue(envPath, 'HOST_ARP_HELPER_URL') || 'http://host.docker.internal:8002';
 
     let port = 8002;
     try {
-      port = Number(new URL(helperUrl).port || '8002');
+      port = Number(new URL(scannerUrl).port || '8002');
     } catch (_) {}
 
     if (await this._httpOk(`http://127.0.0.1:${port}/health`, 1500)) {
-      if (onProgress) onProgress(`Host MAC helper already running on :${port}`);
-      return;
+      if (onProgress) onProgress(`Host scanner already running on :${port}`);
+      return `http://host.docker.internal:${port}`;
     }
 
     const scriptPath = this._resolveProjectFile('scripts', 'start-host-mac-helper.ps1');
     if (!scriptPath || !fs.existsSync(scriptPath)) {
-      if (onProgress) onProgress('Host MAC helper script not found; U02 MAC discovery may be limited in Docker.');
-      return;
+      if (onProgress) onProgress('Host scanner script not found; Docker scanner will be used with limited direct-LAN visibility.');
+      return null;
     }
 
-    if (onProgress) onProgress(`Starting host MAC helper on :${port}...`);
+    if (onProgress) onProgress(`Starting host scanner on :${port}...`);
 
     this.hostMacHelperProc = spawn(
       'powershell.exe',
@@ -258,13 +268,14 @@ class DockerManager {
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
       if (await this._httpOk(`http://127.0.0.1:${port}/health`, 1000)) {
-        if (onProgress) onProgress('Host MAC helper ready.');
-        return;
+        if (onProgress) onProgress('Host scanner ready.');
+        return `http://host.docker.internal:${port}`;
       }
       await this._sleep(500);
     }
 
-    if (onProgress) onProgress('Host MAC helper did not become ready yet; Docker will still start.');
+    if (onProgress) onProgress('Host scanner did not become ready yet; Docker scanner will be used.');
+    return null;
   }
 
   _stopHostMacHelper() {

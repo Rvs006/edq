@@ -1,5 +1,5 @@
 param(
-    [int]$HostMacHelperPort = 8002,
+    [int]$HostScannerPort = 8002,
     [switch]$NoBuild
 )
 
@@ -19,8 +19,8 @@ function Test-HttpOk {
     }
 }
 
-if (-not (Test-HttpOk "http://127.0.0.1:$HostMacHelperPort/health")) {
-    Write-Host "Starting EDQ host MAC helper on port $HostMacHelperPort..."
+if (-not (Test-HttpOk "http://127.0.0.1:$HostScannerPort/health")) {
+    Write-Host "Starting EDQ host scanner on port $HostScannerPort..."
     Start-Process `
         -FilePath "powershell.exe" `
         -ArgumentList @(
@@ -31,23 +31,26 @@ if (-not (Test-HttpOk "http://127.0.0.1:$HostMacHelperPort/health")) {
             $HelperScript,
             "-Run",
             "-Port",
-            "$HostMacHelperPort"
+            "$HostScannerPort"
         ) `
         -WorkingDirectory $RepoRoot `
         -WindowStyle Hidden
 
     for ($i = 0; $i -lt 20; $i++) {
-        if (Test-HttpOk "http://127.0.0.1:$HostMacHelperPort/health") {
-            Write-Host "Host MAC helper is ready."
+        if (Test-HttpOk "http://127.0.0.1:$HostScannerPort/health") {
+            Write-Host "Host scanner is ready."
             break
         }
         Start-Sleep -Milliseconds 500
     }
 } else {
-    Write-Host "Host MAC helper is already running on port $HostMacHelperPort."
+    Write-Host "Host scanner is already running on port $HostScannerPort."
 }
 
-$env:HOST_ARP_HELPER_URL = "http://host.docker.internal:$HostMacHelperPort"
+$env:TOOLS_SIDECAR_URL = "http://host.docker.internal:$HostScannerPort"
+$env:EDQ_SCANNER_MODE = "host"
+$env:EDQ_START_INTERNAL_TOOLS = "false"
+$env:HOST_ARP_HELPER_URL = "http://host.docker.internal:$HostScannerPort"
 
 Set-Location $RepoRoot
 if ($NoBuild) {

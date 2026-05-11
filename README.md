@@ -204,7 +204,7 @@ Generated outputs are written to:
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.
 - Single-IP discovery uses an AND-gate reachability check: a target must answer **both** a fresh TCP/ICMP probe and nmap's ARP-bypass ping before the full scan runs. This prevents stale-ARP ghost results on recently unplugged devices.
-- Frontend and backend development can run locally outside Docker. Scanner execution is Docker-backed by default, with an explicit Windows host-scanner mode for direct-Ethernet discovery. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
+- Frontend and backend development can run locally outside Docker. For Windows direct-Ethernet qualification, start EDQ with `scripts/start-edq.ps1` so scanner operations run from the host network namespace instead of Docker Desktop's NAT bridge. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
 - Historical product and engineering specs remain in `docs/` as archive material only and should not be treated as the current operational guide.
 - Only scan networks and devices your organization owns, administers, or has written permission to test.
 
