@@ -32,6 +32,15 @@ if ($UninstallStartupTask) {
     exit 0
 }
 
+$python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $python) {
+    throw "Python is required on PATH to run the EDQ host MAC helper."
+}
+
+if ($InstallDeps) {
+    & $python.Source -m pip install -r (Join-Path $RepoRoot "tools\requirements.txt")
+}
+
 if ($InstallStartupTask) {
     $scriptPath = $PSCommandPath
     $argument = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -Run -Port $Port"
@@ -51,15 +60,6 @@ if ($InstallStartupTask) {
     Write-Host "It will start at logon. To run it now, execute:"
     Write-Host "  powershell -ExecutionPolicy Bypass -File `"$scriptPath`" -Run -Port $Port"
     exit 0
-}
-
-$python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) {
-    throw "Python is required on PATH to run the EDQ host MAC helper."
-}
-
-if ($InstallDeps) {
-    & $python.Source -m pip install -r (Join-Path $RepoRoot "tools\requirements.txt")
 }
 
 $apiKey = Get-DotEnvValue "TOOLS_API_KEY"
