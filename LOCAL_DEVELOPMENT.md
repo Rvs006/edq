@@ -143,6 +143,12 @@ HOST_ARP_HELPER_URL=http://host.docker.internal:8002
 
 This keeps the normal Docker scanner for security tooling while letting U02 read the Windows host ARP table for MAC discovery.
 
+For day-to-day Windows use, the one-command launcher starts the host MAC helper first and then starts Docker:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-edq.ps1
+```
+
 ### Start the backend locally
 
 From `server\backend`:

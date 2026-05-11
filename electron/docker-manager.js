@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -11,6 +11,7 @@ class DockerManager {
   constructor() {
     this.projectName = 'edq';
     this.composeFile = this._resolveComposeFile();
+    this.hostMacHelperProc = null;
   }
 
   _resolveComposeFile() {
@@ -54,6 +55,7 @@ class DockerManager {
     }
 
     this._ensureEnvFile();
+    await this._ensureHostMacHelper(onProgress);
 
     if (onProgress) onProgress('Building containers (this may take a few minutes on first run)...');
 
@@ -97,6 +99,7 @@ class DockerManager {
   }
 
   async stopContainers() {
+    this._stopHostMacHelper();
     try {
       const cmd = `docker compose -f "${this.composeFile}" -p ${this.projectName} down`;
       await execAsync(cmd, { timeout: 60000, cwd: path.dirname(this.composeFile) });
@@ -199,6 +202,120 @@ class DockerManager {
           `INITIAL_ADMIN_PASSWORD=${crypto.randomBytes(12).toString('base64url')}`
         );
       fs.writeFileSync(envPath, patched, 'utf-8');
+    }
+  }
+
+  async _ensureHostMacHelper(onProgress) {
+    if (process.platform !== 'win32') {
+      return;
+    }
+
+    const envDir = path.dirname(this.composeFile);
+    const envPath = path.join(envDir, '.env');
+    const helperUrl = this._readEnvValue(envPath, 'HOST_ARP_HELPER_URL') || 'http://host.docker.internal:8002';
+
+    let port = 8002;
+    try {
+      port = Number(new URL(helperUrl).port || '8002');
+    } catch (_) {}
+
+    if (await this._httpOk(`http://127.0.0.1:${port}/health`, 1500)) {
+      if (onProgress) onProgress(`Host MAC helper already running on :${port}`);
+      return;
+    }
+
+    const scriptPath = this._resolveProjectFile('scripts', 'start-host-mac-helper.ps1');
+    if (!scriptPath || !fs.existsSync(scriptPath)) {
+      if (onProgress) onProgress('Host MAC helper script not found; U02 MAC discovery may be limited in Docker.');
+      return;
+    }
+
+    if (onProgress) onProgress(`Starting host MAC helper on :${port}...`);
+
+    this.hostMacHelperProc = spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        scriptPath,
+        '-Run',
+        '-Port',
+        String(port),
+      ],
+      {
+        cwd: envDir,
+        windowsHide: true,
+        stdio: 'ignore',
+        detached: false,
+      },
+    );
+
+    this.hostMacHelperProc.on('exit', () => {
+      this.hostMacHelperProc = null;
+    });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (await this._httpOk(`http://127.0.0.1:${port}/health`, 1000)) {
+        if (onProgress) onProgress('Host MAC helper ready.');
+        return;
+      }
+      await this._sleep(500);
+    }
+
+    if (onProgress) onProgress('Host MAC helper did not become ready yet; Docker will still start.');
+  }
+
+  _stopHostMacHelper() {
+    if (this.hostMacHelperProc && !this.hostMacHelperProc.killed) {
+      try {
+        this.hostMacHelperProc.kill();
+      } catch (_) {}
+    }
+    this.hostMacHelperProc = null;
+  }
+
+  _resolveProjectFile(...segments) {
+    const candidates = [
+      path.join(path.dirname(this.composeFile), ...segments),
+      path.join(__dirname, '..', ...segments),
+      path.join(process.resourcesPath || '', ...segments),
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      } catch (_) {}
+    }
+
+    return candidates[0];
+  }
+
+  _readEnvValue(envPath, name) {
+    try {
+      if (!fs.existsSync(envPath)) {
+        return '';
+      }
+      const pattern = new RegExp(`^${name}=`, 'i');
+      const line = fs.readFileSync(envPath, 'utf-8').split(/\r?\n/).find((row) => pattern.test(row.trim()));
+      if (!line) {
+        return '';
+      }
+      return line.split('=').slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  async _httpOk(url, timeout) {
+    try {
+      await this._httpGet(url, timeout);
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
