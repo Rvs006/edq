@@ -51,9 +51,10 @@ if (-not (Test-HttpOk "http://127.0.0.1:$HostScannerPort/health")) {
     Write-Host "Host scanner is already running on port $HostScannerPort."
 }
 
-$env:TOOLS_SIDECAR_URL = "http://host.docker.internal:$HostScannerPort"
-$env:EDQ_SCANNER_MODE = "host"
-$env:EDQ_START_INTERNAL_TOOLS = "false"
+$env:TOOLS_SIDECAR_URL = "http://127.0.0.1:8001"
+$env:EDQ_SCANNER_MODE = "auto"
+$env:EDQ_START_INTERNAL_TOOLS = "true"
+$env:HOST_NETWORK_SCANNER_URL = "http://host.docker.internal:$HostScannerPort"
 $env:HOST_ARP_HELPER_URL = "http://host.docker.internal:$HostScannerPort"
 if ($PublicPort -gt 0) {
     $env:EDQ_PUBLIC_PORT = "$PublicPort"

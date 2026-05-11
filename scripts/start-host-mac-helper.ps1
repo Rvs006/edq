@@ -57,7 +57,7 @@ if ($InstallStartupTask) {
             -Action $action `
             -Trigger $trigger `
             -Settings $settings `
-            -Description "Runs the EDQ host ARP helper so Docker can read local MAC addresses for U02." `
+            -Description "Runs the EDQ host network scanner so Docker can read local MAC addresses and run LAN nmap probes." `
             -Force | Out-Null
 
         Write-Host "Installed scheduled task: $TaskName"
@@ -87,6 +87,6 @@ $env:EDQ_SCANNER_PORT = "$Port"
 $env:EDQ_SCANNER_HOST = "0.0.0.0"
 
 Set-Location $RepoRoot
-Write-Host "Starting EDQ host MAC helper on http://0.0.0.0:$Port"
-Write-Host "Use HOST_ARP_HELPER_URL=http://host.docker.internal:$Port in Docker."
+Write-Host "Starting EDQ host network scanner on http://0.0.0.0:$Port"
+Write-Host "Use HOST_NETWORK_SCANNER_URL=http://host.docker.internal:$Port in Docker."
 & $python.Source (Join-Path $RepoRoot "tools\server.py")

@@ -759,6 +759,7 @@ async def test_u06_full_scan_has_bounded_host_timeout(monkeypatch):
     monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
     monkeypatch.setattr(test_engine_module.tools_client, "scanner_in_docker", False)
     monkeypatch.setattr(test_engine_module.tools_client, "backend_in_docker", False)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "")
 
     parsed, raw = await engine._dispatch_test(
         "U06",
@@ -802,6 +803,7 @@ async def test_u06_docker_mode_uses_fast_tcp_inventory(monkeypatch):
 
     monkeypatch.setattr(test_engine_module.tools_client, "scanner_in_docker", True)
     monkeypatch.setattr(test_engine_module.tools_client, "backend_in_docker", True)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "")
     monkeypatch.setattr(test_engine_module.tools_client, "tcp_probe", fake_tcp_probe)
 
     parsed, raw = await engine._dispatch_test(
@@ -820,6 +822,47 @@ async def test_u06_docker_mode_uses_fast_tcp_inventory(monkeypatch):
     assert {p["port"] for p in parsed["open_ports"]} == {22, 443}
     assert parsed["scan_info"]["type"] == "tcp-probe"
     assert '"open_ports"' in raw
+
+
+@pytest.mark.asyncio
+async def test_u06_docker_backend_uses_host_network_full_scan_when_configured(monkeypatch):
+    engine = TestEngine()
+    captured: dict[str, object] = {}
+    xml = (
+        '<?xml version="1.0"?><nmaprun><scaninfo type="syn" protocol="tcp"/>'
+        '<host><status state="up"/><address addr="192.168.4.64" addrtype="ipv4"/>'
+        '<ports><port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port></ports>'
+        '</host></nmaprun>'
+    )
+
+    async def fake_nmap_stream(target, args=None, timeout=300, on_line=None):
+        captured["target"] = target
+        captured["args"] = args or []
+        captured["timeout"] = timeout
+        return {"exit_code": 0, "stdout": xml}
+
+    async def fail_fast_inventory(*_args, **_kwargs):
+        raise AssertionError("fast Docker inventory should not run when host network scanner is configured")
+
+    monkeypatch.setattr(test_engine_module.tools_client, "scanner_in_docker", True)
+    monkeypatch.setattr(test_engine_module.tools_client, "backend_in_docker", True)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
+    monkeypatch.setattr(engine, "_docker_tcp_inventory", fail_fast_inventory)
+
+    parsed, raw = await engine._dispatch_test(
+        "U06",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(open_ports=[]),
+        "direct",
+    )
+
+    assert raw == xml
+    assert captured["target"] == "192.168.4.64"
+    assert "-p-" in captured["args"]
+    assert parsed["scanner_source"] == "host"
+    assert {p["port"] for p in parsed["open_ports"]} == {22}
 
 
 @pytest.mark.asyncio
@@ -867,6 +910,58 @@ async def test_u11_bypasses_fast_tls_cache_for_cipher_inventory(monkeypatch):
         "ECDHE-ECDSA-AES256-GCM-SHA384",
         "TLS_CHACHA20_POLY1305_SHA256",
     }
+
+
+@pytest.mark.asyncio
+async def test_u11_uses_nmap_ssl_enum_fallback_when_testssl_has_no_ciphers(monkeypatch):
+    engine = TestEngine()
+    run_id = "run-tls-nmap-fallback"
+    test_engine_module._TESTSSL_CACHE.pop(run_id, None)
+    findings = [
+        {"id": "TLS1_2", "finding": "offered", "severity": "OK"},
+    ]
+    encoded = base64.b64encode(json.dumps(findings).encode("utf-8")).decode("ascii")
+    nmap_calls: list[dict] = []
+    nmap_xml = (
+        '<?xml version="1.0"?><nmaprun><scaninfo type="connect" protocol="tcp"/>'
+        '<host><status state="up"/><address addr="192.168.4.54" addrtype="ipv4"/>'
+        '<ports><port protocol="tcp" portid="443"><state state="open"/><service name="https"/>'
+        '<script id="ssl-enum-ciphers" output="TLSv1.2:&#xa;  ciphers:&#xa;'
+        '    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 (ecdh_x25519) - A&#xa;'
+        '  compressors:&#xa;    NULL"/></port></ports></host></nmaprun>'
+    )
+
+    async def fake_testssl_stream(target, args=None, timeout=300, on_line=None):
+        return {"exit_code": 0, "stdout": "", "output_file": encoded}
+
+    async def fake_nmap_stream(target, args=None, timeout=300, on_line=None):
+        nmap_calls.append({"target": target, "args": args or [], "timeout": timeout})
+        return {"exit_code": 0, "stdout": nmap_xml, "_scanner_source": "host"}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "testssl_stream", fake_testssl_stream)
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
+
+    try:
+        parsed, _raw = await engine._dispatch_test(
+            "U11",
+            "192.168.4.54",
+            run_id,
+            SimpleNamespace(open_ports=[{"port": 443, "service": "https"}]),
+            "direct",
+        )
+    finally:
+        test_engine_module._TESTSSL_CACHE.pop(run_id, None)
+
+    assert nmap_calls == [
+        {
+            "target": "192.168.4.54",
+            "args": ["-sT", "-Pn", "-p", "443", "--script", "ssl-enum-ciphers", "-oX", "-"],
+            "timeout": 120,
+        }
+    ]
+    assert parsed["probe_source"] == "testssl+nmap-ssl-enum-ciphers"
+    assert parsed["cipher_inventory_complete"] is True
+    assert [cipher["name"] for cipher in parsed["ciphers"]] == ["TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"]
 
 
 @pytest.mark.asyncio

@@ -15,7 +15,7 @@ import socket
 import ssl
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable, Coroutine, Optional
 from urllib.parse import quote_plus, urljoin, urlparse
 from xml.etree import ElementTree
 
@@ -604,7 +604,7 @@ def _tcp_probe_to_scan_data(
             "protocol": "tcp",
             "numservices": str(len(probed_ports)),
         },
-        "scan_note": "Docker scanner fast TCP inventory; use host scanner mode for true all-65535 raw scans.",
+        "scan_note": "Fast TCP inventory fallback; use host network scanner mode for true all-65535 raw scans.",
     }
 
 
@@ -619,6 +619,138 @@ def _merge_tls_probe_fallback(parsed: dict[str, Any], fallback: dict[str, Any]) 
             merged[key] = existing
         elif value not in (None, "", [], {}) and not merged.get(key):
             merged[key] = value
+    return merged
+
+
+def _normalize_tls_protocol(value: str) -> str:
+    raw = (value or "").strip().rstrip(":")
+    normalized = raw.replace(" ", "")
+    mapping = {
+        "TLSv1": "TLSv1.0",
+        "TLS1": "TLSv1.0",
+        "TLS1.0": "TLSv1.0",
+        "TLSv1.0": "TLSv1.0",
+        "TLS1.1": "TLSv1.1",
+        "TLSv1.1": "TLSv1.1",
+        "TLS1.2": "TLSv1.2",
+        "TLSv1.2": "TLSv1.2",
+        "TLS1.3": "TLSv1.3",
+        "TLSv1.3": "TLSv1.3",
+        "SSLv2": "SSLv2",
+        "SSLv3": "SSLv3",
+    }
+    return mapping.get(normalized, raw)
+
+
+def _parse_ssl_enum_ciphers_output(output: str) -> dict[str, Any]:
+    """Extract cipher inventory from nmap ssl-enum-ciphers script output."""
+    inventory: dict[str, Any] = {
+        "tls_versions": [],
+        "weak_versions": [],
+        "ciphers": [],
+        "weak_ciphers": [],
+    }
+    current_protocol = ""
+    in_cipher_block = False
+    seen_ciphers: set[tuple[str, str]] = set()
+
+    for raw_line in (output or "").splitlines():
+        stripped = raw_line.strip().lstrip("|_").lstrip("|").strip()
+        if not stripped:
+            continue
+
+        label = stripped.rstrip(":")
+        if label in {"SSLv2", "SSLv3", "TLSv1", "TLSv1.0", "TLSv1.1", "TLSv1.2", "TLSv1.3"}:
+            current_protocol = _normalize_tls_protocol(label)
+            in_cipher_block = False
+            if current_protocol not in inventory["tls_versions"]:
+                inventory["tls_versions"].append(current_protocol)
+            if current_protocol in {"SSLv2", "SSLv3", "TLSv1.0", "TLSv1.1"} and current_protocol not in inventory["weak_versions"]:
+                inventory["weak_versions"].append(current_protocol)
+            continue
+
+        lowered = label.lower()
+        if lowered == "ciphers":
+            in_cipher_block = True
+            continue
+        if stripped.endswith(":"):
+            in_cipher_block = False
+            continue
+        if not in_cipher_block or not current_protocol:
+            continue
+
+        name = stripped.split()[0]
+        if not (name.startswith("TLS_") or name.startswith("SSL_")):
+            continue
+        key = (current_protocol, name)
+        if key in seen_ciphers:
+            continue
+        seen_ciphers.add(key)
+
+        grade = ""
+        if " - " in stripped:
+            grade = stripped.rsplit(" - ", 1)[-1].strip()
+        cipher_info = {
+            "id": "nmap-ssl-enum-ciphers",
+            "name": name,
+            "iana_name": name,
+            "protocol": current_protocol,
+            "severity": "OK",
+            "grade": grade,
+        }
+        inventory["ciphers"].append(cipher_info)
+        if testssl_parser._is_weak_cipher(cipher_info, stripped):
+            inventory["weak_ciphers"].append(cipher_info)
+
+    return inventory
+
+
+def _extract_ssl_enum_cipher_inventory(parsed_nmap: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {
+        "tls_versions": [],
+        "weak_versions": [],
+        "ciphers": [],
+        "weak_ciphers": [],
+    }
+
+    scripts: list[dict[str, Any]] = []
+    scripts.extend(parsed_nmap.get("scripts") or [])
+    for port in parsed_nmap.get("open_ports") or []:
+        if isinstance(port, dict):
+            scripts.extend(port.get("scripts") or [])
+
+    for script in scripts:
+        if not isinstance(script, dict) or script.get("id") != "ssl-enum-ciphers":
+            continue
+        inventory = _parse_ssl_enum_ciphers_output(str(script.get("output") or ""))
+        for key in ("tls_versions", "weak_versions"):
+            for value in inventory.get(key) or []:
+                if value not in merged[key]:
+                    merged[key].append(value)
+        for key in ("ciphers", "weak_ciphers"):
+            existing_names = {
+                (str(item.get("protocol")), str(item.get("name")))
+                for item in merged[key]
+                if isinstance(item, dict)
+            }
+            for item in inventory.get(key) or []:
+                item_key = (str(item.get("protocol")), str(item.get("name")))
+                if item_key not in existing_names:
+                    merged[key].append(item)
+                    existing_names.add(item_key)
+
+    if merged["ciphers"]:
+        merged["probe_source"] = "testssl+nmap-ssl-enum-ciphers"
+        merged["cipher_inventory_complete"] = True
+    return merged
+
+
+def _merge_cipher_inventory(parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    if not fallback.get("ciphers"):
+        return parsed
+    merged = _merge_tls_probe_fallback(parsed, fallback)
+    merged["probe_source"] = fallback.get("probe_source") or parsed.get("probe_source")
+    merged["cipher_inventory_complete"] = True
     return merged
 
 
@@ -1698,6 +1830,21 @@ class TestEngine:
     async def _tls_probe_fallback(self, host: str, port: int) -> dict[str, Any]:
         return await asyncio.to_thread(self._tls_probe_sync, host, port)
 
+    async def _nmap_ssl_cipher_fallback(
+        self,
+        host: str,
+        port: int,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> dict[str, Any]:
+        raw = await tools_client.nmap_stream(
+            host,
+            ["-sT", "-Pn", "-p", str(port), "--script", "ssl-enum-ciphers", "-oX", "-"],
+            timeout=120,
+            on_line=on_line,
+        )
+        xml_out = _nmap_xml_or_raise("U11", raw)
+        return _extract_ssl_enum_cipher_inventory(nmap_parser.parse_xml(xml_out))
+
     async def _dispatch_test(
         self,
         test_id: str,
@@ -1721,6 +1868,7 @@ class TestEngine:
         if test_id == "U02":
             raw = await tools_client.nmap_stream(device_ip, ["-sn", "-oX", "-"], timeout=60, on_line=on_line)
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             if not parsed.get("mac_address"):
                 for host in nmap_parser.parse_host_discovery(raw.get("stdout", "")):
                     if str(host.get("ip") or "") == device_ip and host.get("mac"):
@@ -1731,9 +1879,9 @@ class TestEngine:
             # Fallback 1: if nmap couldn't see the MAC (Docker network hop), try with --send-ip
             if not parsed.get("mac_address"):
                 try:
-                    arp_raw = await tools_client._post(
-                        "/scan/nmap",
-                        {"target": device_ip, "args": ["-sn", "--send-ip", "-oX", "-"], "timeout": 30},
+                    arp_raw = await tools_client.nmap(
+                        device_ip,
+                        ["-sn", "--send-ip", "-oX", "-"],
                         timeout=40,
                     )
                     arp_parsed = nmap_parser.parse_xml(arp_raw.get("stdout", ""))
@@ -1745,9 +1893,9 @@ class TestEngine:
             # Fallback 2: ping then read ARP table (works when on same L2 segment)
             if not parsed.get("mac_address"):
                 try:
-                    arp_raw = await tools_client._post(
-                        "/scan/nmap",
-                        {"target": device_ip, "args": ["-sn", "-PR", "-oX", "-"], "timeout": 30},
+                    arp_raw = await tools_client.nmap(
+                        device_ip,
+                        ["-sn", "-PR", "-oX", "-"],
                         timeout=40,
                     )
                     arp_parsed = nmap_parser.parse_xml(arp_raw.get("stdout", ""))
@@ -1885,9 +2033,11 @@ class TestEngine:
             if (
                 getattr(tools_client, "scanner_in_docker", False)
                 and getattr(tools_client, "backend_in_docker", False)
+                and not getattr(tools_client, "has_host_network_scanner", lambda: False)()
             ):
                 try:
                     parsed, raw_out = await self._docker_tcp_inventory(device_ip, device)
+                    parsed["scanner_source"] = tools_client.network_scanner_source()
                     _PORT_SCAN_CACHE[run_id] = parsed
                     from app.services.wobbly_cable import get_cable_handler
                     _handler = get_cable_handler(run_id)
@@ -1913,6 +2063,7 @@ class TestEngine:
             )
             xml_out = _nmap_xml_or_raise("U06", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             if not parsed.get("open_ports"):
                 try:
                     fallback, fallback_raw = await self._docker_tcp_inventory(device_ip, device)
@@ -1945,6 +2096,7 @@ class TestEngine:
             )
             xml_out = _nmap_xml_or_raise("U07", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             _PORT_SCAN_CACHE[f"{run_id}_u07"] = parsed
             return (parsed, xml_out)
 
@@ -1964,6 +2116,7 @@ class TestEngine:
             )
             xml_out = _nmap_xml_or_raise("U08", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             # Store U08 data as fallback for U09 when U06 cache is empty
             _PORT_SCAN_CACHE[f"{run_id}_u08"] = parsed
             return (parsed, xml_out)
@@ -1993,6 +2146,7 @@ class TestEngine:
             )
             xml_out = _nmap_xml_or_raise("U09", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             _PORT_SCAN_CACHE[run_id] = parsed
             return (parsed, xml_out)
 
@@ -2044,6 +2198,14 @@ class TestEngine:
                     )
                 except Exception as exc:
                     logger.debug("TLS fallback probe failed for %s:%s: %s", device_ip, tls_port, exc)
+            if test_id == "U11" and not parsed.get("ciphers"):
+                try:
+                    parsed = _merge_cipher_inventory(
+                        parsed,
+                        await self._nmap_ssl_cipher_fallback(device_ip, tls_port, on_line),
+                    )
+                except Exception as exc:
+                    logger.debug("Nmap TLS cipher fallback failed for %s:%s: %s", device_ip, tls_port, exc)
             _TESTSSL_CACHE[run_id] = parsed
             return (parsed, raw.get("stdout"))
 
@@ -2220,6 +2382,7 @@ class TestEngine:
                 )
                 xml_out = _nmap_xml_or_raise("U19", raw)
                 parsed = nmap_parser.parse_xml(xml_out)
+                parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             except Exception as exc:
                 logger.debug("U19 OS scan failed for %s: %s", device_ip, exc)
                 parsed = {"os_scan_inconclusive": True, "os_scan_error": str(exc)}

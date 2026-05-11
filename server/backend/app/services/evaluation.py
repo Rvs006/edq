@@ -392,7 +392,9 @@ def _eval_u07(data: dict, _wl: list) -> tuple[str, str]:
     """UDP Top-100 Port Scan."""
     open_ports = data.get("open_ports", [])
     count = len(open_ports)
-    caveat = " Note: UDP scanning through Docker may miss some ports due to NAT/firewall behaviour."
+    caveat = ""
+    if data.get("scanner_source") != "host":
+        caveat = " Note: UDP scanning through Docker may miss some ports due to NAT/firewall behaviour."
     if count == 0:
         return ("info", f"UDP Port Scan — No open UDP ports detected in top 100 scan.{caveat}")
     return (

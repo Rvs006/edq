@@ -62,9 +62,10 @@ class DockerManager {
     const cmd = `docker compose -f "${this.composeFile}" -p ${this.projectName} up -d --build`;
     const composeEnv = { ...process.env, COMPOSE_DOCKER_CLI_BUILD: '1', DOCKER_BUILDKIT: '1' };
     if (hostScannerUrl) {
-      composeEnv.TOOLS_SIDECAR_URL = hostScannerUrl;
-      composeEnv.EDQ_SCANNER_MODE = 'host';
-      composeEnv.EDQ_START_INTERNAL_TOOLS = 'false';
+      composeEnv.TOOLS_SIDECAR_URL = 'http://127.0.0.1:8001';
+      composeEnv.EDQ_SCANNER_MODE = 'auto';
+      composeEnv.EDQ_START_INTERNAL_TOOLS = 'true';
+      composeEnv.HOST_NETWORK_SCANNER_URL = hostScannerUrl;
       composeEnv.HOST_ARP_HELPER_URL = hostScannerUrl;
     }
 
@@ -220,8 +221,8 @@ class DockerManager {
     const envDir = path.dirname(this.composeFile);
     const envPath = path.join(envDir, '.env');
     const scannerUrl =
-      this._readEnvValue(envPath, 'TOOLS_SIDECAR_URL').startsWith('http://host.docker.internal:')
-        ? this._readEnvValue(envPath, 'TOOLS_SIDECAR_URL')
+      this._readEnvValue(envPath, 'HOST_NETWORK_SCANNER_URL').startsWith('http://host.docker.internal:')
+        ? this._readEnvValue(envPath, 'HOST_NETWORK_SCANNER_URL')
         : this._readEnvValue(envPath, 'HOST_ARP_HELPER_URL') || 'http://host.docker.internal:8002';
 
     let port = 8002;

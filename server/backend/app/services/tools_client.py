@@ -66,8 +66,11 @@ class ToolsClient:
     """Calls the tools sidecar REST API to execute security scans."""
 
     def __init__(self) -> None:
-        self.base_url: str = settings.TOOLS_SIDECAR_URL
-        self.host_arp_helper_url: str = (settings.HOST_ARP_HELPER_URL or "").rstrip("/")
+        self.base_url: str = settings.TOOLS_SIDECAR_URL.rstrip("/")
+        self.host_network_scanner_url: str = (settings.HOST_NETWORK_SCANNER_URL or "").rstrip("/")
+        self.host_arp_helper_url: str = (
+            settings.HOST_ARP_HELPER_URL or self.host_network_scanner_url or ""
+        ).rstrip("/")
         self._headers: Dict[str, str] = {}
         if settings.TOOLS_API_KEY:
             self._headers["X-Tools-Key"] = settings.TOOLS_API_KEY
@@ -82,6 +85,23 @@ class ToolsClient:
     def _tools_url_is_loopback(self) -> bool:
         host = (urlparse(self.base_url).hostname or "").lower()
         return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+    def has_host_network_scanner(self) -> bool:
+        """Return True when LAN-sensitive probes should be routed to a host scanner."""
+        return bool(getattr(self, "host_network_scanner_url", ""))
+
+    def network_scanner_source(self) -> str:
+        if self.has_host_network_scanner():
+            return "host"
+        if getattr(self, "scanner_in_docker", False):
+            return "docker"
+        return getattr(self, "scanner_mode", "sidecar")
+
+    @staticmethod
+    def _with_scanner_source(result: Dict[str, Any], source: str) -> Dict[str, Any]:
+        if isinstance(result, dict):
+            result.setdefault("_scanner_source", source)
+        return result
 
     def _resolve_scanner_mode(self) -> str:
         raw_mode = (
@@ -193,13 +213,15 @@ class ToolsClient:
         path: str,
         payload: Dict[str, Any],
         timeout: int = 300,
+        base_url: str | None = None,
     ) -> Dict[str, Any]:
+        target_base_url = (base_url or self.base_url).rstrip("/")
         last_exc: Optional[Exception] = None
         for attempt in range(_MAX_RETRIES):
             try:
                 client = self._get_client(timeout)
                 resp = await client.post(
-                    f"{self.base_url}{path}",
+                    f"{target_base_url}{path}",
                     json=payload,
                     headers=self._headers,
                     timeout=timeout + 10,
@@ -225,18 +247,20 @@ class ToolsClient:
         payload: Dict[str, Any],
         timeout: int = 300,
         on_line: Optional[Callable[[str], Coroutine]] = None,
+        base_url: str | None = None,
     ) -> Dict[str, Any]:
         """POST to a streaming SSE endpoint, calling on_line for output lines.
 
         Returns the final result dict (same shape as _post).
         Falls back to the non-streaming endpoint if SSE fails.
         """
+        target_base_url = (base_url or self.base_url).rstrip("/")
         result: Dict[str, Any] = {}
         try:
             client = self._get_client(timeout)
             async with client.stream(
                 "POST",
-                f"{self.base_url}{path}",
+                f"{target_base_url}{path}",
                 json=payload,
                 headers=self._headers,
                 timeout=timeout + 30,
@@ -261,13 +285,111 @@ class ToolsClient:
             logger.warning("Streaming failed for %s, falling back to sync: %s", path, exc)
             # Fall back to non-streaming endpoint
             sync_path = path.replace("/stream/", "/scan/")
-            return await self._post(sync_path, payload, timeout=timeout)
+            return await self._post(sync_path, payload, timeout=timeout, base_url=target_base_url)
 
         if not result:
             sync_path = path.replace("/stream/", "/scan/")
-            return await self._post(sync_path, payload, timeout=timeout)
+            return await self._post(sync_path, payload, timeout=timeout, base_url=target_base_url)
 
         return result
+
+    async def _get_json(
+        self,
+        path: str,
+        timeout: int = 30,
+        base_url: str | None = None,
+    ) -> Dict[str, Any]:
+        target_base_url = (base_url or self.base_url).rstrip("/")
+        client = self._get_client(timeout)
+        resp = await client.get(f"{target_base_url}{path}", headers=self._headers, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    @staticmethod
+    def _can_fallback_to_docker(exc: Exception) -> bool:
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.TimeoutException)):
+            return True
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code in {404, 405, 502, 503, 504}
+        return False
+
+    async def _network_post(
+        self,
+        path: str,
+        host_payload: Dict[str, Any],
+        docker_payload: Dict[str, Any] | None = None,
+        timeout: int = 300,
+    ) -> Dict[str, Any]:
+        if self.has_host_network_scanner():
+            try:
+                return self._with_scanner_source(
+                    await self._post(
+                        path,
+                        host_payload,
+                        timeout=timeout,
+                        base_url=self.host_network_scanner_url,
+                    ),
+                    "host",
+                )
+            except Exception as exc:
+                if not self._can_fallback_to_docker(exc):
+                    raise
+                logger.warning(
+                    "Host network scanner unavailable for %s; falling back to Docker sidecar: %s",
+                    path,
+                    describe_tools_error(exc),
+                )
+        return self._with_scanner_source(
+            await self._post(path, docker_payload or host_payload, timeout=timeout),
+            "docker" if getattr(self, "scanner_in_docker", False) else getattr(self, "scanner_mode", "sidecar"),
+        )
+
+    async def _network_post_stream(
+        self,
+        path: str,
+        host_payload: Dict[str, Any],
+        docker_payload: Dict[str, Any] | None = None,
+        timeout: int = 300,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> Dict[str, Any]:
+        if self.has_host_network_scanner():
+            try:
+                return self._with_scanner_source(
+                    await self._post_stream(
+                        path,
+                        host_payload,
+                        timeout=timeout,
+                        on_line=on_line,
+                        base_url=self.host_network_scanner_url,
+                    ),
+                    "host",
+                )
+            except Exception as exc:
+                if not self._can_fallback_to_docker(exc):
+                    raise
+                logger.warning(
+                    "Host network scanner stream unavailable for %s; falling back to Docker sidecar: %s",
+                    path,
+                    describe_tools_error(exc),
+                )
+        return self._with_scanner_source(
+            await self._post_stream(path, docker_payload or host_payload, timeout=timeout, on_line=on_line),
+            "docker" if getattr(self, "scanner_in_docker", False) else getattr(self, "scanner_mode", "sidecar"),
+        )
+
+    async def _network_get_json(self, path: str, timeout: int = 30) -> Dict[str, Any]:
+        if self.has_host_network_scanner():
+            try:
+                return await self._get_json(path, timeout=timeout, base_url=self.host_network_scanner_url)
+            except Exception as exc:
+                if not self._can_fallback_to_docker(exc):
+                    raise
+                logger.warning(
+                    "Host network scanner unavailable for %s; falling back to Docker sidecar: %s",
+                    path,
+                    describe_tools_error(exc),
+                )
+        return await self._get_json(path, timeout=timeout)
 
     async def nmap_stream(
         self,
@@ -277,9 +399,11 @@ class ToolsClient:
         on_line: Optional[Callable[[str], Coroutine]] = None,
     ) -> Dict[str, Any]:
         """Run nmap with line-by-line streaming (auto-adjusts flags for Docker NAT)."""
-        return await self._post_stream(
+        raw_args = args or []
+        return await self._network_post_stream(
             "/stream/nmap",
-            {"target": target, "args": self.docker_nmap_flags(args or []), "timeout": timeout},
+            {"target": target, "args": raw_args, "timeout": timeout},
+            docker_payload={"target": target, "args": self.docker_nmap_flags(raw_args), "timeout": timeout},
             timeout=timeout,
             on_line=on_line,
         )
@@ -374,10 +498,7 @@ class ToolsClient:
 
     async def health(self) -> Dict[str, Any]:
         """Check sidecar health and tool availability."""
-        client = self._get_client(10)
-        resp = await client.get(f"{self.base_url}/health", headers=self._headers, timeout=10)
-        resp.raise_for_status()
-        return resp.json()
+        return await self._get_json("/health", timeout=10)
 
     async def check_updates(self) -> Dict[str, Any]:
         """Return sidecar scanner update guidance.
@@ -386,10 +507,7 @@ class ToolsClient:
         latest-known versions. EDQ reports that state but does not mutate
         scanner binaries at runtime.
         """
-        client = self._get_client(15)
-        resp = await client.get(f"{self.base_url}/check-updates", headers=self._headers, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
+        return await self._get_json("/check-updates", timeout=15)
 
     async def nmap(
         self,
@@ -398,9 +516,11 @@ class ToolsClient:
         timeout: int = 300,
     ) -> Dict[str, Any]:
         """Run nmap scan (auto-adjusts flags for Docker NAT)."""
-        return await self._post(
+        raw_args = args or []
+        return await self._network_post(
             "/scan/nmap",
-            {"target": target, "args": self.docker_nmap_flags(args or []), "timeout": timeout},
+            {"target": target, "args": raw_args, "timeout": timeout},
+            docker_payload={"target": target, "args": self.docker_nmap_flags(raw_args), "timeout": timeout},
             timeout=timeout,
         )
 
@@ -458,17 +578,11 @@ class ToolsClient:
 
     async def versions(self) -> Dict[str, Any]:
         """Get installed tool versions from the sidecar."""
-        client = self._get_client(10)
-        resp = await client.get(f"{self.base_url}/versions", headers=self._headers, timeout=10)
-        resp.raise_for_status()
-        return resp.json()
+        return await self._get_json("/versions", timeout=10)
 
     async def detect_networks(self) -> Dict[str, Any]:
         """Get detected host/container networks from the sidecar."""
-        client = self._get_client(30)
-        resp = await client.get(f"{self.base_url}/detect-networks", headers=self._headers, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+        return await self._network_get_json("/detect-networks", timeout=30)
 
     async def ping(
         self,
@@ -476,7 +590,7 @@ class ToolsClient:
         count: int = 3,
     ) -> Dict[str, Any]:
         """Ping a target to check reachability."""
-        return await self._post(
+        return await self._network_post(
             "/scan/ping",
             {"target": target, "count": count, "timeout": 30},
             timeout=30,
@@ -502,7 +616,7 @@ class ToolsClient:
             "stop_on_first_open": stop_on_first_open,
         }
         try:
-            return await self._post("/scan/tcp-probe", payload, timeout=timeout)
+            return await self._network_post("/scan/tcp-probe", payload, timeout=timeout)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code not in {404, 405}:
                 raise
@@ -609,7 +723,7 @@ class ToolsClient:
 
     async def arp_cache(self, target: str) -> Dict[str, Any]:
         """Ping target then read ARP cache to get MAC address."""
-        return await self._post(
+        return await self._network_post(
             "/scan/arp-cache",
             {"target": target, "timeout": 15},
             timeout=20,
@@ -641,7 +755,7 @@ class ToolsClient:
         payload: Dict[str, Any] = {}
         if subnet:
             payload["subnet"] = subnet
-        return await self._post(
+        return await self._network_post(
             "/scan/neighbors",
             payload,
             timeout=15,
