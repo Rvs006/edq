@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $EnvPath = Join-Path $RepoRoot ".env"
 $TaskName = "EDQ Host MAC Helper"
+$StartupCommandPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\EDQ Host MAC Helper.cmd"
 
 function Get-DotEnvValue {
     param([string]$Name)
@@ -28,7 +29,9 @@ function Get-DotEnvValue {
 
 if ($UninstallStartupTask) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $StartupCommandPath -Force -ErrorAction SilentlyContinue
     Write-Host "Removed scheduled task: $TaskName"
+    Write-Host "Removed Startup command: $StartupCommandPath"
     exit 0
 }
 
@@ -48,15 +51,27 @@ if ($InstallStartupTask) {
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
-    Register-ScheduledTask `
-        -TaskName $TaskName `
-        -Action $action `
-        -Trigger $trigger `
-        -Settings $settings `
-        -Description "Runs the EDQ host ARP helper so Docker can read local MAC addresses for U02." `
-        -Force | Out-Null
+    try {
+        Register-ScheduledTask `
+            -TaskName $TaskName `
+            -Action $action `
+            -Trigger $trigger `
+            -Settings $settings `
+            -Description "Runs the EDQ host ARP helper so Docker can read local MAC addresses for U02." `
+            -Force | Out-Null
 
-    Write-Host "Installed scheduled task: $TaskName"
+        Write-Host "Installed scheduled task: $TaskName"
+    } catch {
+        $logDir = Join-Path $env:LOCALAPPDATA "EDQ"
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        $logPath = Join-Path $logDir "host-mac-helper.log"
+        $cmd = "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -Run -Port $Port >> `"$logPath`" 2>&1`r`n"
+        Set-Content -Path $StartupCommandPath -Value $cmd -Encoding ASCII
+
+        Write-Host "Scheduled task install failed: $($_.Exception.Message)"
+        Write-Host "Installed per-user Startup command instead: $StartupCommandPath"
+    }
+
     Write-Host "It will start at logon. To run it now, execute:"
     Write-Host "  powershell -ExecutionPolicy Bypass -File `"$scriptPath`" -Run -Port $Port"
     exit 0
