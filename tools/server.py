@@ -1622,15 +1622,30 @@ def scan_arp_cache() -> Union[Response, Tuple[Response, int]]:
     _run_tool(ping_cmd, timeout=5)
 
     # Step 2: read ARP cache
+    parsed_entries = None
     if _is_windows() and shutil.which("arp"):
         result = _run_tool(["arp", "-a", target], timeout=5)
+        parsed_entries = _parse_neighbor_table(result.get("stdout", ""), target)
+        if not parsed_entries:
+            # Some Windows builds return "No ARP Entries Found" for
+            # `arp -a <ip>` even while the full table contains that IP.
+            fallback_result = _run_tool(["arp", "-a"], timeout=5)
+            fallback_entries = _parse_neighbor_table(fallback_result.get("stdout", ""), target)
+            if fallback_entries:
+                result = fallback_result
+                result["fallback_used"] = "windows_full_arp_table"
+                parsed_entries = fallback_entries
     elif shutil.which("ip"):
         result = _run_tool(["ip", "neigh", "show", target], timeout=5)
     elif shutil.which("arp"):
         result = _run_tool(["arp", "-an"], timeout=5)
     else:
         return jsonify({"error": "Neighbor table tool unavailable"}), 503
-    result["entries"] = _parse_neighbor_table(result.get("stdout", ""), target)
+    result["entries"] = (
+        parsed_entries
+        if parsed_entries is not None
+        else _parse_neighbor_table(result.get("stdout", ""), target)
+    )
     return jsonify(result)
 
 
