@@ -48,34 +48,6 @@ def _utcnow() -> datetime:
     return utcnow_naive()
 
 
-def _is_localhost_only_runtime() -> bool:
-    localhost_origins = [
-        origin
-        for origin in settings.CORS_ORIGINS
-        if "localhost" in origin or "127.0.0.1" in origin
-    ]
-    return bool(settings.CORS_ORIGINS) and len(localhost_origins) == len(settings.CORS_ORIGINS)
-
-
-def _should_preserve_admin_password_for_local_automation(user: User, request: Request) -> bool:
-    """Keep headless local smoke tests from drifting the seeded admin password."""
-    role = getattr(user.role, "value", user.role)
-    if user.username != "admin" or role != UserRole.ADMIN.value:
-        return False
-    if settings.COOKIE_SECURE or settings.ENVIRONMENT == "cloud":
-        return False
-
-    user_agent = request.headers.get("User-Agent", "").casefold()
-    is_automated_browser = any(
-        marker in user_agent
-        for marker in ("headlesschrome", "playwright", "testsprite")
-    )
-    if not is_automated_browser:
-        return False
-
-    return settings.DEBUG or _is_localhost_only_runtime()
-
-
 async def _record_auth_failure(
     db: AsyncSession,
     user: User,
@@ -344,23 +316,13 @@ async def change_password(
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
-    preserve_seeded_admin_password = _should_preserve_admin_password_for_local_automation(user, request)
-    if preserve_seeded_admin_password:
-        logger.info("Preserved seeded admin password for local automated browser run")
-    else:
-        user.password_hash = hash_password(data.new_password)
-
+    user.password_hash = hash_password(data.new_password)
     revoke_user_access_tokens(user)
     await revoke_user_refresh_tokens(db, user.id)
     await log_security_event(
         db,
         "auth.password_change",
         user_id=user.id,
-        details=(
-            {"local_automation_preserved_seeded_admin_password": True}
-            if preserve_seeded_admin_password
-            else None
-        ),
         request=request,
     )
     return {"message": "Password changed successfully"}

@@ -525,6 +525,24 @@ def _build_hydra_form_fields(login_form: dict[str, Any]) -> str:
     )
 
 
+def _build_form_probe_payload(
+    login_form: dict[str, Any],
+    username_field: str,
+    password_field: str,
+    username: str,
+    password: str,
+) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    for name, value in (login_form.get("hidden_fields") or {}).items():
+        field_name = str(name)
+        if field_name in {username_field, password_field}:
+            continue
+        payload[field_name] = str(value)
+    payload[username_field] = username
+    payload[password_field] = password
+    return payload
+
+
 def _port_candidates_from_device(device: Device) -> list[int]:
     ports: list[int] = []
     seen: set[int] = set()
@@ -719,6 +737,111 @@ def _has_nmap_scan_evidence(scan_data: dict[str, Any] | None) -> bool:
         or scan_data.get("hosts")
         or scan_data.get("scan_info")
     )
+
+
+def _format_evidence_port(port: dict[str, Any]) -> str:
+    protocol = str(port.get("protocol") or "tcp").lower()
+    port_number = port.get("port")
+    state = port.get("state") or "open"
+    service = port.get("service") or "unknown"
+    version = port.get("version") or port.get("product") or ""
+    suffix = f" {version}" if version else ""
+    return f"{port_number}/{protocol} {state} {service}{suffix}".strip()
+
+
+def _build_evidence_summary(test_id: str, parsed: dict[str, Any] | None) -> str | None:
+    """Build a compact readable evidence block when a test reuses parsed scanner data."""
+    if not parsed:
+        return None
+
+    lines: list[str] = ["EDQ evidence summary", f"Test: {test_id}"]
+
+    if test_id == "U09":
+        lines.append("Source: nmap TCP/UDP inventory checked against protocol whitelist")
+        ports = [
+            _format_evidence_port(port)
+            for port in parsed.get("open_ports", [])
+            if isinstance(port, dict) and port.get("port") is not None
+        ]
+        lines.extend(ports[:40] or ["No open ports were present in the parsed nmap inventory."])
+        return "\n".join(lines)
+
+    if test_id in {"U10", "U11", "U12", "U13"}:
+        lines.append(f"Source: {parsed.get('probe_source') or parsed.get('fallback_probe') or 'TLS probe'}")
+        tls_versions = parsed.get("tls_versions") or []
+        weak_versions = parsed.get("weak_versions") or []
+        ciphers = parsed.get("ciphers") or []
+        weak_ciphers = parsed.get("weak_ciphers") or []
+        lines.append(f"TLS versions: {', '.join(map(str, tls_versions)) or 'none detected'}")
+        lines.append(f"Weak TLS versions: {', '.join(map(str, weak_versions)) or 'none detected'}")
+        if isinstance(ciphers, list) and ciphers:
+            lines.append("Cipher inventory:")
+            for cipher in ciphers[:20]:
+                if isinstance(cipher, dict):
+                    lines.append(
+                        f"- {cipher.get('name', 'unknown')} "
+                        f"({cipher.get('protocol', 'unknown')}, {cipher.get('bits', 'unknown')} bits)"
+                    )
+                else:
+                    lines.append(f"- {cipher}")
+        else:
+            lines.append("Cipher inventory: none detected")
+        lines.append(f"Weak ciphers: {len(weak_ciphers) if isinstance(weak_ciphers, list) else 0}")
+        cert_subject = parsed.get("cert_subject")
+        cert_issuer = parsed.get("cert_issuer")
+        cert_expiry = parsed.get("cert_expiry") or parsed.get("cert_not_after")
+        if cert_subject or cert_issuer or cert_expiry:
+            lines.append(f"Certificate subject: {cert_subject or 'unknown'}")
+            lines.append(f"Certificate issuer: {cert_issuer or 'unknown'}")
+            lines.append(f"Certificate expiry: {cert_expiry or 'unknown'}")
+            lines.append(f"Certificate valid: {bool(parsed.get('cert_valid'))}")
+            lines.append(f"Self-signed: {bool(parsed.get('cert_self_signed'))}")
+        return "\n".join(lines)
+
+    if test_id == "U17":
+        lines.append(f"Source: {parsed.get('auth_type') or 'authentication'} brute-force protection probe")
+        lines.append(f"Check ran: {bool(parsed.get('check_ran'))}")
+        lines.append(f"Attempts: {parsed.get('attempts', 0)}")
+        lines.append(f"Lockout detected: {bool(parsed.get('lockout_detected'))}")
+        if parsed.get("reason"):
+            lines.append(f"Reason: {parsed['reason']}")
+        if parsed.get("error"):
+            lines.append("Tool output:")
+            lines.append(str(parsed["error"]))
+        return "\n".join(lines)
+
+    if test_id == "U18":
+        lines.append("Source: HTTP redirect probe")
+        lines.append(f"HTTP open: {bool(parsed.get('http_open'))}")
+        lines.append(f"Redirects to HTTPS: {bool(parsed.get('redirects_to_https'))}")
+        if parsed.get("redirect_status_code") is not None:
+            lines.append(f"HTTP status: {parsed['redirect_status_code']}")
+        if parsed.get("redirect_location"):
+            lines.append(f"Location: {parsed['redirect_location']}")
+        return "\n".join(lines)
+
+    if test_id in {"U26", "U28", "U29"}:
+        source = {
+            "U26": "NTP observer/nmap UDP probe",
+            "U28": "BACnet nmap UDP probe",
+            "U29": "DNS observer/nmap UDP probe",
+        }[test_id]
+        lines.append(f"Source: {source}")
+        for key in sorted(parsed.keys()):
+            value = parsed[key]
+            if value in (None, "", [], {}):
+                continue
+            lines.append(f"{key}: {value}")
+        return "\n".join(lines)
+
+    if test_id == "U34":
+        lines.append("Source: nmap insecure-protocol inventory")
+        lines.append(f"Telnet open: {bool(parsed.get('telnet_open'))}")
+        lines.append(f"FTP open: {bool(parsed.get('ftp_open'))}")
+        lines.append(f"Insecure ports: {parsed.get('insecure_ports') or []}")
+        return "\n".join(lines)
+
+    return None
 
 
 def _infer_os_from_services(open_ports: list[dict[str, Any]]) -> str | None:
@@ -1355,6 +1478,8 @@ class TestEngine:
                 device,
                 connection_scenario,
             )
+            if not raw_out:
+                raw_out = _build_evidence_summary(test_id, parsed)
             verdict, comment = evaluate_result(test_id, parsed, whitelist_entries)
         except Exception as exc:
             logger.warning("Test %s failed for run %s: %s", test_id, run_id, exc)
@@ -2662,6 +2787,7 @@ class TestEngine:
         auth_type = "http-get"
         form_path = "/"
         form_fields = ""
+        login_form: dict[str, Any] = {}
         use_ssl = False
         selected_port = 80
         selected_base_url = f"http://{device_ip}"
@@ -2890,10 +3016,13 @@ class TestEngine:
                             if auth_type in {"http-post-form", "https-post-form"}:
                                 verify_resp = await client.post(
                                     _target_url_for_path(selected_base_url, form_path or "/"),
-                                    data={
-                                        username_field: f"invalid{attempt}",
-                                        password_field: f"invalid{attempt}",
-                                    },
+                                    data=_build_form_probe_payload(
+                                        login_form,
+                                        username_field,
+                                        password_field,
+                                        f"invalid{attempt}",
+                                        f"invalid{attempt}",
+                                    ),
                                 )
                             else:
                                 verify_resp = await client.get(

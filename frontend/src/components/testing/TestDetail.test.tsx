@@ -62,6 +62,33 @@ describe('TestDetail manual gating', () => {
     expect(screen.getByRole('button', { name: /submit result/i })).toBeInTheDocument()
   })
 
+  it('requires engineer notes before saving a manual verdict', () => {
+    const onSubmitManual = vi.fn()
+    render(
+      <TestDetail
+        result={baseResult}
+        liveOutput=""
+        isRunning={false}
+        runStatus="awaiting_manual"
+        userRole="engineer"
+        onSubmitManual={onSubmitManual}
+        onOverride={vi.fn()}
+        isSubmitting={false}
+        manualProgress={{ current: 1, total: 1 }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /pass/i }))
+    expect(screen.getByText(/add engineer notes before saving/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /submit result/i })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText(/comments/i), {
+      target: { value: 'Verified from switch status and device UI.' },
+    })
+
+    expect(screen.getByRole('button', { name: /submit result/i })).not.toBeDisabled()
+  })
+
   it('summarizes protocol observer evidence for DHCP tests', () => {
     render(
       <TestDetail

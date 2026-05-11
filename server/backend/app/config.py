@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     METRICS_API_KEY: str = ""
 
     RATE_LIMIT_PER_MINUTE: int = 60
-    LOGIN_RATE_LIMIT_PER_MINUTE: int = 60
+    LOGIN_RATE_LIMIT_PER_MINUTE: int = 15
     DISCOVERY_RATE_LIMIT_PER_MINUTE: int = 30
     # Per-client global cap across all discovery/scan endpoints combined.
     # Bounds sweep-style abuse where per-target scope multiplied by N IPs

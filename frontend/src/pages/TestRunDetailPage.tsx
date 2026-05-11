@@ -514,6 +514,7 @@ export default function TestRunDetailPage() {
     () => new Set(bulkManualSelectedIds),
     [bulkManualSelectedIds]
   )
+  const bulkManualNotesRequired = bulkManualVerdict !== 'pending' && !bulkManualNotes.trim()
 
   const firstPendingManualId = pendingManualIds[0] || null
 
@@ -535,12 +536,17 @@ export default function TestRunDetailPage() {
 
   const handleApplyBulkManual = async () => {
     if (bulkManualSelectedIds.length === 0) return
+    if (bulkManualNotesRequired) {
+      toast.error('Add engineer notes before applying a manual verdict')
+      return
+    }
     setIsSubmitting(true)
     try {
+      const trimmedNotes = bulkManualNotes.trim()
       await testResultsApi.bulkUpdateManual({
         result_ids: bulkManualSelectedIds,
         verdict: bulkManualVerdict,
-        engineer_notes: bulkManualNotes,
+        ...(trimmedNotes ? { engineer_notes: trimmedNotes } : {}),
       })
       queryClient.invalidateQueries({ queryKey: ['test-results', id] })
       queryClient.invalidateQueries({ queryKey: ['test-run', id] })
@@ -780,7 +786,7 @@ export default function TestRunDetailPage() {
 
       {run.status === 'awaiting_manual' && pendingManualResults.length > 1 && (
         <div className="flex-shrink-0 border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-900/40 px-4 py-2">
-          <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+          <div className="flex flex-col gap-2 2xl:flex-row 2xl:items-center">
             <div className="flex items-center gap-2 text-xs font-semibold text-zinc-600 dark:text-slate-300">
               <ListChecks className="w-4 h-4 text-amber-500" />
               <span>Bulk manual result</span>
@@ -789,7 +795,7 @@ export default function TestRunDetailPage() {
               </span>
             </div>
 
-            <div className="flex flex-1 gap-1 overflow-x-auto pb-1 xl:pb-0">
+            <div className="flex flex-1 gap-1 overflow-x-auto pb-1 2xl:pb-0">
               {pendingManualResults.map((result) => {
                 const isSelected = bulkManualSelectedSet.has(result.id)
                 return (
@@ -798,13 +804,13 @@ export default function TestRunDetailPage() {
                     type="button"
                     onClick={() => toggleBulkManualSelection(result.id)}
                     title={`${result.test_id} - ${result.test_name}`}
-                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors
+                    className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] transition-colors
                       ${isSelected
                         ? 'border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200'
                         : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
                       }`}
                   >
-                    {isSelected ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                    {isSelected ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
                     <span className="font-mono">{result.test_id}</span>
                   </button>
                 )
@@ -816,7 +822,7 @@ export default function TestRunDetailPage() {
                 <button
                   type="button"
                   onClick={() => setBulkManualSelectedIds(pendingManualResults.map((result) => result.id))}
-                  className="btn-secondary text-xs"
+                  className="btn-secondary h-8 px-2 text-xs"
                 >
                   <CheckSquare className="w-3.5 h-3.5" />
                   Select all
@@ -824,10 +830,10 @@ export default function TestRunDetailPage() {
                 <button
                   type="button"
                   onClick={() => setBulkManualSelectedIds([])}
-                  className="btn-secondary text-xs"
+                  className="btn-secondary h-8 px-2 text-xs"
                 >
                   <X className="w-3.5 h-3.5" />
-                  Clear
+                  Deselect all
                 </button>
               </div>
               <select
@@ -835,7 +841,7 @@ export default function TestRunDetailPage() {
                 title="Bulk manual verdict"
                 value={bulkManualVerdict}
                 onChange={(event) => setBulkManualVerdict(event.target.value)}
-                className="input h-9 min-w-28 text-sm"
+                className="input h-8 min-w-28 text-sm"
               >
                 {bulkVerdictOptions.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
@@ -846,14 +852,14 @@ export default function TestRunDetailPage() {
                 aria-label="Bulk manual comments"
                 value={bulkManualNotes}
                 onChange={(event) => setBulkManualNotes(event.target.value)}
-                placeholder="Comments..."
-                className="input h-9 min-w-0 text-sm sm:w-64"
+                placeholder="Evidence or reason..."
+                className={`input h-8 min-w-0 text-sm sm:w-64 ${bulkManualNotesRequired ? 'border-amber-400' : ''}`}
               />
               <button
                 type="button"
                 onClick={handleApplyBulkManual}
-                disabled={bulkManualSelectedIds.length === 0 || isSubmitting}
-                className="btn-primary h-9 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={bulkManualSelectedIds.length === 0 || isSubmitting || bulkManualNotesRequired}
+                className="btn-primary h-8 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ListChecks className="w-4 h-4" />}
                 Apply

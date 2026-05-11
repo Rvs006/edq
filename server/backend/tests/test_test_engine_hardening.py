@@ -605,6 +605,84 @@ async def test_u17_uses_discovered_web_login_port_and_form_fields(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_u17_follow_up_form_probe_preserves_hidden_fields(monkeypatch):
+    import httpx
+
+    engine = TestEngine()
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        def __init__(self, url: str, text: str, status_code: int = 200):
+            self.url = url
+            self.text = text
+            self.status_code = status_code
+            self.headers: dict[str, str] = {}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, *args, **kwargs):
+            if str(url).endswith("/login"):
+                return FakeResponse(
+                    str(url),
+                    """
+                    <form method="post" action="/session/login">
+                      <input type="text" name="user[name]" />
+                      <input type="password" name="user[password]" />
+                      <input type="hidden" name="submit" value="Login" />
+                      <input type="hidden" name="realm" value="local" />
+                    </form>
+                    """,
+                )
+            return FakeResponse(str(url), "device status")
+
+        async def post(self, url, *args, **kwargs):
+            captured["post_url"] = str(url)
+            captured["post_data"] = kwargs.get("data")
+            return FakeResponse(str(url), "too many attempts", 429)
+
+    async def fake_hydra(target, args=None, timeout=120):
+        captured["hydra_args"] = args or []
+        return {
+            "exit_code": 0,
+            "stdout": "Hydra completed with no access throttling",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(test_engine_module.tools_client, "hydra", fake_hydra)
+
+    parsed = await engine._test_brute_force_protection(
+        "192.168.4.31",
+        {
+            "scan_info": {"type": "connect", "protocol": "tcp"},
+            "open_ports": [
+                {"port": 8080, "protocol": "tcp", "state": "open", "service": "http-proxy"}
+            ],
+        },
+    )
+
+    assert parsed["lockout_detected"] is True
+    assert captured["post_url"] == "http://192.168.4.31:8080/session/login"
+    assert captured["post_data"] == {
+        "submit": "Login",
+        "realm": "local",
+        "user[name]": "invalid0",
+        "user[password]": "invalid0",
+    }
+    hydra_args = captured["hydra_args"]
+    assert "submit=Login" in hydra_args[-1]
+    assert "realm=local" in hydra_args[-1]
+
+
+@pytest.mark.asyncio
 async def test_u06_full_scan_has_bounded_host_timeout(monkeypatch):
     engine = TestEngine()
     captured: dict[str, object] = {}

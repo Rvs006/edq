@@ -17,8 +17,4 @@ def test_text_parser_flags_bracketed_fail_host_key_algorithms():
     )
 
     assert parsed["overall_score"] == "warning"
-    assert parsed["weak_host_keys"] == [
-        "ecdsa-sha2-nistp521",
-        "ecdsa-sha2-nistp384",
-        "ssh-rsa",
-    ]
+    assert parsed["weak_host_keys"] == ["ssh-rsa"]

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
@@ -296,7 +296,17 @@ describe('TestRunDetailPage', () => {
     renderWithProviders(<TestRunDetailPage />)
 
     expect(await screen.findByText(/Bulk manual result/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Select all/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Select all$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Deselect all$/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/Bulk manual comments/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Select all$/i }))
+    expect(screen.getByRole('button', { name: /Apply/i })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText(/Bulk manual comments/i), {
+      target: { value: 'Observed on the device and marked not applicable.' },
+    })
+
+    expect(screen.getByRole('button', { name: /Apply/i })).not.toBeDisabled()
   })
 })

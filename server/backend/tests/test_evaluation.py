@@ -172,6 +172,25 @@ def test_u35_reports_all_moderate_nikto_findings():
         assert f"Header-{i}" in comment
 
 
+def test_u35_dedupes_equivalent_missing_header_findings():
+    verdict, comment = evaluate_result(
+        "U35",
+        {
+            "raw": "+ /: [013587] The X-Content-Type-Options header is not set.",
+            "header_scan": {
+                "http_service_detected": True,
+                "headers": {},
+                "raw_headers": "HTTP/1.1 200 OK",
+                "response_url": "http://192.168.4.64/",
+            },
+        },
+    )
+
+    assert verdict == "advisory"
+    assert "Found 4 web/header issue(s)" in comment
+    assert comment.count("X-Content-Type-Options") == 1
+
+
 def test_u26_requires_observed_sync_for_pass():
     verdict, comment = evaluate_result(
         "U26",

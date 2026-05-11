@@ -936,6 +936,14 @@ def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
 
 
 _NIKTO_FINDING_RE = re.compile(r"\+\s+(?:(OSVDB-\d+|\[\d+\]):\s*)?(.+)")
+_HTTP_HEADER_NAME_RE = r"([A-Za-z][A-Za-z0-9-]*)"
+_MISSING_HEADER_PATTERNS = [
+    re.compile(rf"\bmissing\s+(?:http\s+security\s+)?headers?\s*[:\-]?\s*{_HTTP_HEADER_NAME_RE}\b", re.IGNORECASE),
+    re.compile(rf"\bmissing\s*:\s*{_HTTP_HEADER_NAME_RE}\b", re.IGNORECASE),
+    re.compile(rf"\b(?:suggested\s+security\s+)?headers?\s+missing\s*[:\-]?\s*{_HTTP_HEADER_NAME_RE}\b", re.IGNORECASE),
+    re.compile(rf"\bthe\s+{_HTTP_HEADER_NAME_RE}\s+header\s+is\s+not\s+set\b", re.IGNORECASE),
+    re.compile(rf"\b{_HTTP_HEADER_NAME_RE}\s+header\s+(?:is\s+)?(?:missing|not\s+set)\b", re.IGNORECASE),
+]
 
 
 def _extract_nikto_findings(stdout: str) -> list[str]:
@@ -981,11 +989,20 @@ def _dedupe_findings(findings: list[str]) -> list[str]:
     seen: set[str] = set()
     for finding in findings:
         normalized = re.sub(r"\s+", " ", finding).strip().lower()
-        if not normalized or normalized in seen:
+        canonical_key = _canonical_finding_key(normalized)
+        if not canonical_key or canonical_key in seen:
             continue
-        seen.add(normalized)
+        seen.add(canonical_key)
         deduped.append(finding)
     return deduped
+
+
+def _canonical_finding_key(normalized_finding: str) -> str:
+    for pattern in _MISSING_HEADER_PATTERNS:
+        match = pattern.search(normalized_finding)
+        if match:
+            return f"missing-header:{match.group(1).strip().lower()}"
+    return normalized_finding
 
 
 def _extract_http_header_findings(header_scan: dict[str, Any]) -> list[str]:

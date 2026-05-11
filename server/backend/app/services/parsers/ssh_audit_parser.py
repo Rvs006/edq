@@ -38,9 +38,6 @@ WEAK_MACS = {
 }
 
 WEAK_HOST_KEYS = {
-    "ecdsa-sha2-nistp256",
-    "ecdsa-sha2-nistp384",
-    "ecdsa-sha2-nistp521",
     "ssh-dss",
     "ssh-rsa",
 }
@@ -265,7 +262,11 @@ class SshAuditParser:
                         result["weak_ciphers"].append(name)
                     elif section == "mac" and name not in result["weak_macs"]:
                         result["weak_macs"].append(name)
-                    elif section == "hostkey" and name not in result["weak_host_keys"]:
+                    elif (
+                        section == "hostkey"
+                        and name.lower() in WEAK_HOST_KEYS
+                        and name not in result["weak_host_keys"]
+                    ):
                         result["weak_host_keys"].append(name)
 
         total_weak = (

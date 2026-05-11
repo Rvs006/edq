@@ -290,7 +290,7 @@ export default function GuidedTour({ isActive, currentStep, onNext, onPrev, onSk
           height={tooltipPlacement.height}
           className="overflow-visible pointer-events-auto"
         >
-          <div className="bg-white dark:bg-dark-card rounded-xl shadow-2xl border border-zinc-200 dark:border-slate-700/50 p-5 w-full animate-fade-in">
+          <div className="bg-white dark:bg-dark-card rounded-xl shadow-2xl border border-zinc-200 dark:border-slate-700/50 p-5 w-full h-full overflow-y-auto animate-fade-in">
             {/* Header row: step counter + exit */}
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -367,7 +367,7 @@ function getTooltipPlacement(
   const vh = window.innerHeight
   const gap = 14
   const width = Math.min(360, Math.max(280, vw - 32))
-  const height = 320
+  const height = Math.max(96, Math.min(320, vh - 32))
   const maxX = Math.max(16, vw - width - 16)
   const maxY = Math.max(16, vh - height - 16)
   let x = (vw - width) / 2

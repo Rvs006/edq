@@ -322,7 +322,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex items-center gap-3">
               <MobileMenuButton
                 expanded={sidebarOpen}
-                onClick={() => setSidebarOpen(true)}
+                onClick={() => setSidebarOpen((open) => !open)}
               />
               <div className="min-w-0">
                 <h1 className="text-base font-semibold text-zinc-900 dark:text-slate-100">{pageTitle}</h1>
@@ -539,12 +539,13 @@ function MobileMenuButton({
   expanded: boolean
   onClick: () => void
 }) {
+  const label = expanded ? 'Close menu' : 'Open menu'
   const commonProps = {
     onClick,
     'aria-controls': 'mobile-navigation',
-    'aria-label': 'Open menu',
+    'aria-label': label,
     className: 'lg:hidden p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors',
-    title: 'Open menu',
+    title: label,
     type: 'button' as const,
   }
 

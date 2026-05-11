@@ -6,8 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.config import settings
-from app.models.user import User, UserRole
-from app.security.auth import hash_password
+from app.models.user import User
 from .conftest import register_and_login
 
 
@@ -85,48 +84,46 @@ async def test_login_success_with_email_identifier(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_headless_local_admin_password_change_preserves_seeded_password(client: AsyncClient, db_session):
-    """The local browser smoke suite must not drift the shared seeded admin password."""
-    db_session.add(User(
-        email="admin@electracom.co.uk",
-        username="admin",
-        password_hash=hash_password("SeedAdmin1"),
-        full_name="System Administrator",
-        role=UserRole.ADMIN,
-        is_active=True,
-    ))
-    await db_session.commit()
-
+async def test_password_change_updates_password_for_headless_user_agent(client: AsyncClient):
+    """Password changes must rotate the credential even for automated browser user agents."""
+    reg = await client.post("/api/auth/register", json={
+        "email": "password-change@example.com",
+        "username": "passwordchangeuser",
+        "password": "TestPass1",
+    })
+    assert reg.status_code == 201, f"Register failed: {reg.text}"
     login_resp = await client.post("/api/auth/login", json={
-        "username": "admin",
-        "password": "SeedAdmin1",
+        "username": "passwordchangeuser",
+        "password": "TestPass1",
     })
     assert login_resp.status_code == 200
+    csrf_token = login_resp.json()["csrf_token"]
+    assert client.cookies.get("edq_csrf") == csrf_token
 
     change_resp = await client.post(
         "/api/auth/change-password",
         json={
-            "current_password": "SeedAdmin1",
-            "new_password": "NewAdmin2",
+            "current_password": "TestPass1",
+            "new_password": "ChangedPass1",
         },
         headers={
-            "X-CSRF-Token": login_resp.json()["csrf_token"],
+            "X-CSRF-Token": csrf_token,
             "User-Agent": "Mozilla/5.0 HeadlessChrome/120.0",
         },
     )
     assert change_resp.status_code == 200
 
     old_password_login = await client.post("/api/auth/login", json={
-        "username": "admin",
-        "password": "SeedAdmin1",
+        "username": "passwordchangeuser",
+        "password": "TestPass1",
     })
-    assert old_password_login.status_code == 200
+    assert old_password_login.status_code == 401
 
     new_password_login = await client.post("/api/auth/login", json={
-        "username": "admin",
-        "password": "NewAdmin2",
+        "username": "passwordchangeuser",
+        "password": "ChangedPass1",
     })
-    assert new_password_login.status_code == 401
+    assert new_password_login.status_code == 200
 
 
 @pytest.mark.asyncio
