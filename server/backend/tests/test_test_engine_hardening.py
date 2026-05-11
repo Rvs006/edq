@@ -315,6 +315,64 @@ async def test_u02_uses_sidecar_parsed_arp_entries(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_u02_uses_host_arp_helper_when_docker_arp_is_empty(monkeypatch):
+    engine = TestEngine()
+    empty_host_xml = (
+        '<?xml version="1.0"?><nmaprun>'
+        '<host><status state="up"/><address addr="192.168.4.54" addrtype="ipv4"/></host>'
+        "</nmaprun>"
+    )
+
+    async def fake_nmap_stream(_target, _args=None, timeout=300, on_line=None):
+        return {"exit_code": 0, "stdout": empty_host_xml}
+
+    async def fake_post(_path, _payload, timeout=300):
+        return {"exit_code": 0, "stdout": empty_host_xml}
+
+    async def fake_ping(_target, count=3):
+        return {"exit_code": 0, "stdout": "1 received"}
+
+    async def fake_arp_cache(_target):
+        return {"exit_code": 0, "stdout": "", "entries": []}
+
+    async def fake_host_arp_cache(_target):
+        return {
+            "exit_code": 0,
+            "stdout": "",
+            "entries": [
+                {
+                    "ip": "192.168.4.54",
+                    "mac": "38:D1:35:01:02:89",
+                    "vendor": "EasyIO Corporation Sdn. Bhd.",
+                }
+            ],
+        }
+
+    async def fake_resolve(mac, current_vendor=None):
+        assert mac == "38:D1:35:01:02:89"
+        return current_vendor
+
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
+    monkeypatch.setattr(test_engine_module.tools_client, "_post", fake_post)
+    monkeypatch.setattr(test_engine_module.tools_client, "ping", fake_ping)
+    monkeypatch.setattr(test_engine_module.tools_client, "arp_cache", fake_arp_cache)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_arp_cache", fake_host_arp_cache)
+    monkeypatch.setattr(test_engine_module, "resolve_mac_vendor", fake_resolve)
+
+    parsed, _raw = await engine._dispatch_test(
+        "U02",
+        "192.168.4.54",
+        "run-host-arp",
+        SimpleNamespace(mac_address=None, oui_vendor=None, manufacturer=None),
+        "direct",
+    )
+
+    assert parsed["mac_address"] == "38:D1:35:01:02:89"
+    assert parsed["oui_vendor"] == "EasyIO Corporation Sdn. Bhd."
+    assert parsed["source"] == "host_arp_helper"
+
+
+@pytest.mark.asyncio
 async def test_u16_does_not_run_hydra_against_generic_login_forms(monkeypatch):
     engine = TestEngine()
     run_id = "run-form-login"

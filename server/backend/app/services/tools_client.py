@@ -67,6 +67,7 @@ class ToolsClient:
 
     def __init__(self) -> None:
         self.base_url: str = settings.TOOLS_SIDECAR_URL
+        self.host_arp_helper_url: str = (settings.HOST_ARP_HELPER_URL or "").rstrip("/")
         self._headers: Dict[str, str] = {}
         if settings.TOOLS_API_KEY:
             self._headers["X-Tools-Key"] = settings.TOOLS_API_KEY
@@ -613,6 +614,27 @@ class ToolsClient:
             {"target": target, "timeout": 15},
             timeout=20,
         )
+
+    async def host_arp_cache(self, target: str) -> Dict[str, Any] | None:
+        """Read the host OS ARP cache via an optional helper outside Docker.
+
+        Docker Desktop can route to LAN devices but cannot see the Windows/macOS
+        host's ARP table. This helper is intentionally separate from the main
+        scanner URL so U02 can still use host Layer-2 evidence while the rest of
+        the automated tools continue running in the Docker scanner.
+        """
+        if not self.host_arp_helper_url:
+            return None
+
+        client = self._get_client(6)
+        resp = await client.post(
+            f"{self.host_arp_helper_url}/scan/arp-cache",
+            json={"target": target, "timeout": 15},
+            headers=self._headers,
+            timeout=6,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     async def neighbors(self, subnet: str | None = None) -> Dict[str, Any]:
         """Read the sidecar neighbor cache, optionally filtered to a subnet."""

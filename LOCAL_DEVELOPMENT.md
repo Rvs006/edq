@@ -129,6 +129,20 @@ $env:EDQ_SCANNER_PORT = "8002"
 python server.py
 ```
 
+For a persistent Windows MAC helper, install the startup task from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-host-mac-helper.ps1 -InstallDeps -InstallStartupTask
+```
+
+Then set this in the root `.env` for Docker-backed EDQ:
+
+```dotenv
+HOST_ARP_HELPER_URL=http://host.docker.internal:8002
+```
+
+This keeps the normal Docker scanner for security tooling while letting U02 read the Windows host ARP table for MAC discovery.
+
 ### Start the backend locally
 
 From `server\backend`:

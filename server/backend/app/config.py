@@ -85,6 +85,7 @@ class Settings(BaseSettings):
 
     TOOLS_SIDECAR_URL: str = "http://localhost:8001"
     TOOLS_API_KEY: str = ""
+    HOST_ARP_HELPER_URL: str = ""
 
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "strict"

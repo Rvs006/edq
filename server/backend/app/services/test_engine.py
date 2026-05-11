@@ -1774,6 +1774,27 @@ class TestEngine:
                         parsed["mac_address"] = arp_data["mac_address"]
                 except Exception:
                     logger.debug("U02: ARP cache fallback failed for %s", device_ip)
+            # Fallback 4: Docker Desktop can reach a LAN IP while hiding the
+            # host OS ARP table. If configured, ask a tiny host-side helper for
+            # the MAC without moving all scanner tools out of Docker.
+            if not parsed.get("mac_address"):
+                try:
+                    host_arp_result = await tools_client.host_arp_cache(device_ip)
+                    for entry in host_arp_result.get("entries", []) if isinstance(host_arp_result, dict) else []:
+                        if not isinstance(entry, dict):
+                            continue
+                        if str(entry.get("ip") or "") == device_ip and entry.get("mac"):
+                            parsed["mac_address"] = entry["mac"]
+                            if entry.get("vendor"):
+                                parsed["oui_vendor"] = entry["vendor"]
+                            parsed["source"] = "host_arp_helper"
+                            break
+                    arp_data = nmap_parser.parse_arp_cache(host_arp_result.get("stdout", "")) if isinstance(host_arp_result, dict) else {}
+                    if not parsed.get("mac_address") and arp_data.get("mac_address"):
+                        parsed["mac_address"] = arp_data["mac_address"]
+                        parsed["source"] = "host_arp_helper"
+                except Exception:
+                    logger.debug("U02: host ARP helper fallback failed for %s", device_ip)
             device_mac = normalize_mac(getattr(device, "mac_address", None))
             if not parsed.get("mac_address") and device_mac:
                 parsed["mac_address"] = device_mac

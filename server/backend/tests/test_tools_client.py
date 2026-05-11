@@ -13,6 +13,7 @@ def _client(in_docker: bool = True, raw_capable: bool = True) -> ToolsClient:
     client.scanner_in_docker = in_docker
     client.scanner_mode = "docker" if in_docker else "host"
     client._docker_raw_scan_capable = raw_capable
+    client.host_arp_helper_url = ""
     return client
 
 
@@ -78,6 +79,45 @@ def test_explicit_host_scanner_mode_overrides_loopback_default(monkeypatch):
     client.backend_in_docker = False
 
     assert client._resolve_scanner_mode() == "host"
+
+
+@pytest.mark.asyncio
+async def test_host_arp_cache_uses_dedicated_helper_url():
+    client = _client()
+    client.host_arp_helper_url = "http://host.docker.internal:8002"
+    client._headers = {"X-Tools-Key": "test-key"}
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"entries": [{"ip": "192.168.4.54", "mac": "38:D1:35:01:02:89"}]}
+
+    class FakeClient:
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return FakeResponse()
+
+    client._get_client = lambda _timeout=300: FakeClient()
+
+    result = await client.host_arp_cache("192.168.4.54")
+
+    assert captured["url"] == "http://host.docker.internal:8002/scan/arp-cache"
+    assert captured["json"] == {"target": "192.168.4.54", "timeout": 15}
+    assert captured["headers"] == {"X-Tools-Key": "test-key"}
+    assert result["entries"][0]["mac"] == "38:D1:35:01:02:89"
+
+
+@pytest.mark.asyncio
+async def test_host_arp_cache_noops_without_helper_url():
+    client = _client()
+
+    result = await client.host_arp_cache("192.168.4.54")
+
+    assert result is None
 
 
 @pytest.mark.asyncio
