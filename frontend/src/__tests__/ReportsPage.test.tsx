@@ -6,6 +6,7 @@ import ReportsPage from '@/pages/ReportsPage'
 import { reportsApi, testRunsApi } from '@/lib/api'
 import type { TestRun } from '@/lib/types'
 import toast from 'react-hot-toast'
+import type { AxiosResponse, InternalAxiosRequestConfig } from 'edq-http'
 
 vi.mock('@/lib/api', () => ({
   reportsApi: {
@@ -24,6 +25,75 @@ vi.mock('react-hot-toast', () => ({
   default: { success: vi.fn(), error: vi.fn() },
 }))
 
+function axiosResponse<T>(data: T, overrides: Partial<AxiosResponse<T>> = {}): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: {} as InternalAxiosRequestConfig,
+    ...overrides,
+  }
+}
+
+function makeTestRun(overrides: Partial<TestRun> = {}): TestRun {
+  return {
+    id: 'run-1',
+    device_id: 'device-1',
+    device_name: null,
+    device_ip: '192.0.2.10',
+    device_mac_address: null,
+    device_manufacturer: 'FixtureCo',
+    device_model: 'FX-100',
+    device_category: 'controller',
+    template_id: null,
+    template_name: 'Full Security Assessment',
+    engineer_id: 'engineer-1',
+    engineer_name: 'Admin User',
+    agent_id: null,
+    status: 'completed',
+    overall_verdict: null,
+    progress_pct: 100,
+    total_tests: 0,
+    completed_tests: 0,
+    passed_tests: 0,
+    failed_tests: 0,
+    advisory_tests: 0,
+    na_tests: 0,
+    synopsis: null,
+    synopsis_status: null,
+    connection_scenario: null,
+    run_metadata: null,
+    created_at: '2026-05-11T10:00:00Z',
+    confidence: null,
+    readiness_summary: {
+      score: 10,
+      level: 'ready',
+      label: 'Ready',
+      report_ready: true,
+      operational_ready: true,
+      blocking_issue_count: 0,
+      pending_manual_count: 0,
+      release_blocking_failure_count: 0,
+      review_required_issue_count: 0,
+      manual_evidence_pending_count: 0,
+      advisory_count: 0,
+      override_count: 0,
+      failed_test_count: 0,
+      completed_result_count: 0,
+      total_result_count: 0,
+      trust_tier_counts: {},
+      reasons: [],
+      next_step: 'Ready for report generation.',
+      summary: 'Ready for report generation.',
+    },
+    started_at: null,
+    updated_at: null,
+    completed_at: null,
+    ...overrides,
+  }
+}
+
 function renderWithProviders(ui: React.ReactElement, options: { completedRuns?: TestRun[] } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -39,24 +109,12 @@ function renderWithProviders(ui: React.ReactElement, options: { completedRuns?: 
 }
 
 describe('ReportsPage', () => {
-  const completedRun = {
-    id: 'run-1',
-    status: 'completed',
-    created_at: '2026-05-11T10:00:00Z',
-    manufacturer: 'FixtureCo',
-    model: 'FX-100',
-    readiness_summary: {
-      score: 10,
-      label: 'Ready',
-      report_ready: true,
-      summary: 'Ready for report generation.',
-    },
-  } as TestRun
+  const completedRun = makeTestRun()
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(testRunsApi.list).mockResolvedValue({ data: [] } as Awaited<ReturnType<typeof testRunsApi.list>>)
-    vi.mocked(reportsApi.templates).mockResolvedValue({ data: [] } as Awaited<ReturnType<typeof reportsApi.templates>>)
+    vi.mocked(testRunsApi.list).mockResolvedValue(axiosResponse([]))
+    vi.mocked(reportsApi.templates).mockResolvedValue(axiosResponse([]))
     Object.defineProperty(window.URL, 'createObjectURL', {
       configurable: true,
       value: vi.fn(() => 'blob:report-download'),
@@ -116,20 +174,18 @@ describe('ReportsPage', () => {
   })
 
   it('groups report-ready runs by device and marks the latest timestamp', async () => {
-    const olderRun = {
-      ...completedRun,
+    const olderRun = makeTestRun({
       id: 'run-old',
       created_at: '2026-05-10T10:00:00Z',
       completed_at: '2026-05-10T10:30:00Z',
       template_name: 'Universal (Smart Profiling)',
-    } as TestRun
-    const newerRun = {
-      ...completedRun,
+    })
+    const newerRun = makeTestRun({
       id: 'run-new',
       created_at: '2026-05-12T10:00:00Z',
       completed_at: '2026-05-12T10:30:00Z',
       template_name: 'Extended Qualification (Dylan Template)',
-    } as TestRun
+    })
 
     renderWithProviders(<ReportsPage />, { completedRuns: [olderRun, newerRun] })
 
@@ -142,18 +198,18 @@ describe('ReportsPage', () => {
 
   it('downloads the generated report as a blob via axios', async () => {
     const filename = 'EDQ_Report_12345678-1234-1234-1234-123456789abc_generic_20260511_100000.xlsx'
-    vi.mocked(reportsApi.generate).mockResolvedValueOnce({
-      data: {
+    vi.mocked(reportsApi.generate).mockResolvedValueOnce(
+      axiosResponse({
         filename,
         download_url: `/api/reports/download/${filename}`,
-      },
-    } as Awaited<ReturnType<typeof reportsApi.generate>>)
-    vi.mocked(reportsApi.download).mockResolvedValueOnce({
-      data: new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], {
+      }),
+    )
+    vi.mocked(reportsApi.download).mockResolvedValueOnce(axiosResponse(
+      new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       }),
-      headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
-    } as Awaited<ReturnType<typeof reportsApi.download>>)
+      { headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } },
+    ))
 
     renderWithProviders(<ReportsPage />, { completedRuns: [completedRun] })
 
@@ -174,13 +230,15 @@ describe('ReportsPage', () => {
 
   it('surfaces a clear error when the download response is JSON instead of a workbook', async () => {
     const filename = 'EDQ_Report_12345678-1234-1234-1234-123456789abc_generic_20260511_100000.xlsx'
-    vi.mocked(reportsApi.generate).mockResolvedValueOnce({
-      data: { filename, download_url: `/api/reports/download/${filename}` },
-    } as Awaited<ReturnType<typeof reportsApi.generate>>)
-    vi.mocked(reportsApi.download).mockResolvedValueOnce({
-      data: new Blob([JSON.stringify({ detail: 'Access denied' })], { type: 'application/json' }),
-      headers: { 'content-type': 'application/json' },
-    } as Awaited<ReturnType<typeof reportsApi.download>>)
+    vi.mocked(reportsApi.generate).mockResolvedValueOnce(
+      axiosResponse({ filename, download_url: `/api/reports/download/${filename}` }),
+    )
+    vi.mocked(reportsApi.download).mockResolvedValueOnce(
+      axiosResponse(
+        new Blob([JSON.stringify({ detail: 'Access denied' })], { type: 'application/json' }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    )
 
     renderWithProviders(<ReportsPage />, { completedRuns: [completedRun] })
     await screen.findByRole('option', { name: /FixtureCo FX-100/i })

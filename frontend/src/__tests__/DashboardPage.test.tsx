@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import DashboardPage from '@/pages/DashboardPage'
+import type { AxiosResponse, InternalAxiosRequestConfig } from 'edq-http'
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -22,6 +23,16 @@ vi.mock('@/lib/api', () => ({
 
 import { devicesApi, testRunsApi } from '@/lib/api'
 
+function axiosResponse<T>(data: T): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: {} as InternalAxiosRequestConfig,
+  }
+}
+
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -36,17 +47,16 @@ function renderWithProviders(ui: React.ReactElement) {
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(devicesApi.stats).mockResolvedValue({
-      data: { total: 534, by_category: {} },
-    } as Awaited<ReturnType<typeof devicesApi.stats>>)
-    vi.mocked(testRunsApi.stats).mockResolvedValue({
-      data: {
+    vi.mocked(devicesApi.stats).mockResolvedValue(axiosResponse({ total: 534, by_status: {}, by_category: {} }))
+    vi.mocked(testRunsApi.stats).mockResolvedValue(
+      axiosResponse({
+        total: 0,
         by_status: { completed: 0 },
         by_verdict: {},
         completed_this_week: 0,
-      },
-    } as Awaited<ReturnType<typeof testRunsApi.stats>>)
-    vi.mocked(testRunsApi.list).mockResolvedValue({ data: [] } as Awaited<ReturnType<typeof testRunsApi.list>>)
+      }),
+    )
+    vi.mocked(testRunsApi.list).mockResolvedValue(axiosResponse([]))
   })
 
   it('shows a numeric zero pass rate when no completed verdicts exist', async () => {
