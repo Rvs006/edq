@@ -9,10 +9,13 @@
 *.md
 !DEPLOY.md
 node_modules
+frontend/.pnpm-store
+.pnpm-store
 electron
 __pycache__
 *.pyc
 .pytest_cache
+.pytest_tmp
 pytest-cache-files-*
 server/backend/pytest-cache-files-*
 server/backend/.pytest_cache

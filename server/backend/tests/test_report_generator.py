@@ -71,10 +71,29 @@ FPDF_AVAILABLE = importlib.util.find_spec("fpdf") is not None
 
 def test_generic_template_is_available():
     templates = {item["key"]: item for item in report_generator.get_available_templates()}
+    assert set(templates) == {"generic"}
     assert templates["generic"]["template_exists"] is True
     assert templates["generic"]["mapping_exists"] is True
-    assert templates["sauter_680_as"]["template_exists"] is True
-    assert templates["sauter_680_as"]["mapping_exists"] is True
+
+
+def test_generic_mapping_uses_canonical_generated_report_layout():
+    mapping = report_generator._load_mapping("generic")
+
+    assert mapping["synopsis_sheet"] == "General Test Information"
+    assert mapping["testplan_sheet"] == "Test Results"
+    assert mapping["additional_sheet"] == "Additional Device Information"
+    assert "row_sources" not in mapping
+    assert list(mapping["testplan_columns"]) == [
+        "test_number",
+        "brief_description",
+        "tier",
+        "tool",
+        "essential_test",
+        "test_result",
+        "test_comments",
+        "engineer_notes",
+        "evidence_summary",
+    ]
 
 
 def test_build_report_document_uses_template_mapping_for_layout():
@@ -129,7 +148,11 @@ async def test_generate_excel_report_preserves_generic_workbook_structure(tmp_pa
             "Additional Device Information",
             "Raw Evidence",
         ]
-        assert len(workbook["General Test Information"]._images) >= 1
+        assert workbook["General Test Information"]["C1"].value == "IP Device Qualification Report"
+        assert workbook["Test Results"]["B3"].value == "Test ID"
+        assert workbook["Test Results"]["G3"].value == "Test Result"
+        assert workbook["Test Results"]["H3"].value == "Test Comments"
+        assert workbook["Raw Evidence"]["D3"].value == "Detailed Evidence"
     finally:
         workbook.close()
 
@@ -173,6 +196,56 @@ async def test_generate_excel_report_adds_logo_to_template_summary_sheet(tmp_pat
         assert len(workbook["TEST SYNOPSIS"]._images) >= 1
     finally:
         workbook.close()
+
+
+@pytest.mark.asyncio
+async def test_template_logo_drawing_is_inserted_in_excel_safe_order(tmp_path, monkeypatch):
+    import zipfile
+
+    from lxml import etree
+
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [_make_test_result()],
+        template_key="easyio_controller",
+    )
+
+    with zipfile.ZipFile(output) as zf:
+        root = etree.fromstring(zf.read("xl/worksheets/sheet1.xml"))
+
+    child_names = [etree.QName(child).localname for child in root]
+    drawing_index = child_names.index("drawing")
+    for element_name in ("mergeCells", "conditionalFormatting", "dataValidations", "pageMargins", "pageSetup"):
+        assert drawing_index > child_names.index(element_name)
+
+
+@pytest.mark.asyncio
+async def test_excel_content_types_keeps_defaults_before_overrides(tmp_path, monkeypatch):
+    """Defaults must precede Overrides — Excel raises a repair dialog otherwise."""
+    import zipfile
+
+    from lxml import etree
+
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [_make_test_result()],
+        template_key="generic",
+    )
+
+    with zipfile.ZipFile(output) as zf:
+        root = etree.fromstring(zf.read("[Content_Types].xml"))
+
+    seen_override = False
+    for child in root:
+        local = etree.QName(child).localname
+        if local == "Override":
+            seen_override = True
+        elif local == "Default":
+            assert not seen_override, "Default element appeared after Override in [Content_Types].xml"
 
 
 def test_output_path_uses_full_run_uuid(tmp_path, monkeypatch):
@@ -269,6 +342,23 @@ async def test_generate_csv_report_uses_template_profile_metadata(tmp_path, monk
     assert "Script Flag" in csv_text
     assert "Report Logo" in csv_text
     assert "electracom-logo.png" in csv_text
+
+
+@pytest.mark.asyncio
+async def test_generate_dxf_report_creates_cad_interchange_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+
+    output = await report_generator.generate_dxf_report(
+        _make_test_run(),
+        [_make_test_result()],
+        template_key="generic",
+    )
+
+    dxf_text = Path(output).read_text(encoding="ascii")
+    assert output.endswith(".dxf")
+    assert "SECTION" in dxf_text
+    assert "EDQ IP Device Qualification Report" in dxf_text
+    assert "Network Reachability" in dxf_text or "Ping" in dxf_text
 
 
 @pytest.mark.asyncio
@@ -407,12 +497,13 @@ def test_comment_override_is_used_for_report_comments():
         template_key="generic",
     )
 
-    row = next(item for item in report.rows if item.test_comments == "Edited tester comment for the report.")
-    assert row.test_comments == "Edited tester comment for the report."
+    row = next(item for item in report.rows if item.engineer_notes == "Inspect after reboot")
+    assert row.test_comments.startswith("Edited tester comment for the report.")
+    assert "Engineer Notes:" not in row.test_comments
 
 
 @pytest.mark.asyncio
-async def test_generic_report_uses_one_row_per_test_and_keeps_evidence(tmp_path, monkeypatch):
+async def test_generic_report_writes_canonical_results_and_keeps_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
 
     output = await report_generator.generate_excel_report(
@@ -438,16 +529,65 @@ async def test_generic_report_uses_one_row_per_test_and_keeps_evidence(tmp_path,
         ]
         assert ws["B4"].value == "U01"
         assert ws["C4"].value == "Network Reachability"
-        assert ws["J4"].value.startswith("Host is up.")
+        assert ws["G4"].value == "PASS"
+        assert "Device responded as expected." in ws["H4"].value
+        assert "Host is up.\n1 open tcp port discovered." in ws["J4"].value
         assert ws["B5"].value == "U03"
-        assert ws["D5"].value == "Guided Manual"
+        assert ws["C5"].value == "Switch Negotiation"
+        assert ws["G5"].value == "PASS"
         assert ws["I5"].value == "Observed from managed switch port status page."
-        evidence_ws = wb["Raw Evidence"]
-        assert evidence_ws["A4"].value == "U01"
-        assert evidence_ws["D4"].value == "Host is up.\n1 open tcp port discovered."
-        assert evidence_ws["C5"].value == "Observed from managed switch port status page."
+        raw_ws = wb["Raw Evidence"]
+        assert raw_ws["A4"].value == "U01"
+        assert "Host is up.\n1 open tcp port discovered." in raw_ws["D4"].value
     finally:
         wb.close()
+
+
+@pytest.mark.asyncio
+async def test_report_exports_strip_illegal_xml_control_characters(tmp_path, monkeypatch):
+    monkeypatch.setattr(report_generator.settings, "REPORT_DIR", str(tmp_path))
+    result = _make_test_result()
+    result.comment = "Device responded\x0b with terminal output."
+    result.engineer_notes = "Review escape sequence \x1b before release."
+    result.raw_output = "Host is up.\x00\n\x1b[31m1 open tcp port discovered."
+
+    output = await report_generator.generate_excel_report(
+        _make_test_run(),
+        [result],
+        template_key="generic",
+    )
+
+    wb = load_workbook(output)
+    try:
+        results_ws = wb["Test Results"]
+        evidence_ws = wb["Raw Evidence"]
+        exported_values = [
+            results_ws["H4"].value,
+            results_ws["I4"].value,
+            results_ws["J4"].value,
+            evidence_ws["D4"].value,
+        ]
+        assert all("\x00" not in str(value) and "\x0b" not in str(value) and "\x1b" not in str(value) for value in exported_values)
+        assert "[31m1 open tcp port discovered." in str(evidence_ws["D4"].value)
+    finally:
+        wb.close()
+
+    if DOCX_AVAILABLE:
+        from docx import Document
+
+        docx_output = await report_generator.generate_word_report(
+            _make_test_run(),
+            [result],
+            template_key="generic",
+        )
+        document = Document(docx_output)
+        text = "\n".join(
+            [paragraph.text for paragraph in document.paragraphs]
+            + [cell.text for table in document.tables for row in table.rows for cell in row.cells]
+        )
+        assert "\x00" not in text
+        assert "\x0b" not in text
+        assert "\x1b" not in text
 
 
 @pytest.mark.asyncio
@@ -543,8 +683,10 @@ async def test_protocol_settings_reload_drive_u04_exported_evidence(
         results_ws = wb["Test Results"]
         evidence_ws = wb["Raw Evidence"]
         assert results_ws["B4"].value == "U04"
+        assert results_ws["C4"].value == "DHCP Behaviour"
+        assert results_ws["G4"].value in {"PASS", "INFO"}
         assert "lease acknowledgement" in str(results_ws["H4"].value).lower()
-        assert "192.168.4.68" in str(results_ws["J4"].value)
+        assert "192.168.4.68" in str(results_ws["H4"].value)
         evidence_detail = str(evidence_ws["D4"].value)
         assert '"dhcp_lease_acknowledged": true' in evidence_detail.lower()
         assert '"offered_ip": "192.168.4.68"' in evidence_detail
@@ -585,10 +727,7 @@ async def test_engineer_notes_written_to_excel_cell(tmp_path, monkeypatch):
     wb = load_workbook(output)
     try:
         ws = wb["Test Results"]
-        header = ws["I3"].value
-        assert header == "Engineer Notes"
-        column_values = [ws[f"I{row}"].value for row in range(4, 10)]
-        assert note in column_values
+        assert ws["I4"].value == note
     finally:
         wb.close()
 

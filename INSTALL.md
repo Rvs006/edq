@@ -108,6 +108,14 @@ Windows PowerShell:
 .\scripts\verify-app.ps1
 ```
 
+Windows scanner preflight:
+
+```powershell
+.\scripts\preflight-scanner.ps1
+```
+
+This checks Docker Desktop/Compose, elevation, `curl.exe`, Python, WSL availability, optional host Nmap, host-scanner reachability, and the Docker tools sidecar. The sidecar must report `nmap`, `testssl.sh`, `ssh-audit`, `hydra`, `nikto`, and `snmpwalk` before production-facing qualification runs.
+
 Manual checks:
 
 1. Open `http://localhost:3000`

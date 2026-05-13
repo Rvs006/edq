@@ -461,7 +461,7 @@ class ToolsClient:
         on_line: Optional[Callable[[str], Coroutine]] = None,
     ) -> Dict[str, Any]:
         """Run nikto with line-by-line streaming."""
-        return await self._post_stream(
+        return await self._network_post_stream(
             "/stream/nikto",
             {"target": target, "args": args or [], "timeout": timeout},
             timeout=timeout,
@@ -570,7 +570,7 @@ class ToolsClient:
         timeout: int = 300,
     ) -> Dict[str, Any]:
         """Run nikto web scanner."""
-        return await self._post(
+        return await self._network_post(
             "/scan/nikto",
             {"target": target, "args": args or [], "timeout": timeout},
             timeout=timeout,

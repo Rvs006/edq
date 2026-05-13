@@ -133,6 +133,22 @@ def test_u17_not_assessed_when_no_supported_auth_surface():
     assert "Tokenized web login" in comment
 
 
+def test_u17_reports_tool_blocked_as_inconclusive_info():
+    verdict, comment = evaluate_result(
+        "U17",
+        {
+            "lockout_detected": False,
+            "check_ran": False,
+            "tool_blocked": True,
+            "reason": "Hydra was blocked by the network before authentication.",
+        },
+    )
+
+    assert verdict == "info"
+    assert "Inconclusive" in comment
+    assert "blocked" in comment
+
+
 def test_u35_parses_modern_nikto_bracketed_findings():
     verdict, comment = evaluate_result(
         "U35",
@@ -278,6 +294,39 @@ def test_u11_lists_detected_cipher_suites_in_comment():
     assert verdict == "pass"
     assert "Detected cipher suites:" in comment
     assert "TLS_AES_256_GCM_SHA384" in comment
+
+
+def test_u11_reports_actionable_message_when_tls_exists_without_cipher_inventory():
+    verdict, comment = evaluate_result(
+        "U11",
+        {
+            "tls_versions": ["TLSv1.2"],
+            "ciphers": [],
+            "weak_ciphers": [],
+        },
+    )
+
+    assert verdict == "info"
+    assert "could not collect a cipher suite inventory" in comment
+    assert "testssl" in comment
+
+
+def test_u11_lists_all_detected_weak_cipher_suites():
+    weak_ciphers = [
+        {"name": f"TLS_WEAK_CIPHER_{index}", "protocol": "TLSv1.2"}
+        for index in range(1, 9)
+    ]
+    verdict, comment = evaluate_result(
+        "U11",
+        {
+            "ciphers": weak_ciphers,
+            "weak_ciphers": weak_ciphers,
+        },
+    )
+
+    assert verdict == "fail"
+    for index in range(1, 9):
+        assert f"TLS_WEAK_CIPHER_{index}" in comment
 
 
 def test_u12_includes_subject_issuer_and_validity_window():

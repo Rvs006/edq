@@ -9,9 +9,12 @@ import pytest
 
 from app.models.test_result import TestTier as ResultTierEnum, TestVerdict as ResultVerdictEnum
 from app.models.test_run import TestRunStatus as RunStatusEnum, TestRunVerdict as RunVerdictEnum
+from app.services import system_status as system_status_module
 from app.services import test_engine as test_engine_module
+from app.services.evaluation import evaluate_result
 from app.services.parsers.nmap_parser import nmap_parser
 from app.services.test_engine import TestEngine
+from app.services.test_library import get_active_tests
 
 
 def _result(
@@ -31,6 +34,22 @@ def _result(
 def test_nmap_xml_or_raise_rejects_empty_scanner_output():
     with pytest.raises(RuntimeError, match="U06 nmap returned no XML output"):
         test_engine_module._nmap_xml_or_raise("U06", {"exit_code": 0, "stdout": ""})
+
+
+def test_system_status_tools_have_active_test_coverage():
+    def normalize_tool_name(tool: str) -> str:
+        return {
+            "ssh-audit": "ssh_audit",
+            "testssl.sh": "testssl",
+        }.get(tool, tool)
+
+    active_tool_keys = {
+        normalize_tool_name(str(test.get("tool")))
+        for test in get_active_tests()
+        if test.get("tool")
+    }
+
+    assert set(system_status_module.TOOL_KEYS).issubset(active_tool_keys)
 
 
 def test_nmap_xml_or_raise_keeps_parseable_xml_from_nonzero_nmap_exit():
@@ -124,6 +143,58 @@ def test_ssh_ports_from_scan_data_prefers_definite_tcp_ssh_ports():
     )
 
     assert ports == [22, 2222]
+
+
+@pytest.mark.asyncio
+async def test_u35_prefers_https_service_for_nikto(monkeypatch):
+    engine = TestEngine()
+    captured: dict[str, object] = {}
+    run_id = "u35-https-run"
+
+    async def fake_nikto_stream(target, args=None, timeout=300, on_line=None):
+        captured["target"] = target
+        captured["args"] = args
+        return {"stdout": "- Nikto v2.6.0\n+ 1 host(s) tested\n"}
+
+    async def fake_capture_headers(_self, device_ip, capture_run_id):
+        assert device_ip == "192.168.4.64"
+        assert capture_run_id == run_id
+        return {
+            "http_service_detected": True,
+            "headers": {
+                "Content-Security-Policy": "default-src 'self'",
+                "X-Frame-Options": "DENY",
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "same-origin",
+                "Strict-Transport-Security": "max-age=31536000",
+            },
+            "raw_headers": "HTTP/1.1 200 OK\nStrict-Transport-Security: max-age=31536000",
+            "response_url": "https://192.168.4.64",
+        }
+
+    monkeypatch.setattr(test_engine_module.tools_client, "nikto_stream", fake_nikto_stream)
+    monkeypatch.setattr(TestEngine, "_capture_http_security_headers", fake_capture_headers)
+
+    test_engine_module._PORT_SCAN_CACHE[run_id] = {
+        "open_ports": [
+            {"port": 80, "protocol": "tcp", "state": "open", "service": "http"},
+            {"port": 443, "protocol": "tcp", "state": "open", "service": "https"},
+        ]
+    }
+    try:
+        parsed, _raw = await engine._dispatch_test(
+            "U35",
+            "192.168.4.64",
+            run_id,
+            SimpleNamespace(),
+            "direct",
+        )
+    finally:
+        test_engine_module._PORT_SCAN_CACHE.pop(run_id, None)
+
+    assert captured["target"] == "192.168.4.64"
+    assert captured["args"] == ["-p", "443", "-ssl"]
+    assert parsed["header_scan"]["response_url"] == "https://192.168.4.64"
 
 
 def test_docker_tcp_inventory_includes_smart_building_ports():
@@ -557,6 +628,35 @@ async def test_u17_reports_not_assessed_when_ssh_hydra_kex_fails(monkeypatch):
     assert "host-key/KEX" in parsed["reason"]
 
 
+@pytest.mark.asyncio
+async def test_u17_reports_tool_blocked_when_probe_cannot_reach_auth_service(monkeypatch):
+    engine = TestEngine()
+
+    async def fake_hydra(_target, args=None, timeout=120):
+        return {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "Hydra: network is unreachable; host seems down",
+        }
+
+    monkeypatch.setattr(test_engine_module.tools_client, "hydra", fake_hydra)
+
+    parsed = await engine._test_brute_force_protection(
+        "192.168.4.64",
+        {
+            "open_ports": [
+                {"port": 22, "protocol": "tcp", "state": "open", "service": "ssh"}
+            ]
+        },
+    )
+
+    assert parsed["check_ran"] is False
+    assert parsed["tool_blocked"] is True
+    assert parsed["lockout_detected"] is False
+    assert parsed["attempts"] == 0
+    assert "blocked" in parsed["reason"]
+
+
 def test_login_form_extraction_uses_actual_input_names():
     form = test_engine_module._extract_login_form(
         """
@@ -660,6 +760,70 @@ async def test_u17_uses_discovered_web_login_port_and_form_fields(monkeypatch):
     assert args[-1].startswith("/session/login:")
     assert "user%5Bname%5D=^USER^" in args[-1]
     assert "user%5Bpassword%5D=^PASS^" in args[-1]
+
+
+@pytest.mark.asyncio
+async def test_u17_uses_http_default_port_after_redirect_without_port(monkeypatch):
+    import httpx
+
+    engine = TestEngine()
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        def __init__(self, url: str, text: str, status_code: int = 200):
+            self.url = url
+            self.text = text
+            self.status_code = status_code
+            self.headers: dict[str, str] = {}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, *args, **kwargs):
+            return FakeResponse(
+                "http://192.168.4.31/login",
+                """
+                <form method="post" action="/session/login">
+                  <input type="text" name="username" />
+                  <input type="password" name="password" />
+                </form>
+                """,
+            )
+
+    async def fake_hydra(target, args=None, timeout=120):
+        captured["target"] = target
+        captured["args"] = args or []
+        return {
+            "exit_code": 1,
+            "stdout": "too many failed login attempts; account locked",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(test_engine_module.tools_client, "hydra", fake_hydra)
+
+    parsed = await engine._test_brute_force_protection(
+        "192.168.4.31",
+        {
+            "scan_info": {"type": "connect", "protocol": "tcp"},
+            "open_ports": [
+                {"port": 8080, "protocol": "tcp", "state": "open", "service": "http-proxy"}
+            ],
+        },
+    )
+
+    assert parsed["lockout_detected"] is True
+    assert parsed["auth_type"] == "http-post-form"
+    assert parsed["target_port"] == 80
+    assert captured["target"] == "192.168.4.31"
+    assert "-s" not in captured["args"]
 
 
 @pytest.mark.asyncio
@@ -778,6 +942,59 @@ async def test_u06_full_scan_has_bounded_host_timeout(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_u31_runs_snmpwalk_against_detected_snmp_ports(monkeypatch):
+    engine = TestEngine()
+    captured: dict[str, object] = {"snmpwalk_calls": []}
+    xml = (
+        '<?xml version="1.0"?><nmaprun><scaninfo type="udp" protocol="udp"/>'
+        '<host><status state="up"/><address addr="192.168.4.64" addrtype="ipv4"/>'
+        '<ports><port protocol="udp" portid="161"><state state="open"/>'
+        '<service name="snmp"/></port></ports></host></nmaprun>'
+    )
+
+    async def fake_nmap_stream(target, args=None, timeout=300, on_line=None):
+        captured["nmap_target"] = target
+        captured["nmap_args"] = args or []
+        captured["nmap_timeout"] = timeout
+        return {"exit_code": 0, "stdout": xml}
+
+    async def fake_snmpwalk(target, args=None, timeout=120):
+        captured["snmpwalk_calls"].append((target, args or [], timeout))
+        return {
+            "exit_code": 0,
+            "stdout": ".1.3.6.1.2.1.1.1.0 = STRING: public sysDescr",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
+    monkeypatch.setattr(test_engine_module.tools_client, "snmpwalk", fake_snmpwalk)
+
+    parsed, raw = await engine._dispatch_test(
+        "U31",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(),
+        "direct",
+    )
+
+    assert captured["nmap_target"] == "192.168.4.64"
+    assert "-sU" in captured["nmap_args"]
+    assert "161,162" in captured["nmap_args"]
+    assert captured["nmap_timeout"] == 45
+    assert len(captured["snmpwalk_calls"]) == 2
+    assert captured["snmpwalk_calls"][0] == (
+        "192.168.4.64",
+        ["-v", "2c", "-c", "public", "-t", "5", "-r", "0", "-On"],
+        15,
+    )
+    assert "snmpwalk v2c" in parsed["snmpwalk_output"]
+    assert ".1.3.6.1.2.1.1.1.0" in raw
+    verdict, comment = evaluate_result("U31", parsed)
+    assert verdict == "fail"
+    assert "verified by snmpwalk" in comment
+
+
+@pytest.mark.asyncio
 async def test_u06_docker_mode_uses_fast_tcp_inventory(monkeypatch):
     engine = TestEngine()
     captured: dict[str, object] = {}
@@ -863,6 +1080,76 @@ async def test_u06_docker_backend_uses_host_network_full_scan_when_configured(mo
     assert "-p-" in captured["args"]
     assert parsed["scanner_source"] == "host"
     assert {p["port"] for p in parsed["open_ports"]} == {22}
+
+
+@pytest.mark.asyncio
+async def test_u07_preserves_host_scanner_source_without_docker_caveat(monkeypatch):
+    engine = TestEngine()
+    captured: dict[str, object] = {}
+    xml = (
+        '<?xml version="1.0"?><nmaprun><scaninfo type="udp" protocol="udp"/>'
+        '<host><status state="up"/><address addr="192.168.4.64" addrtype="ipv4"/>'
+        '<ports><port protocol="udp" portid="161"><state state="open"/><service name="snmp"/></port></ports>'
+        '</host></nmaprun>'
+    )
+
+    async def fake_nmap_stream(target, args=None, timeout=300, on_line=None):
+        captured["target"] = target
+        captured["args"] = args or []
+        return {"exit_code": 0, "stdout": xml, "_scanner_source": "host"}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
+
+    parsed, raw = await engine._dispatch_test(
+        "U07",
+        "192.168.4.64",
+        "run-u07-host",
+        SimpleNamespace(),
+        "direct",
+    )
+    verdict, comment = evaluate_result("U07", parsed)
+
+    assert raw == xml
+    assert captured["target"] == "192.168.4.64"
+    assert "-sU" in captured["args"]
+    assert parsed["scanner_source"] == "host"
+    assert verdict == "info"
+    assert "Docker" not in comment
+
+
+@pytest.mark.asyncio
+async def test_u08_preserves_host_scanner_source_for_service_detection(monkeypatch):
+    engine = TestEngine()
+    captured: dict[str, object] = {}
+    xml = (
+        '<?xml version="1.0"?><nmaprun><scaninfo type="syn" protocol="tcp"/>'
+        '<host><status state="up"/><address addr="192.168.4.64" addrtype="ipv4"/>'
+        '<ports><port protocol="tcp" portid="443"><state state="open"/>'
+        '<service name="https" product="Example Web" version="1.2"/></port></ports>'
+        '</host></nmaprun>'
+    )
+
+    async def fake_nmap_stream(target, args=None, timeout=300, on_line=None):
+        captured["target"] = target
+        captured["args"] = args or []
+        return {"exit_code": 0, "stdout": xml, "_scanner_source": "host"}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
+
+    parsed, raw = await engine._dispatch_test(
+        "U08",
+        "192.168.4.64",
+        "run-u08-host",
+        SimpleNamespace(),
+        "direct",
+    )
+
+    assert raw == xml
+    assert captured["target"] == "192.168.4.64"
+    assert "-sV" in captured["args"]
+    assert parsed["scanner_source"] == "host"
+    assert parsed["open_ports"][0]["port"] == 443
+    assert parsed["open_ports"][0]["service"] == "https"
 
 
 @pytest.mark.asyncio
@@ -1381,10 +1668,14 @@ async def test_run_uses_refreshed_device_ip_for_live_cable_handler(monkeypatch: 
     async def fake_load_whitelist(_db, _whitelist_id):
         return []
 
+    async def fake_is_device_ip_authorized(_db, _ip_address):
+        return True
+
     monkeypatch.setattr(engine, "_load_run", fake_load_run)
     monkeypatch.setattr(engine, "_load_device", fake_load_device)
     monkeypatch.setattr(engine, "_load_template", fake_load_template)
     monkeypatch.setattr(engine, "_load_whitelist", fake_load_whitelist)
+    monkeypatch.setattr(engine, "_is_device_ip_authorized", fake_is_device_ip_authorized)
     monkeypatch.setattr(engine, "_finalize_run", fake_finalize)
 
     await engine.run("run-3")

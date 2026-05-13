@@ -198,6 +198,7 @@ export default function TestDetail({
 
   const canOverride = userRole === 'admin' || userRole === 'reviewer'
   const isManual = result.tier === 'guided_manual'
+  const canShowOverride = canOverride && (isManual || Boolean(result.verdict && result.verdict !== 'pending'))
   const isPendingManual = !result.verdict || result.verdict === 'pending'
   const manualUnlocked = isManual && (!isPendingManual || runStatus === 'awaiting_manual')
   const termOutput = liveOutput || result.raw_output || ''
@@ -385,7 +386,7 @@ export default function TestDetail({
           </div>
         )}
 
-        {canOverride && result.verdict && result.verdict !== 'pending' && (
+        {canShowOverride && (
           <div className="border-t border-zinc-100 dark:border-slate-700/50 pt-4">
             <button
               onClick={() => setOverrideOpen(!overrideOpen)}
@@ -415,7 +416,7 @@ export default function TestDetail({
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
                   rows={2}
-                  placeholder="Justification for override (required)..."
+                  placeholder="Override reason..."
                   className="input resize-y text-sm"
                 />
                 <button

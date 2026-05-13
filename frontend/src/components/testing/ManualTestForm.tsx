@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, XCircle, AlertTriangle, MinusCircle, Loader2, ArrowRight } from 'lucide-react'
+import { getManualEvidenceIssue } from '@/lib/manualEvidence'
 
 interface ManualTestFormProps {
   testId: string
@@ -51,11 +52,15 @@ export default function ManualTestForm({
 
   const handleSubmit = async () => {
     if (!selectedVerdict) return
-    if (selectedVerdict !== 'pending' && !notes.trim()) return
+    if (evidenceIssue) return
     await onSubmit(selectedVerdict, notes)
     setSubmitted(true)
     setTimeout(() => setSubmitted(false), 2000)
   }
+
+  const evidenceIssue = selectedVerdict && selectedVerdict !== 'pending'
+    ? getManualEvidenceIssue(notes, { testNumber, testName })
+    : null
 
   const hasChanges =
     selectedVerdict !== (normalizeVerdict(currentVerdict) || null) ||
@@ -98,12 +103,12 @@ export default function ManualTestForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          placeholder="Observations, steps taken, or why this test does not apply..."
-          className="input resize-y text-sm"
+          placeholder="Observed setting, screen, log, port, or reason this test does not apply..."
+          className={`input resize-y text-sm ${evidenceIssue ? 'border-amber-400' : ''}`}
         />
-        {!notes.trim() && selectedVerdict && selectedVerdict !== 'pending' && (
+        {evidenceIssue && (
           <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-            Add engineer notes before saving this manual verdict.
+            {evidenceIssue}
           </p>
         )}
       </div>
@@ -112,7 +117,7 @@ export default function ManualTestForm({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!selectedVerdict || isSubmitting || (selectedVerdict !== 'pending' && !notes.trim())}
+          disabled={!selectedVerdict || isSubmitting || Boolean(evidenceIssue)}
           className="btn-primary text-sm"
         >
           {isSubmitting ? (

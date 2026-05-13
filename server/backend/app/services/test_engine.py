@@ -32,6 +32,7 @@ from app.models.test_run import (
 )
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.device import Device
+from app.models.authorized_network import AuthorizedNetwork
 from app.models.test_template import TestTemplate
 from app.models.protocol_whitelist import ProtocolWhitelist
 from app.config import settings
@@ -341,6 +342,18 @@ def _is_https_service(port: dict[str, Any]) -> bool:
     service = str(port.get("service") or "").lower()
     port_num = int(port.get("port") or 0)
     return "https" in service or "ssl/http" in service or port_num in {443, 8443, 4443, 9443, 44443, 44444}
+
+
+def _preferred_http_service(open_ports: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Pick the web service to assess, preferring HTTPS when both schemes exist."""
+    candidates = [
+        port for port in open_ports
+        if port.get("port") is not None and _is_definite_open_port(port) and _is_http_service(port)
+    ]
+    for port in candidates:
+        if _is_https_service(port):
+            return port
+    return candidates[0] if candidates else None
 
 
 def _ssh_ports_from_scan_data(scan_data: dict[str, Any] | None) -> list[int]:
@@ -1009,6 +1022,26 @@ class TestEngine:
     """Orchestrates the full test execution lifecycle for a test run."""
 
     @staticmethod
+    async def _is_device_ip_authorized(db: AsyncSession, ip_address: str | None) -> bool:
+        if not ip_address:
+            return False
+        try:
+            address = ipaddress.ip_address(ip_address)
+        except ValueError:
+            return False
+
+        result = await db.execute(
+            select(AuthorizedNetwork).where(AuthorizedNetwork.is_active == True)
+        )
+        for network in result.scalars().all():
+            try:
+                if address in ipaddress.ip_network(network.cidr, strict=False):
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    @staticmethod
     def _progress_for(total: int, completed: int) -> float:
         if total <= 0:
             return 0.0
@@ -1108,6 +1141,19 @@ class TestEngine:
                 await self._set_run_error(
                     db, run,
                     "Device has no IP address. Discover the IP first for DHCP devices.",
+                )
+                return
+
+            if not await self._is_device_ip_authorized(db, device.ip_address):
+                logger.error(
+                    "Device %s resolved to unauthorized IP address %s during test execution",
+                    device.id,
+                    device.ip_address,
+                )
+                await self._set_run_error(
+                    db,
+                    run,
+                    f"Device IP address {device.ip_address} is not authorized for scanning.",
                 )
                 return
 
@@ -2218,14 +2264,11 @@ class TestEngine:
             nikto_args = []
             port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
             open_ports = port_cache.get("open_ports", [])
-            http_candidates = [
-                p for p in open_ports
-                if p.get("port") is not None and _is_definite_open_port(p) and _is_http_service(p)
-            ]
-            http_ports = [int(p["port"]) for p in http_candidates]
-            if http_ports:
-                nikto_args.extend(["-p", str(http_ports[0])])
-                if any(_is_https_service(p) for p in http_candidates if int(p["port"]) == http_ports[0]):
+            selected_http_service = _preferred_http_service(open_ports)
+            if selected_http_service:
+                target_port = int(selected_http_service["port"])
+                nikto_args.extend(["-p", str(target_port)])
+                if _is_https_service(selected_http_service):
                     nikto_args.append("-ssl")
             raw = await tools_client.nikto_stream(device_ip, nikto_args, timeout=300, on_line=on_line)
             parsed = {"raw": raw.get("stdout", ""), "stdout": raw.get("stdout", "")}
@@ -2234,7 +2277,7 @@ class TestEngine:
             except Exception as exc:
                 logger.debug("U35 HTTP header capture failed for %s: %s", device_ip, exc)
                 parsed["header_scan"] = {
-                    "http_service_detected": bool(http_candidates),
+                    "http_service_detected": bool(selected_http_service),
                     "headers": {},
                     "raw_headers": "",
                     "error": str(exc),
@@ -2944,9 +2987,9 @@ class TestEngine:
     ) -> dict[str, Any]:
         """Test brute force protection by sending rapid login attempts.
 
-        First detects whether the device uses form-based or HTTP basic auth.
-        If no supported web login surface is available, probes SSH when the
-        port scan has confirmed an SSH service.
+        Prefers an SSH lockout probe when ssh_ports are present in the port
+        scan evidence. Otherwise, detects whether the device uses HTTP basic
+        or form-based auth and probes that web login surface.
         """
         import ipaddress as _ipaddress
         import httpx
@@ -3024,6 +3067,21 @@ class TestEngine:
                 return True
             return False
 
+        def _hydra_probe_was_blocked(output: str) -> bool:
+            lowered = (output or "").lower()
+            return any(
+                marker in lowered
+                for marker in (
+                    "blocked by firewall",
+                    "filtered by firewall",
+                    "host seems down",
+                    "network is unreachable",
+                    "no route to host",
+                    "operation timed out",
+                    "connection timed out",
+                )
+            )
+
         async def _run_hydra_probe(
             args: list[str],
             probe_auth_type: str,
@@ -3053,6 +3111,21 @@ class TestEngine:
                         "reason": (
                             "The brute-force probe could not authenticate to the SSH service because "
                             "the scanner and device could not agree on SSH host-key/KEX algorithms."
+                        ),
+                    }
+
+                if _hydra_probe_was_blocked(output):
+                    return {
+                        "lockout_detected": False,
+                        "auth_type": probe_auth_type,
+                        "attempts": 0,
+                        "error": error_msg,
+                        "lockout_duration_seconds": None,
+                        "check_ran": False,
+                        "tool_blocked": True,
+                        "reason": (
+                            "The brute-force probe was blocked by the device or network before "
+                            "EDQ could verify whether authentication attempts reached the service."
                         ),
                     }
 
@@ -3128,7 +3201,7 @@ class TestEngine:
                 surface_url = urlparse(str(auth_surface.get("url") or base_url))
                 surface_scheme = surface_url.scheme or scheme
                 use_ssl = surface_scheme == "https"
-                selected_port = surface_url.port or (443 if use_ssl else selected_port)
+                selected_port = surface_url.port or (443 if use_ssl else 80)
                 _, selected_base_url = _web_base_url(
                     device_ip,
                     selected_port,
@@ -3311,11 +3384,8 @@ class TestEngine:
 
         port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
         open_ports = port_cache.get("open_ports", [])
-        candidate_ports = [
-            p for p in open_ports
-            if p.get("port") is not None and _is_definite_open_port(p) and _is_http_service(p)
-        ]
-        if not candidate_ports:
+        selected_http_service = _preferred_http_service(open_ports)
+        if not selected_http_service:
             return {
                 "http_service_detected": False,
                 "status_line": None,
@@ -3325,13 +3395,8 @@ class TestEngine:
                 "response_url": None,
             }
 
-        https_candidates = [
-            p for p in candidate_ports
-            if _is_https_service(p)
-        ]
-        target_port = (https_candidates or candidate_ports)[0]["port"]
-        target_service = (https_candidates or candidate_ports)[0].get("service") or "http"
-        scheme = "https" if _is_https_service(https_candidates[0] if https_candidates else {"port": target_port, "service": target_service}) else "http"
+        target_port = int(selected_http_service["port"])
+        scheme = "https" if _is_https_service(selected_http_service) else "http"
         url = f"{scheme}://{device_ip}:{target_port}" if target_port not in (80, 443) else f"{scheme}://{device_ip}"
 
         verify_attempts = [settings.SSL_VERIFY_DEVICES]
@@ -3611,8 +3676,28 @@ class TestEngine:
             run.status = TestRunStatus.FAILED
             run.completed_at = utcnow_naive()
             metadata = dict(run.run_metadata) if isinstance(run.run_metadata, dict) else {}
+            current_test = metadata.get("current_test")
+            device = await db.get(Device, run.device_id) if run.device_id else None
+            template = await db.get(TestTemplate, run.template_id) if run.template_id else None
+            metadata["last_error"] = {
+                "message": message,
+                "device_ip": getattr(device, "ip_address", None),
+                "template_id": run.template_id,
+                "template_name": getattr(template, "name", None),
+                "selected_test_count": run.total_tests,
+                "current_test": current_test,
+                "recorded_at": utcnow_naive().isoformat(),
+            }
             metadata.pop("current_test", None)
             run.run_metadata = metadata
+            logger.error(
+                "Test run %s failed for device %s template %s after %s selected tests: %s",
+                run.id,
+                getattr(device, "ip_address", None) or run.device_id,
+                getattr(template, "name", None) or run.template_id,
+                run.total_tests,
+                message,
+            )
             await db.commit()
 
         await manager.broadcast(f"test-run:{run.id if run else 'unknown'}", {

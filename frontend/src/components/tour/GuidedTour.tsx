@@ -35,14 +35,14 @@ const TOUR_STEPS: TourStep[] = [
   {
     page: '/test-runs',
     title: 'Test Sessions',
-    description: 'Each test session runs 48 active EDQ tests — 19 automated plus 29 guided manual checks where you physically verify the device and capture extra evidence.',
+    description: 'Each test session runs 49 active EDQ tests — 20 automated plus 29 guided manual checks where you physically verify the device and capture extra evidence.',
     targetSelector: '[data-tour="test-runs-table"]',
     position: 'bottom',
   },
   {
     page: '/reports',
     title: 'Generate Reports',
-    description: "Select a device and completed session, choose your format (Excel, Word, or PDF), and generate. Reports match Electracom's client format exactly.",
+    description: "Select a device and completed session, choose Excel or Word, and generate. Reports match Electracom's client format exactly.",
     targetSelector: '[data-tour="report-form"]',
     position: 'bottom',
   },

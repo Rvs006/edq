@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import textwrap
 import uuid
@@ -31,7 +32,7 @@ TEMPLATE_FILES = {
     "pelco_camera": "1TS - Pelco SMLE1-15V5-3H Camera Device Qualification Rev 2.xlsx",
     "easyio_controller": "EasyIO FW08 - Device Testing Plan - v1.1.xlsx",
     "sauter_680_as": "Sauter - 680-AS - IP Device Qualification Template C00.xlsx",
-    "generic": "[MANUFACTURER] - [MODEL] - IP Device Qualification Template (Rev00) C00.xlsx",
+    "generic": "[MANUFACTURER] - [MODEL] - IP Device Qualification Template C00 - ADDED TESTING Scenarios.xlsx",
 }
 TEMPLATE_MAPPING_FILES = {
     "pelco_camera": "pelco_camera.json",
@@ -39,7 +40,8 @@ TEMPLATE_MAPPING_FILES = {
     "sauter_680_as": "sauter_680_as.json",
     "generic": "generic.json",
 }
-REPORT_EXTENSIONS = {".xlsx", ".docx", ".pdf", ".csv"}
+ACTIVE_REPORT_TEMPLATE_KEYS = ("generic",)
+REPORT_EXTENSIONS = {".xlsx", ".docx", ".pdf", ".csv", ".dxf"}
 REPORT_OUTPUT_FILENAME_RE = re.compile(
     r"^EDQ_Report_"
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_"
@@ -52,7 +54,7 @@ TEMPLATE_INFO = {
     "pelco_camera": {"name": "Pelco Camera (Rev 2)", "device_category": "camera", "description": "Pelco camera workbook."},
     "easyio_controller": {"name": "EasyIO Controller", "device_category": "controller", "description": "EasyIO controller workbook."},
     "sauter_680_as": {"name": "Sauter 680-AS (C00)", "device_category": "controller", "description": "Sauter 680-AS qualification workbook."},
-    "generic": {"name": "Generic IP Device (Rev00 C00)", "device_category": "generic", "description": "Canonical generic 3-sheet workbook."},
+    "generic": {"name": "Generic IP Device (Rev00 C00)", "device_category": "generic", "description": "Canonical four-section qualification report."},
 }
 
 
@@ -243,11 +245,19 @@ def _sanitize(value: Any) -> Any:
     return _ILLEGAL_XML_CHARS.sub("", value) if isinstance(value, str) else value
 
 
+def _sanitize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "value"):
+        value = value.value
+    return str(_sanitize(str(value)))
+
+
 def _safe_attr(obj: Any, attr: str, default: str = "") -> str:
     value = getattr(obj, attr, None) if obj is not None else None
     if hasattr(value, "value"):
         value = value.value
-    return default if value is None else str(value)
+    return _sanitize_text(default if value is None else value)
 
 
 def _validate_template_key(template_key: str) -> str:
@@ -321,10 +331,10 @@ def _resolve_branding(report_config: Any = None, branding_settings: Any = None) 
         or str(config_branding.get("logo_path") or "")
     )
     return ReportBranding(
-        company_name=company_name,
-        primary_color=primary_color,
-        footer_text=footer_text,
-        logo_path=logo_path,
+        company_name=_sanitize_text(company_name),
+        primary_color=_sanitize_text(primary_color),
+        footer_text=_sanitize_text(footer_text),
+        logo_path=_sanitize_text(logo_path),
     )
 
 
@@ -350,16 +360,16 @@ def _comment(result: Any) -> str:
     reason = getattr(result, "override_reason", None)
     if reason:
         parts.append(f"[Override: {reason}]")
-    return " ".join(part for part in parts if part).strip()
+    return _sanitize_text(" ".join(str(part) for part in parts if part)).strip()
 
 
 def _engineer_notes(result: Any) -> str:
     notes = getattr(result, "engineer_notes", None)
-    return str(notes) if notes else ""
+    return _sanitize_text(notes) if notes else ""
 
 
 def _clip_text(value: Any, limit: int = 2000) -> str:
-    text = str(value or "").strip()
+    text = _sanitize_text(value).strip()
     if not text:
         return ""
     if len(text) <= limit:
@@ -377,7 +387,7 @@ def _format_evidence(result: Any, limit: int | None = None) -> str:
     """
     raw_output = getattr(result, "raw_output", None)
     if raw_output:
-        text = str(raw_output).strip()
+        text = _sanitize_text(raw_output).strip()
         return _clip_text(text, limit=limit) if limit else text
 
     findings = getattr(result, "findings", None)
@@ -386,6 +396,7 @@ def _format_evidence(result: Any, limit: int | None = None) -> str:
             text = json.dumps(findings, indent=2, ensure_ascii=False)
         except TypeError:
             text = str(findings).strip()
+        text = _sanitize_text(text).strip()
         return _clip_text(text, limit=limit) if limit else text
 
     parsed = getattr(result, "parsed_data", None)
@@ -394,6 +405,7 @@ def _format_evidence(result: Any, limit: int | None = None) -> str:
             text = json.dumps(parsed, indent=2, ensure_ascii=False)
         except TypeError:
             text = str(parsed).strip()
+        text = _sanitize_text(text).strip()
         return _clip_text(text, limit=limit) if limit else text
 
     return ""
@@ -416,6 +428,65 @@ def _evidence_detail(result: Any) -> str:
     return _format_evidence(result, limit=None)
 
 
+_VERDICT_RANK = {
+    "": 0,
+    "na": 10,
+    "pass": 20,
+    "qualified_pass": 30,
+    "info": 40,
+    "advisory": 50,
+    "running": 60,
+    "pending": 60,
+    "incomplete": 70,
+    "error": 80,
+    "fail": 90,
+}
+
+
+def _aggregate_verdict(results: list[Any]) -> str:
+    if not results:
+        return ""
+    selected = max(
+        results,
+        key=lambda result: _VERDICT_RANK.get(_safe_attr(result, "verdict").lower(), 0),
+    )
+    verdict = _safe_attr(selected, "verdict")
+    return _VERDICT_MAP.get(verdict.lower(), verdict.upper())
+
+
+def _combine_source_text(results: list[Any], formatter: Any) -> str:
+    parts: list[str] = []
+    for result in results:
+        text = _sanitize_text(formatter(result)).strip()
+        if not text:
+            continue
+        if len(results) > 1:
+            test_id = _safe_attr(result, "test_id") or "source"
+            parts.append(f"{test_id}: {text}")
+        else:
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def _template_comment(
+    results: list[Any],
+    has_engineer_notes_column: bool,
+    has_evidence_column: bool,
+) -> str:
+    if not results:
+        return ""
+    parts = [_combine_source_text(results, _comment)]
+    if not has_engineer_notes_column:
+        notes = _combine_source_text(results, _engineer_notes)
+        if notes:
+            parts.append(f"Engineer Notes:\n{notes}")
+    if not has_evidence_column:
+        evidence = _combine_source_text(results, _evidence_summary)
+        if evidence:
+            parts.append(f"Evidence:\n{evidence}")
+    return _sanitize_text("\n".join(part for part in parts if part).strip())
+
+
 def _test_sort_key(result: Any) -> tuple[int, str]:
     test_id = _safe_attr(result, "test_id")
     match = re.match(r"^[A-Za-z]+(\d+)$", test_id)
@@ -436,6 +507,19 @@ def _generic_testplan_columns() -> list[tuple[str, str]]:
         ("engineer_notes", "Engineer Notes"),
         ("evidence_summary", "Evidence Summary"),
     ]
+
+
+def _generic_template_report_columns(mapping: dict[str, Any], template_path: Path) -> list[tuple[str, str]]:
+    if not template_path.exists() or not mapping.get("row_sources"):
+        return _generic_testplan_columns()
+
+    columns = _resolve_testplan_columns(mapping)
+    attributes = {attribute for attribute, _ in columns}
+    if "engineer_notes" not in attributes:
+        columns.append(("engineer_notes", "Engineer Notes"))
+    if "evidence_summary" not in attributes:
+        columns.append(("evidence_summary", "Evidence Summary"))
+    return columns
 
 
 def _build_detailed_report_rows(test_results: list[Any]) -> list[ReportRow]:
@@ -466,19 +550,21 @@ def _summary_text(
     include_synopsis: bool,
     readiness_summary: dict[str, Any],
 ) -> str:
-    synopsis = (getattr(test_run, "synopsis", None) or "").replace("[AI-DRAFTED] ", "").strip()
+    synopsis = _sanitize_text(getattr(test_run, "synopsis", None)).replace("[AI-DRAFTED] ", "").strip()
     readiness_line = (
         f" Readiness status: {readiness_summary.get('label', 'Unknown')} "
         f"({readiness_summary.get('score', 1)}/10)."
     )
     if include_synopsis and synopsis:
-        return f"{synopsis.rstrip('.')}.{readiness_line}" if not synopsis.endswith(".") else f"{synopsis}{readiness_line}"
+        return _sanitize_text(
+            f"{synopsis.rstrip('.')}.{readiness_line}" if not synopsis.endswith(".") else f"{synopsis}{readiness_line}"
+        )
     summary = (
         f"Qualification testing for {metadata.get('manufacturer') or 'Unknown manufacturer'} "
         f"{metadata.get('model') or 'Unknown model'} completed with an overall result of "
         f"{metadata.get('overall_result') or 'INCOMPLETE'}."
     )
-    return f"{summary}{readiness_line}"
+    return _sanitize_text(f"{summary}{readiness_line}")
 
 
 def _supporting_evidence_body(
@@ -500,7 +586,7 @@ def _supporting_evidence_body(
     )
     if branding.footer_text:
         parts.append(f"Report Footer: {branding.footer_text}")
-    return "\n".join(parts)
+    return _sanitize_text("\n".join(parts))
 
 
 def _resolve_summary_fields(mapping: dict[str, Any]) -> list[tuple[str, str]]:
@@ -552,7 +638,7 @@ def _resolve_summary_text_label(mapping: dict[str, Any]) -> str:
 
 
 def _report_row_values(row: ReportRow, columns: list[tuple[str, str]]) -> list[str]:
-    return [str(getattr(row, attribute, "") or "") for attribute, _ in columns]
+    return [_sanitize_text(getattr(row, attribute, "")) for attribute, _ in columns]
 
 
 def _pdf_safe_width(pdf: Any) -> float:
@@ -560,7 +646,7 @@ def _pdf_safe_width(pdf: Any) -> float:
 
 
 def _pdf_safe_text(value: str) -> str:
-    text = str(value or "")
+    text = _sanitize_text(value)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("|", " - ")
     text = (
@@ -626,7 +712,7 @@ def build_report_document(
     summary_text_label = _resolve_summary_text_label(mapping)
     summary_fields = _resolve_summary_fields(mapping)
     testplan_columns = (
-        _generic_testplan_columns()
+        _generic_template_report_columns(mapping, template_path)
         if template_key == "generic"
         else _resolve_testplan_columns(mapping)
     )
@@ -657,9 +743,7 @@ def build_report_document(
     metadata["synopsis_text"] = metadata["summary_text"]
 
     rows: list[ReportRow] = []
-    if template_key == "generic":
-        rows = _build_detailed_report_rows(filtered_results)
-    elif template_path.exists() and mapping and mapping.get("row_sources"):
+    if template_path.exists() and mapping and mapping.get("row_sources"):
         from openpyxl import load_workbook
 
         wb = load_workbook(str(template_path), read_only=True, data_only=False)
@@ -674,29 +758,35 @@ def build_report_document(
             description_column = cols.get("test_description") or brief_column
             essential_column = cols.get("essential_test", cols.get("essential_pass"))
             engineer_notes_column = cols.get("engineer_notes")
+            evidence_column = cols.get("evidence_summary") or cols.get("evidence_detail")
             script_column = cols.get("script_flag")
             for row_index in range(start, start + count):
                 number = str(ws[f"{cols['test_number']}{row_index}"].value or "").strip()
                 source_ids = sources.get(number, [])
-                source = next((result_by_id[test_id] for test_id in source_ids if test_id in result_by_id), None)
-                comment = _comment(source) if source else ""
-                if source and not engineer_notes_column:
-                    comment = comment or _engineer_notes(source)
+                source_results = [result_by_id[test_id] for test_id in source_ids if test_id in result_by_id]
                 rows.append(
                     ReportRow(
                         test_number=number,
                         brief_description=str(ws[f"{brief_column}{row_index}"].value or "") if brief_column else "",
                         test_description=str(ws[f"{description_column}{row_index}"].value or "") if description_column else "",
                         essential_test=str(ws[f"{essential_column}{row_index}"].value or "") if essential_column else "",
-                        test_result=_VERDICT_MAP.get((_safe_attr(source, "verdict") or "").lower(), _safe_attr(source, "verdict").upper()) if source else "",
-                        test_comments=comment,
-                        engineer_notes=_engineer_notes(source) if source else "",
+                        test_result=_aggregate_verdict(source_results),
+                        test_comments=_template_comment(
+                            source_results,
+                            has_engineer_notes_column=bool(engineer_notes_column),
+                            has_evidence_column=bool(evidence_column),
+                        ),
+                        engineer_notes=_combine_source_text(source_results, _engineer_notes),
+                        evidence_summary=_combine_source_text(source_results, _evidence_summary),
+                        evidence_detail=_combine_source_text(source_results, _evidence_detail),
                         script_flag=str(ws[f"{script_column}{row_index}"].value or "") if script_column else "",
                         template_backed=True,
                     )
                 )
         finally:
             wb.close()
+    elif template_key == "generic":
+        rows = _build_detailed_report_rows(filtered_results)
     else:
         rows = _build_detailed_report_rows(filtered_results)
 
@@ -727,13 +817,14 @@ def build_report_document(
 
 def get_available_templates() -> list[dict[str, Any]]:
     items = []
-    for key, info in TEMPLATE_INFO.items():
+    for key in ACTIVE_REPORT_TEMPLATE_KEYS:
+        info = TEMPLATE_INFO[key]
         items.append({
             "key": key,
             "name": info["name"],
             "device_category": info["device_category"],
             "description": info["description"],
-            "template_exists": (_TEMPLATES_DIR / TEMPLATE_FILES[key]).exists(),
+            "template_exists": True if key == "generic" else (_TEMPLATES_DIR / TEMPLATE_FILES[key]).exists(),
             "mapping_exists": (_MAPPINGS_DIR / TEMPLATE_MAPPING_FILES[key]).exists(),
         })
     return items
@@ -1090,8 +1181,116 @@ async def generate_word_report(
         row = additional_table.add_row()
         row.cells[0].text = section.title
         row.cells[1].text = section.body
+    doc.add_page_break()
+    doc.add_heading("Raw Evidence", level=1)
+    evidence_table = doc.add_table(rows=1, cols=4)
+    for idx, header in enumerate(["Test ID", "Test Name", "Engineer Notes", "Detailed Evidence"]):
+        evidence_table.rows[0].cells[idx].text = header
+    for item in report.rows:
+        row = evidence_table.add_row()
+        row.cells[0].text = item.test_number
+        row.cells[1].text = item.brief_description
+        row.cells[2].text = item.engineer_notes
+        row.cells[3].text = item.evidence_detail or item.evidence_summary
     path = _output_path(test_run, template_key, ".docx")
     doc.save(str(path))
+    return str(path)
+
+
+def _dxf_text(value: Any, limit: int = 160) -> str:
+    text = _sanitize_text(value)
+    text = text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    text = text.replace("\\", "/")
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > limit:
+        text = f"{text[:limit].rstrip()}..."
+    return text or " "
+
+
+def _dxf_text_entity(x: float, y: float, height: float, value: Any, layer: str = "REPORT") -> list[str]:
+    return [
+        "0", "TEXT",
+        "8", layer,
+        "10", f"{x:.2f}",
+        "20", f"{y:.2f}",
+        "30", "0.00",
+        "40", f"{height:.2f}",
+        "1", _dxf_text(value),
+    ]
+
+
+async def generate_dxf_report(
+    test_run: Any,
+    test_results: list[Any],
+    report_config: Any = None,
+    include_synopsis: bool = False,
+    enabled_test_ids: Optional[list[str]] = None,
+    whitelist_entries: Optional[list[Any]] = None,
+    template_key: str = "generic",
+    branding_settings: Any = None,
+    readiness_summary: Optional[dict[str, Any]] = None,
+) -> str:
+    """Generate a lightweight DXF CAD interchange report.
+
+    DXF is used intentionally because it is an open CAD exchange format that
+    can be generated locally without proprietary DWG tooling.
+    """
+    report = build_report_document(
+        test_run,
+        test_results,
+        report_config,
+        template_key,
+        enabled_test_ids,
+        whitelist_entries,
+        include_synopsis,
+        branding_settings,
+        readiness_summary,
+    )
+    path = _output_path(test_run, template_key, ".dxf")
+
+    entities: list[str] = []
+    y = 290.0
+    entities.extend(_dxf_text_entity(10, y, 4.5, "EDQ IP Device Qualification Report", "TITLE"))
+    y -= 8
+    entities.extend(_dxf_text_entity(10, y, 2.8, f"Template: {TEMPLATE_INFO[report.template_key]['name']}"))
+    y -= 6
+    entities.extend(_dxf_text_entity(10, y, 2.8, f"Manufacturer: {report.metadata.get('manufacturer', '')}"))
+    y -= 5
+    entities.extend(_dxf_text_entity(10, y, 2.8, f"Model: {report.metadata.get('model', '')}"))
+    y -= 5
+    entities.extend(_dxf_text_entity(10, y, 2.8, f"Overall Result: {report.metadata.get('overall_result', '')}"))
+    y -= 8
+    entities.extend(_dxf_text_entity(10, y, 2.5, "Test Plan Summary", "TITLE"))
+    y -= 5
+    entities.extend(_dxf_text_entity(10, y, 2.2, "No. | Brief Description | Result | Comments", "HEADER"))
+    y -= 4
+
+    for row in report.rows:
+        if y < 12:
+            break
+        entities.extend(
+            _dxf_text_entity(
+                10,
+                y,
+                2.0,
+                f"{row.test_number} | {row.brief_description} | {row.test_result or 'PENDING'} | {row.test_comments}",
+            )
+        )
+        y -= 4
+
+    dxf_lines = [
+        "0", "SECTION",
+        "2", "HEADER",
+        "9", "$ACADVER",
+        "1", "AC1009",
+        "0", "ENDSEC",
+        "0", "SECTION",
+        "2", "ENTITIES",
+        *entities,
+        "0", "ENDSEC",
+        "0", "EOF",
+    ]
+    path.write_text("\n".join(dxf_lines) + "\n", encoding="ascii", errors="replace")
     return str(path)
 
 
@@ -1213,13 +1412,17 @@ async def generate_pdf_report(
     readiness_summary: Optional[dict[str, Any]] = None,
 ) -> str:
     template_key = _validate_template_key(template_key)
-    use_libreoffice = os.getenv("EDQ_USE_LIBREOFFICE", "").lower() in ("1", "true", "yes")
+    libreoffice_setting = os.getenv("EDQ_USE_LIBREOFFICE", "").strip().lower()
+    use_libreoffice = libreoffice_setting in ("1", "true", "yes") or (
+        libreoffice_setting not in ("0", "false", "no", "off")
+        and shutil.which("libreoffice") is not None
+    )
 
     if use_libreoffice:
         try:
             mapping = _load_mapping(template_key)
             template_path = _TEMPLATES_DIR / TEMPLATE_FILES[template_key]
-            if template_key != "generic" and mapping and template_path.exists():
+            if mapping and template_path.exists():
                 source_path = await generate_excel_report(
                     test_run,
                     test_results,

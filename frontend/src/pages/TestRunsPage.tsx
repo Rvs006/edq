@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { Fragment, useState, useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { testRunsApi, devicesApi, templatesApi, getApiErrorMessage } from '@/lib/api'
@@ -93,6 +93,29 @@ function formatRunName(run: TestRun) {
   return `${device} — ${date}`
 }
 
+function getRunSortTimestamp(run: TestRun): string {
+  return run.started_at || run.created_at || ''
+}
+
+function buildRunGroups(runs: TestRun[]) {
+  const groups = new Map<string, TestRun[]>()
+  for (const run of runs) {
+    const key = getPreferredDeviceName(run)
+    groups.set(key, [...(groups.get(key) || []), run])
+  }
+
+  return Array.from(groups.entries())
+    .map(([device, groupRuns]) => {
+      const sortedRuns = [...groupRuns].sort((a, b) => getRunSortTimestamp(b).localeCompare(getRunSortTimestamp(a)))
+      return {
+        device,
+        latest: sortedRuns[0],
+        runs: sortedRuns,
+      }
+    })
+    .sort((a, b) => getRunSortTimestamp(b.latest).localeCompare(getRunSortTimestamp(a.latest)))
+}
+
 function CategoryIcon({ category }: { category: string | null }) {
   if (!category || category === 'unknown') return <Monitor className="w-4 h-4 text-zinc-400" />
   const icons: Record<string, React.ElementType> = {
@@ -128,6 +151,7 @@ export default function TestRunsPage() {
   })
 
   const runLabels = useMemo(() => buildRunLabels((runs || []) as TestRun[]), [runs])
+  const runGroups = useMemo(() => buildRunGroups((runs || []) as TestRun[]), [runs])
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -236,7 +260,7 @@ export default function TestRunsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50/50 dark:bg-slate-800/50">
-                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Device</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Device / Run</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden md:table-cell">Template</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400">Status</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-zinc-500 dark:text-slate-400 hidden sm:table-cell">Progress</th>
@@ -246,7 +270,19 @@ export default function TestRunsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-slate-700/50">
-                {runs.map((run: TestRun) => {
+                {runGroups.map((group) => (
+                  <Fragment key={group.device}>
+                    <tr className="bg-zinc-50/80 dark:bg-slate-800/60">
+                      <td colSpan={7} className="py-2 px-4">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-slate-400">
+                          <span className="font-semibold text-zinc-800 dark:text-slate-200">{group.device}</span>
+                          <span>{group.runs.length} run{group.runs.length === 1 ? '' : 's'}</span>
+                          <span>Latest {toLocalDateString(getRunSortTimestamp(group.latest))}</span>
+                          {group.latest.device_ip && <span className="font-mono">{group.latest.device_ip}</span>}
+                        </div>
+                      </td>
+                    </tr>
+                    {group.runs.map((run: TestRun) => {
                   const isRunning = ['running', 'selecting_interface', 'syncing'].includes(run.status)
                   const isCancelled = run.status === 'cancelled'
                   const isFailed = run.status === 'failed'
@@ -304,7 +340,7 @@ export default function TestRunsPage() {
                               />
                             </div>
                             <span className="text-xs font-mono text-blue-600 dark:text-blue-400 min-w-[3rem]">
-                              {run.completed_tests || 0}/{run.total_tests || 43}
+                              {run.total_tests ? `${run.completed_tests || 0}/${run.total_tests}` : '—'}
                             </span>
                           </div>
                         ) : (
@@ -333,7 +369,9 @@ export default function TestRunsPage() {
                       </td>
                     </tr>
                   )
-                })}
+                    })}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>

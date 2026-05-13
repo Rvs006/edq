@@ -22,16 +22,11 @@ _SCENARIO_LABELS: dict[str, str] = {
 _SCENARIO_MANUAL_ROUTING: dict[str, dict[str, str]] = {
     "test_lab": {
         "U03": "Switch negotiation must be verified manually in the test lab scenario.",
-        "U09": "Protocol whitelist compliance requires engineer review in the test lab scenario.",
-        "U28": "BACnet/IP discovery requires engineer review in the test lab scenario.",
-        "U29": "DNS support requires lab-side observation in the test lab scenario.",
     },
     "site_network": {
         "U03": "Switch negotiation must be verified manually on a live site network.",
         "U04": "DHCP behaviour must be verified manually on a live site network.",
-        "U09": "Protocol whitelist compliance must be reviewed manually on a live site network.",
         "U26": "NTP synchronisation requires manual evidence on a live site network.",
-        "U28": "BACnet/IP discovery must be reviewed manually on a live site network.",
         "U29": "DNS support requires manual evidence on a live site network.",
     },
 }

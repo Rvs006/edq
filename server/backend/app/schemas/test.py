@@ -61,6 +61,7 @@ class TestRunCreate(BaseModel):
     template_id: str = Field(..., max_length=36)
     agent_id: Optional[str] = Field(None, max_length=36)
     connection_scenario: str = Field("direct", max_length=32)
+    selected_test_ids: Optional[List[str]] = Field(None, max_length=500)
     metadata: Optional[Any] = None
 
 
@@ -172,7 +173,7 @@ class TestResultBulkManualUpdate(BaseModel):
 
 class TestResultOverrideRequest(BaseModel):
     verdict: str = Field(..., min_length=2, max_length=32)
-    override_reason: str = Field(..., min_length=3, max_length=4000)
+    override_reason: str = Field(..., min_length=1, max_length=4000)
     comment: Optional[str] = Field(None, max_length=4000)
 
 

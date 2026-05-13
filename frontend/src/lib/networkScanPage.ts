@@ -48,15 +48,9 @@ export interface ScanResult {
   test_details: TestDetail[]
 }
 
-export const SCENARIO_PRESELECTS: Record<string, string[]> = {
-  test_lab: ['U01', 'U02', 'U06', 'U07', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19'],
-  direct: ['U01', 'U06', 'U08', 'U10', 'U16'],
-  site_network: ['U01', 'U02', 'U06', 'U08'],
-}
-
 export const SCENARIOS = [
-  { value: 'test_lab', label: 'Test Lab', desc: 'Isolated test environment — full scan safe' },
   { value: 'direct', label: 'Direct Connection', desc: 'Point-to-point with device — most scans safe' },
+  { value: 'test_lab', label: 'Test Lab', desc: 'Isolated test environment — full scan safe' },
   { value: 'site_network', label: 'Site Network', desc: 'Production network — limited scans recommended', warn: true },
 ]
 

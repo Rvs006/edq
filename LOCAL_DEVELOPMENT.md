@@ -16,8 +16,10 @@ This mode is not a full replacement for Docker on Windows. The default scan tool
 
 - `nmap` raw-socket capabilities
 - `testssl.sh`
+- `ssh-audit`
 - `hydra`
 - `nikto`
+- `snmpwalk`
 - other Linux-oriented network utilities installed in the tools container
 
 If you need reliable Windows direct-Ethernet discovery, run the scanner agent on the Windows host and point `HOST_NETWORK_SCANNER_URL` at it. Keep `TOOLS_SIDECAR_URL` on the Docker tools sidecar so Linux-only security tools still run from Docker.
@@ -35,6 +37,7 @@ Windows notes:
 
 - If `pnpm` is installed per-user but not on `PATH`, use `%APPDATA%\npm\pnpm.cmd` or add `%APPDATA%\npm` to your user `PATH`.
 - The workspace expects the backend virtual environment at `server/backend/.venv`.
+- Before Windows real-device scans, run `.\scripts\preflight-scanner.ps1`. `scripts\start-edq.ps1` runs the prerequisite portion automatically unless `-SkipPreflight` is passed.
 
 ## Supported Config Rules
 

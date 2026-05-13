@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
@@ -46,6 +46,7 @@ vi.mock('@/lib/api', () => ({
     download: mockState.reportDownload,
   },
   profilesApi: { autoLearn: vi.fn() },
+  resolveApiUrl: vi.fn((path: string) => path),
   getApiErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
 }))
 
@@ -115,6 +116,7 @@ describe('TestRunDetailPage', () => {
     vi.clearAllMocks()
     mockState.reportGenerate.mockResolvedValue({ data: {} })
     mockState.reportDownload.mockResolvedValue({ data: new Blob([]) })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
     mockState.results = []
     mockState.run = {
       id: 'run-1',
@@ -191,6 +193,29 @@ describe('TestRunDetailPage', () => {
     expect(screen.getByText(/Report ready/i)).toBeInTheDocument()
   })
 
+  it('downloads generated Excel reports through the direct report URL', async () => {
+    mockState.reportGenerate.mockResolvedValue({
+      data: {
+        filename: 'EDQ_Report_12345678-1234-1234-1234-123456789abc_generic_20260512_122500.xlsx',
+        download_url: '/api/reports/download/EDQ_Report_12345678-1234-1234-1234-123456789abc_generic_20260512_122500.xlsx',
+      },
+    })
+
+    renderWithProviders(<TestRunDetailPage />)
+
+    const button = await screen.findByRole('button', { name: /generate report/i })
+    fireEvent.click(button)
+
+    await waitFor(() => expect(mockState.reportGenerate).toHaveBeenCalledWith({
+      test_run_id: 'run-1',
+      report_type: 'excel',
+      template_key: 'generic',
+      include_synopsis: false,
+    }))
+    expect(mockState.reportDownload).not.toHaveBeenCalled()
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
+  })
+
   it('shows loading state initially', () => {
     renderWithProviders(<TestRunDetailPage />)
     const spinner = document.querySelector('.animate-spin')
@@ -246,6 +271,8 @@ describe('TestRunDetailPage', () => {
   })
 
   it('shows bulk manual controls for multiple pending manual tests', async () => {
+    const { testResultsApi } = await import('@/lib/api')
+    vi.mocked(testResultsApi.bulkUpdateManual).mockResolvedValue({ data: [] } as any)
     mockState.run = {
       ...mockState.run,
       status: 'awaiting_manual',
@@ -299,6 +326,7 @@ describe('TestRunDetailPage', () => {
     expect(screen.getByRole('button', { name: /^Select all$/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Deselect all$/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/Bulk manual comments/i)).toBeInTheDocument()
+    expect(within(screen.getByLabelText(/Bulk manual verdict/i)).queryByRole('option', { name: /Pass/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /^Select all$/i }))
     expect(screen.getByRole('button', { name: /Apply/i })).toBeDisabled()
@@ -308,5 +336,15 @@ describe('TestRunDetailPage', () => {
     })
 
     expect(screen.getByRole('button', { name: /Apply/i })).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /Apply/i }))
+
+    await waitFor(() => {
+      expect(testResultsApi.bulkUpdateManual).toHaveBeenCalledWith({
+        result_ids: ['result-u20', 'result-u21'],
+        verdict: 'na',
+        engineer_notes: 'Observed on the device and marked not applicable.',
+      })
+    })
   })
 })

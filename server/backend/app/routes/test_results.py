@@ -29,6 +29,9 @@ from app.utils.sanitize import sanitize_dict
 router = APIRouter()
 
 
+BULK_SHARED_MANUAL_VERDICTS = {TestVerdict.NA, TestVerdict.PENDING}
+
+
 async def _get_authorized_result(
     result_id: str,
     user: User,
@@ -85,12 +88,12 @@ def _require_manual_evidence_notes(
 ) -> None:
     if verdict == TestVerdict.PENDING or not _is_manual_result(test_result):
         return
-    if _manual_result_notes(test_result, updates):
-        return
-    raise HTTPException(
-        status_code=422,
-        detail="Engineer notes are required when saving a manual test verdict.",
-    )
+    notes = _manual_result_notes(test_result, updates)
+    if not notes:
+        raise HTTPException(
+            status_code=422,
+            detail="Engineer notes are required when saving a manual test verdict.",
+        )
 
 
 def _overall_verdict(
@@ -263,6 +266,19 @@ async def bulk_update_manual_results(
         (test_result for test_result, _ in rows),
         key=lambda item: data.result_ids.index(item.id),
     )
+    if len(ordered_results) > 1 and verdict not in BULK_SHARED_MANUAL_VERDICTS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Bulk manual updates can only mark tests N/A or pending. "
+                "Pass, fail, and advisory verdicts require evidence on each individual test."
+            ),
+        )
+
+    if verdict != TestVerdict.PENDING:
+        for test_result in ordered_results:
+            _require_manual_evidence_notes(test_result, verdict, {"engineer_notes": notes})
+
     for test_result in ordered_results:
         test_result.verdict = verdict
         if test_result.started_at is None:

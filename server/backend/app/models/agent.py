@@ -22,7 +22,7 @@ class Agent(Base):
     ip_address = Column(String(45), nullable=True)
     status = Column(String(32), default="offline")  # online, offline, busy, error
     last_heartbeat = Column(DateTime, nullable=True)
-    capabilities = Column(JSON, nullable=True)  # {nmap, sslyze, testssl, ssh_audit, nikto, hydra}
+    capabilities = Column(JSON, nullable=True)  # {nmap, testssl, ssh_audit, nikto, hydra}
     current_task = Column(String(36), nullable=True)  # Current test_run_id
     is_active = Column(Boolean, default=True)
     registered_by = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)

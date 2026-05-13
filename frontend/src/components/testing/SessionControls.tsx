@@ -54,6 +54,7 @@ export default function SessionControls({
   const isComplete = runStatus === 'completed'
   const isAwaitingReview = runStatus === 'awaiting_review'
   const isAwaitingManual = runStatus === 'awaiting_manual'
+  const manualEvidenceComplete = isAwaitingManual && pendingManualCount === 0
 
   return (
     <div className="bg-white dark:bg-dark-card border-t border-zinc-200 dark:border-slate-700/50">
@@ -143,7 +144,7 @@ export default function SessionControls({
             </button>
           )}
 
-          {(isComplete || isAwaitingReview) && canSelfApprove && (
+          {(isComplete || isAwaitingReview || manualEvidenceComplete) && canSelfApprove && (
             <>
               <button onClick={onApprove} disabled={isActioning || pendingManualCount > 0} className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed">
                 {isActioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}

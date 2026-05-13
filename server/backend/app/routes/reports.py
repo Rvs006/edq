@@ -26,9 +26,7 @@ from app.models.user import User, UserRole
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit, check_user_rate_limit
 from app.services.report_generator import (
-    generate_csv_report,
     generate_excel_report,
-    generate_pdf_report,
     generate_word_report,
     get_available_templates,
 )
@@ -49,7 +47,7 @@ _REPORT_FILENAME_RE = re.compile(
     r"^EDQ_Report_"
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_"
     r"(?:generic|pelco_camera|easyio_controller|sauter_680_as)_"
-    r"\d{8}_\d{6}\.(?:xlsx|docx|pdf|csv)$",
+    r"\d{8}_\d{6}\.(?:xlsx|docx)$",
     re.IGNORECASE,
 )
 
@@ -71,10 +69,18 @@ def _resolve_report_download_path(filename: str) -> tuple[Path | None, str]:
 
 class ReportRequest(BaseModel):
     test_run_id: str
-    report_type: Literal["excel", "word", "pdf", "csv"] = "excel"
+    report_type: Literal["excel", "xlsx", "word", "docx"] = "excel"
     report_config_id: Optional[str] = None
     include_synopsis: bool = False
-    template_key: Literal["generic", "pelco_camera", "easyio_controller", "sauter_680_as"] = "generic"
+    template_key: Literal["generic"] = "generic"
+
+
+def _normalize_report_type(report_type: str) -> str:
+    aliases = {
+        "xlsx": "excel",
+        "docx": "word",
+    }
+    return aliases.get(report_type, report_type)
 
 
 @router.get("/templates")
@@ -195,7 +201,8 @@ async def generate_report(
         )
 
     try:
-        if data.report_type == "excel":
+        report_type = _normalize_report_type(data.report_type)
+        if report_type == "excel":
             file_path = await generate_excel_report(
                 test_run,
                 test_results,
@@ -207,32 +214,8 @@ async def generate_report(
                 branding_settings=branding_settings,
                 readiness_summary=readiness_summary,
             )
-        elif data.report_type == "word":
+        elif report_type == "word":
             file_path = await generate_word_report(
-                test_run,
-                test_results,
-                report_config,
-                include_synopsis=data.include_synopsis,
-                enabled_test_ids=enabled_test_ids,
-                whitelist_entries=whitelist_entries,
-                template_key=data.template_key,
-                branding_settings=branding_settings,
-                readiness_summary=readiness_summary,
-            )
-        elif data.report_type == "pdf":
-            file_path = await generate_pdf_report(
-                test_run,
-                test_results,
-                report_config,
-                include_synopsis=data.include_synopsis,
-                enabled_test_ids=enabled_test_ids,
-                whitelist_entries=whitelist_entries,
-                template_key=data.template_key,
-                branding_settings=branding_settings,
-                readiness_summary=readiness_summary,
-            )
-        elif data.report_type == "csv":
-            file_path = await generate_csv_report(
                 test_run,
                 test_results,
                 report_config,
@@ -245,14 +228,14 @@ async def generate_report(
             )
         else:
             raise HTTPException(
-                status_code=400, detail="Invalid report type. Use 'excel', 'word', 'pdf', or 'csv'."
+                status_code=400, detail="Invalid report type. Use 'excel' or 'word'."
             )
 
         filename = Path(file_path).name
-        await log_action(db, user, "report.generate", "report", data.test_run_id, {"type": data.report_type, "filename": filename}, request)
+        await log_action(db, user, "report.generate", "report", data.test_run_id, {"type": report_type, "filename": filename}, request)
         return {
             "filename": filename,
-            "report_type": data.report_type,
+            "report_type": report_type,
             "template_key": data.template_key,
             "download_url": f"/api/reports/download/{filename}",
             "readiness_summary": readiness_summary,
@@ -293,8 +276,6 @@ async def download_report(
     media_types = {
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ".pdf": "application/pdf",
-        ".csv": "text/csv",
     }
     ext = file_path_resolved.suffix.lower()
     media_type = media_types.get(ext, "application/octet-stream")

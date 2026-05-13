@@ -470,6 +470,13 @@ def _eval_u11(data: dict, _wl: list) -> tuple[str, str]:
     weak_ciphers = data.get("weak_ciphers", [])
     ciphers = data.get("ciphers", [])
     if not ciphers:
+        if data.get("tls_versions"):
+            return (
+                "info",
+                "Cipher Strength - TLS is reachable, but EDQ could not collect a cipher suite inventory. "
+                "Verify testssl is available in the Docker tools sidecar and rerun the scan. "
+                "If this persists, review the raw U11 output for handshake errors or device-side TLS restrictions.",
+            )
         return ("na", "Cipher Strength - No cipher suites detected. TLS may not be configured.")
     cipher_names = [
         c.get("name", str(c)).strip()
@@ -483,7 +490,7 @@ def _eval_u11(data: dict, _wl: list) -> tuple[str, str]:
     ]
     cipher_lines = "\n".join(f"- {name}" for name in cipher_names[:12])
     if weak_ciphers:
-        details = ", ".join(weak_names[:5])
+        details = ", ".join(weak_names)
         suffix = "\nDetected cipher suites:\n" + cipher_lines if cipher_lines else ""
         return (
             "fail",
@@ -633,6 +640,8 @@ def _eval_u17(data: dict, _wl: list) -> tuple[str, str]:
     """Brute Force Protection."""
     if data.get("check_ran") is False:
         reason = data.get("reason") or "No supported authentication challenge was detected."
+        if data.get("tool_blocked"):
+            return ("info", f"Brute Force Protection - Inconclusive. The probe was blocked before authentication attempts could be verified. {reason}")
         return ("na", f"Brute Force Protection - Not assessed. {reason}")
     lockout_detected = data.get("lockout_detected", False)
     error_msg = data.get("error", "")

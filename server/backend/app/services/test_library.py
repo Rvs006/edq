@@ -183,10 +183,9 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "compliance_map": ["ISO 27001 A.9.4.3", "Cyber Essentials", "SOC2 CC6.1"]
     },
     {
-        "test_id": "U31", "name": "SNMP Version Check (Retired)", "tier": "automatic", "tool": "nmap",
-        "is_essential": False, "description": "Retired check. Protocol exposure is covered by U08 service detection and U09 whitelist review.",
+        "test_id": "U31", "name": "SNMP Version Check", "tier": "automatic", "tool": "snmpwalk",
+        "is_essential": False, "description": "Detect SNMP exposure and verify insecure public-community SNMPv1/v2c access is not accepted.",
         "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials"],
-        "deprecated": True,
     },
     {
         "test_id": "U32", "name": "UPnP/SSDP Exposure (Retired)", "tier": "automatic", "tool": "nmap",

@@ -18,13 +18,13 @@ const pageDescriptions: Record<string, string> = {
   '/devices': 'Register, discover, and manage all IP devices under test',
   '/devices/compare': 'Compare up to five devices side by side across attributes and recent outcomes',
   '/device-profiles': 'Fingerprint rules that auto-identify device types and skip irrelevant tests',
-  '/test-runs': 'Security qualification sessions - 48 active EDQ tests per device (19 automated, 29 guided manual)',
+  '/test-runs': 'Security qualification sessions - 49 active EDQ tests per device (20 automated, 29 guided manual)',
   '/network-scan': 'Bulk discovery for unknown IPs and multi-device subnet surveys',
   '/templates': 'Define which tests to include and map results to report cells',
   '/test-plans': 'Saved test configurations that can be reused across devices',
   '/scan-schedules': 'Schedule recurring network scans to run automatically',
   '/whitelists': 'Approved port/protocol lists — open ports are checked against these',
-  '/reports': 'Generate Excel, Word, PDF, or CSV qualification reports from completed test sessions',
+  '/reports': 'Generate Excel or Word qualification reports from completed test sessions',
   '/agents': 'Optional distributed runner registrations. Normal local-laptop use does not need this page.',
   '/review': 'QA review queue — approve, override, or request retests on flagged results',
   '/admin': 'Manage user accounts, roles, and permissions',
@@ -285,7 +285,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {sidebarOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black/40 z-40 lg:hidden"
+            className="fixed inset-0 bg-black/40 z-40 lg:hidden animate-fade-in"
             onClick={() => setSidebarOpen(false)}
           />
           <aside
@@ -295,7 +295,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             aria-modal="true"
             aria-label="Navigation menu"
             tabIndex={-1}
-            className="fixed top-[3px] inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#0f172a] flex flex-col lg:hidden"
+            className="fixed top-[3px] inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#0f172a] flex flex-col lg:hidden shadow-2xl border-r border-zinc-200/80 dark:border-slate-800 animate-slide-in"
           >
             <SidebarContent
               isActive={isActive}
@@ -307,7 +307,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </aside>
         </>
       )}
-      <aside className="hidden lg:flex fixed top-[3px] inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#0f172a] flex-col">
+      <aside className="hidden lg:flex fixed top-[3px] inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#0f172a] flex-col border-r border-zinc-200/80 dark:border-slate-800">
         <SidebarContent
           isActive={isActive}
           user={user}
@@ -317,7 +317,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       <div className="lg:pl-64 flex flex-col min-h-screen pt-[3px]">
-        <header className="sticky top-[3px] z-20 bg-white dark:bg-dark-surface border-b border-zinc-200 dark:border-slate-700/50">
+        <header className="sticky top-[3px] z-20 bg-white/90 dark:bg-dark-surface/90 backdrop-blur border-b border-zinc-200/80 dark:border-slate-700/50">
           <div className="flex items-center justify-between h-14 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <MobileMenuButton
@@ -334,7 +334,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <div className="flex items-center gap-2">
               <div className="hidden sm:block relative" ref={searchRef}>
-                <div className="flex items-center gap-2 bg-zinc-100 dark:bg-slate-800 rounded-lg px-3 py-1.5 w-56">
+                <div className="flex items-center gap-2 bg-zinc-100 dark:bg-slate-800 rounded-lg px-3 py-1.5 w-56 transition-all duration-200 focus-within:w-72 focus-within:bg-white focus-within:ring-2 focus-within:ring-brand-500/20 dark:focus-within:bg-slate-800/95">
                   <Search className="w-4 h-4 text-zinc-400" />
                   <input
                     type="text"
@@ -347,7 +347,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   />
                 </div>
                 {searchOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 z-50 overflow-hidden">
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 z-50 overflow-hidden animate-menu-in">
                     {searchLoading && (
                       <div className="px-3 py-2.5 text-xs text-zinc-400 flex items-center gap-2">
                         <div className="w-3 h-3 border-2 border-zinc-300 border-t-brand-500 rounded-full animate-spin" />
@@ -411,7 +411,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </button>
                 {statusTooltipOpen && (
                   <>
-                    <div className="absolute right-0 mt-1 w-72 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 p-3 z-50">
+                    <div className="absolute right-0 mt-1 w-72 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 p-3 z-50 animate-menu-in">
                       <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">System Status</p>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
@@ -498,7 +498,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 {userMenuOpen && (
                   <>
-                    <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 py-1 z-50">
+                    <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-zinc-200 dark:border-slate-700 py-1 z-50 animate-menu-in">
                       <div className="px-3 py-2 border-b border-zinc-100 dark:border-slate-700">
                         <p className="text-sm font-medium text-zinc-900 dark:text-slate-100">{user?.username}</p>
                         <p className="text-xs text-zinc-500 capitalize">{user?.role}</p>
@@ -524,7 +524,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        <main id="main-content" tabIndex={-1} className="flex-1">
+        <main key={location.pathname} id="main-content" tabIndex={-1} className="flex-1 animate-page-enter">
           {children}
         </main>
       </div>
@@ -628,6 +628,8 @@ function SidebarContent({
               <SidebarSectionToggle
                 collapsed={collapsedSections.has(section.label)}
                 label={section.label}
+                active={section.items.some((item) => isActive(item.href))}
+                itemCount={section.items.length}
                 onClick={() => toggleSection(section.label)}
               />
             ) : (
@@ -638,7 +640,7 @@ function SidebarContent({
               </div>
             )}
             {!collapsedSections.has(section.label) && (
-              <div id={`nav-section-${section.label}`} className="space-y-0.5">
+              <div id={`nav-section-${section.label}`} className="space-y-0.5 nav-section-motion">
                 {section.items.map((item) => {
                   const active = isActive(item.href)
                   return (
@@ -646,20 +648,33 @@ function SidebarContent({
                       key={item.name}
                       to={item.href}
                       onClick={onClose}
-                      className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
                         active
-                          ? 'bg-zinc-100 text-zinc-900 dark:bg-slate-800 dark:text-white'
-                          : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200'
+                          ? 'bg-zinc-100 text-zinc-900 shadow-xs dark:bg-slate-800 dark:text-white'
+                          : 'text-zinc-500 hover:translate-x-0.5 hover:bg-zinc-100 hover:text-zinc-800 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200'
                       }`}
                     >
                       {active && (
                         <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-blue-400" />
                       )}
                       <item.icon className={`w-[18px] h-[18px] shrink-0 ${active ? 'text-blue-400' : ''}`} />
-                      {item.name}
+                      <span className="truncate">{item.name}</span>
                     </Link>
                   )
                 })}
+                {section.label === 'Setup' && (
+                  <div className="mx-2 mt-3 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 dark:border-blue-900/50 dark:bg-blue-950/20">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">Setup flow</p>
+                      <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-300">
+                        6 areas
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-snug text-blue-700/80 dark:text-blue-300/80">
+                      Network rules, profiles, templates, plans, schedules, and whitelist policy.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -684,26 +699,41 @@ function SidebarContent({
 function SidebarSectionToggle({
   collapsed,
   label,
+  active,
+  itemCount,
   onClick,
 }: {
   collapsed: boolean
   label: string
+  active?: boolean
+  itemCount?: number
   onClick: () => void
 }) {
   const commonProps = {
     type: 'button' as const,
     onClick,
     'aria-controls': `nav-section-${label}`,
-    className: 'flex items-center justify-between w-full px-3 mb-1.5 group',
+    className: `flex items-center justify-between w-full px-3 py-1.5 mb-1.5 rounded-lg transition-colors group ${
+      active ? 'bg-zinc-50 dark:bg-slate-900/60' : 'hover:bg-zinc-50 dark:hover:bg-slate-900/50'
+    }`,
   }
   const iconClassName = `w-3 h-3 text-zinc-400 transition-transform ${collapsed ? '-rotate-90' : ''}`
+  const labelClassName = `text-[10px] font-semibold uppercase tracking-wider ${
+    active ? 'text-zinc-600 dark:text-slate-300' : 'text-zinc-400 dark:text-zinc-500'
+  }`
+  const countBadge = itemCount ? (
+    <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-slate-800 dark:text-slate-400">
+      {itemCount}
+    </span>
+  ) : null
 
   if (collapsed) {
     return (
       <button {...commonProps} aria-expanded="false">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-          {label}
-        </p>
+        <span className="flex items-center gap-2">
+          <span className={labelClassName}>{label}</span>
+          {countBadge}
+        </span>
         <ChevronDown className={iconClassName} />
       </button>
     )
@@ -711,9 +741,10 @@ function SidebarSectionToggle({
 
   return (
     <button {...commonProps} aria-expanded="true">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-        {label}
-      </p>
+      <span className="flex items-center gap-2">
+        <span className={labelClassName}>{label}</span>
+        {countBadge}
+      </span>
       <ChevronDown className={iconClassName} />
     </button>
   )

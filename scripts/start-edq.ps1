@@ -4,13 +4,15 @@ param(
     [int]$BackendPort = 0,
     [int]$ToolsPort = 0,
     [int]$PostgresPort = 0,
-    [switch]$NoBuild
+    [switch]$NoBuild,
+    [switch]$SkipPreflight
 )
 
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $HelperScript = Join-Path $RepoRoot "scripts\start-host-mac-helper.ps1"
+$PreflightScript = Join-Path $RepoRoot "scripts\preflight-scanner.ps1"
 
 function Test-HttpOk {
     param([string]$Url)
@@ -20,6 +22,31 @@ function Test-HttpOk {
         return $response.StatusCode -ge 200 -and $response.StatusCode -lt 300
     } catch {
         return $false
+    }
+}
+
+function Resolve-ComposeFrontendUrl {
+    try {
+        $portLine = docker compose port frontend 8080 2>$null | Select-Object -First 1
+        if ($LASTEXITCODE -ne 0 -or -not $portLine) {
+            return $null
+        }
+        $port = ([string]$portLine -split ":")[-1].Trim()
+        if ($port -match "^\d+$") {
+            return "http://localhost:$port"
+        }
+    } catch {
+        return $null
+    }
+
+    return $null
+}
+
+if (-not $SkipPreflight) {
+    Write-Host "Running EDQ scanner preflight..."
+    & $PreflightScript -SkipRuntimeChecks
+    if ($LASTEXITCODE -ne 0) {
+        throw "Scanner preflight failed. Fix the errors above or rerun with -SkipPreflight if you are intentionally starting a partial environment."
     }
 }
 
@@ -77,3 +104,7 @@ if ($NoBuild) {
 }
 
 Write-Host "EDQ Docker stack started."
+$frontendUrl = Resolve-ComposeFrontendUrl
+if ($frontendUrl) {
+    Write-Host "Open EDQ at $frontendUrl"
+}

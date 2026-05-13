@@ -239,6 +239,28 @@ async def test_nmap_uses_host_network_scanner_without_docker_flag_rewrite():
 
 
 @pytest.mark.asyncio
+async def test_nmap_stream_uses_host_network_scanner_without_docker_flag_rewrite():
+    client = _client(in_docker=True, raw_capable=False)
+    client.host_network_scanner_url = "http://host-scanner"
+    captured: dict[str, object] = {}
+
+    async def fake_post_stream(path: str, payload: dict, timeout: int = 300, on_line=None, base_url: str | None = None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["base_url"] = base_url
+        return {"exit_code": 0, "stdout": "<nmaprun/>"}
+
+    client._post_stream = fake_post_stream
+
+    result = await client.nmap_stream("192.168.4.54", ["-sU", "--top-ports", "100", "-oX", "-"])
+
+    assert result["exit_code"] == 0
+    assert result["_scanner_source"] == "host"
+    assert captured["base_url"] == "http://host-scanner"
+    assert captured["payload"]["args"] == ["-sU", "--top-ports", "100", "-oX", "-"]
+
+
+@pytest.mark.asyncio
 async def test_nmap_falls_back_to_docker_with_adjusted_flags_when_host_scanner_unavailable():
     client = _client(in_docker=True, raw_capable=False)
     client.host_network_scanner_url = "http://host-scanner"

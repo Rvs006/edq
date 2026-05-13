@@ -346,7 +346,7 @@ class TestsslParser:
         if "issuer" in item_lower:
             result["cert_issuer"] = finding.strip()
         if "trust" in item_lower:
-            result["cert_trust_verified"] = True
+            result["cert_trust_verified"] = not has_issue
             if not has_issue and ("ok" in finding_lower or "passed" in finding_lower or "trusted" in finding_lower):
                 result["cert_valid"] = True
         elif "valid" in item_lower:

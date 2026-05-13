@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { testRunsApi, testResultsApi, reportsApi, getApiErrorMessage } from '@/lib/api'
+import { testRunsApi, testResultsApi, reportsApi, resolveApiUrl, getApiErrorMessage } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
@@ -14,7 +14,6 @@ import { profilesApi } from '@/lib/api'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import SegmentedProgressBar from '@/components/common/SegmentedProgressBar'
 import SmartPrompt from '@/components/common/SmartPrompt'
-import CsvExportButton from '@/components/common/CsvExportButton'
 import TestSidebar, { type TestResultItem } from '@/components/testing/TestSidebar'
 import TestDetail, { type TestResultDetail } from '@/components/testing/TestDetail'
 import WobblyCableAlert from '@/components/testing/WobblyCableAlert'
@@ -23,6 +22,7 @@ import ConnectionScenarioDialog from '@/components/testing/ConnectionScenarioDia
 import type { TestResult, TestRun } from '@/lib/types'
 import { isActiveTestRunStatus, isExecutingTestRunStatus, toLocalDateString } from '@/lib/testContracts'
 import { normalizeTemplateName } from '@/lib/templateNames'
+import { getManualEvidenceIssue } from '@/lib/manualEvidence'
 import {
   buildProgressSegments,
   countCompletedResults,
@@ -39,13 +39,10 @@ type CurrentTestMeta = {
   status: string
 }
 
-type ReportTemplateKey = 'generic' | 'pelco_camera' | 'easyio_controller' | 'sauter_680_as'
+type ReportTemplateKey = 'generic'
 
 const bulkVerdictOptions = [
   { value: 'na', label: 'N/A' },
-  { value: 'pass', label: 'Pass' },
-  { value: 'fail', label: 'Fail' },
-  { value: 'advisory', label: 'Advisory' },
 ]
 
 const EMPTY_RESULTS: TestResult[] = []
@@ -64,16 +61,7 @@ function getCurrentTestFromMetadata(metadata: TestRun['run_metadata'] | undefine
 }
 
 function inferReportTemplateKey(run: TestRun | undefined): ReportTemplateKey {
-  const text = [
-    run?.template_name,
-    run?.device_manufacturer,
-    run?.device_model,
-    run?.device_name,
-  ].filter(Boolean).join(' ').toLowerCase()
-
-  if (text.includes('easyio') || text.includes('easy io')) return 'easyio_controller'
-  if (text.includes('pelco')) return 'pelco_camera'
-  if (text.includes('sauter') || text.includes('680-as') || text.includes('680 as')) return 'sauter_680_as'
+  void run
   return 'generic'
 }
 
@@ -378,14 +366,16 @@ export default function TestRunDetailPage() {
         include_synopsis: !!run?.synopsis,
       })
       toast.success('Report generated successfully')
-      if (resp.data?.filename) {
-        const blob = await reportsApi.download(resp.data.filename)
-        const url = URL.createObjectURL(new Blob([blob.data]))
+      if (resp.data?.download_url) {
         const a = document.createElement('a')
-        a.href = url
-        a.download = resp.data.filename
+        a.href = resolveApiUrl(resp.data.download_url)
+        a.download = resp.data.filename || `EDQ_Report_${id}.xlsx`
+        a.style.display = 'none'
+        document.body.appendChild(a)
         a.click()
-        URL.revokeObjectURL(url)
+        setTimeout(() => document.body.removeChild(a), 100)
+      } else {
+        toast.error('Report generated but no download URL was returned')
       }
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Report generation failed'))
@@ -426,6 +416,16 @@ export default function TestRunDetailPage() {
   const handleSelectTest = useCallback((testId: string) => {
     selectionPinnedRef.current = true
     setSelectedTestId(testId)
+  }, [])
+
+  const handleVisibleSidebarResultsChange = useCallback((visibleIds: string[]) => {
+    if (visibleIds.length === 0) {
+      setSelectedTestId(null)
+      return
+    }
+    setSelectedTestId((current) => (
+      current && visibleIds.includes(current) ? current : visibleIds[0]
+    ))
   }, [])
 
   const handleSubmitManual = async (resultId: string, verdict: string, notes: string) => {
@@ -514,7 +514,9 @@ export default function TestRunDetailPage() {
     () => new Set(bulkManualSelectedIds),
     [bulkManualSelectedIds]
   )
-  const bulkManualNotesRequired = bulkManualVerdict !== 'pending' && !bulkManualNotes.trim()
+  const bulkManualEvidenceIssue = bulkManualVerdict !== 'pending'
+    ? getManualEvidenceIssue(bulkManualNotes)
+    : null
 
   const firstPendingManualId = pendingManualIds[0] || null
 
@@ -536,8 +538,8 @@ export default function TestRunDetailPage() {
 
   const handleApplyBulkManual = async () => {
     if (bulkManualSelectedIds.length === 0) return
-    if (bulkManualNotesRequired) {
-      toast.error('Add engineer notes before applying a manual verdict')
+    if (bulkManualEvidenceIssue) {
+      toast.error(bulkManualEvidenceIssue)
       return
     }
     setIsSubmitting(true)
@@ -548,8 +550,10 @@ export default function TestRunDetailPage() {
         verdict: bulkManualVerdict,
         ...(trimmedNotes ? { engineer_notes: trimmedNotes } : {}),
       })
-      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['test-results', id] }),
+        queryClient.refetchQueries({ queryKey: ['test-run', id] }),
+      ])
       toast.success(`Updated ${bulkManualSelectedIds.length} manual tests`)
       setBulkManualSelectedIds([])
       setBulkManualNotes('')
@@ -654,7 +658,7 @@ export default function TestRunDetailPage() {
           : 'connected'
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+    <div className="flex min-h-[calc(100vh-3.5rem)] flex-col lg:h-[calc(100vh-3.5rem)]">
       <div className="flex-shrink-0 bg-white dark:bg-dark-card border-b border-zinc-200 dark:border-slate-700/50 px-4 py-3">
         <div className="flex items-center gap-3 mb-2">
           <Link
@@ -722,10 +726,6 @@ export default function TestRunDetailPage() {
               <span>{runProgressSummary.detailText}</span>
             </div>
           </div>
-          <CsvExportButton
-            results={sidebarResults}
-            deviceName={run.device_name || `device-${run.device_id?.slice(0, 8)}`}
-          />
           <span className="text-xs font-mono text-zinc-500 flex-shrink-0" aria-live="polite">
             {run.progress_pct ?? progressPct}% ({displayCompletedCount}/{displayTotalCount})
           </span>
@@ -852,13 +852,18 @@ export default function TestRunDetailPage() {
                 aria-label="Bulk manual comments"
                 value={bulkManualNotes}
                 onChange={(event) => setBulkManualNotes(event.target.value)}
-                placeholder="Evidence or reason..."
-                className={`input h-8 min-w-0 text-sm sm:w-64 ${bulkManualNotesRequired ? 'border-amber-400' : ''}`}
+                placeholder="Why these tests do not apply..."
+                className={`input h-8 min-w-0 text-sm sm:w-64 ${bulkManualEvidenceIssue ? 'border-amber-400' : ''}`}
               />
+              {bulkManualEvidenceIssue && (
+                <span className="text-xs text-amber-700 dark:text-amber-300">
+                  {bulkManualEvidenceIssue}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={handleApplyBulkManual}
-                disabled={bulkManualSelectedIds.length === 0 || isSubmitting || bulkManualNotesRequired}
+                disabled={bulkManualSelectedIds.length === 0 || isSubmitting || Boolean(bulkManualEvidenceIssue)}
                 className="btn-primary h-8 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ListChecks className="w-4 h-4" />}
@@ -883,7 +888,7 @@ export default function TestRunDetailPage() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex min-h-0 relative overflow-hidden">
+      <div className="relative flex min-h-[34rem] flex-1 overflow-hidden lg:min-h-0">
         {sidebarOpen && (
           <div
             className="fixed inset-0 bg-black/30 z-30 lg:hidden"
@@ -904,6 +909,7 @@ export default function TestRunDetailPage() {
               handleSelectTest(testId)
               setSidebarOpen(false)
             }}
+            onVisibleResultsChange={handleVisibleSidebarResultsChange}
             className="h-full"
           />
         </div>

@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import Callout from '@/components/common/Callout'
 import {
   Monitor, Play, CheckCircle2, ArrowRight, Plus, FileText, Percent, Sparkles, Loader2,
+  ShieldCheck, Cpu, ListChecks, Network,
 } from 'lucide-react'
 import { StatusBadge } from '@/components/common/VerdictBadge'
 import VerdictBadge from '@/components/common/VerdictBadge'
@@ -88,6 +89,44 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
     },
   ]
 
+  const setupLinks = [
+    {
+      label: 'Authorize scan ranges',
+      description: 'Define the subnets EDQ may scan.',
+      href: '/authorized-networks',
+      icon: ShieldCheck,
+      tone: 'emerald',
+    },
+    {
+      label: 'Tune device profiles',
+      description: 'Match devices to relevant test suites.',
+      href: '/device-profiles',
+      icon: Cpu,
+      tone: 'indigo',
+    },
+    {
+      label: 'Review templates',
+      description: 'Keep report mappings aligned.',
+      href: '/templates',
+      icon: FileText,
+      tone: 'blue',
+    },
+    {
+      label: 'Save test plans',
+      description: 'Reuse proven qualification setups.',
+      href: '/test-plans',
+      icon: ListChecks,
+      tone: 'amber',
+    },
+  ]
+
+  const setupToneClasses: Record<string, { bg: string; text: string; hover: string }> = {
+    amber: { bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-600 dark:text-amber-300', hover: 'hover:border-amber-200 dark:hover:border-amber-800' },
+    blue: { bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-600 dark:text-blue-300', hover: 'hover:border-blue-200 dark:hover:border-blue-800' },
+    emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-600 dark:text-emerald-300', hover: 'hover:border-emerald-200 dark:hover:border-emerald-800' },
+    indigo: { bg: 'bg-indigo-50 dark:bg-indigo-950/30', text: 'text-indigo-600 dark:text-indigo-300', hover: 'hover:border-indigo-200 dark:hover:border-indigo-800' },
+  }
+
   const retryDashboard = () => {
     void deviceStatsQuery.refetch()
     void runStatsQuery.refetch()
@@ -167,7 +206,7 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
             </div>
           ))
         ) : stats.map((stat) => (
-          <div key={stat.label} className="card p-4">
+          <div key={stat.label} className="card-hover p-4">
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-lg ${stat.iconBg} flex items-center justify-center`}>
                 <stat.icon className={`w-5 h-5 ${stat.iconColor}`} />
@@ -264,25 +303,68 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
 
         <div className="space-y-4" data-tour="quick-actions">
           <div className="card p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="font-semibold text-zinc-900 dark:text-slate-100">Setup</h3>
+                <p className="text-xs text-zinc-500 dark:text-slate-400 mt-0.5">Core configuration for smoother runs</p>
+              </div>
+              <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-brand-600 dark:bg-brand-950/30 dark:text-brand-300">
+                Ready path
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              {setupLinks.map((item) => {
+                const tone = setupToneClasses[item.tone]
+                return (
+                  <Link
+                    key={item.href}
+                    to={item.href}
+                    className={`group rounded-lg border border-zinc-200 p-3 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm dark:border-slate-700/50 ${tone.hover}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone.bg}`}>
+                        <item.icon className={`h-4 w-4 ${tone.text}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-zinc-800 dark:text-slate-200">{item.label}</p>
+                          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-zinc-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-500" />
+                        </div>
+                        <p className="mt-0.5 text-xs text-zinc-500 dark:text-slate-400">{item.description}</p>
+                      </div>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="card p-4">
             <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <Link to="/test-runs" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
+              <Link to="/test-runs" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-all duration-150 hover:translate-x-0.5">
                 <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950 flex items-center justify-center">
                   <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 </div>
                 <span className="text-sm font-medium text-zinc-700 dark:text-slate-300">New Test Run</span>
               </Link>
-              <Link to="/devices" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
+              <Link to="/devices" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-all duration-150 hover:translate-x-0.5">
                 <div className="w-8 h-8 rounded-lg bg-green-50 dark:bg-green-950 flex items-center justify-center">
                   <Monitor className="w-4 h-4 text-green-600 dark:text-green-400" />
                 </div>
                 <span className="text-sm font-medium text-zinc-700 dark:text-slate-300">Add Device</span>
               </Link>
-              <Link to="/reports" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors">
+              <Link to="/reports" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-all duration-150 hover:translate-x-0.5">
                 <div className="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-950 flex items-center justify-center">
                   <FileText className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 </div>
                 <span className="text-sm font-medium text-zinc-700 dark:text-slate-300">Generate Report</span>
+              </Link>
+              <Link to="/network-scan" className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-slate-800 transition-all duration-150 hover:translate-x-0.5">
+                <div className="w-8 h-8 rounded-lg bg-cyan-50 dark:bg-cyan-950 flex items-center justify-center">
+                  <Network className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                </div>
+                <span className="text-sm font-medium text-zinc-700 dark:text-slate-300">Bulk Discovery</span>
               </Link>
             </div>
           </div>

@@ -22,6 +22,7 @@ interface TestSidebarProps {
   runningTestId: string | null
   runStatus?: string | null
   onSelectTest: (id: string) => void
+  onVisibleResultsChange?: (ids: string[]) => void
   className?: string
 }
 
@@ -79,6 +80,7 @@ export default function TestSidebar({
   runningTestId,
   runStatus,
   onSelectTest,
+  onVisibleResultsChange,
   className = '',
 }: TestSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -161,6 +163,10 @@ export default function TestSidebar({
   }, [handleKeyNav])
 
   const progressPct = results.length > 0 ? Math.round((completedCount / results.length) * 100) : 0
+
+  useEffect(() => {
+    onVisibleResultsChange?.(allFiltered.map((test) => test.id))
+  }, [allFiltered, onVisibleResultsChange])
 
   return (
     <div className={`flex flex-col h-full bg-white dark:bg-dark-card border-r border-zinc-200 dark:border-slate-700/50 ${className}`}>

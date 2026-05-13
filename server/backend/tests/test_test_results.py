@@ -228,6 +228,30 @@ async def test_bulk_manual_result_update_applies_shared_verdict_and_comments(
 
 
 @pytest.mark.asyncio
+async def test_bulk_manual_result_update_rejects_shared_pass_for_multiple_tests(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    suffix = f"manualBulkPass{uuid.uuid4().hex[:6]}"
+    headers = await register_and_login(client, suffix=suffix)
+    engineer_id = await _get_user_id(db_session, f"{suffix}user")
+    _, results = await _create_manual_run_with_results(db_session, engineer_id, ["U20", "U21"])
+    await db_session.commit()
+
+    resp = await client.patch(
+        "/api/test-results/batch/manual",
+        json={
+            "result_ids": [result.id for result in results],
+            "verdict": "pass",
+            "engineer_notes": "Observed each item on the device during manual verification.",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert "Pass, fail, and advisory verdicts require evidence on each individual test" in resp.text
+
+
+@pytest.mark.asyncio
 async def test_bulk_manual_result_update_requires_engineer_notes(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -249,6 +273,46 @@ async def test_bulk_manual_result_update_requires_engineer_notes(
     )
     assert resp.status_code == 422
     assert "Engineer notes are required" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_manual_result_update_accepts_short_evidence_note(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    suffix = f"manualWeak{uuid.uuid4().hex[:6]}"
+    headers = await register_and_login(client, suffix=suffix)
+    engineer_id = await _get_user_id(db_session, f"{suffix}user")
+    _, results = await _create_manual_run_with_results(db_session, engineer_id, ["U20"])
+    await db_session.commit()
+
+    resp = await client.patch(
+        f"/api/test-results/{results[0].id}",
+        json={"verdict": "pass", "engineer_notes": "Pass"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["engineer_notes"] == "Pass"
+
+
+@pytest.mark.asyncio
+async def test_soak_manual_result_accepts_concise_evidence(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    suffix = f"manualSoak{uuid.uuid4().hex[:6]}"
+    headers = await register_and_login(client, suffix=suffix)
+    engineer_id = await _get_user_id(db_session, f"{suffix}user")
+    _, results = await _create_manual_run_with_results(db_session, engineer_id, ["U59"])
+    await db_session.commit()
+
+    resp = await client.patch(
+        f"/api/test-results/{results[0].id}",
+        json={"verdict": "pass", "engineer_notes": "Device stayed stable."},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["engineer_notes"] == "Device stayed stable."
 
 
 @pytest.mark.asyncio
@@ -333,6 +397,30 @@ async def test_reviewer_can_override_and_engineer_cannot(
     assert body["is_overridden"] is True
     assert body["override_reason"] == "Manual verification failed"
     assert body["overridden_by_username"]
+
+
+@pytest.mark.asyncio
+async def test_reviewer_can_override_pending_manual_result_with_short_reason(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    suffix = f"overrideManual{uuid.uuid4().hex[:6]}"
+    await register_and_login(client, suffix=suffix)
+    owner_id = await _get_user_id(db_session, f"{suffix}user")
+    _, results = await _create_manual_run_with_results(db_session, owner_id, ["U20"])
+    await db_session.commit()
+
+    reviewer_headers = await register_and_login(client, suffix=f"{suffix}Reviewer", role="reviewer")
+    reviewer_resp = await client.post(
+        f"/api/test-results/{results[0].id}/override",
+        json={"verdict": "fail", "override_reason": "x"},
+        headers=reviewer_headers,
+    )
+    assert reviewer_resp.status_code == 200, reviewer_resp.text
+    body = reviewer_resp.json()
+    assert body["verdict"] == "fail"
+    assert body["is_overridden"] is True
+    assert body["override_reason"] == "x"
 
 
 @pytest.mark.asyncio

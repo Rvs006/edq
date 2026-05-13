@@ -5,6 +5,7 @@ flagging weak or deprecated ones.
 """
 
 import json
+import re
 from typing import Any
 
 
@@ -211,7 +212,7 @@ class SshAuditParser:
             if stripped.startswith("#"):
                 continue
 
-            if "banner:" in stripped.lower() or "ssh-" in stripped.lower():
+            if "banner:" in stripped.lower() or re.match(r"^\s*ssh-\d+(?:\.\d+)?-", stripped.lower()):
                 if result["ssh_version"] is None:
                     result["ssh_version"] = stripped
 

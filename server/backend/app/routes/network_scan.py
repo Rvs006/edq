@@ -1,5 +1,7 @@
 """Network scan routes — subnet discovery and batch testing."""
 
+from __future__ import annotations
+
 import asyncio
 import ipaddress
 import logging
@@ -31,6 +33,7 @@ from app.services.device_ip_discovery import (
 from app.services.connectivity_probe import probe_device_connectivity
 from app.services.tools_client import describe_tools_error, tools_client
 from app.services.test_library import get_test_by_id
+from app.services.test_selection import TestSelectionError, validate_active_test_ids
 from app.services.scenario_routing import (
     get_manual_routing_note,
     get_scenario_routing_decision,
@@ -42,7 +45,6 @@ from app.utils.audit import log_action
 from app.models.authorized_network import AuthorizedNetwork
 from app.models.user import UserRole
 from app.routes.authorized_networks import get_active_networks, is_target_authorized, is_ip_authorized
-from app.utils.collections import ordered_unique
 from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.routes.network_scan")
@@ -141,6 +143,27 @@ def _reserve_batch_scan_start(scan_id: str) -> bool:
 
 def _release_batch_scan_start(scan_id: str) -> None:
     _starting_scan_ids.discard(scan_id)
+
+
+def _validate_batch_test_ids(test_ids: list[str] | None) -> list[str]:
+    try:
+        return validate_active_test_ids(test_ids)
+    except TestSelectionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+def _resolve_batch_test_ids(
+    data: StartBatchRequest,
+    scan: NetworkScan,
+    template: TestTemplate | None,
+) -> list[str]:
+    if data.test_ids is not None:
+        source_ids = data.test_ids
+    elif scan.selected_test_ids is not None:
+        source_ids = scan.selected_test_ids
+    else:
+        source_ids = template.test_ids if template else []
+    return _validate_batch_test_ids(source_ids)
 
 CIDR_RE = re.compile(
     r"^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$"
@@ -497,6 +520,12 @@ async def discover_devices(
     if prefix < 16 or prefix > 32:
         raise HTTPException(status_code=400, detail="CIDR prefix must be between /16 and /32")
 
+    selected_test_ids = (
+        _validate_batch_test_ids(data.test_ids)
+        if data.test_ids is not None
+        else None
+    )
+
     # Validate against authorized networks — admins auto-authorize
     authorized = await get_active_networks(db)
     if not is_target_authorized(data.cidr, authorized):
@@ -521,7 +550,7 @@ async def discover_devices(
     scan = NetworkScan(
         cidr=data.cidr,
         connection_scenario=data.connection_scenario,
-        selected_test_ids=data.test_ids,
+        selected_test_ids=selected_test_ids,
         status=NetworkScanStatus.DISCOVERING,
         created_by=user.id,
     )
@@ -628,7 +657,11 @@ async def discover_devices(
         await db.refresh(scan)
 
     await log_action(db, user, "network_scan.discover", "network_scan", scan.id,
-                     {"cidr": data.cidr, "status": scan.status.value}, request)
+                     {
+                         "cidr": data.cidr,
+                         "status": scan.status.value,
+                         "selected_test_count": len(selected_test_ids or []),
+                     }, request)
 
     return scan
 
@@ -733,8 +766,13 @@ async def start_batch_scan(
                     raise HTTPException(status_code=400, detail="No test template available")
             template_id = template.id
 
-        raw_test_ids = data.test_ids or scan.selected_test_ids or (template.test_ids if template else [])
-        test_ids = ordered_unique(raw_test_ids)
+        test_ids = _resolve_batch_test_ids(data, scan, template)
+        logger.info(
+            "Starting batch scan %s for %d device(s) with %d selected tests",
+            scan.id,
+            len(data.device_ips),
+            len(test_ids),
+        )
 
         # Build IP -> discovery data map for enriching new Device records
         _discovered_map = {}
@@ -822,32 +860,40 @@ async def start_batch_scan(
                 connection_scenario=normalize_connection_scenario(data.connection_scenario or scan.connection_scenario),
                 total_tests=len(test_ids),
                 status=TestRunStatus.PENDING,
+                run_metadata={
+                    "network_scan_id": scan.id,
+                    "selected_test_ids": test_ids,
+                    "selected_test_count": len(test_ids),
+                    "selection_source": "bulk_discovery",
+                },
             )
             db.add(test_run)
             await db.flush()
 
             for tid in test_ids:
                 test_def = get_test_by_id(tid)
-                if test_def:
-                    decision = get_scenario_routing_decision(
-                        tid,
-                        test_def["tier"],
-                        test_run.connection_scenario,
-                    )
-                    tr = TestResult(
-                        test_run_id=test_run.id,
-                        test_id=tid,
-                        test_name=test_def["name"],
-                        tier=TestTier(decision.tier),
-                        tool=test_def.get("tool"),
-                        verdict=TestVerdict.PENDING,
-                        is_essential="yes" if test_def.get("is_essential") else "no",
-                        compliance_map=test_def.get("compliance_map", []),
-                    )
-                    manual_note = get_manual_routing_note(tid, test_run.connection_scenario)
-                    if manual_note:
-                        tr.comment = manual_note
-                    db.add(tr)
+                test_def = get_test_by_id(tid)
+                if not test_def or test_def.get("deprecated"):
+                    raise HTTPException(status_code=422, detail=f"Unsupported or deprecated test id: {tid}")
+                decision = get_scenario_routing_decision(
+                    tid,
+                    test_def["tier"],
+                    test_run.connection_scenario,
+                )
+                tr = TestResult(
+                    test_run_id=test_run.id,
+                    test_id=tid,
+                    test_name=test_def["name"],
+                    tier=TestTier(decision.tier),
+                    tool=test_def.get("tool"),
+                    verdict=TestVerdict.PENDING,
+                    is_essential="yes" if test_def.get("is_essential") else "no",
+                    compliance_map=test_def.get("compliance_map", []),
+                )
+                manual_note = get_manual_routing_note(tid, test_run.connection_scenario)
+                if manual_note:
+                    tr.comment = manual_note
+                db.add(tr)
 
             await db.flush()
             run_ids.append(test_run.id)

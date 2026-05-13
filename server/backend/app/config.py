@@ -225,11 +225,18 @@ class Settings(BaseSettings):
     def finalize_runtime_defaults(self):
         local_db_host = "127.0.0.1"
         local_db_port = 55432
+        host_mapped_postgres_ports = {local_db_port}
+        try:
+            configured_host_port = int(os.getenv("EDQ_POSTGRES_PORT", "").strip())
+        except ValueError:
+            configured_host_port = None
+        if configured_host_port:
+            host_mapped_postgres_ports.add(configured_host_port)
 
         if self.ENVIRONMENT == "docker":
             if self.DB_HOST == local_db_host:
                 self.DB_HOST = "postgres"
-            if self.DB_PORT == local_db_port:
+            if self.DB_HOST == "postgres" and self.DB_PORT in host_mapped_postgres_ports:
                 self.DB_PORT = 5432
             _, localhost_only = _partition_localhost_origins(self.CORS_ORIGINS)
             if not self.COOKIE_SECURE and not localhost_only:
@@ -243,7 +250,7 @@ class Settings(BaseSettings):
         elif self.ENVIRONMENT == "cloud":
             if self.DB_HOST == local_db_host:
                 self.DB_HOST = "postgres"
-            if self.DB_PORT == local_db_port:
+            if self.DB_HOST == "postgres" and self.DB_PORT in host_mapped_postgres_ports:
                 self.DB_PORT = 5432
             if not self.COOKIE_SECURE:
                 import warnings

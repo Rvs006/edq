@@ -49,6 +49,19 @@ def test_self_signed_certificate_is_not_treated_as_valid():
     assert parsed["cert_valid"] is False
     assert parsed["cert_has_issue"] is True
     assert parsed["cert_self_signed"] is True
+    assert parsed["cert_trust_verified"] is False
+
+
+def test_untrusted_certificate_chain_marks_trust_unverified():
+    parsed = testssl_parser.parse(_encoded_findings([
+        {"id": "cert_chain_of_trust", "finding": "unable to verify the first certificate", "severity": "WARN"},
+        {"id": "cert_subject", "finding": "CN=device.local", "severity": "INFO"},
+        {"id": "cert_issuer", "finding": "CN=Private Device CA", "severity": "INFO"},
+    ]))
+
+    assert parsed["cert_valid"] is False
+    assert parsed["cert_has_issue"] is True
+    assert parsed["cert_trust_verified"] is False
 
 
 def test_anonymous_cipher_keyword_is_detected_case_insensitively():

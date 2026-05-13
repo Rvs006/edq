@@ -119,6 +119,7 @@ For local backend runs outside Docker, point `TOOLS_SIDECAR_URL` at the tool ser
 | `REDIS.md` | Ops | Optional Redis profile guidance |
 | `AGENTS.md` | AI agents | Canonical repository guidance for coding agents |
 | `CLAUDE.md` | Claude users | Compatibility shim that points to `AGENTS.md` |
+| `docs/agents/` | AI agents | Repo-local issue tracker, triage label, and domain-doc guidance for engineering skills |
 
 Historical specs in `docs/` are archive material and should not be treated as the current operational guide.
 
@@ -134,6 +135,20 @@ Use the available `code-review-graph` MCP tools before falling back to plain-tex
 - estimating the impact radius of a change
 
 Use graph-native tools such as `query_graph`, `list_communities`, `get_architecture_overview`, `list_graph_stats`, and related `code-review-graph` tools whenever they cover the task. Fall back to `rg`, direct file reads, or broader scans only when the graph does not provide the needed context.
+
+## Agent Skills
+
+### Issue Tracker
+
+Issues and PRDs are tracked in GitHub Issues for `Rvs006/edq`. See `docs/agents/issue-tracker.md`.
+
+### Triage Labels
+
+Use the standard Matt Pocock skills triage labels without renaming. See `docs/agents/triage-labels.md`.
+
+### Domain Docs
+
+This is a single-context repo; read root `CONTEXT.md` and `docs/adr/` when present. See `docs/agents/domain.md`.
 
 ## Working Norms For Agents
 

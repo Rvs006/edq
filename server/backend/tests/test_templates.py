@@ -57,6 +57,35 @@ async def test_create_template_rejects_deprecated_or_unknown_test_ids(client: As
 
 
 @pytest.mark.asyncio
+async def test_list_templates_hides_internal_names_by_default(client: AsyncClient):
+    headers = await register_and_login(client, "tplinternal", role="admin")
+    create_resp = await client.post("/api/test-templates/", json={
+        "name": "Codex Smoke Fixture",
+        "test_ids": ["U01"],
+    }, headers=headers)
+    assert create_resp.status_code == 201
+    template_id = create_resp.json()["id"]
+
+    list_resp = await client.get("/api/test-templates/", headers=headers)
+    assert list_resp.status_code == 200
+    assert template_id not in {item["id"] for item in list_resp.json()}
+
+    direct_resp = await client.get(f"/api/test-templates/{template_id}", headers=headers)
+    assert direct_resp.status_code == 404
+
+    direct_internal_resp = await client.get(
+        f"/api/test-templates/{template_id}?include_internal=true",
+        headers=headers,
+    )
+    assert direct_internal_resp.status_code == 200
+    assert direct_internal_resp.json()["id"] == template_id
+
+    internal_resp = await client.get("/api/test-templates/?include_internal=true", headers=headers)
+    assert internal_resp.status_code == 200
+    assert template_id in {item["id"] for item in internal_resp.json()}
+
+
+@pytest.mark.asyncio
 async def test_get_template(client: AsyncClient):
     """Get a single template by ID."""
     headers = await register_and_login(client, "tplget", role="admin")

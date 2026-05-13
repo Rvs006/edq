@@ -10,24 +10,23 @@ from app.models.test_template import TestTemplate
 from app.models.user import User
 from app.schemas.test import TestTemplateCreate, TestTemplateUpdate, TestTemplateResponse
 from app.security.auth import get_current_active_user, require_role
+from app.services.run_visibility import can_include_internal, can_view_template, public_template_clause
 from app.services.test_library import get_active_tests
+from app.services.test_selection import TestSelectionError, validate_active_test_ids
 from app.utils.sanitize import sanitize_dict
 from app.utils.audit import log_action
-from app.utils.collections import ordered_unique
 
 router = APIRouter()
 
 
 def _validate_active_test_ids(test_ids: list[str]) -> list[str]:
-    active_ids = {test["test_id"] for test in get_active_tests()}
-    deduped = ordered_unique(test_ids)
-    invalid = [test_id for test_id in deduped if test_id not in active_ids]
-    if invalid:
+    try:
+        return validate_active_test_ids(test_ids)
+    except TestSelectionError as exc:
         raise HTTPException(
             status_code=422,
-            detail=f"Unsupported or deprecated test id(s): {', '.join(invalid)}",
+            detail=str(exc),
         )
-    return deduped
 
 
 @router.get("/library")
@@ -38,14 +37,17 @@ async def get_test_library(_: User = Depends(get_current_active_user)):
 
 @router.get("/", response_model=List[TestTemplateResponse])
 async def list_templates(
+    include_internal: bool = Query(False),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
+    query = select(TestTemplate).where(TestTemplate.is_active == True)
+    if not can_include_internal(user, include_internal):
+        query = query.where(public_template_clause())
     result = await db.execute(
-        select(TestTemplate).where(TestTemplate.is_active == True)
-        .order_by(TestTemplate.name).offset(skip).limit(limit)
+        query.order_by(TestTemplate.name).offset(skip).limit(limit)
     )
     return result.scalars().all()
 
@@ -73,12 +75,13 @@ async def create_template(
 @router.get("/{template_id}", response_model=TestTemplateResponse)
 async def get_template(
     template_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    user: User = Depends(get_current_active_user),
 ):
     result = await db.execute(select(TestTemplate).where(TestTemplate.id == template_id))
     template = result.scalar_one_or_none()
-    if not template:
+    if not can_view_template(user, template, include_internal):
         raise HTTPException(status_code=404, detail="Template not found")
     return template
 

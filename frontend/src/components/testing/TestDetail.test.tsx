@@ -83,10 +83,38 @@ describe('TestDetail manual gating', () => {
     expect(screen.getByRole('button', { name: /submit result/i })).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText(/comments/i), {
-      target: { value: 'Verified from switch status and device UI.' },
+      target: { value: 'OK' },
     })
 
     expect(screen.getByRole('button', { name: /submit result/i })).not.toBeDisabled()
+  })
+
+  it('lets reviewers override a pending manual test with a short reason', () => {
+    const onOverride = vi.fn()
+    render(
+      <TestDetail
+        result={baseResult}
+        liveOutput=""
+        isRunning={false}
+        runStatus="awaiting_manual"
+        userRole="reviewer"
+        onSubmitManual={vi.fn()}
+        onOverride={onOverride}
+        isSubmitting={false}
+        manualProgress={{ current: 1, total: 1 }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /override verdict/i }))
+    fireEvent.change(screen.getByLabelText(/select override verdict/i), {
+      target: { value: 'fail' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(/override reason/i), {
+      target: { value: 'x' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /apply override/i }))
+
+    expect(onOverride).toHaveBeenCalledWith('result-1', 'fail', 'x')
   })
 
   it('summarizes protocol observer evidence for DHCP tests', () => {
