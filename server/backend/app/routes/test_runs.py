@@ -38,6 +38,8 @@ from app.services.scenario_routing import (
 )
 from app.services.test_run_connectivity import ensure_device_execution_readiness
 from app.services.test_library import get_test_by_id
+from app.services.run_visibility import can_include_internal, can_view_template, public_template_clause
+from app.services.test_selection import TestSelectionError, validate_active_test_ids
 from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, is_run_executing, launch_test_run
 from app.services.wobbly_cable import get_cable_handler
 from app.services.nessus_parser import nessus_parser
@@ -52,6 +54,23 @@ from app.routes.authorized_networks import get_active_networks, is_ip_authorized
 logger = logging.getLogger("edq.routes.test_runs")
 
 router = APIRouter()
+
+
+def _apply_public_run_visibility(query, user: User, include_internal: bool = False):
+    if can_include_internal(user, include_internal):
+        return query
+    return (
+        query.join(TestTemplate, TestTemplate.id == TestRun.template_id)
+        .where(TestTemplate.is_active == True)
+        .where(public_template_clause())
+    )
+
+
+def _validate_selected_test_ids_for_route(test_ids: list[str] | None) -> list[str]:
+    try:
+        return validate_active_test_ids(test_ids)
+    except TestSelectionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 def _nessus_upload_path(run_id: str) -> Path:
@@ -121,19 +140,25 @@ async def _sync_run_result_routing(
 
 
 async def _get_authorized_test_run(
-    run_id: str, user: User, db: AsyncSession
+    run_id: str, user: User, db: AsyncSession, include_internal: bool = False
 ) -> TestRun:
     """Load a test run and verify the current user is authorized to access it.
 
     Admins and reviewers can access all test runs.
     Engineers can only access their own test runs.
     """
-    result = await db.execute(select(TestRun).where(TestRun.id == run_id))
+    result = await db.execute(
+        select(TestRun)
+        .options(selectinload(TestRun.template))
+        .where(TestRun.id == run_id)
+    )
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Test run not found")
     if user.role == UserRole.ENGINEER and run.engineer_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if not can_view_template(user, run.template, include_internal):
+        raise HTTPException(status_code=404, detail="Test run not found")
     return run
 
 def _enrich_run_from_loaded(run: TestRun) -> dict:
@@ -318,12 +343,14 @@ def _resume_block_detail(reason: str) -> str:
 async def list_test_runs(
     device_id: Optional[str] = None,
     status: Optional[str] = None,
+    include_internal: bool = Query(False),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     query = select(TestRun)
+    query = _apply_public_run_visibility(query, user, include_internal)
     # Engineers can only see their own test runs
     if user.role == UserRole.ENGINEER:
         query = query.where(TestRun.engineer_id == user.id)
@@ -341,20 +368,34 @@ async def list_test_runs(
 
 @router.get("/stats")
 async def test_run_stats(
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     # Engineers see only their own stats; admins/reviewers see all
     base_filter = TestRun.engineer_id == user.id if user.role == UserRole.ENGINEER else True
 
-    total = await db.execute(select(func.count(TestRun.id)).where(base_filter))
+    total_query = _apply_public_run_visibility(
+        select(func.count(TestRun.id)).select_from(TestRun),
+        user,
+        include_internal,
+    ).where(base_filter)
+    total = await db.execute(total_query)
     by_status = await db.execute(
-        select(TestRun.status, func.count(TestRun.id))
+        _apply_public_run_visibility(
+            select(TestRun.status, func.count(TestRun.id)).select_from(TestRun),
+            user,
+            include_internal,
+        )
         .where(base_filter)
         .group_by(TestRun.status)
     )
     by_verdict = await db.execute(
-        select(TestRun.overall_verdict, func.count(TestRun.id))
+        _apply_public_run_visibility(
+            select(TestRun.overall_verdict, func.count(TestRun.id)).select_from(TestRun),
+            user,
+            include_internal,
+        )
         .where(base_filter)
         .where(TestRun.overall_verdict.isnot(None))
         .group_by(TestRun.overall_verdict)
@@ -370,12 +411,13 @@ async def test_run_stats(
 async def check_duplicate_runs(
     device_id: str = Query(...),
     template_id: str = Query(...),
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     """Check if there are existing runs for the same device+template combo."""
     query = (
-        select(TestRun)
+        _apply_public_run_visibility(select(TestRun), user, include_internal)
         .where(TestRun.device_id == device_id, TestRun.template_id == template_id)
         .order_by(TestRun.created_at.desc())
         .limit(5)
@@ -409,6 +451,7 @@ async def check_duplicate_runs(
 async def create_test_run(
     data: TestRunCreate,
     request: Request,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -425,7 +468,7 @@ async def create_test_run(
         )
     )
     template = template_result.scalar_one_or_none()
-    if not template:
+    if not can_view_template(user, template, include_internal):
         raise HTTPException(status_code=404, detail="Template not found")
 
     # Handle both native list and double-serialized JSON string
@@ -434,12 +477,41 @@ async def create_test_run(
         import json as _json
         raw_ids = _json.loads(raw_ids)
 
-    raw_ids = ordered_unique(raw_ids)
+    template_test_ids = ordered_unique(raw_ids)
+    selected_test_ids = None
+    if data.selected_test_ids is not None:
+        selected_test_ids = _validate_selected_test_ids_for_route(data.selected_test_ids)
+        template_active_ids = {
+            test_id
+            for test_id in template_test_ids
+            if (test_def := get_test_by_id(test_id)) and not test_def.get("deprecated")
+        }
+        outside_template = [test_id for test_id in selected_test_ids if test_id not in template_active_ids]
+        if outside_template:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Selected test id(s) are not part of the chosen template: "
+                    f"{', '.join(outside_template)}"
+                ),
+            )
+
+    raw_ids = selected_test_ids or template_test_ids
     test_defs = [
         (test_id, test_def)
         for test_id in raw_ids
         if (test_def := get_test_by_id(test_id)) and not test_def.get("deprecated")
     ]
+    if not test_defs:
+        raise HTTPException(status_code=422, detail="Select at least one active test")
+
+    metadata = dict(data.metadata) if isinstance(data.metadata, dict) else {}
+    if data.metadata is not None and not isinstance(data.metadata, dict):
+        metadata["request_metadata"] = data.metadata
+    if selected_test_ids is not None:
+        metadata["selected_test_ids"] = selected_test_ids
+        metadata["selection_source"] = "explicit"
+    metadata["selected_test_count"] = len(test_defs)
 
     test_run = TestRun(
         device_id=data.device_id,
@@ -450,7 +522,7 @@ async def create_test_run(
         connection_scenario=connection_scenario,
         total_tests=len(test_defs),
         status=TestRunStatus.PENDING,
-        run_metadata=data.metadata,
+        run_metadata=metadata or data.metadata,
     )
     db.add(test_run)
     await db.flush()
@@ -474,7 +546,28 @@ async def create_test_run(
     await db.flush()
     await _sync_run_result_routing(db, test_run.id, connection_scenario)
     await db.refresh(test_run)
-    await log_action(db, user, "create", "test_run", test_run.id, {"device_id": data.device_id}, request)
+    logger.info(
+        "Created test run %s for device %s using template %s with %d selected tests",
+        test_run.id,
+        getattr(device, "ip_address", data.device_id),
+        template.name,
+        len(test_defs),
+    )
+    await log_action(
+        db,
+        user,
+        "create",
+        "test_run",
+        test_run.id,
+        {
+            "device_id": data.device_id,
+            "device_ip": device.ip_address,
+            "template_id": data.template_id,
+            "test_count": len(test_defs),
+            "selection_source": "explicit" if selected_test_ids is not None else "template",
+        },
+        request,
+    )
     # Commit explicitly so the new run is visible to subsequent GET requests
     # immediately (before get_db's implicit commit after response is sent).
     await db.commit()
@@ -484,10 +577,11 @@ async def create_test_run(
 @router.get("/{run_id}", response_model=TestRunResponse)
 async def get_test_run(
     run_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     return await _enrich_run(run, db)
 
 
@@ -495,10 +589,11 @@ async def get_test_run(
 async def update_test_run(
     run_id: str,
     data: TestRunUpdate,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     updates = data.model_dump(exclude_unset=True)
     if "connection_scenario" in updates:
         if normalize_test_run_status(run.status) != TestRunStatus.PENDING.value:
@@ -520,10 +615,11 @@ async def update_test_run(
 @router.post("/{run_id}/start")
 async def start_test_run(
     run_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
     if run_status not in (
@@ -540,24 +636,37 @@ async def start_test_run(
         raise HTTPException(status_code=409, detail="Test run is already executing")
 
     device = await db.get(Device, run.device_id)
-    readiness = await ensure_device_execution_readiness(db, device, logger=logger)
-    if readiness.missing_ip:
-        raise HTTPException(
-            status_code=409 if readiness.dhcp_missing_ip else 422,
-            detail=_missing_ip_detail_for_action("start", readiness.dhcp_missing_ip),
-        )
-    if device is not None:
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    readiness = None
+    if device.ip_address:
+        await _ensure_test_run_target_authorized(db, user, device)
+        run.status = TestRunStatus.SYNCING
+        start_status = TestRunStatus.SYNCING.value
+        start_message = "Test execution queued. Connectivity checks are running in the background."
+    else:
+        # Devices without an IP still need synchronous discovery before we can
+        # authorize the target subnet. Known-IP devices queue immediately and
+        # let the engine perform connectivity checks in the background.
+        readiness = await ensure_device_execution_readiness(db, device, logger=logger)
+        if readiness.missing_ip:
+            raise HTTPException(
+                status_code=409 if readiness.dhcp_missing_ip else 422,
+                detail=_missing_ip_detail_for_action("start", readiness.dhcp_missing_ip),
+            )
         await _ensure_test_run_target_authorized(db, user, device)
 
-    start_status = TestRunStatus.RUNNING.value
-    start_message = "Test execution started"
-    if not readiness.can_execute:
-        run.status = TestRunStatus.PAUSED_CABLE
-        start_status = TestRunStatus.PAUSED_CABLE.value
-        start_message = readiness.pause_message or (
-            f"Target device {device.ip_address if device else 'unknown'} is unreachable from this "
-            "network. Testing is paused until connectivity is restored."
-        )
+        run.status = TestRunStatus.SYNCING
+        start_status = TestRunStatus.SYNCING.value
+        start_message = "Test execution queued. Connectivity checks are running in the background."
+        if not readiness.can_execute:
+            run.status = TestRunStatus.PAUSED_CABLE
+            start_status = TestRunStatus.PAUSED_CABLE.value
+            start_message = readiness.pause_message or (
+                f"Target device {device.ip_address if device else 'unknown'} is unreachable from this "
+                "network. Testing is paused until connectivity is restored."
+            )
 
     await _sync_run_result_routing(
         db,
@@ -580,10 +689,10 @@ async def start_test_run(
         "run_id": run_id,
         "connection_scenario": normalize_connection_scenario(run.connection_scenario),
         "connectivity": {
-            "reason": readiness.reason,
-            "reachable": readiness.reachable,
-            "probe_method": readiness.probe_method,
-            "can_execute": readiness.can_execute,
+            "reason": readiness.reason if readiness else "background_probe_pending",
+            "reachable": readiness.reachable if readiness else None,
+            "probe_method": readiness.probe_method if readiness else None,
+            "can_execute": readiness.can_execute if readiness else None,
         },
     }
 
@@ -591,13 +700,14 @@ async def start_test_run(
 @router.post("/{run_id}/cancel")
 async def cancel_test_run(
     run_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     """Cancel a running or paused test run and kill its sidecar processes."""
     from app.services.tools_client import tools_client
 
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
     if run_status not in (
@@ -636,10 +746,11 @@ async def cancel_test_run(
 @router.post("/{run_id}/pause")
 async def pause_test_run(
     run_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
     if run_status != TestRunStatus.RUNNING.value:
@@ -664,10 +775,11 @@ async def pause_test_run(
 @router.post("/{run_id}/pause-cable")
 async def pause_test_run_for_cable(
     run_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
     if run_status not in (TestRunStatus.RUNNING.value, TestRunStatus.AWAITING_MANUAL.value):
@@ -704,10 +816,11 @@ async def pause_test_run_for_cable(
 @router.post("/{run_id}/resume")
 async def resume_test_run(
     run_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
     if run_status not in (
@@ -771,10 +884,11 @@ async def resume_test_run(
 @router.post("/{run_id}/complete", response_model=TestRunResponse)
 async def complete_test_run(
     run_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     summary = await _summarize_run_results(db, run_id)
     if summary["pending_manual"]:
         raise HTTPException(
@@ -805,10 +919,11 @@ async def complete_test_run(
 @router.post("/{run_id}/request-review", response_model=TestRunResponse)
 async def request_review_for_test_run(
     run_id: str,
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
     summary = await _summarize_run_results(db, run_id)
     if summary["pending_manual"]:
         raise HTTPException(
@@ -839,10 +954,11 @@ async def request_review_for_test_run(
 async def upload_nessus(
     run_id: str,
     file: UploadFile = File(...),
+    include_internal: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    run = await _get_authorized_test_run(run_id, user, db)
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
 
     if not file.filename or not file.filename.endswith(".nessus"):
         raise HTTPException(status_code=400, detail="Only .nessus files are accepted")
@@ -917,12 +1033,13 @@ async def upload_nessus(
 async def list_nessus_findings(
     run_id: str,
     severity: Optional[str] = None,
+    include_internal: bool = Query(False),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
-    await _get_authorized_test_run(run_id, user, db)
+    await _get_authorized_test_run(run_id, user, db, include_internal)
 
     query = select(NessusFinding).where(NessusFinding.run_id == run_id)
     if severity:

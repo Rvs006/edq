@@ -1,21 +1,19 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { reportsApi, resolveApiUrl, testRunsApi, getApiErrorMessage } from '@/lib/api'
+import { reportsApi, testRunsApi, getApiErrorMessage } from '@/lib/api'
 import type { TestRun, ReportTemplate } from '@/lib/types'
-import { toLocalDateOnly } from '@/lib/testContracts'
-import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate, FileDown } from 'lucide-react'
+import { toLocalDateOnly, toLocalDateString } from '@/lib/testContracts'
+import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate } from 'lucide-react'
 import Callout from '@/components/common/Callout'
 import toast from 'react-hot-toast'
 import { getPreferredDeviceName } from '@/lib/deviceLabels'
+import { normalizeTemplateName } from '@/lib/templateNames'
 
 const TEMPLATE_OPTIONS = [
-  { key: 'generic', label: 'Generic IP Device (C00)', category: 'generic' },
-  { key: 'pelco_camera', label: 'Pelco Camera (Rev 2)', category: 'camera' },
-  { key: 'easyio_controller', label: 'EasyIO Controller', category: 'controller' },
-  { key: 'sauter_680_as', label: 'Sauter 680-AS (C00)', category: 'controller' },
+  { key: 'generic', label: 'Generic IP Device (Rev00 C00)', category: 'generic' },
 ]
 
-type ReportFormat = 'excel' | 'word' | 'pdf' | 'csv'
+type ReportFormat = 'excel' | 'word'
 
 type FormatGroup = {
   title: string
@@ -23,37 +21,44 @@ type FormatGroup = {
   formats: { key: ReportFormat; label: string; ext: string; icon: typeof FileSpreadsheet }[]
 }
 
+function getReportRunTimestamp(run: TestRun): string {
+  return run.completed_at || run.started_at || run.created_at || ''
+}
+
+function buildReportRunGroups(runs: TestRun[]) {
+  const sortedRuns = [...runs].sort((a, b) => getReportRunTimestamp(b).localeCompare(getReportRunTimestamp(a)))
+  const latestRunId = sortedRuns[0]?.id || null
+  const groups = new Map<string, TestRun[]>()
+
+  for (const run of sortedRuns) {
+    const device = getPreferredDeviceName(run)
+    groups.set(device, [...(groups.get(device) || []), run])
+  }
+
+  return {
+    latestRunId,
+    groups: Array.from(groups.entries()).map(([device, deviceRuns]) => ({
+      device,
+      runs: deviceRuns,
+    })),
+  }
+}
+
 const FORMAT_PREVIEW: Record<ReportFormat, { title: string; highlights: string[] }> = {
   excel: {
     title: 'Excel Workbook Preview',
     highlights: [
-      'Worksheet tabs: General Test Information, Test Results, Additional Device Information, Raw Evidence',
-      'One EDQ test per row with engineer notes and evidence summary',
-      'Raw Evidence sheet keeps detailed observer/tool output for bench review',
-    ],
-  },
-  csv: {
-    title: 'CSV Export Preview',
-    highlights: [
-      'Flat per-test export for quick filtering and diffing',
-      'Engineer notes and evidence summary columns stay separate',
-      'Best for quick review, not for preserving multi-sheet evidence layout',
+      'Workbook tabs: General Test Information, Test Results, Additional Device Information, Raw Evidence',
+      'Per-test rows with verdict, comments, engineer notes, and evidence summary',
+      'Detailed observer/tool evidence is preserved in the Raw Evidence tab',
     ],
   },
   word: {
     title: 'Word Report Preview',
     highlights: [
-      'Narrative deliverable with template profile and shared report model',
+      'Editable document using the same sections and report model as Excel',
       'Good for handoff and client editing',
-      'Summarised findings instead of workbook-style raw evidence tabs',
-    ],
-  },
-  pdf: {
-    title: 'PDF Report Preview',
-    highlights: [
-      'Fixed-layout client deliverable with shared report content',
-      'Best for formal distribution and archiving',
-      'Uses the same report model, but not the Excel Raw Evidence sheet layout',
+      'Raw evidence is included as a detailed evidence section',
     ],
   },
 }
@@ -75,23 +80,36 @@ export default function ReportsPage() {
     queryFn: () => reportsApi.templates().then(r => r.data),
   })
 
-  const selectedRunDetails = runs?.find((run: TestRun) => run.id === selectedRun) || null
+  const completedRuns = useMemo(
+    () => [...((runs || []) as TestRun[])].sort((a, b) => getReportRunTimestamp(b).localeCompare(getReportRunTimestamp(a))),
+    [runs]
+  )
+  const reportRunGroups = useMemo(() => buildReportRunGroups(completedRuns), [completedRuns])
+  const selectedRunDetails = completedRuns.find((run: TestRun) => run.id === selectedRun) || null
   const selectedReadiness = selectedRunDetails?.readiness_summary || null
   const selectedRunHasSynopsis = Boolean(selectedRunDetails?.synopsis?.trim())
 
-  const triggerBlobDownload = (blobData: Blob, filename: string, mimeType: string) => {
-    const blob = new Blob([blobData], { type: mimeType })
-    const url = URL.createObjectURL(blob)
+  const triggerBlobDownload = async (filename: string, expectedExt: string) => {
+    const response = await reportsApi.download(filename)
+    const blob = response.data as Blob
+    const contentType = (response.headers?.['content-type'] as string | undefined) || ''
+    if (contentType.includes('application/json') || contentType.startsWith('text/')) {
+      const text = await blob.text()
+      throw new Error(`Server returned ${contentType || 'unexpected'} instead of the report. ${text.slice(0, 200)}`)
+    }
+    if (!filename.toLowerCase().endsWith(expectedExt)) {
+      throw new Error(`Backend produced ${filename} but a ${expectedExt} file was requested`)
+    }
+    const objectUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
+    a.href = objectUrl
     a.download = filename
     a.style.display = 'none'
     document.body.appendChild(a)
     a.click()
-    // Small delay before cleanup to ensure download starts
     setTimeout(() => {
-      URL.revokeObjectURL(url)
       document.body.removeChild(a)
+      URL.revokeObjectURL(objectUrl)
     }, 100)
   }
 
@@ -105,45 +123,18 @@ export default function ReportsPage() {
         include_synopsis: includeSynopsis,
         template_key: templateKey,
       })
-      if (!data.filename && !data.download_url) {
+      if (!data.filename) {
         toast.error('Report generation returned no file. Check backend logs.')
         return
       }
-      const mimeMap: Record<ReportFormat, string> = {
-        excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        pdf: 'application/pdf',
-        csv: 'text/csv',
-      }
       const extensionMap: Record<ReportFormat, string> = {
-        excel: 'xlsx',
-        word: 'docx',
-        pdf: 'pdf',
-        csv: 'csv',
+        excel: '.xlsx',
+        word: '.docx',
       }
-      const downloadName = data.filename || `report-${selectedRun}.${extensionMap[reportType]}`
+      const downloadName = data.filename
 
+      await triggerBlobDownload(downloadName, extensionMap[reportType])
       toast.success(`Report generated: ${downloadName}`)
-
-      try {
-        if (!data.filename) throw new Error('No direct filename returned')
-        const blob = await reportsApi.download(data.filename)
-        triggerBlobDownload(blob.data, downloadName, mimeMap[reportType])
-      } catch {
-        // Blob download failed — try direct download as fallback (no navigation)
-        const url = data.download_url
-        if (!url) {
-          toast.error('Download failed and no fallback URL available')
-          return
-        }
-        const a = document.createElement('a')
-        a.href = resolveApiUrl(url)
-        a.download = downloadName
-        a.style.display = 'none'
-        document.body.appendChild(a)
-        a.click()
-        setTimeout(() => document.body.removeChild(a), 100)
-      }
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Report generation failed'))
     } finally {
@@ -157,18 +148,16 @@ export default function ReportsPage() {
   const formatGroups: FormatGroup[] = [
     {
       title: 'Spreadsheet Exports',
-      description: 'Excel workbook (matches Electracom qualification template) and flat CSV export.',
+      description: 'Excel workbook matching the canonical qualification report.',
       formats: [
         { key: 'excel', label: 'Excel', ext: '.xlsx', icon: FileSpreadsheet },
-        { key: 'csv', label: 'CSV', ext: '.csv', icon: FileSpreadsheet },
       ],
     },
     {
       title: 'Document Exports',
-      description: 'Narrative deliverables for client-ready Word and PDF report packages.',
+      description: 'Editable Word deliverable with the same report sections as Excel.',
       formats: [
         { key: 'word', label: 'Word', ext: '.docx', icon: FileText },
-        { key: 'pdf', label: 'PDF', ext: '.pdf', icon: FileDown },
       ],
     },
   ]
@@ -195,12 +184,34 @@ export default function ReportsPage() {
               <label className="label">Test Run</label>
               <select value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)} aria-label="Select test run" className="input">
                 <option value="">Select a report-ready test run...</option>
-                {runs?.map((run: TestRun) => (
-                <option key={run.id} value={run.id}>
-                    {getPreferredDeviceName(run)} &mdash; {run.readiness_summary?.score ?? run.confidence ?? 1}/10 readiness &mdash; {toLocalDateOnly(run.created_at)}
-                  </option>
+                {reportRunGroups.groups.map((group) => (
+                  <optgroup key={group.device} label={`${group.device} (${group.runs.length})`}>
+                    {group.runs.map((run: TestRun) => {
+                      const timestamp = getReportRunTimestamp(run)
+                      const template = normalizeTemplateName(run.template_name)
+                      return (
+                        <option key={run.id} value={run.id}>
+                          {run.id === reportRunGroups.latestRunId ? 'Latest - ' : ''}
+                          {getPreferredDeviceName(run)} - {toLocalDateString(timestamp)}
+                          {template ? ` - ${template}` : ''}
+                          {` - ${run.readiness_summary?.score ?? run.confidence ?? 1}/10`}
+                        </option>
+                      )
+                    })}
+                  </optgroup>
                 ))}
               </select>
+              {selectedRunDetails && (
+                <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-300">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    <span><strong>Device:</strong> {getPreferredDeviceName(selectedRunDetails)}</span>
+                    <span><strong>Run:</strong> {toLocalDateString(getReportRunTimestamp(selectedRunDetails))}</span>
+                    {selectedRunDetails.template_name && (
+                      <span><strong>Template:</strong> {normalizeTemplateName(selectedRunDetails.template_name)}</span>
+                    )}
+                  </div>
+                </div>
+              )}
               {selectedReadiness && (
                 <div className="mt-2">
                   <Callout
@@ -221,13 +232,13 @@ export default function ReportsPage() {
               <select value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} aria-label="Select report template" className="input">
                 {availableTemplates.map((t: ReportTemplate) => (
                   <option key={t.key} value={t.key}>
-                    {t.name || t.label}
+                    {normalizeTemplateName(t.name || t.label) || 'Report profile'}
                     {t.device_category ? ` (${t.device_category})` : ''}
                   </option>
                 ))}
               </select>
               <p className="text-xs text-zinc-500 mt-1">
-                The selected template profile now applies to Excel, CSV, Word, and PDF outputs.
+                The canonical report profile applies to Excel and Word outputs.
               </p>
             </div>
 
@@ -297,13 +308,15 @@ export default function ReportsPage() {
 
         <div className="space-y-4">
           <div className="card p-4">
-            <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Template Formats</h3>
+            <h3 className="font-semibold text-zinc-900 dark:text-slate-100 mb-3">Report Profile</h3>
             <div className="space-y-2">
               {availableTemplates.map((template: ReportTemplate) => (
                 <div key={template.key} className="flex items-center gap-2 py-1">
                   <div className="w-2 h-2 rounded-full bg-brand-500" />
                   <div>
-                    <p className="text-sm font-medium text-zinc-900 dark:text-slate-100">{template.name || template.label}</p>
+                    <p className="text-sm font-medium text-zinc-900 dark:text-slate-100">
+                      {normalizeTemplateName(template.name || template.label) || 'Report profile'}
+                    </p>
                     <p className="text-xs text-zinc-500">
                       {template.description || `${template.device_category || template.category || 'Device'} profile shared across report outputs.`}
                     </p>
@@ -330,14 +343,9 @@ export default function ReportsPage() {
             <ul className="space-y-2 text-sm text-zinc-600 dark:text-slate-400">
               {[
                 'Operational readiness score and trust summary',
-                'Shared report model across Excel, Word, PDF, and CSV',
-                'Selected template profile applied to all export types',
-                'Branding and footer metadata carried into report outputs',
-                'Executive summary with overall verdict',
                 'Device information and network details',
-                'Template-backed test-plan rows when a workbook mapping exists',
+                'Per-test result rows with detailed raw evidence',
                 'Detailed findings for FAIL and ADVISORY results',
-                'Tool versions and connection scenario',
                 'Saved synopsis narrative when one exists on the run',
               ].map(item => (
                 <li key={item} className="flex items-start gap-2">

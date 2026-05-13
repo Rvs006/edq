@@ -61,6 +61,7 @@ class TestRunCreate(BaseModel):
     template_id: str = Field(..., max_length=36)
     agent_id: Optional[str] = Field(None, max_length=36)
     connection_scenario: str = Field("direct", max_length=32)
+    selected_test_ids: Optional[List[str]] = Field(None, max_length=500)
     metadata: Optional[Any] = None
 
 
@@ -157,9 +158,22 @@ class TestResultUpdate(BaseModel):
     duration_seconds: Optional[float] = None
 
 
+class TestResultBulkManualUpdate(BaseModel):
+    result_ids: List[str] = Field(..., min_length=1, max_length=100)
+    verdict: str = Field(..., min_length=2, max_length=32)
+    engineer_notes: Optional[str] = Field(None, max_length=4000)
+
+    @field_validator("result_ids")
+    @classmethod
+    def result_ids_must_be_unique(cls, value: List[str]) -> List[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("result_ids must be unique")
+        return value
+
+
 class TestResultOverrideRequest(BaseModel):
     verdict: str = Field(..., min_length=2, max_length=32)
-    override_reason: str = Field(..., min_length=3, max_length=4000)
+    override_reason: str = Field(..., min_length=1, max_length=4000)
     comment: Optional[str] = Field(None, max_length=4000)
 
 

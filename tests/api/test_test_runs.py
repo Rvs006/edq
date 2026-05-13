@@ -142,7 +142,7 @@ async def test_start_test_run(admin_client: httpx.AsyncClient, test_device: dict
     assert resp.status_code in (200, 502, 503)
     if resp.status_code == 200:
         data = resp.json()
-        assert data.get("status") in ("running", "paused_cable")
+        assert data.get("status") in ("syncing", "running", "paused_cable")
 
     # Cancel to clean up if it started
     await admin_client.post(f"/api/test-runs/{run['id']}/cancel")

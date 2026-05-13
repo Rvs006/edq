@@ -119,6 +119,21 @@ def test_finalize_runtime_defaults_for_cloud_enable_secure_cookie():
     assert settings.DB_PORT == 5432
 
 
+def test_cloud_defaults_ignore_host_mapped_postgres_port(monkeypatch):
+    monkeypatch.setenv("EDQ_POSTGRES_PORT", "55433")
+
+    with pytest.warns(UserWarning, match="COOKIE_SECURE=false in production environment"):
+        settings = _base_settings(
+            ENVIRONMENT="cloud",
+            DATABASE_URL="",
+            DB_HOST="postgres",
+            DB_PORT=55433,
+        )
+
+    assert settings.DB_PORT == 5432
+    assert settings.DATABASE_URL.endswith("@postgres:5432/edq")
+
+
 def test_redis_required_defaults_false():
     settings = _base_settings()
     assert settings.REDIS_REQUIRED is False

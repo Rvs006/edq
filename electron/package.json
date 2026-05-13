@@ -40,6 +40,18 @@
       {
         "from": "../.env.example",
         "to": ".env.example"
+      },
+      {
+        "from": "../scripts/start-host-mac-helper.ps1",
+        "to": "scripts/start-host-mac-helper.ps1"
+      },
+      {
+        "from": "../tools/server.py",
+        "to": "tools/server.py"
+      },
+      {
+        "from": "../tools/requirements.txt",
+        "to": "tools/requirements.txt"
       }
     ],
     "win": {

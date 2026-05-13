@@ -37,7 +37,7 @@ class TestResult(Base):
     test_id = Column(String(8), nullable=False, index=True)  # e.g. "U01", "U02"
     test_name = Column(String(128), nullable=False)
     tier = Column(SAEnum(TestTier, values_callable=enum_values), nullable=False)
-    tool = Column(String(64), nullable=True)  # nmap, sslyze, ssh-audit, etc.
+    tool = Column(String(64), nullable=True)  # nmap, testssl.sh, ssh-audit, etc.
     verdict = Column(
         SAEnum(TestVerdict, values_callable=enum_values),
         default=TestVerdict.PENDING,

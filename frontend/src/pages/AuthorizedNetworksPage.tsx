@@ -101,15 +101,39 @@ export default function AuthorizedNetworksPage() {
 
   const cidrValid = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(cidr.trim())
   const activeCount = networks.filter((network: AuthorizedNetwork) => network.is_active).length
+  const disabledCount = Math.max(networks.length - activeCount, 0)
+  const setupSummary = [
+    { label: 'Authorized ranges', value: networks.length, tone: 'text-zinc-900 dark:text-slate-100' },
+    { label: 'Active ranges', value: activeCount, tone: 'text-emerald-600 dark:text-emerald-300' },
+    { label: 'Disabled ranges', value: disabledCount, tone: 'text-zinc-500 dark:text-slate-400' },
+  ]
 
   return (
     <div className="page-container">
-      <div className="mb-5">
-        <h1 className="section-title">Authorized Networks</h1>
-        <p className="section-subtitle">
-          Manage which networks EDQ is allowed to scan. All scan targets must fall within an authorized range.
-        </p>
+      <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="section-title">Authorized Networks</h1>
+          <p className="section-subtitle">
+            Manage which networks EDQ is allowed to scan. All scan targets must fall within an authorized range.
+          </p>
+        </div>
+        {canManageNetworks && !showAdd && (
+          <button type="button" onClick={() => setShowAdd(true)} className="btn-primary self-start">
+            <Plus className="w-4 h-4" /> Add Network
+          </button>
+        )}
       </div>
+
+      {!loading && (
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {setupSummary.map((item) => (
+            <div key={item.label} className="card p-4">
+              <p className="text-xs font-medium text-zinc-500 dark:text-slate-400">{item.label}</p>
+              <p className={`mt-1 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {!loading && activeCount === 0 && (
         <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-3">
@@ -201,12 +225,6 @@ export default function AuthorizedNetworksPage() {
             </button>
           </div>
         </div>
-      ) : canManageNetworks ? (
-        <div className="mb-4">
-          <button type="button" onClick={() => setShowAdd(true)} className="btn-primary">
-            <Plus className="w-4 h-4" /> Add Network
-          </button>
-        </div>
       ) : null}
 
       {loading ? (
@@ -237,8 +255,8 @@ export default function AuthorizedNetworksPage() {
           {networks.map((network: AuthorizedNetwork) => (
             <div
               key={network.id}
-              className={`card p-4 flex items-center gap-4 transition-opacity ${
-                !network.is_active ? 'opacity-50' : ''
+              className={`card-hover p-4 flex flex-col gap-4 sm:flex-row sm:items-center ${
+                !network.is_active ? 'opacity-60' : ''
               }`}
             >
               <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
@@ -278,7 +296,7 @@ export default function AuthorizedNetworksPage() {
               </div>
 
               {canManageNetworks && (
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0 self-end sm:self-center">
                   <button
                     type="button"
                     onClick={() => handleToggle(network)}

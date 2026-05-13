@@ -17,6 +17,7 @@ export interface TestResultDetail {
   findings: Record<string, unknown> | unknown[] | null
   verdict: string | null
   comment: string | null
+  comment_override: string | null
   engineer_notes: string | null
   is_overridden: boolean
   override_reason: string | null
@@ -38,7 +39,7 @@ interface TestDetailProps {
   userRole: string
   onSubmitManual: (resultId: string, verdict: string, notes: string) => Promise<void>
   onOverride: (resultId: string, verdict: string, reason: string) => Promise<void>
-  onSaveNotes?: (resultId: string, notes: string) => Promise<void>
+  onSaveComment?: (resultId: string, comment: string) => Promise<void>
   isSubmitting: boolean
   manualProgress?: { current: number; total: number } | null
 }
@@ -83,6 +84,8 @@ function buildProtocolEvidenceSummary(
       const details = [
         structuredOutput.offered_ip ? `Offered IP ${String(structuredOutput.offered_ip)}` : '',
         structuredOutput.dhcp_server ? `Server ${String(structuredOutput.dhcp_server)}` : '',
+        structuredOutput.dhcp_dns_server ? `DNS ${String(structuredOutput.dhcp_dns_server)}` : '',
+        structuredOutput.dhcp_ntp_server ? `NTP ${String(structuredOutput.dhcp_ntp_server)}` : '',
       ].filter(Boolean)
       return {
         title: 'Protocol Harness Result',
@@ -98,6 +101,8 @@ function buildProtocolEvidenceSummary(
         ? 'Harness was observation-only. Configure DHCP offer settings to complete the handshake.'
         : 'Client traffic was observed, but the handshake was not fully acknowledged.',
       structuredOutput.offered_ip ? `Configured offer IP ${String(structuredOutput.offered_ip)}` : '',
+      structuredOutput.dhcp_dns_server ? `Configured DNS ${String(structuredOutput.dhcp_dns_server)}` : '',
+      structuredOutput.dhcp_ntp_server ? `Configured NTP ${String(structuredOutput.dhcp_ntp_server)}` : '',
     ].filter(Boolean)
     return {
       title: 'Protocol Harness Result',
@@ -178,21 +183,22 @@ export default function TestDetail({
   userRole,
   onSubmitManual,
   onOverride,
-  onSaveNotes,
+  onSaveComment,
   isSubmitting,
   manualProgress,
 }: TestDetailProps) {
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [overrideVerdict, setOverrideVerdict] = useState('')
   const [overrideReason, setOverrideReason] = useState('')
-  const [notesValue, setNotesValue] = useState(result.engineer_notes || '')
+  const [commentValue, setCommentValue] = useState(result.comment_override ?? result.comment ?? '')
 
   useEffect(() => {
-    setNotesValue(result.engineer_notes || '')
-  }, [result.engineer_notes])
+    setCommentValue(result.comment_override ?? result.comment ?? '')
+  }, [result.comment_override, result.comment])
 
   const canOverride = userRole === 'admin' || userRole === 'reviewer'
   const isManual = result.tier === 'guided_manual'
+  const canShowOverride = canOverride && (isManual || Boolean(result.verdict && result.verdict !== 'pending'))
   const isPendingManual = !result.verdict || result.verdict === 'pending'
   const manualUnlocked = isManual && (!isPendingManual || runStatus === 'awaiting_manual')
   const termOutput = liveOutput || result.raw_output || ''
@@ -319,10 +325,28 @@ export default function TestDetail({
           </div>
         )}
 
-        {!isManual && result.comment && (
-          <div className="p-3 bg-zinc-50 dark:bg-slate-900/40 rounded-lg border border-zinc-100 dark:border-slate-700/50">
-            <p className="text-xs font-medium text-zinc-500 mb-1">Comment</p>
-            <p className="text-sm text-zinc-700 dark:text-slate-300">{result.comment}</p>
+        {!isManual && (
+          <div>
+            <label
+              htmlFor={`comments-${result.id}`}
+              className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5"
+            >
+              Comments
+            </label>
+            <textarea
+              id={`comments-${result.id}`}
+              value={commentValue}
+              onChange={(e) => setCommentValue(e.target.value)}
+              rows={3}
+              placeholder="Report comments..."
+              className="input resize-y text-sm"
+              onBlur={() => {
+                const currentReportComment = result.comment_override ?? result.comment ?? ''
+                if (commentValue !== currentReportComment && onSaveComment) {
+                  onSaveComment(result.id, commentValue)
+                }
+              }}
+            />
           </div>
         )}
 
@@ -349,7 +373,7 @@ export default function TestDetail({
                   testNumber={result.test_id}
                   testName={result.test_name}
                   currentVerdict={result.verdict}
-                  currentNotes={result.engineer_notes}
+                  currentNotes={result.comment_override ?? result.engineer_notes}
                   onSubmit={(verdict, notes) => onSubmitManual(result.id, verdict, notes)}
                   isSubmitting={isSubmitting}
                 />
@@ -362,31 +386,7 @@ export default function TestDetail({
           </div>
         )}
 
-        {!isManual && (
-          <div>
-            <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">
-              Engineer Notes
-            </label>
-            <textarea
-              value={notesValue}
-              onChange={(e) => setNotesValue(e.target.value)}
-              rows={2}
-              placeholder="Add any observations or context..."
-              className="input resize-y text-sm"
-              onBlur={() => {
-                if (notesValue !== (result.engineer_notes || '')) {
-                  if (onSaveNotes) {
-                    onSaveNotes(result.id, notesValue)
-                  } else {
-                    onSubmitManual(result.id, result.verdict || 'pending', notesValue)
-                  }
-                }
-              }}
-            />
-          </div>
-        )}
-
-        {canOverride && result.verdict && result.verdict !== 'pending' && (
+        {canShowOverride && (
           <div className="border-t border-zinc-100 dark:border-slate-700/50 pt-4">
             <button
               onClick={() => setOverrideOpen(!overrideOpen)}
@@ -416,7 +416,7 @@ export default function TestDetail({
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
                   rows={2}
-                  placeholder="Justification for override (required)..."
+                  placeholder="Override reason..."
                   className="input resize-y text-sm"
                 />
                 <button

@@ -15,17 +15,17 @@ const capabilities = [
   {
     icon: ScanLine,
     title: 'Automated Security Scans',
-    description: '27 automated checks using nmap, testssl.sh, ssh-audit, hydra, nikto, and supporting probes. Runs against the device under test.',
+    description: '20 automated checks using nmap, testssl.sh, ssh-audit, hydra, nikto, snmpwalk, and supporting probes. Runs against the device under test.',
   },
   {
     icon: ClipboardCheck,
     title: 'Guided Manual Tests',
-    description: '32 guided manual checks for physical inspection, web UI review, configuration validation, and extended qualification evidence.',
+    description: '29 guided manual checks for physical inspection, web UI review, configuration validation, and extended qualification evidence.',
   },
   {
     icon: FileDown,
     title: 'Report Generation',
-    description: 'Export Excel, Word, and PDF reports mapped to Electracom client templates.',
+    description: 'Export Excel and Word reports mapped to Electracom client templates.',
   },
   {
     icon: Terminal,
@@ -73,7 +73,7 @@ export default function LandingPage() {
               </h1>
               <p className="mt-3 text-sm sm:text-base text-zinc-600 dark:text-slate-400 leading-relaxed">
                 Internal tool for security qualification of IP devices on Electracom projects.
-                59 active tests (27 automated + 32 guided manual). Runs offline on Docker.
+                49 active tests (20 automated + 29 guided manual). Runs offline on Docker.
               </p>
               <div className="mt-5 flex items-center gap-3">
                 <Link to="/login" className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">

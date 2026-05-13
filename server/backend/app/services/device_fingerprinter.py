@@ -366,16 +366,12 @@ class DeviceFingerprinter:
             )
         if not has_https:
             reason = "Skipped — no HTTPS/TLS service detected on this device, so TLS tests cannot run."
-            for tid in ("U10", "U11", "U12", "U13"):
+            for tid in ("U10", "U11", "U12"):
                 skips[tid] = reason
 
         # No SSH service → skip SSH audit
         if not _has_service_port("ssh", common_ports={22}):
             skips["U15"] = "Skipped — no SSH service detected on this device."
-
-        # No RTSP service → skip RTSP auth test
-        if not _has_service_port("rtsp", common_ports={554, 8554}):
-            skips["U37"] = "Skipped — no RTSP service detected on this device. No video stream to test."
 
         # No HTTP at all → skip HTTP-specific tests
         has_http = _has_service_port(
@@ -385,7 +381,7 @@ class DeviceFingerprinter:
         )
         if not has_http:
             reason = "Skipped — no HTTP/HTTPS service detected."
-            for tid in ("U14", "U16", "U17", "U18", "U35"):
+            for tid in ("U16", "U17", "U18", "U35"):
                 skips[tid] = reason
 
         return skips

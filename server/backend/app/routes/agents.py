@@ -1,11 +1,13 @@
 """Agent management routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import List
-from datetime import datetime, timezone
+import re
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
 from app.models.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
@@ -16,6 +18,65 @@ from app.utils.audit import log_action
 from app.utils.datetime import utcnow_naive
 
 router = APIRouter()
+compat_router = APIRouter()
+_VERSION_PART_RE = re.compile(r"\d+")
+
+
+def _parse_version_tuple(raw: str | None) -> tuple[int, ...] | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    main = text.split("+", 1)[0].split("-", 1)[0]
+    parts = _VERSION_PART_RE.findall(main)
+    if not parts:
+        return None
+    return tuple(int(part) for part in parts[:4])
+
+
+def _compare_version_tuples(left: tuple[int, ...], right: tuple[int, ...]) -> int:
+    width = max(len(left), len(right))
+    left_padded = left + (0,) * (width - len(left))
+    right_padded = right + (0,) * (width - len(right))
+    if left_padded < right_padded:
+        return -1
+    if left_padded > right_padded:
+        return 1
+    return 0
+
+
+def _resolve_agent_version_status(agent_version: str | None) -> str:
+    parsed_agent = _parse_version_tuple(agent_version)
+    if parsed_agent is None:
+        return "compatible"
+
+    parsed_min = _parse_version_tuple(settings.MIN_AGENT_VERSION) or _parse_version_tuple(settings.APP_VERSION)
+    parsed_current = _parse_version_tuple(settings.APP_VERSION)
+
+    if parsed_min is not None and _compare_version_tuples(parsed_agent, parsed_min) < 0:
+        return "incompatible"
+    if parsed_current is not None and _compare_version_tuples(parsed_agent, parsed_current) < 0:
+        return "deprecated"
+    return "compatible"
+
+
+def _extract_agent_key(x_agent_key: str | None, authorization: str | None) -> str:
+    if x_agent_key and x_agent_key.strip():
+        return x_agent_key.strip()
+
+    auth_value = str(authorization or "").strip()
+    if not auth_value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Agent authentication required",
+        )
+
+    scheme, _, token = auth_value.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid agent authorization header",
+        )
+    return token.strip()
 
 
 @router.get("/", response_model=List[AgentResponse])
@@ -27,6 +88,7 @@ async def list_agents(
     return result.scalars().all()
 
 
+@compat_router.post("/register", response_model=AgentRegisterResponse, status_code=201, include_in_schema=False)
 @router.post("/register", response_model=AgentRegisterResponse, status_code=201)
 async def register_agent(
     data: AgentRegister,
@@ -58,14 +120,17 @@ async def register_agent(
     )
 
 
+@compat_router.post("/heartbeat", include_in_schema=False)
 @router.post("/heartbeat")
 async def agent_heartbeat(
     data: AgentHeartbeat,
-    x_agent_key: str = Header(..., alias="X-Agent-Key"),
+    x_agent_key: Optional[str] = Header(None, alias="X-Agent-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
     db: AsyncSession = Depends(get_db),
 ):
     """Agent heartbeat — updates status and last seen."""
-    key_hash = hash_api_key(x_agent_key)
+    agent_key = _extract_agent_key(x_agent_key, authorization)
+    key_hash = hash_api_key(agent_key)
     result = await db.execute(select(Agent).where(Agent.api_key_hash == key_hash))
     agent = result.scalar_one_or_none()
     if not agent:
@@ -91,7 +156,13 @@ async def agent_heartbeat(
         "timestamp": agent.last_heartbeat.isoformat(),
     })
 
-    return {"status": "ok", "agent_id": agent.id}
+    return {
+        "status": "ok",
+        "agent_id": agent.id,
+        "version_status": _resolve_agent_version_status(agent.agent_version),
+        "min_agent_version": settings.MIN_AGENT_VERSION,
+        "server_version": settings.APP_VERSION,
+    }
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)

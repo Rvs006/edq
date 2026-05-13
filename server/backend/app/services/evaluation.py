@@ -102,6 +102,8 @@ def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
     """DHCP Behaviour."""
     dhcp = data.get("dhcp_detected", data.get("dhcp_enabled"))
     dhcp_server = data.get("dhcp_server")
+    dhcp_dns_server = data.get("dhcp_dns_server")
+    dhcp_ntp_server = data.get("dhcp_ntp_server")
     offered_ip = data.get("offered_ip")
     script_output = (data.get("script_output") or "").strip()
     dhcp_observed = data.get("dhcp_observed", False)
@@ -114,6 +116,13 @@ def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
             details.append(f"Offered IP: {offered_ip}.")
         if dhcp_server:
             details.append(f"Server Identifier: {dhcp_server}.")
+        option_details = []
+        if dhcp_dns_server:
+            option_details.append(f"DNS server {dhcp_dns_server}")
+        if dhcp_ntp_server:
+            option_details.append(f"NTP server {dhcp_ntp_server}")
+        if option_details:
+            details.append("DHCP options supplied: " + ", ".join(option_details) + ".")
         return ("pass", " ".join(details))
     if dhcp_observed:
         details = ["DHCP Behaviour - DHCP client traffic from the device was observed."]
@@ -137,6 +146,13 @@ def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
             details.append(f"Configured offer IP: {offered_ip}.")
         if dhcp_server:
             details.append(f"Configured server identifier: {dhcp_server}.")
+        option_details = []
+        if dhcp_dns_server:
+            option_details.append(f"DNS server {dhcp_dns_server}")
+        if dhcp_ntp_server:
+            option_details.append(f"NTP server {dhcp_ntp_server}")
+        if option_details:
+            details.append("Configured DHCP options: " + ", ".join(option_details) + ".")
         return ("info", " ".join(details))
     if dhcp is True:
         details = "DHCP Behaviour — DHCP offer observed on the network segment."
@@ -162,6 +178,8 @@ def _eval_u04_v2(data: dict, _wl: list) -> tuple[str, str]:
     """DHCP Behaviour."""
     dhcp = data.get("dhcp_detected", data.get("dhcp_enabled"))
     dhcp_server = data.get("dhcp_server")
+    dhcp_dns_server = data.get("dhcp_dns_server")
+    dhcp_ntp_server = data.get("dhcp_ntp_server")
     offered_ip = data.get("offered_ip")
     script_output = (data.get("script_output") or "").strip()
     dhcp_observed = data.get("dhcp_observed", False)
@@ -175,6 +193,13 @@ def _eval_u04_v2(data: dict, _wl: list) -> tuple[str, str]:
             details.append(f"Offered IP: {offered_ip}.")
         if dhcp_server:
             details.append(f"Server Identifier: {dhcp_server}.")
+        option_details = []
+        if dhcp_dns_server:
+            option_details.append(f"DNS server {dhcp_dns_server}")
+        if dhcp_ntp_server:
+            option_details.append(f"NTP server {dhcp_ntp_server}")
+        if option_details:
+            details.append("DHCP options supplied: " + ", ".join(option_details) + ".")
         return ("pass", " ".join(details))
 
     if dhcp_observed:
@@ -201,6 +226,13 @@ def _eval_u04_v2(data: dict, _wl: list) -> tuple[str, str]:
             details.append(f"Configured offer IP: {offered_ip}.")
         if dhcp_server:
             details.append(f"Configured server identifier: {dhcp_server}.")
+        option_details = []
+        if dhcp_dns_server:
+            option_details.append(f"DNS server {dhcp_dns_server}")
+        if dhcp_ntp_server:
+            option_details.append(f"NTP server {dhcp_ntp_server}")
+        if option_details:
+            details.append("Configured DHCP options: " + ", ".join(option_details) + ".")
         return ("info", " ".join(details))
 
     if dhcp is True:
@@ -360,7 +392,9 @@ def _eval_u07(data: dict, _wl: list) -> tuple[str, str]:
     """UDP Top-100 Port Scan."""
     open_ports = data.get("open_ports", [])
     count = len(open_ports)
-    caveat = " Note: UDP scanning through Docker may miss some ports due to NAT/firewall behaviour."
+    caveat = ""
+    if data.get("scanner_source") != "host":
+        caveat = " Note: UDP scanning through Docker may miss some ports due to NAT/firewall behaviour."
     if count == 0:
         return ("info", f"UDP Port Scan — No open UDP ports detected in top 100 scan.{caveat}")
     return (
@@ -436,6 +470,13 @@ def _eval_u11(data: dict, _wl: list) -> tuple[str, str]:
     weak_ciphers = data.get("weak_ciphers", [])
     ciphers = data.get("ciphers", [])
     if not ciphers:
+        if data.get("tls_versions"):
+            return (
+                "info",
+                "Cipher Strength - TLS is reachable, but EDQ could not collect a cipher suite inventory. "
+                "Verify testssl is available in the Docker tools sidecar and rerun the scan. "
+                "If this persists, review the raw U11 output for handshake errors or device-side TLS restrictions.",
+            )
         return ("na", "Cipher Strength - No cipher suites detected. TLS may not be configured.")
     cipher_names = [
         c.get("name", str(c)).strip()
@@ -449,9 +490,14 @@ def _eval_u11(data: dict, _wl: list) -> tuple[str, str]:
     ]
     cipher_lines = "\n".join(f"- {name}" for name in cipher_names[:12])
     if weak_ciphers:
-        details = ", ".join(weak_names[:5])
+        details = ", ".join(weak_names)
         suffix = "\nDetected cipher suites:\n" + cipher_lines if cipher_lines else ""
-        return ("fail", f"Cipher Strength - Weak ciphers found: {details}. Disable RC4, DES, 3DES, NULL, and EXPORT ciphers in the TLS configuration.{suffix}")
+        return (
+            "fail",
+            "Cipher Strength - Weak or legacy ciphers found: "
+            f"{details}. Disable CBC/SHA1, static RSA, RC4, DES/3DES, NULL, "
+            f"anonymous, and EXPORT ciphers in the TLS configuration.{suffix}",
+        )
     suffix = "\nDetected cipher suites:\n" + cipher_lines if cipher_lines else ""
     return ("pass", f"Cipher Strength - All {len(ciphers)} cipher suite(s) are strong.{suffix}")
 
@@ -461,7 +507,9 @@ def _eval_u12(data: dict, _wl: list) -> tuple[str, str]:
     issuer = data.get("cert_issuer") or "unknown"
     not_before = data.get("cert_not_before") or "unknown"
     not_after = data.get("cert_not_after") or data.get("cert_expiry") or "unknown"
-    if data.get("cert_valid"):
+    trust_unverified = data.get("cert_trust_verified") is False
+    has_cert_issue = bool(data.get("cert_has_issue") or data.get("cert_self_signed") or trust_unverified)
+    if data.get("cert_valid") and not has_cert_issue:
         return (
             "pass",
             "Certificate Validity - Certificate is valid.\n"
@@ -471,6 +519,8 @@ def _eval_u12(data: dict, _wl: list) -> tuple[str, str]:
             f"Not After: {not_after}",
         )
     if data.get("cert_expiry") or data.get("cert_not_after") or data.get("cert_subject") or data.get("cert_issuer"):
+        trust_note = "\nTrust: not verified by the scanner." if trust_unverified else ""
+        self_signed_note = "\nIssue: certificate is self-signed." if data.get("cert_self_signed") else ""
         return (
             "advisory",
             "Certificate Validity - Issue found: certificate may be expired, untrusted, or self-signed.\n"
@@ -478,6 +528,8 @@ def _eval_u12(data: dict, _wl: list) -> tuple[str, str]:
             f"Issuer: {issuer}\n"
             f"Not Before: {not_before}\n"
             f"Not After: {not_after}\n"
+            f"{trust_note}"
+            f"{self_signed_note}\n"
             "Renew or replace the certificate if this device is expected to present a trusted certificate.",
         )
     return ("na", "Certificate Validity - No certificate detected or testssl could not connect.")
@@ -553,20 +605,22 @@ def _eval_u15(data: dict, _wl: list) -> tuple[str, str]:
     if not version and total_weak == 0:
         return ("na", "SSH Algorithms - No SSH service detected (port 22 closed). Not applicable.")
 
+    parts = []
+    if weak_kex:
+        parts.append(f"KEX: {', '.join(weak_kex)}")
+    if weak_ciphers:
+        parts.append(f"Ciphers: {', '.join(weak_ciphers)}")
+    if weak_macs:
+        parts.append(f"MACs: {', '.join(weak_macs)}")
+    if weak_hk:
+        parts.append(f"Host keys: {', '.join(weak_hk)}")
+    weak_summary = "; ".join(parts)
+
     if score == "fail" or total_weak > 3:
-        parts = []
-        if weak_kex:
-            parts.append(f"KEX: {', '.join(weak_kex[:3])}")
-        if weak_ciphers:
-            parts.append(f"Ciphers: {', '.join(weak_ciphers[:3])}")
-        if weak_macs:
-            parts.append(f"MACs: {', '.join(weak_macs[:3])}")
-        if weak_hk:
-            parts.append(f"Host keys: {', '.join(weak_hk)}")
-        return ("fail", f"SSH Algorithms - Weak algorithms found: {'; '.join(parts)}. Update the SSH server configuration to remove weak algorithms.{detail_block}")
+        return ("fail", f"SSH Algorithms - {total_weak} weak algorithm(s) found: {weak_summary}. Update the SSH server configuration to remove weak algorithms.{detail_block}")
 
     if total_weak > 0:
-        return ("advisory", f"SSH Algorithms - {total_weak} weak algorithm(s) found. Update the SSH server configuration to remove weak algorithms.{detail_block}")
+        return ("advisory", f"SSH Algorithms - {total_weak} weak algorithm(s) found: {weak_summary}. Update the SSH server configuration to remove weak algorithms.{detail_block}")
 
     return ("pass", f"SSH Algorithms - All SSH key exchange, cipher, and MAC algorithms are strong.{detail_block}")
 
@@ -586,14 +640,29 @@ def _eval_u17(data: dict, _wl: list) -> tuple[str, str]:
     """Brute Force Protection."""
     if data.get("check_ran") is False:
         reason = data.get("reason") or "No supported authentication challenge was detected."
+        if data.get("tool_blocked"):
+            return ("info", f"Brute Force Protection - Inconclusive. The probe was blocked before authentication attempts could be verified. {reason}")
         return ("na", f"Brute Force Protection - Not assessed. {reason}")
     lockout_detected = data.get("lockout_detected", False)
     error_msg = data.get("error", "")
     duration = _format_duration_seconds(data.get("lockout_duration_seconds"))
+    auth_type = str(data.get("auth_type") or "").lower()
+    surface = {
+        "ssh": " on SSH",
+        "http-get": " on HTTP basic auth",
+        "https-get": " on HTTPS basic auth",
+        "http-post-form": " on the web login form",
+        "https-post-form": " on the web login form",
+    }.get(auth_type, "")
+    attempts = data.get("attempts")
+    if isinstance(attempts, int) and 0 < attempts <= 5:
+        attempt_phrase = f" after {attempts} failed login attempt(s)"
+    else:
+        attempt_phrase = " after rapid login attempts"
     if lockout_detected:
-        return ("pass", f"Brute Force Protection - Account lockout or rate limiting detected after rapid login attempts. Protection is active. Lockout duration: {duration}.")
+        return ("pass", f"Brute Force Protection - Account lockout or rate limiting detected{surface}{attempt_phrase}. Protection is active. Lockout duration: {duration}.")
     if "connection refused" in error_msg.lower() or "max retries" in error_msg.lower():
-        return ("pass", f"Brute Force Protection - Connection refused after rapid attempts. Brute force protection is active. Lockout duration: {duration}.")
+        return ("pass", f"Brute Force Protection - Connection refused{surface} after rapid attempts. Brute force protection is active. Lockout duration: {duration}.")
     return ("advisory", "Brute Force Protection - No lockout detected after rapid login attempts. "
             f"Observed lockout duration: {duration}. Enable account lockout or rate limiting on the device.")
 
@@ -792,24 +861,32 @@ def _eval_u34(data: dict, _wl: list) -> tuple[str, str]:
 
 
 def _eval_u35(data: dict, _wl: list) -> tuple[str, str]:
-    """Web Server Vulnerability Scan (nikto)."""
+    """Web Server and HTTP Header Assessment."""
     stdout = data.get("raw", data.get("stdout", ""))
-    if not stdout:
-        return ("na", "Web Vulnerability Scan — No HTTP service detected or nikto could not connect.")
+    header_scan = data.get("header_scan") if isinstance(data.get("header_scan"), dict) else {}
+    if not stdout and not header_scan.get("http_service_detected"):
+        return ("na", "Web Assessment — No HTTP service detected or nikto/header capture could not connect.")
 
-    issues = _extract_nikto_findings(stdout)
+    issues = _dedupe_findings([
+        *_extract_nikto_findings(stdout),
+        *_extract_http_header_findings(header_scan),
+    ])
     vuln_count = len(issues)
+    raw_headers = str(header_scan.get("raw_headers") or "").strip()
+    header_block = f"\nCaptured headers:\n{raw_headers}" if raw_headers else ""
 
     if vuln_count > 10:
-        details = "; ".join(issues[:5]) + f" (+{vuln_count - 5} more)"
-        return ("fail", f"Web Vulnerability Scan — Nikto found {vuln_count} issues: {details}. Review and patch the web server.")
+        details = "; ".join(issues[:20])
+        if vuln_count > 20:
+            details += f"; (+{vuln_count - 20} more)"
+        return ("fail", f"Web Assessment — Found {vuln_count} web/header issue(s): {details}. Review and patch the web server.{header_block}")
     if vuln_count > 3:
-        details = "; ".join(issues[:5])
-        return ("advisory", f"Web Vulnerability Scan — Nikto found {vuln_count} issue(s): {details}. Review and patch.")
+        details = "; ".join(issues)
+        return ("advisory", f"Web Assessment — Found {vuln_count} web/header issue(s): {details}. Review and patch.{header_block}")
     if vuln_count > 0:
         details = "; ".join(issues)
-        return ("advisory", f"Web Vulnerability Scan — Nikto found {vuln_count} minor issue(s): {details}.")
-    return ("pass", "Web Vulnerability Scan — Nikto found no significant issues.")
+        return ("advisory", f"Web Assessment — Found {vuln_count} minor web/header issue(s): {details}.{header_block}")
+    return ("pass", "Web Assessment — Nikto found no significant issues and required HTTP security headers were present." + header_block)
 
 
 def _eval_u36(data: dict, _wl: list) -> tuple[str, str]:
@@ -870,6 +947,14 @@ def _eval_u37(data: dict, _wl: list) -> tuple[str, str]:
 
 
 _NIKTO_FINDING_RE = re.compile(r"\+\s+(?:(OSVDB-\d+|\[\d+\]):\s*)?(.+)")
+_HTTP_HEADER_NAME_RE = r"([A-Za-z][A-Za-z0-9-]*)"
+_MISSING_HEADER_PATTERNS = [
+    re.compile(rf"\bmissing\s+(?:http\s+security\s+)?headers?\s*[:\-]?\s*{_HTTP_HEADER_NAME_RE}\b", re.IGNORECASE),
+    re.compile(rf"\bmissing\s*:\s*{_HTTP_HEADER_NAME_RE}\b", re.IGNORECASE),
+    re.compile(rf"\b(?:suggested\s+security\s+)?headers?\s+missing\s*[:\-]?\s*{_HTTP_HEADER_NAME_RE}\b", re.IGNORECASE),
+    re.compile(rf"\bthe\s+{_HTTP_HEADER_NAME_RE}\s+header\s+is\s+not\s+set\b", re.IGNORECASE),
+    re.compile(rf"\b{_HTTP_HEADER_NAME_RE}\s+header\s+(?:is\s+)?(?:missing|not\s+set)\b", re.IGNORECASE),
+]
 
 
 def _extract_nikto_findings(stdout: str) -> list[str]:
@@ -908,6 +993,58 @@ def _extract_nikto_findings(stdout: str) -> list[str]:
             # Fallback for non-standard OSVDB references
             findings.append(line[2:].strip())
     return findings
+
+
+def _dedupe_findings(findings: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for finding in findings:
+        normalized = re.sub(r"\s+", " ", finding).strip().lower()
+        canonical_key = _canonical_finding_key(normalized)
+        if not canonical_key or canonical_key in seen:
+            continue
+        seen.add(canonical_key)
+        deduped.append(finding)
+    return deduped
+
+
+def _canonical_finding_key(normalized_finding: str) -> str:
+    for pattern in _MISSING_HEADER_PATTERNS:
+        match = pattern.search(normalized_finding)
+        if match:
+            return f"missing-header:{match.group(1).strip().lower()}"
+    return normalized_finding
+
+
+def _extract_http_header_findings(header_scan: dict[str, Any]) -> list[str]:
+    if not header_scan:
+        return []
+    if not header_scan.get("http_service_detected"):
+        return []
+
+    headers = header_scan.get("headers") or {}
+    raw_headers = str(header_scan.get("raw_headers") or "").strip()
+    if not raw_headers and not headers:
+        error = header_scan.get("error")
+        if error:
+            return [f"HTTP header capture failed: {error}"]
+        return ["HTTP service detected but response headers could not be captured."]
+
+    required_headers = {
+        "Content-Security-Policy": _header_lookup(headers, "Content-Security-Policy"),
+        "X-Frame-Options": _header_lookup(headers, "X-Frame-Options"),
+        "X-Content-Type-Options": _header_lookup(headers, "X-Content-Type-Options"),
+        "Referrer-Policy": _header_lookup(headers, "Referrer-Policy"),
+    }
+    response_url = str(header_scan.get("response_url") or "")
+    if response_url.lower().startswith("https://"):
+        required_headers["Strict-Transport-Security"] = _header_lookup(headers, "Strict-Transport-Security")
+
+    return [
+        f"Missing HTTP security header: {name}"
+        for name, value in required_headers.items()
+        if not value
+    ]
 
 
 _EVALUATORS: dict[str, Any] = {

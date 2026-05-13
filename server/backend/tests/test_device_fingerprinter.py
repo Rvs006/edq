@@ -26,7 +26,6 @@ class TestPortSkips:
         assert "U10" in skips
         assert "U11" in skips
         assert "U12" in skips
-        assert "U13" in skips
 
     def test_https_present_keeps_tls_tests(self):
         skips = self.fp._compute_port_skips({80, 443})
@@ -45,27 +44,19 @@ class TestPortSkips:
         skips = self.fp._compute_port_skips({2222, 80}, {2222: "ssh"})
         assert "U15" not in skips
 
-    def test_no_rtsp_skips_u37(self):
-        skips = self.fp._compute_port_skips({80})
-        assert "U37" in skips
-
-    def test_rtsp_present_keeps_u37(self):
-        skips = self.fp._compute_port_skips({80, 554})
-        assert "U37" not in skips
-
     def test_no_http_at_all_skips_http_tests(self):
         skips = self.fp._compute_port_skips({22, 554})
-        for tid in ["U14", "U16", "U17", "U18", "U35"]:
+        for tid in ["U16", "U17", "U18", "U35"]:
             assert tid in skips, f"{tid} should be skipped when no HTTP ports"
 
     def test_http_80_keeps_http_tests(self):
         skips = self.fp._compute_port_skips({80})
-        for tid in ["U14", "U16", "U17", "U18", "U35"]:
+        for tid in ["U16", "U17", "U18", "U35"]:
             assert tid not in skips
 
     def test_http_service_on_nonstandard_port_keeps_http_tests(self):
         skips = self.fp._compute_port_skips({8080}, {8080: "http-proxy"})
-        for tid in ["U14", "U16", "U17", "U18", "U35"]:
+        for tid in ["U16", "U17", "U18", "U35"]:
             assert tid not in skips
 
     def test_no_snmp_keeps_u31_for_negative_exposure_result(self):
@@ -103,8 +94,7 @@ class TestPortSkips:
 
     def test_empty_ports_skips_everything(self):
         skips = self.fp._compute_port_skips(set())
-        expected = {"U10", "U11", "U12", "U13", "U14", "U15", "U16", "U17",
-                    "U18", "U35", "U37"}
+        expected = {"U10", "U11", "U12", "U15", "U16", "U17", "U18", "U35"}
         assert set(skips) == expected
 
 
@@ -274,7 +264,6 @@ class TestFingerprintEndToEnd:
         assert result.confidence == "high"
         assert "U10" in result.skip_test_ids  # No HTTPS
         assert "U15" in result.skip_test_ids  # No SSH
-        assert "U37" in result.skip_test_ids  # No RTSP
 
         # Device should be updated
         await db_session.refresh(device)
@@ -335,7 +324,6 @@ class TestFingerprintEndToEnd:
 
         assert result.category == "camera"
         assert result.confidence == "high"
-        assert "U37" not in result.skip_test_ids  # RTSP present, keep U37
         assert "U10" not in result.skip_test_ids  # HTTPS present, keep TLS tests
         assert "U15" in result.skip_test_ids       # No SSH
 

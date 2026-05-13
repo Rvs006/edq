@@ -5,11 +5,19 @@ import uuid
 
 import httpx
 import pytest
+from docx import Document
 from openpyxl import load_workbook
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
 BASE = "/api/reports/"
+
+
+def _assert_attachment(download: httpx.Response, filename: str, content_type_fragment: str) -> None:
+    assert download.status_code == 200, download.text
+    assert content_type_fragment in download.headers.get("content-type", "")
+    assert filename in download.headers.get("content-disposition", "")
+    assert download.content, f"{filename} downloaded as an empty file"
 
 
 def _report_headers() -> dict[str, str]:
@@ -86,8 +94,8 @@ async def test_generate_generic_excel_report(admin_client: httpx.AsyncClient, te
         assert body["filename"].endswith(".xlsx")
 
         download = await admin_client.get(f"{BASE}download/{body['filename']}")
-        assert download.status_code == 200, download.text
-        assert "spreadsheetml" in download.headers.get("content-type", "")
+        _assert_attachment(download, body["filename"], "spreadsheetml")
+        assert download.content.startswith(b"PK\x03\x04")
 
         workbook = load_workbook(BytesIO(download.content))
         try:
@@ -95,43 +103,31 @@ async def test_generate_generic_excel_report(admin_client: httpx.AsyncClient, te
                 "General Test Information",
                 "Test Results",
                 "Additional Device Information",
+                "Raw Evidence",
             ]
+            assert workbook["Test Results"]["B4"].value == "U01"
+            assert workbook["Test Results"]["G4"].value == "PASS"
+            assert "Integration report smoke test" in workbook["Test Results"]["H4"].value
+            assert workbook["Raw Evidence"]["A4"].value == "U01"
         finally:
             workbook.close()
     finally:
         await admin_client.delete(f"/api/test-templates/{template_id}")
 
 
-async def test_generate_csv_report(admin_client: httpx.AsyncClient, test_device: dict):
-    template_id = await _create_template(admin_client)
-    try:
-        run_id = await _create_completed_run(admin_client, test_device["id"], template_id)
+@pytest.mark.parametrize("report_type", ["pdf", "csv", "cad", "dxf"])
+async def test_generate_report_rejects_removed_formats(admin_client: httpx.AsyncClient, report_type: str):
+    resp = await admin_client.post(
+        f"{BASE}generate",
+        json={
+            "test_run_id": str(uuid.uuid4()),
+            "report_type": report_type,
+            "template_key": "generic",
+        },
+        headers=_report_headers(),
+    )
 
-        resp = await admin_client.post(
-            f"{BASE}generate",
-            json={
-                "test_run_id": run_id,
-                "report_type": "csv",
-                "template_key": "pelco_camera",
-            },
-            headers=_report_headers(),
-        )
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
-        assert body["report_type"] == "csv"
-        assert body["template_key"] == "pelco_camera"
-        assert body["filename"].endswith(".csv")
-
-        download = await admin_client.get(f"{BASE}download/{body['filename']}")
-        assert download.status_code == 200, download.text
-        assert "text/csv" in download.headers.get("content-type", "")
-        csv_body = download.text
-        assert "TEST SYNOPSIS" in csv_body
-        assert "TESTPLAN" in csv_body
-        assert "ADDITIONAL INFO" in csv_body
-        assert "Script Flag" in csv_body
-    finally:
-        await admin_client.delete(f"/api/test-templates/{template_id}")
+    assert resp.status_code == 422, resp.text
 
 
 async def test_generate_word_report_returns_template_key(admin_client: httpx.AsyncClient, test_device: dict):
@@ -144,38 +140,31 @@ async def test_generate_word_report_returns_template_key(admin_client: httpx.Asy
             json={
                 "test_run_id": run_id,
                 "report_type": "word",
-                "template_key": "pelco_camera",
+                "template_key": "generic",
             },
             headers=_report_headers(),
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["report_type"] == "word"
-        assert body["template_key"] == "pelco_camera"
+        assert body["template_key"] == "generic"
         assert body["filename"].endswith(".docx")
-    finally:
-        await admin_client.delete(f"/api/test-templates/{template_id}")
 
-
-async def test_generate_pdf_report_returns_template_key(admin_client: httpx.AsyncClient, test_device: dict):
-    template_id = await _create_template(admin_client)
-    try:
-        run_id = await _create_completed_run(admin_client, test_device["id"], template_id)
-
-        resp = await admin_client.post(
-            f"{BASE}generate",
-            json={
-                "test_run_id": run_id,
-                "report_type": "pdf",
-                "template_key": "pelco_camera",
-            },
-            headers=_report_headers(),
+        download = await admin_client.get(f"{BASE}download/{body['filename']}")
+        _assert_attachment(download, body["filename"], "wordprocessingml")
+        assert download.content.startswith(b"PK\x03\x04")
+        document = Document(BytesIO(download.content))
+        full_text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+        table_text = "\n".join(
+            cell.text
+            for table in document.tables
+            for row in table.rows
+            for cell in row.cells
         )
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
-        assert body["report_type"] == "pdf"
-        assert body["template_key"] == "pelco_camera"
-        assert body["filename"].endswith(".pdf")
+        assert "IP Device Qualification Report" in full_text
+        assert "Generic IP Device" in full_text
+        assert "Raw Evidence" in full_text
+        assert "Detailed Evidence" in table_text
     finally:
         await admin_client.delete(f"/api/test-templates/{template_id}")
 
@@ -264,7 +253,7 @@ async def test_report_templates(admin_client: httpx.AsyncClient):
     body = resp.json()
     assert isinstance(body, list)
     template_keys = {item["key"] for item in body}
-    assert {"generic", "pelco_camera", "easyio_controller"} <= template_keys
+    assert template_keys == {"generic"}
     generic = next(item for item in body if item["key"] == "generic")
     assert generic["template_exists"] is True
     assert generic["mapping_exists"] is True

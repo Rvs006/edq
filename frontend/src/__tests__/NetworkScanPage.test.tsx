@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 
 import NetworkScanPage from '@/pages/NetworkScanPage'
+import { ACTIVE_UNIVERSAL_TESTS } from '@/lib/universal-tests'
 
 const { mockNetworkScanApi, mockAuthorizedNetworksApi, mockToast } = vi.hoisted(() => ({
   mockNetworkScanApi: {
@@ -195,6 +196,75 @@ describe('NetworkScanPage', () => {
       cidr: '192.168.4.64/32',
     }))
     expect(await screen.findByText('192.168.4.64')).toBeInTheDocument()
+  }, 20000)
+
+  it('keeps network detection available when authorized ranges already exist', async () => {
+    const user = userEvent.setup()
+
+    mockAuthorizedNetworksApi.list.mockResolvedValue({
+      data: [
+        { cidr: '10.99.99.0/24', label: 'Fixture' },
+        { cidr: '192.168.4.0/24', label: 'Direct Ethernet' },
+      ],
+    })
+    mockNetworkScanApi.detectNetworks.mockResolvedValue({
+      data: {
+        interfaces: [
+          {
+            cidr: '192.168.4.0/24',
+            label: 'Ethernet',
+            type: 'ethernet',
+            hosts_found: 1,
+            sample_hosts: ['192.168.4.64'],
+          },
+        ],
+      },
+    })
+
+    renderWithProviders()
+
+    await user.click(await screen.findByRole('button', { name: 'Detect My Network' }))
+
+    expect(mockNetworkScanApi.detectNetworks).toHaveBeenCalled()
+    expect(await screen.findByText('Suggested ranges')).toBeInTheDocument()
+    expect(screen.getByText('Ethernet')).toBeInTheDocument()
+    expect(screen.getByText('1 host detected')).toBeInTheDocument()
+  }, 20000)
+
+  it('shows Scenario 1 first in the bulk discovery scenario picker', async () => {
+    renderWithProviders()
+
+    await screen.findByRole('button', { name: /Scenario 1 - Direct Cable/i })
+    const scenarioButtons = screen
+      .getAllByRole('button')
+      .filter((button) => button.textContent?.includes('Scenario '))
+
+    expect(scenarioButtons[0]).toHaveTextContent('Scenario 1 - Direct Cable')
+  })
+
+  it('defaults bulk discovery to all active tests and keeps them after scenario changes', async () => {
+    const user = userEvent.setup()
+
+    mockNetworkScanApi.discover.mockResolvedValue({
+      data: {
+        id: 'scan-full-suite',
+        status: 'pending',
+        devices_found: [],
+      },
+    })
+
+    renderWithProviders()
+
+    expect(await screen.findByText(`${ACTIVE_UNIVERSAL_TESTS.length}/${ACTIVE_UNIVERSAL_TESTS.length} selected`)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Site Network/i }))
+    expect(screen.getByText(`${ACTIVE_UNIVERSAL_TESTS.length}/${ACTIVE_UNIVERSAL_TESTS.length} selected`)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Discover Devices' }))
+
+    expect(mockNetworkScanApi.discover).toHaveBeenCalledWith(expect.objectContaining({
+      test_ids: ACTIVE_UNIVERSAL_TESTS.map((test) => test.id),
+    }))
   }, 20000)
 
   it('blocks invalid or over-wide CIDR ranges before discovery', async () => {

@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -140,7 +141,7 @@ async def export_audit_logs(
                 log.action,
                 log.resource_type,
                 log.resource_id or "",
-                str(log.details) if log.details else "",
+                json.dumps(log.details, default=str, sort_keys=True) if log.details else "",
                 log.ip_address or "",
             ])
             yield buf.getvalue()
@@ -149,8 +150,8 @@ async def export_audit_logs(
 
     return StreamingResponse(
         generate_csv(),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=audit_logs.csv"},
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="audit_logs.csv"'},
     )
 
 
@@ -165,7 +166,7 @@ async def compliance_summary(
             "ISO 27001": {
                 "description": "Information Security Management",
                 "controls_mapped": 15,
-                "tests_covered": ["U01", "U02", "U04", "U05", "U06", "U09", "U10", "U11", "U12", "U13", "U14", "U15", "U16", "U17", "U18", "U19", "U20", "U21", "U22", "U23", "U24", "U25", "U26", "U27", "U28", "U29", "U30"],
+                "tests_covered": ["U01", "U02", "U04", "U05", "U06", "U09", "U10", "U11", "U12", "U15", "U16", "U17", "U18", "U19", "U20", "U21", "U22", "U23", "U24", "U25", "U26", "U27", "U28", "U29", "U30", "U35"],
             },
             "Cyber Essentials": {
                 "description": "UK Government Cyber Security Standard",

@@ -16,6 +16,7 @@ from app.services.run_readiness import (
     merge_readiness_into_metadata,
 )
 from app.schemas.test import (
+    TestResultBulkManualUpdate,
     TestResultOverrideRequest,
     TestResultResponse,
     TestResultUpdate,
@@ -26,6 +27,9 @@ from app.utils.datetime import utcnow_naive
 from app.utils.sanitize import sanitize_dict
 
 router = APIRouter()
+
+
+BULK_SHARED_MANUAL_VERDICTS = {TestVerdict.NA, TestVerdict.PENDING}
 
 
 async def _get_authorized_result(
@@ -54,6 +58,42 @@ def _parse_verdict(value: str) -> TestVerdict:
         return TestVerdict(value)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"Unsupported verdict '{value}'") from exc
+
+
+def _is_manual_result(test_result: TestResult) -> bool:
+    tier_raw = test_result.tier.value if hasattr(test_result.tier, "value") else str(test_result.tier)
+    return tier_raw == TestTier.GUIDED_MANUAL.value
+
+
+def _manual_result_notes(
+    test_result: TestResult,
+    updates: dict,
+) -> str:
+    note_candidates = [
+        updates.get("engineer_notes"),
+        updates.get("comment_override"),
+        test_result.engineer_notes,
+        test_result.comment_override,
+    ]
+    for note in note_candidates:
+        if isinstance(note, str) and note.strip():
+            return note.strip()
+    return ""
+
+
+def _require_manual_evidence_notes(
+    test_result: TestResult,
+    verdict: TestVerdict,
+    updates: dict,
+) -> None:
+    if verdict == TestVerdict.PENDING or not _is_manual_result(test_result):
+        return
+    notes = _manual_result_notes(test_result, updates)
+    if not notes:
+        raise HTTPException(
+            status_code=422,
+            detail="Engineer notes are required when saving a manual test verdict.",
+        )
 
 
 def _overall_verdict(
@@ -176,6 +216,101 @@ async def list_results(
     return result.scalars().all()
 
 
+@router.patch("/batch/manual", response_model=List[TestResultResponse])
+async def bulk_update_manual_results(
+    data: TestResultBulkManualUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    verdict = _parse_verdict(data.verdict)
+    updates = data.model_dump(exclude_unset=True)
+    sanitized = sanitize_dict(updates, ["engineer_notes"])
+    result_ids = set(data.result_ids)
+    notes = (sanitized.get("engineer_notes") or "").strip()
+    should_update_notes = "engineer_notes" in sanitized and bool(notes)
+
+    if verdict != TestVerdict.PENDING and not notes:
+        raise HTTPException(
+            status_code=422,
+            detail="Engineer notes are required when bulk-saving manual test verdicts.",
+        )
+
+    query = (
+        select(TestResult, TestRun)
+        .join(TestRun, TestRun.id == TestResult.test_run_id)
+        .where(TestResult.id.in_(data.result_ids))
+    )
+    rows = list((await db.execute(query)).all())
+    found_ids = {test_result.id for test_result, _ in rows}
+    if found_ids != result_ids:
+        raise HTTPException(status_code=404, detail="One or more test results were not found")
+
+    runs_by_id = {test_run.id: test_run for _, test_run in rows}
+    if len(runs_by_id) != 1:
+        raise HTTPException(status_code=400, detail="Bulk manual updates must target one test run")
+
+    test_run = next(iter(runs_by_id.values()))
+    if user.role == UserRole.ENGINEER and test_run.engineer_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    for test_result, _ in rows:
+        if not _is_manual_result(test_result):
+            raise HTTPException(
+                status_code=400,
+                detail="Bulk result updates are only available for guided manual tests",
+            )
+
+    now = utcnow_naive()
+    ordered_results = sorted(
+        (test_result for test_result, _ in rows),
+        key=lambda item: data.result_ids.index(item.id),
+    )
+    if len(ordered_results) > 1 and verdict not in BULK_SHARED_MANUAL_VERDICTS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Bulk manual updates can only mark tests N/A or pending. "
+                "Pass, fail, and advisory verdicts require evidence on each individual test."
+            ),
+        )
+
+    if verdict != TestVerdict.PENDING:
+        for test_result in ordered_results:
+            _require_manual_evidence_notes(test_result, verdict, {"engineer_notes": notes})
+
+    for test_result in ordered_results:
+        test_result.verdict = verdict
+        if test_result.started_at is None:
+            test_result.started_at = now
+        test_result.completed_at = None if verdict == TestVerdict.PENDING else now
+        if should_update_notes:
+            test_result.engineer_notes = notes
+            test_result.comment_override = notes
+
+    await _refresh_parent_run(db, test_run)
+    await db.commit()
+    for test_result in ordered_results:
+        await db.refresh(test_result)
+    await log_action(
+        db,
+        user,
+        "bulk_update",
+        "test_result",
+        test_run.id,
+        {
+            "fields": ["verdict", *(
+                ["engineer_notes", "comment_override"] if should_update_notes else []
+            )],
+            "result_count": len(ordered_results),
+            "result_ids": data.result_ids,
+            "verdict": verdict.value,
+        },
+        request,
+    )
+    return ordered_results
+
+
 @router.get("/{result_id}", response_model=TestResultResponse)
 async def get_result(
     result_id: str,
@@ -203,8 +338,7 @@ async def update_result(
     if user.role in {UserRole.ADMIN, UserRole.REVIEWER} and "verdict" in updates:
         # Allow admin/reviewer to submit verdicts on manual tests (guided_manual)
         # but require the override endpoint for changing automatic test verdicts
-        tier_raw = test_result.tier.value if hasattr(test_result.tier, "value") else str(test_result.tier)
-        if tier_raw != "guided_manual":
+        if not _is_manual_result(test_result):
             raise HTTPException(
                 status_code=400,
                 detail="Reviewers and admins must use the override endpoint to change verdicts on automatic tests",
@@ -219,8 +353,7 @@ async def update_result(
     }
     protected_updates = protected_fields.intersection(updates)
     if protected_updates:
-        tier_raw = test_result.tier.value if hasattr(test_result.tier, "value") else str(test_result.tier)
-        if tier_raw != "guided_manual":
+        if not _is_manual_result(test_result):
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -230,7 +363,9 @@ async def update_result(
             )
 
     if "verdict" in updates:
-        test_result.verdict = _parse_verdict(updates["verdict"])
+        verdict = _parse_verdict(updates["verdict"])
+        _require_manual_evidence_notes(test_result, verdict, updates)
+        test_result.verdict = verdict
         if test_result.started_at is None:
             test_result.started_at = utcnow_naive()
         test_result.completed_at = (

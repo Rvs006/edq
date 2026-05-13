@@ -57,7 +57,7 @@ async def _create_run(
 
 
 @pytest.mark.asyncio
-async def test_start_run_flags_paused_when_device_is_unreachable(
+async def test_start_run_queues_known_ip_without_blocking_on_connectivity_probe(
     client: AsyncClient,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
@@ -69,29 +69,77 @@ async def test_start_run_flags_paused_when_device_is_unreachable(
 
     launched: list[str] = []
 
-    async def fake_probe(_ip: str, _ports=None, **_kwargs):
-        return (False, None)
+    async def fail_probe(_ip: str, _ports=None, **_kwargs):
+        raise AssertionError("known-IP start route should not block on connectivity probing")
 
     def fake_launch(run_id: str, test_plan_id: str | None = None):
         launched.append(run_id)
         return object()
 
-    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fake_probe)
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fail_probe)
     monkeypatch.setattr("app.routes.test_runs.launch_test_run", fake_launch)
 
     resp = await client.post(f"/api/test-runs/{run_id}/start", headers=headers)
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == RunStatus.PAUSED_CABLE.value
-    assert body["connectivity"]["reason"] == "unreachable"
-    assert body["connectivity"]["can_execute"] is False
+    assert body["status"] == RunStatus.SYNCING.value
+    assert body["connectivity"]["reason"] == "background_probe_pending"
+    assert body["connectivity"]["can_execute"] is None
     assert launched == [run_id]
 
     db_session.expire_all()
     saved_run = await db_session.get(RunModel, run_id)
     assert saved_run is not None
-    assert saved_run.status == RunStatus.PAUSED_CABLE
+    assert saved_run.status == RunStatus.SYNCING
+
+
+@pytest.mark.asyncio
+async def test_start_run_queues_known_dhcp_ip_without_blocking_on_connectivity_probe(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = await register_and_login(client, suffix="startDhcpKnown", role="admin")
+    user_id = await _get_user_id(db_session, "startDhcpKnownuser")
+    device = Device(
+        ip_address="10.0.0.88",
+        mac_address="AA:BB:CC:DD:EE:88",
+        addressing_mode=AddressingMode.DHCP,
+        category="unknown",
+        status="discovered",
+    )
+    db_session.add(device)
+    await db_session.flush()
+    template_id = await _create_template(db_session)
+    run = RunModel(
+        device_id=device.id,
+        template_id=template_id,
+        engineer_id=user_id,
+        connection_scenario="direct",
+        total_tests=1,
+        status=RunStatus.PENDING,
+    )
+    db_session.add(run)
+    await db_session.commit()
+
+    launched: list[str] = []
+
+    async def fail_probe(_ip: str, _ports=None, **_kwargs):
+        raise AssertionError("known DHCP-IP start route should not block on connectivity probing")
+
+    monkeypatch.setattr("app.services.test_run_connectivity.probe_device_connectivity", fail_probe)
+    monkeypatch.setattr(
+        "app.routes.test_runs.launch_test_run",
+        lambda run_id, test_plan_id=None: launched.append(run_id) or object(),
+    )
+
+    resp = await client.post(f"/api/test-runs/{run.id}/start", headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == RunStatus.SYNCING.value
+    assert resp.json()["connectivity"]["reason"] == "background_probe_pending"
+    assert launched == [run.id]
 
 
 @pytest.mark.asyncio
@@ -456,7 +504,7 @@ async def test_start_run_discovers_ip_for_dhcp_device_before_launch(
     resp = await client.post(f"/api/test-runs/{run.id}/start", headers=headers)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "running"
+    assert resp.json()["status"] == RunStatus.SYNCING.value
     assert launched == [run.id]
 
     device_id = device.id
@@ -548,7 +596,7 @@ async def test_start_run_discovers_ip_from_neighbor_cache_for_dhcp_device(
     resp = await client.post(f"/api/test-runs/{run.id}/start", headers=headers)
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "running"
+    assert resp.json()["status"] == RunStatus.SYNCING.value
     assert launched == [run.id]
 
     device_id = device.id

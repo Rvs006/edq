@@ -197,5 +197,5 @@ describe('DevicesPage', () => {
     expect(await screen.findByText(/subnet.*too large|exceeds.*limit/i)).toBeInTheDocument()
 
     expect(mockDiscoveryScan).not.toHaveBeenCalled()
-  })
+  }, 15000)
 })

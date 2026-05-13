@@ -315,9 +315,14 @@ async def change_password(
 
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
-    user.password_hash = hash_password(data.new_password)
 
+    user.password_hash = hash_password(data.new_password)
     revoke_user_access_tokens(user)
     await revoke_user_refresh_tokens(db, user.id)
-    await log_security_event(db, "auth.password_change", user_id=user.id, request=request)
+    await log_security_event(
+        db,
+        "auth.password_change",
+        user_id=user.id,
+        request=request,
+    )
     return {"message": "Password changed successfully"}

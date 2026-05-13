@@ -84,6 +84,49 @@ async def test_login_success_with_email_identifier(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_password_change_updates_password_for_headless_user_agent(client: AsyncClient):
+    """Password changes must rotate the credential even for automated browser user agents."""
+    reg = await client.post("/api/auth/register", json={
+        "email": "password-change@example.com",
+        "username": "passwordchangeuser",
+        "password": "TestPass1",
+    })
+    assert reg.status_code == 201, f"Register failed: {reg.text}"
+    login_resp = await client.post("/api/auth/login", json={
+        "username": "passwordchangeuser",
+        "password": "TestPass1",
+    })
+    assert login_resp.status_code == 200
+    csrf_token = login_resp.json()["csrf_token"]
+    assert client.cookies.get("edq_csrf") == csrf_token
+
+    change_resp = await client.post(
+        "/api/auth/change-password",
+        json={
+            "current_password": "TestPass1",
+            "new_password": "ChangedPass1",
+        },
+        headers={
+            "X-CSRF-Token": csrf_token,
+            "User-Agent": "Mozilla/5.0 HeadlessChrome/120.0",
+        },
+    )
+    assert change_resp.status_code == 200
+
+    old_password_login = await client.post("/api/auth/login", json={
+        "username": "passwordchangeuser",
+        "password": "TestPass1",
+    })
+    assert old_password_login.status_code == 401
+
+    new_password_login = await client.post("/api/auth/login", json={
+        "username": "passwordchangeuser",
+        "password": "ChangedPass1",
+    })
+    assert new_password_login.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_login_invalid_credentials(client: AsyncClient):
     """Login with wrong password should fail."""
     await client.post("/api/auth/register", json={

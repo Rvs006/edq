@@ -13,6 +13,10 @@ def _client(in_docker: bool = True, raw_capable: bool = True) -> ToolsClient:
     client.scanner_in_docker = in_docker
     client.scanner_mode = "docker" if in_docker else "host"
     client._docker_raw_scan_capable = raw_capable
+    client.base_url = "http://docker-tools"
+    client.host_network_scanner_url = ""
+    client.host_arp_helper_url = ""
+    client._headers = {}
     return client
 
 
@@ -78,6 +82,45 @@ def test_explicit_host_scanner_mode_overrides_loopback_default(monkeypatch):
     client.backend_in_docker = False
 
     assert client._resolve_scanner_mode() == "host"
+
+
+@pytest.mark.asyncio
+async def test_host_arp_cache_uses_dedicated_helper_url():
+    client = _client()
+    client.host_arp_helper_url = "http://host.docker.internal:8002"
+    client._headers = {"X-Tools-Key": "test-key"}
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"entries": [{"ip": "192.168.4.54", "mac": "38:D1:35:01:02:89"}]}
+
+    class FakeClient:
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return FakeResponse()
+
+    client._get_client = lambda _timeout=300: FakeClient()
+
+    result = await client.host_arp_cache("192.168.4.54")
+
+    assert captured["url"] == "http://host.docker.internal:8002/scan/arp-cache"
+    assert captured["json"] == {"target": "192.168.4.54", "timeout": 15}
+    assert captured["headers"] == {"X-Tools-Key": "test-key"}
+    assert result["entries"][0]["mac"] == "38:D1:35:01:02:89"
+
+
+@pytest.mark.asyncio
+async def test_host_arp_cache_noops_without_helper_url():
+    client = _client()
+
+    result = await client.host_arp_cache("192.168.4.54")
+
+    assert result is None
 
 
 @pytest.mark.asyncio
@@ -172,3 +215,92 @@ async def test_tcp_probe_falls_back_to_nmap_when_endpoint_missing():
             ],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_nmap_uses_host_network_scanner_without_docker_flag_rewrite():
+    client = _client(in_docker=True, raw_capable=False)
+    client.host_network_scanner_url = "http://host-scanner"
+    captured: dict[str, object] = {}
+
+    async def fake_post(path: str, payload: dict, timeout: int = 300, base_url: str | None = None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["base_url"] = base_url
+        return {"exit_code": 0, "stdout": "<nmaprun/>"}
+
+    client._post = fake_post
+
+    result = await client.nmap("192.168.4.54", ["-sS", "-p-", "-oX", "-"])
+
+    assert result["exit_code"] == 0
+    assert captured["base_url"] == "http://host-scanner"
+    assert captured["payload"]["args"] == ["-sS", "-p-", "-oX", "-"]
+
+
+@pytest.mark.asyncio
+async def test_nmap_stream_uses_host_network_scanner_without_docker_flag_rewrite():
+    client = _client(in_docker=True, raw_capable=False)
+    client.host_network_scanner_url = "http://host-scanner"
+    captured: dict[str, object] = {}
+
+    async def fake_post_stream(path: str, payload: dict, timeout: int = 300, on_line=None, base_url: str | None = None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["base_url"] = base_url
+        return {"exit_code": 0, "stdout": "<nmaprun/>"}
+
+    client._post_stream = fake_post_stream
+
+    result = await client.nmap_stream("192.168.4.54", ["-sU", "--top-ports", "100", "-oX", "-"])
+
+    assert result["exit_code"] == 0
+    assert result["_scanner_source"] == "host"
+    assert captured["base_url"] == "http://host-scanner"
+    assert captured["payload"]["args"] == ["-sU", "--top-ports", "100", "-oX", "-"]
+
+
+@pytest.mark.asyncio
+async def test_nmap_falls_back_to_docker_with_adjusted_flags_when_host_scanner_unavailable():
+    client = _client(in_docker=True, raw_capable=False)
+    client.host_network_scanner_url = "http://host-scanner"
+    calls: list[dict[str, object]] = []
+
+    async def fake_post(path: str, payload: dict, timeout: int = 300, base_url: str | None = None):
+        calls.append({"path": path, "payload": payload, "base_url": base_url})
+        if base_url == "http://host-scanner":
+            request = httpx.Request("POST", "http://host-scanner/scan/nmap")
+            raise httpx.ConnectError("refused", request=request)
+        return {"exit_code": 0, "stdout": "<nmaprun/>"}
+
+    client._post = fake_post
+
+    result = await client.nmap("192.168.4.54", ["-sS", "-p", "80", "-oX", "-"])
+
+    assert result["exit_code"] == 0
+    assert calls[0]["base_url"] == "http://host-scanner"
+    assert calls[0]["payload"]["args"] == ["-sS", "-p", "80", "-oX", "-"]
+    assert calls[1]["base_url"] is None
+    assert "-sT" in calls[1]["payload"]["args"]
+    assert "-sS" not in calls[1]["payload"]["args"]
+
+
+@pytest.mark.asyncio
+async def test_application_tools_stay_on_docker_sidecar_when_host_network_scanner_is_configured():
+    client = _client(in_docker=True, raw_capable=False)
+    client.host_network_scanner_url = "http://host-scanner"
+    captured: dict[str, object] = {}
+
+    async def fake_post(path: str, payload: dict, timeout: int = 300, base_url: str | None = None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["base_url"] = base_url
+        return {"exit_code": 0, "stdout": "ok"}
+
+    client._post = fake_post
+
+    await client.testssl("192.168.4.54", ["-E"])
+
+    assert captured["path"] == "/scan/testssl"
+    assert captured["base_url"] is None
+    assert captured["payload"]["args"] == ["-E"]

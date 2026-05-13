@@ -15,7 +15,8 @@ import socket
 import ssl
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable, Coroutine, Optional
+from urllib.parse import quote_plus, urljoin, urlparse
 from xml.etree import ElementTree
 
 from sqlalchemy import select
@@ -31,6 +32,7 @@ from app.models.test_run import (
 )
 from app.models.test_result import TestResult, TestVerdict, TestTier
 from app.models.device import Device
+from app.models.authorized_network import AuthorizedNetwork
 from app.models.test_template import TestTemplate
 from app.models.protocol_whitelist import ProtocolWhitelist
 from app.config import settings
@@ -126,31 +128,105 @@ _PORT_SCAN_CACHE: dict[str, dict[str, Any]] = _BoundedDict(_MAX_CACHE_SIZE)
 _TESTSSL_CACHE: dict[str, dict[str, Any]] = _BoundedDict(_MAX_CACHE_SIZE)
 
 _DOCKER_TCP_BASELINE_PORTS = (
-    22, 23, 53, 80, 135, 137, 139, 443, 445, 502, 554, 1883, 47808,
-    8000, 8008, 8080, 8081, 8443, 8883, 9100,
+    21, 22, 23, 25, 53, 80, 81, 88, 102, 110, 135, 137, 139, 143,
+    389, 443, 445, 465, 502, 515, 548, 554, 587, 631, 873, 993, 995,
+    1883, 2000, 2049, 2404, 2375, 2376, 3306, 3389, 4370, 44818,
+    4786, 4840, 5000, 5001, 5040, 5060, 5061, 5353, 5357, 5432, 5627,
+    5900, 5985, 5986, 6379, 7547, 7680, 8000, 8008, 8060, 8078, 8080,
+    8081, 8088, 8181, 8443, 8883, 8888, 9000, 9001, 9100, 9443, 10000,
+    20000, 37777, 44443, 44444, 47808,
 )
 _COMMON_SERVICE_BY_PORT = {
+    21: "ftp",
     22: "ssh",
     23: "telnet",
+    25: "smtp",
     53: "domain",
     80: "http",
+    81: "http-alt",
+    88: "kerberos",
+    102: "iso-tsap",
+    110: "pop3",
     135: "msrpc",
     137: "netbios-ns",
     139: "netbios-ssn",
+    143: "imap",
+    389: "ldap",
     443: "https",
     445: "microsoft-ds",
+    465: "smtps",
     502: "modbus",
+    515: "printer",
+    548: "afp",
     554: "rtsp",
+    587: "submission",
+    631: "ipp",
+    873: "rsync",
+    993: "imaps",
+    995: "pop3s",
     1883: "mqtt",
+    2404: "iec-104",
+    4370: "zkteco",
+    44818: "ethernet-ip",
+    4840: "opcua",
+    5060: "sip",
+    5061: "sip-tls",
+    5353: "mdns",
+    5357: "wsdapi",
+    5627: "sauter",
+    7680: "pando-pub",
     47808: "bacnet",
     8000: "http-alt",
     8008: "http",
+    8078: "unknown",
     8080: "http-proxy",
     8081: "http",
     8443: "https-alt",
     8883: "secure-mqtt",
     9100: "jetdirect",
+    9443: "https-alt",
+    44443: "https-alt",
+    44444: "https-alt",
 }
+
+_LOGIN_PATH_CANDIDATES = (
+    "/",
+    "/login",
+    "/login.html",
+    "/signin",
+    "/sign-in",
+    "/user/login",
+    "/auth",
+    "/auth/login",
+    "/api/login",
+    "/admin",
+    "/admin/login",
+    "/index.html",
+    "/sdcard/cpt/app/signin.php",
+)
+
+_USERNAME_FIELD_MARKERS = (
+    "user",
+    "login",
+    "name",
+    "email",
+    "account",
+    "userid",
+    "uid",
+    "j_username",
+)
+
+_TOKEN_FIELD_MARKERS = (
+    "csrf",
+    "xsrf",
+    "token",
+    "nonce",
+    "authhash",
+    "auth_hash",
+    "authenticity",
+    "requestverificationtoken",
+    "__viewstate",
+)
 
 
 def _port_evidence_score(port: dict[str, Any]) -> int:
@@ -265,7 +341,219 @@ def _is_http_service(port: dict[str, Any]) -> bool:
 def _is_https_service(port: dict[str, Any]) -> bool:
     service = str(port.get("service") or "").lower()
     port_num = int(port.get("port") or 0)
-    return "https" in service or "ssl/http" in service or port_num in {443, 8443, 4443}
+    return "https" in service or "ssl/http" in service or port_num in {443, 8443, 4443, 9443, 44443, 44444}
+
+
+def _preferred_http_service(open_ports: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Pick the web service to assess, preferring HTTPS when both schemes exist."""
+    candidates = [
+        port for port in open_ports
+        if port.get("port") is not None and _is_definite_open_port(port) and _is_http_service(port)
+    ]
+    for port in candidates:
+        if _is_https_service(port):
+            return port
+    return candidates[0] if candidates else None
+
+
+def _ssh_ports_from_scan_data(scan_data: dict[str, Any] | None) -> list[int]:
+    """Return definite TCP SSH ports, preferring the default SSH port."""
+    ports: list[int] = []
+    seen: set[int] = set()
+    for port in (scan_data or {}).get("open_ports", []) or []:
+        if not isinstance(port, dict) or not _is_definite_open_port(port):
+            continue
+        if str(port.get("protocol") or "tcp").lower() != "tcp":
+            continue
+        try:
+            port_num = int(port.get("port") or 0)
+        except (TypeError, ValueError):
+            continue
+        service = str(port.get("service") or "").lower()
+        if port_num != 22 and "ssh" not in service:
+            continue
+        if port_num not in seen:
+            seen.add(port_num)
+            ports.append(port_num)
+    return sorted(ports, key=lambda value: (value != 22, value))
+
+
+def _web_ports_from_scan_data(scan_data: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Return definite HTTP(S) ports, preferring common login endpoints."""
+    ports: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for port in (scan_data or {}).get("open_ports", []) or []:
+        if not isinstance(port, dict) or not _is_definite_open_port(port):
+            continue
+        if str(port.get("protocol") or "tcp").lower() != "tcp":
+            continue
+        if not _is_http_service(port):
+            continue
+        try:
+            port_num = int(port.get("port") or 0)
+        except (TypeError, ValueError):
+            continue
+        key = ("https" if _is_https_service(port) else "http", port_num)
+        if key in seen:
+            continue
+        seen.add(key)
+        ports.append(port)
+    return sorted(
+        ports,
+        key=lambda item: (
+            0 if int(item.get("port") or 0) in {80, 443} else 1,
+            0 if _is_https_service(item) else 1,
+            int(item.get("port") or 0),
+        ),
+    )
+
+
+def _web_base_url(device_ip: str, port: int, service: str) -> tuple[str, str]:
+    scheme = "https" if service.startswith("https") or port in {443, 8443, 9443, 44443, 44444} else "http"
+    default_port = (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+    base_url = f"{scheme}://{device_ip}" if default_port else f"{scheme}://{device_ip}:{port}"
+    return scheme, base_url
+
+
+def _target_url_for_path(base_url: str, path: str) -> str:
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"{base_url.rstrip('/')}{path}"
+
+
+def _text_has_tokenized_login_markers(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(marker in lowered for marker in ("authtoken", "user[authhash]", "authhash", "auth token"))
+
+
+def _is_token_field_name(name: str) -> bool:
+    lowered = name.lower()
+    return any(marker in lowered for marker in _TOKEN_FIELD_MARKERS)
+
+
+def _html_input_name(input_node: Any) -> str:
+    return str(input_node.get("name") or input_node.get("id") or "").strip()
+
+
+def _extract_login_form(html_text: str, response_url: str) -> dict[str, Any] | None:
+    """Extract a static username/password form that Hydra can target."""
+    if "<form" not in (html_text or "").lower():
+        return None
+
+    try:
+        from lxml import html as lxml_html
+
+        root = lxml_html.fromstring(html_text)
+    except Exception:
+        return None
+
+    best_form: dict[str, Any] | None = None
+    for form in root.xpath("//form"):
+        inputs = list(form.xpath(".//input"))
+        password_inputs = [
+            item for item in inputs
+            if str(item.get("type") or "").lower() == "password"
+            or "pass" in _html_input_name(item).lower()
+        ]
+        if not password_inputs:
+            continue
+
+        password_field = _html_input_name(password_inputs[0])
+        if not password_field:
+            continue
+
+        candidates: list[tuple[int, str]] = []
+        for index, item in enumerate(inputs):
+            input_type = str(item.get("type") or "text").lower()
+            if input_type in {"hidden", "password", "submit", "button", "checkbox", "radio", "image"}:
+                continue
+            name = _html_input_name(item)
+            if not name:
+                continue
+            lowered_name = name.lower()
+            marker_score = 0 if any(marker in lowered_name for marker in _USERNAME_FIELD_MARKERS) else 1
+            password_index = inputs.index(password_inputs[0])
+            before_password = 0 if index < password_index else 1
+            candidates.append((marker_score + before_password, name))
+
+        if candidates:
+            username_field = sorted(candidates, key=lambda item: item[0])[0][1]
+        else:
+            username_field = "username"
+
+        hidden_fields: dict[str, str] = {}
+        token_fields: list[str] = []
+        for item in inputs:
+            if str(item.get("type") or "").lower() != "hidden":
+                continue
+            name = _html_input_name(item)
+            if not name:
+                continue
+            value = str(item.get("value") or "")
+            hidden_fields[name] = value
+            if _is_token_field_name(name):
+                token_fields.append(name)
+
+        action = str(form.get("action") or "")
+        target_url = urljoin(response_url, action)
+        parsed = urlparse(target_url)
+        form_path = parsed.path or "/"
+        if parsed.query:
+            form_path = f"{form_path}?{parsed.query}"
+
+        best_form = {
+            "form_path": form_path,
+            "form_method": str(form.get("method") or "post").lower(),
+            "username_field": username_field,
+            "password_field": password_field,
+            "hidden_fields": hidden_fields,
+            "token_fields": token_fields,
+            "tokenized": bool(token_fields) or _text_has_tokenized_login_markers(html_text),
+        }
+        break
+
+    return best_form
+
+
+def _encode_form_pair(name: str, value: str) -> str:
+    return f"{quote_plus(name)}={quote_plus(value, safe='^')}"
+
+
+def _build_hydra_form_fields(login_form: dict[str, Any]) -> str:
+    pairs = [
+        (str(login_form["username_field"]), "^USER^"),
+        (str(login_form["password_field"]), "^PASS^"),
+    ]
+    for name, value in (login_form.get("hidden_fields") or {}).items():
+        if name in {login_form["username_field"], login_form["password_field"]}:
+            continue
+        pairs.append((str(name), str(value)))
+
+    body = "&".join(_encode_form_pair(name, value) for name, value in pairs)
+    return (
+        f"{login_form['form_path']}:{body}:F=incorrect:"
+        "H=Content-Type: application/x-www-form-urlencoded"
+    )
+
+
+def _build_form_probe_payload(
+    login_form: dict[str, Any],
+    username_field: str,
+    password_field: str,
+    username: str,
+    password: str,
+) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    for name, value in (login_form.get("hidden_fields") or {}).items():
+        field_name = str(name)
+        if field_name in {username_field, password_field}:
+            continue
+        payload[field_name] = str(value)
+    payload[username_field] = username
+    payload[password_field] = password
+    return payload
 
 
 def _port_candidates_from_device(device: Device) -> list[int]:
@@ -288,7 +576,7 @@ def _port_candidates_from_device(device: Device) -> list[int]:
             add_port(item)
     for port in _DOCKER_TCP_BASELINE_PORTS:
         add_port(port)
-    return ports[:100]
+    return ports[:256]
 
 
 def _tcp_probe_to_scan_data(
@@ -329,7 +617,7 @@ def _tcp_probe_to_scan_data(
             "protocol": "tcp",
             "numservices": str(len(probed_ports)),
         },
-        "scan_note": "Docker scanner fast TCP inventory; use host scanner mode for true all-65535 raw scans.",
+        "scan_note": "Fast TCP inventory fallback; use host network scanner mode for true all-65535 raw scans.",
     }
 
 
@@ -345,6 +633,192 @@ def _merge_tls_probe_fallback(parsed: dict[str, Any], fallback: dict[str, Any]) 
         elif value not in (None, "", [], {}) and not merged.get(key):
             merged[key] = value
     return merged
+
+
+def _normalize_tls_protocol(value: str) -> str:
+    raw = (value or "").strip().rstrip(":")
+    normalized = raw.replace(" ", "")
+    mapping = {
+        "TLSv1": "TLSv1.0",
+        "TLS1": "TLSv1.0",
+        "TLS1.0": "TLSv1.0",
+        "TLSv1.0": "TLSv1.0",
+        "TLS1.1": "TLSv1.1",
+        "TLSv1.1": "TLSv1.1",
+        "TLS1.2": "TLSv1.2",
+        "TLSv1.2": "TLSv1.2",
+        "TLS1.3": "TLSv1.3",
+        "TLSv1.3": "TLSv1.3",
+        "SSLv2": "SSLv2",
+        "SSLv3": "SSLv3",
+    }
+    return mapping.get(normalized, raw)
+
+
+def _parse_ssl_enum_ciphers_output(output: str) -> dict[str, Any]:
+    """Extract cipher inventory from nmap ssl-enum-ciphers script output."""
+    inventory: dict[str, Any] = {
+        "tls_versions": [],
+        "weak_versions": [],
+        "ciphers": [],
+        "weak_ciphers": [],
+    }
+    current_protocol = ""
+    in_cipher_block = False
+    seen_ciphers: set[tuple[str, str]] = set()
+
+    for raw_line in (output or "").splitlines():
+        stripped = raw_line.strip().lstrip("|_").lstrip("|").strip()
+        if not stripped:
+            continue
+
+        label = stripped.rstrip(":")
+        if label in {"SSLv2", "SSLv3", "TLSv1", "TLSv1.0", "TLSv1.1", "TLSv1.2", "TLSv1.3"}:
+            current_protocol = _normalize_tls_protocol(label)
+            in_cipher_block = False
+            if current_protocol not in inventory["tls_versions"]:
+                inventory["tls_versions"].append(current_protocol)
+            if current_protocol in {"SSLv2", "SSLv3", "TLSv1.0", "TLSv1.1"} and current_protocol not in inventory["weak_versions"]:
+                inventory["weak_versions"].append(current_protocol)
+            continue
+
+        lowered = label.lower()
+        if lowered == "ciphers":
+            in_cipher_block = True
+            continue
+        if stripped.endswith(":"):
+            in_cipher_block = False
+            continue
+        if not in_cipher_block or not current_protocol:
+            continue
+
+        name = stripped.split()[0]
+        if not (name.startswith("TLS_") or name.startswith("SSL_")):
+            continue
+        key = (current_protocol, name)
+        if key in seen_ciphers:
+            continue
+        seen_ciphers.add(key)
+
+        grade = ""
+        if " - " in stripped:
+            grade = stripped.rsplit(" - ", 1)[-1].strip()
+        cipher_info = {
+            "id": "nmap-ssl-enum-ciphers",
+            "name": name,
+            "iana_name": name,
+            "protocol": current_protocol,
+            "severity": "OK",
+            "grade": grade,
+        }
+        inventory["ciphers"].append(cipher_info)
+        if testssl_parser._is_weak_cipher(cipher_info, stripped):
+            inventory["weak_ciphers"].append(cipher_info)
+
+    return inventory
+
+
+def _extract_ssl_enum_cipher_inventory(parsed_nmap: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {
+        "tls_versions": [],
+        "weak_versions": [],
+        "ciphers": [],
+        "weak_ciphers": [],
+    }
+
+    scripts: list[dict[str, Any]] = []
+    scripts.extend(parsed_nmap.get("scripts") or [])
+    for port in parsed_nmap.get("open_ports") or []:
+        if isinstance(port, dict):
+            scripts.extend(port.get("scripts") or [])
+
+    for script in scripts:
+        if not isinstance(script, dict) or script.get("id") != "ssl-enum-ciphers":
+            continue
+        inventory = _parse_ssl_enum_ciphers_output(str(script.get("output") or ""))
+        for key in ("tls_versions", "weak_versions"):
+            for value in inventory.get(key) or []:
+                if value not in merged[key]:
+                    merged[key].append(value)
+        for key in ("ciphers", "weak_ciphers"):
+            existing_names = {
+                (str(item.get("protocol")), str(item.get("name")))
+                for item in merged[key]
+                if isinstance(item, dict)
+            }
+            for item in inventory.get(key) or []:
+                item_key = (str(item.get("protocol")), str(item.get("name")))
+                if item_key not in existing_names:
+                    merged[key].append(item)
+                    existing_names.add(item_key)
+
+    if merged["ciphers"]:
+        merged["probe_source"] = "testssl+nmap-ssl-enum-ciphers"
+        merged["cipher_inventory_complete"] = True
+    return merged
+
+
+def _merge_cipher_inventory(parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    if not fallback.get("ciphers"):
+        return parsed
+    merged = _merge_tls_probe_fallback(parsed, fallback)
+    merged["probe_source"] = fallback.get("probe_source") or parsed.get("probe_source")
+    merged["cipher_inventory_complete"] = True
+    return merged
+
+
+def _tls_cache_satisfies_test(test_id: str, cached: dict[str, Any] | None) -> bool:
+    if not cached:
+        return False
+    if (
+        test_id == "U10"
+        and cached.get("probe_source") != "testssl"
+        and cached.get("fallback_probe") == "python-ssl"
+    ):
+        return False
+    if (
+        test_id == "U11"
+        and cached.get("probe_source") != "testssl"
+        and cached.get("fallback_probe") == "python-ssl"
+    ):
+        return False
+    if test_id == "U11" and cached.get("cipher_inventory_complete") is False:
+        return False
+    if test_id == "U12" and not any(
+        cached.get(key)
+        for key in (
+            "cert_not_before",
+            "cert_not_after",
+            "cert_expiry",
+            "cert_subject",
+            "cert_issuer",
+        )
+    ):
+        return False
+    if test_id == "U13" and cached.get("hsts_checked") is False:
+        return False
+    return True
+
+
+def _testssl_args_for_test(test_id: str, target: str) -> list[str]:
+    host = target
+    if target.startswith("[") and "]:" in target:
+        host = target[1:].split("]:", 1)[0]
+    elif target.count(":") == 1:
+        maybe_host, maybe_port = target.rsplit(":", 1)
+        if maybe_port.isdigit():
+            host = maybe_host
+    try:
+        ipaddress.ip_address(host)
+        args: list[str] = []
+    except ValueError:
+        args = ["--ip", "one"]
+
+    if test_id == "U10":
+        return args + ["-p"]
+    if test_id == "U11":
+        return args + ["-E"]
+    return args + ["--fast"]
 
 
 def _nmap_xml_or_raise(test_id: str, raw: dict[str, Any]) -> str:
@@ -410,6 +884,111 @@ def _has_nmap_scan_evidence(scan_data: dict[str, Any] | None) -> bool:
     )
 
 
+def _format_evidence_port(port: dict[str, Any]) -> str:
+    protocol = str(port.get("protocol") or "tcp").lower()
+    port_number = port.get("port")
+    state = port.get("state") or "open"
+    service = port.get("service") or "unknown"
+    version = port.get("version") or port.get("product") or ""
+    suffix = f" {version}" if version else ""
+    return f"{port_number}/{protocol} {state} {service}{suffix}".strip()
+
+
+def _build_evidence_summary(test_id: str, parsed: dict[str, Any] | None) -> str | None:
+    """Build a compact readable evidence block when a test reuses parsed scanner data."""
+    if not parsed:
+        return None
+
+    lines: list[str] = ["EDQ evidence summary", f"Test: {test_id}"]
+
+    if test_id == "U09":
+        lines.append("Source: nmap TCP/UDP inventory checked against protocol whitelist")
+        ports = [
+            _format_evidence_port(port)
+            for port in parsed.get("open_ports", [])
+            if isinstance(port, dict) and port.get("port") is not None
+        ]
+        lines.extend(ports[:40] or ["No open ports were present in the parsed nmap inventory."])
+        return "\n".join(lines)
+
+    if test_id in {"U10", "U11", "U12", "U13"}:
+        lines.append(f"Source: {parsed.get('probe_source') or parsed.get('fallback_probe') or 'TLS probe'}")
+        tls_versions = parsed.get("tls_versions") or []
+        weak_versions = parsed.get("weak_versions") or []
+        ciphers = parsed.get("ciphers") or []
+        weak_ciphers = parsed.get("weak_ciphers") or []
+        lines.append(f"TLS versions: {', '.join(map(str, tls_versions)) or 'none detected'}")
+        lines.append(f"Weak TLS versions: {', '.join(map(str, weak_versions)) or 'none detected'}")
+        if isinstance(ciphers, list) and ciphers:
+            lines.append("Cipher inventory:")
+            for cipher in ciphers[:20]:
+                if isinstance(cipher, dict):
+                    lines.append(
+                        f"- {cipher.get('name', 'unknown')} "
+                        f"({cipher.get('protocol', 'unknown')}, {cipher.get('bits', 'unknown')} bits)"
+                    )
+                else:
+                    lines.append(f"- {cipher}")
+        else:
+            lines.append("Cipher inventory: none detected")
+        lines.append(f"Weak ciphers: {len(weak_ciphers) if isinstance(weak_ciphers, list) else 0}")
+        cert_subject = parsed.get("cert_subject")
+        cert_issuer = parsed.get("cert_issuer")
+        cert_expiry = parsed.get("cert_expiry") or parsed.get("cert_not_after")
+        if cert_subject or cert_issuer or cert_expiry:
+            lines.append(f"Certificate subject: {cert_subject or 'unknown'}")
+            lines.append(f"Certificate issuer: {cert_issuer or 'unknown'}")
+            lines.append(f"Certificate expiry: {cert_expiry or 'unknown'}")
+            lines.append(f"Certificate valid: {bool(parsed.get('cert_valid'))}")
+            lines.append(f"Self-signed: {bool(parsed.get('cert_self_signed'))}")
+        return "\n".join(lines)
+
+    if test_id == "U17":
+        lines.append(f"Source: {parsed.get('auth_type') or 'authentication'} brute-force protection probe")
+        lines.append(f"Check ran: {bool(parsed.get('check_ran'))}")
+        lines.append(f"Attempts: {parsed.get('attempts', 0)}")
+        lines.append(f"Lockout detected: {bool(parsed.get('lockout_detected'))}")
+        if parsed.get("reason"):
+            lines.append(f"Reason: {parsed['reason']}")
+        if parsed.get("error"):
+            lines.append("Tool output:")
+            lines.append(str(parsed["error"]))
+        return "\n".join(lines)
+
+    if test_id == "U18":
+        lines.append("Source: HTTP redirect probe")
+        lines.append(f"HTTP open: {bool(parsed.get('http_open'))}")
+        lines.append(f"Redirects to HTTPS: {bool(parsed.get('redirects_to_https'))}")
+        if parsed.get("redirect_status_code") is not None:
+            lines.append(f"HTTP status: {parsed['redirect_status_code']}")
+        if parsed.get("redirect_location"):
+            lines.append(f"Location: {parsed['redirect_location']}")
+        return "\n".join(lines)
+
+    if test_id in {"U26", "U28", "U29"}:
+        source = {
+            "U26": "NTP observer/nmap UDP probe",
+            "U28": "BACnet nmap UDP probe",
+            "U29": "DNS observer/nmap UDP probe",
+        }[test_id]
+        lines.append(f"Source: {source}")
+        for key in sorted(parsed.keys()):
+            value = parsed[key]
+            if value in (None, "", [], {}):
+                continue
+            lines.append(f"{key}: {value}")
+        return "\n".join(lines)
+
+    if test_id == "U34":
+        lines.append("Source: nmap insecure-protocol inventory")
+        lines.append(f"Telnet open: {bool(parsed.get('telnet_open'))}")
+        lines.append(f"FTP open: {bool(parsed.get('ftp_open'))}")
+        lines.append(f"Insecure ports: {parsed.get('insecure_ports') or []}")
+        return "\n".join(lines)
+
+    return None
+
+
 def _infer_os_from_services(open_ports: list[dict[str, Any]]) -> str | None:
     """Infer OS from service banners when nmap -O fails."""
     from collections import Counter
@@ -441,6 +1020,26 @@ def _infer_os_from_services(open_ports: list[dict[str, Any]]) -> str | None:
 
 class TestEngine:
     """Orchestrates the full test execution lifecycle for a test run."""
+
+    @staticmethod
+    async def _is_device_ip_authorized(db: AsyncSession, ip_address: str | None) -> bool:
+        if not ip_address:
+            return False
+        try:
+            address = ipaddress.ip_address(ip_address)
+        except ValueError:
+            return False
+
+        result = await db.execute(
+            select(AuthorizedNetwork).where(AuthorizedNetwork.is_active == True)
+        )
+        for network in result.scalars().all():
+            try:
+                if address in ipaddress.ip_network(network.cidr, strict=False):
+                    return True
+            except ValueError:
+                continue
+        return False
 
     @staticmethod
     def _progress_for(total: int, completed: int) -> float:
@@ -542,6 +1141,19 @@ class TestEngine:
                 await self._set_run_error(
                     db, run,
                     "Device has no IP address. Discover the IP first for DHCP devices.",
+                )
+                return
+
+            if not await self._is_device_ip_authorized(db, device.ip_address):
+                logger.error(
+                    "Device %s resolved to unauthorized IP address %s during test execution",
+                    device.id,
+                    device.ip_address,
+                )
+                await self._set_run_error(
+                    db,
+                    run,
+                    f"Device IP address {device.ip_address} is not authorized for scanning.",
                 )
                 return
 
@@ -1044,6 +1656,8 @@ class TestEngine:
                 device,
                 connection_scenario,
             )
+            if not raw_out:
+                raw_out = _build_evidence_summary(test_id, parsed)
             verdict, comment = evaluate_result(test_id, parsed, whitelist_entries)
         except Exception as exc:
             logger.warning("Test %s failed for run %s: %s", test_id, run_id, exc)
@@ -1162,13 +1776,14 @@ class TestEngine:
         empty result.
         """
         ports = _port_candidates_from_device(device)
+        probe_timeout = min(max(int(len(ports) * 0.45) + 10, 45), 90)
         payload = await tools_client.tcp_probe(
             device_ip,
             ports=ports,
-            connect_timeout=1.0,
-            concurrency=min(len(ports), 64),
+            connect_timeout=0.35,
+            concurrency=min(len(ports), 128),
             max_hosts=1,
-            timeout=30,
+            timeout=probe_timeout,
         )
         parsed = _tcp_probe_to_scan_data(device_ip, payload, ports)
         return parsed, json.dumps(payload, sort_keys=True)
@@ -1181,6 +1796,9 @@ class TestEngine:
             "weak_ciphers": [],
             "vulnerabilities": [],
             "cert_valid": False,
+            "cert_has_issue": False,
+            "cert_self_signed": False,
+            "cert_trust_verified": False,
             "cert_not_before": None,
             "cert_not_after": None,
             "cert_expiry": None,
@@ -1248,13 +1866,30 @@ class TestEngine:
                     not_before = not_before.replace(tzinfo=timezone.utc)
                 if not_after.tzinfo is None:
                     not_after = not_after.replace(tzinfo=timezone.utc)
-                result["cert_valid"] = not_before <= now <= not_after and cert.issuer != cert.subject
+                result["cert_self_signed"] = cert.issuer == cert.subject
+                result["cert_has_issue"] = bool(result["cert_self_signed"])
+                result["cert_valid"] = not_before <= now <= not_after and not result["cert_self_signed"]
             except Exception as exc:
                 logger.debug("TLS certificate fallback parse failed for %s:%s: %s", host, port, exc)
         return result
 
     async def _tls_probe_fallback(self, host: str, port: int) -> dict[str, Any]:
         return await asyncio.to_thread(self._tls_probe_sync, host, port)
+
+    async def _nmap_ssl_cipher_fallback(
+        self,
+        host: str,
+        port: int,
+        on_line: Optional[Callable[[str], Coroutine]] = None,
+    ) -> dict[str, Any]:
+        raw = await tools_client.nmap_stream(
+            host,
+            ["-sT", "-Pn", "-p", str(port), "--script", "ssl-enum-ciphers", "-oX", "-"],
+            timeout=120,
+            on_line=on_line,
+        )
+        xml_out = _nmap_xml_or_raise("U11", raw)
+        return _extract_ssl_enum_cipher_inventory(nmap_parser.parse_xml(xml_out))
 
     async def _dispatch_test(
         self,
@@ -1279,12 +1914,20 @@ class TestEngine:
         if test_id == "U02":
             raw = await tools_client.nmap_stream(device_ip, ["-sn", "-oX", "-"], timeout=60, on_line=on_line)
             parsed = nmap_parser.parse_xml(raw.get("stdout", ""))
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
+            if not parsed.get("mac_address"):
+                for host in nmap_parser.parse_host_discovery(raw.get("stdout", "")):
+                    if str(host.get("ip") or "") == device_ip and host.get("mac"):
+                        parsed["mac_address"] = host["mac"]
+                        if host.get("vendor"):
+                            parsed["oui_vendor"] = host["vendor"]
+                        break
             # Fallback 1: if nmap couldn't see the MAC (Docker network hop), try with --send-ip
             if not parsed.get("mac_address"):
                 try:
-                    arp_raw = await tools_client._post(
-                        "/scan/nmap",
-                        {"target": device_ip, "args": ["-sn", "--send-ip", "-oX", "-"], "timeout": 30},
+                    arp_raw = await tools_client.nmap(
+                        device_ip,
+                        ["-sn", "--send-ip", "-oX", "-"],
                         timeout=40,
                     )
                     arp_parsed = nmap_parser.parse_xml(arp_raw.get("stdout", ""))
@@ -1296,9 +1939,9 @@ class TestEngine:
             # Fallback 2: ping then read ARP table (works when on same L2 segment)
             if not parsed.get("mac_address"):
                 try:
-                    arp_raw = await tools_client._post(
-                        "/scan/nmap",
-                        {"target": device_ip, "args": ["-sn", "-PR", "-oX", "-"], "timeout": 30},
+                    arp_raw = await tools_client.nmap(
+                        device_ip,
+                        ["-sn", "-PR", "-oX", "-"],
                         timeout=40,
                     )
                     arp_parsed = nmap_parser.parse_xml(arp_raw.get("stdout", ""))
@@ -1325,6 +1968,27 @@ class TestEngine:
                         parsed["mac_address"] = arp_data["mac_address"]
                 except Exception:
                     logger.debug("U02: ARP cache fallback failed for %s", device_ip)
+            # Fallback 4: Docker Desktop can reach a LAN IP while hiding the
+            # host OS ARP table. If configured, ask a tiny host-side helper for
+            # the MAC without moving all scanner tools out of Docker.
+            if not parsed.get("mac_address"):
+                try:
+                    host_arp_result = await tools_client.host_arp_cache(device_ip)
+                    for entry in host_arp_result.get("entries", []) if isinstance(host_arp_result, dict) else []:
+                        if not isinstance(entry, dict):
+                            continue
+                        if str(entry.get("ip") or "") == device_ip and entry.get("mac"):
+                            parsed["mac_address"] = entry["mac"]
+                            if entry.get("vendor"):
+                                parsed["oui_vendor"] = entry["vendor"]
+                            parsed["source"] = "host_arp_helper"
+                            break
+                    arp_data = nmap_parser.parse_arp_cache(host_arp_result.get("stdout", "")) if isinstance(host_arp_result, dict) else {}
+                    if not parsed.get("mac_address") and arp_data.get("mac_address"):
+                        parsed["mac_address"] = arp_data["mac_address"]
+                        parsed["source"] = "host_arp_helper"
+                except Exception:
+                    logger.debug("U02: host ARP helper fallback failed for %s", device_ip)
             device_mac = normalize_mac(getattr(device, "mac_address", None))
             if not parsed.get("mac_address") and device_mac:
                 parsed["mac_address"] = device_mac
@@ -1346,7 +2010,7 @@ class TestEngine:
 
         if test_id == "U04":
             if (
-                connection_scenario == "direct"
+                normalize_connection_scenario(connection_scenario) in {"direct", "test_lab"}
                 and settings.PROTOCOL_OBSERVER_ENABLED
             ):
                 mac = getattr(device, "mac_address", None)
@@ -1367,6 +2031,8 @@ class TestEngine:
                                     "offer_capable": observed.get("offer_capable", False),
                                     "offered_ip": observed.get("offered_ip"),
                                     "dhcp_server": observed.get("server_identifier"),
+                                    "dhcp_dns_server": observed.get("dns_server"),
+                                    "dhcp_ntp_server": observed.get("ntp_server"),
                                 },
                                 None,
                             )
@@ -1413,9 +2079,11 @@ class TestEngine:
             if (
                 getattr(tools_client, "scanner_in_docker", False)
                 and getattr(tools_client, "backend_in_docker", False)
+                and not getattr(tools_client, "has_host_network_scanner", lambda: False)()
             ):
                 try:
                     parsed, raw_out = await self._docker_tcp_inventory(device_ip, device)
+                    parsed["scanner_source"] = tools_client.network_scanner_source()
                     _PORT_SCAN_CACHE[run_id] = parsed
                     from app.services.wobbly_cable import get_cable_handler
                     _handler = get_cable_handler(run_id)
@@ -1441,6 +2109,7 @@ class TestEngine:
             )
             xml_out = _nmap_xml_or_raise("U06", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             if not parsed.get("open_ports"):
                 try:
                     fallback, fallback_raw = await self._docker_tcp_inventory(device_ip, device)
@@ -1473,6 +2142,7 @@ class TestEngine:
             )
             xml_out = _nmap_xml_or_raise("U07", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             _PORT_SCAN_CACHE[f"{run_id}_u07"] = parsed
             return (parsed, xml_out)
 
@@ -1492,6 +2162,7 @@ class TestEngine:
             )
             xml_out = _nmap_xml_or_raise("U08", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             # Store U08 data as fallback for U09 when U06 cache is empty
             _PORT_SCAN_CACHE[f"{run_id}_u08"] = parsed
             return (parsed, xml_out)
@@ -1521,12 +2192,13 @@ class TestEngine:
             )
             xml_out = _nmap_xml_or_raise("U09", raw)
             parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             _PORT_SCAN_CACHE[run_id] = parsed
             return (parsed, xml_out)
 
         if test_id in ("U10", "U11", "U12", "U13"):
             cached = _TESTSSL_CACHE.get(run_id)
-            if cached:
+            if _tls_cache_satisfies_test(test_id, cached):
                 return (cached, None)
             # Determine TLS port from port scan cache (prefer 443, fallback to other HTTPS ports)
             tls_port = 443
@@ -1545,21 +2217,25 @@ class TestEngine:
             fast_tls_probe = os.environ.get("EDQ_FAST_TLS_PROBE", "true").strip().lower() not in {
                 "0", "false", "no", "off"
             }
-            if fast_tls_probe:
+            if fast_tls_probe and test_id not in {"U10", "U11", "U13"}:
                 try:
                     parsed = await self._tls_probe_fallback(device_ip, tls_port)
                     if parsed.get("tls_versions"):
+                        parsed["cipher_inventory_complete"] = False
                         _TESTSSL_CACHE[run_id] = parsed
                         return (parsed, None)
                 except Exception as exc:
                     logger.debug("Fast TLS probe failed for %s:%s: %s", device_ip, tls_port, exc)
 
-            raw = await tools_client.testssl_stream(target, ["--ip", "one", "--fast"], timeout=300, on_line=on_line)
+            raw = await tools_client.testssl_stream(target, _testssl_args_for_test(test_id, target), timeout=300, on_line=on_line)
             output_file = raw.get("output_file", "")
             if output_file:
                 parsed = testssl_parser.parse(output_file)
             else:
                 parsed = testssl_parser.parse_from_stdout(raw.get("stdout", ""))
+            parsed["probe_source"] = "testssl"
+            parsed["cipher_inventory_complete"] = True
+            parsed["hsts_checked"] = True
             if not parsed.get("tls_versions"):
                 try:
                     parsed = _merge_tls_probe_fallback(
@@ -1568,6 +2244,14 @@ class TestEngine:
                     )
                 except Exception as exc:
                     logger.debug("TLS fallback probe failed for %s:%s: %s", device_ip, tls_port, exc)
+            if test_id == "U11" and not parsed.get("ciphers"):
+                try:
+                    parsed = _merge_cipher_inventory(
+                        parsed,
+                        await self._nmap_ssl_cipher_fallback(device_ip, tls_port, on_line),
+                    )
+                except Exception as exc:
+                    logger.debug("Nmap TLS cipher fallback failed for %s:%s: %s", device_ip, tls_port, exc)
             _TESTSSL_CACHE[run_id] = parsed
             return (parsed, raw.get("stdout"))
 
@@ -1580,17 +2264,24 @@ class TestEngine:
             nikto_args = []
             port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
             open_ports = port_cache.get("open_ports", [])
-            http_candidates = [
-                p for p in open_ports
-                if p.get("port") is not None and _is_definite_open_port(p) and _is_http_service(p)
-            ]
-            http_ports = [int(p["port"]) for p in http_candidates]
-            if http_ports:
-                nikto_args.extend(["-p", str(http_ports[0])])
-                if any(_is_https_service(p) for p in http_candidates if int(p["port"]) == http_ports[0]):
+            selected_http_service = _preferred_http_service(open_ports)
+            if selected_http_service:
+                target_port = int(selected_http_service["port"])
+                nikto_args.extend(["-p", str(target_port)])
+                if _is_https_service(selected_http_service):
                     nikto_args.append("-ssl")
             raw = await tools_client.nikto_stream(device_ip, nikto_args, timeout=300, on_line=on_line)
             parsed = {"raw": raw.get("stdout", ""), "stdout": raw.get("stdout", "")}
+            try:
+                parsed["header_scan"] = await self._capture_http_security_headers(device_ip, run_id)
+            except Exception as exc:
+                logger.debug("U35 HTTP header capture failed for %s: %s", device_ip, exc)
+                parsed["header_scan"] = {
+                    "http_service_detected": bool(selected_http_service),
+                    "headers": {},
+                    "raw_headers": "",
+                    "error": str(exc),
+                }
             return (parsed, raw.get("stdout"))
 
         if test_id == "U15":
@@ -1665,6 +2356,30 @@ class TestEngine:
                     },
                     None,
                 )
+            if auth_surface.get("auth_type") == "form":
+                login_form = auth_surface.get("login_form") if isinstance(auth_surface.get("login_form"), dict) else {}
+                return (
+                    {
+                        "found_credentials": [],
+                        "services_tested": [
+                            {
+                                "service": service,
+                                "port": selected_port,
+                                "protocol": "tcp",
+                                "auth_type": "form",
+                                "form_path": login_form.get("form_path"),
+                                "username_field": login_form.get("username_field"),
+                                "password_field": login_form.get("password_field"),
+                            }
+                        ],
+                        "check_ran": False,
+                        "reason": (
+                            "HTML login form detected, but generic default-credential probing is "
+                            "not reliable without a device-specific form mapping."
+                        ),
+                    },
+                    None,
+                )
             args = ["-C", "/usr/share/wordlists/common.txt", "-f"]
             if (service == "http-get" and selected_port != 80) or (service == "https-get" and selected_port != 443):
                 args.extend(["-s", str(selected_port)])
@@ -1681,13 +2396,19 @@ class TestEngine:
                     "service": service,
                     "port": selected_port,
                     "protocol": "tcp",
+                    "auth_type": auth_surface.get("auth_type") or "basic",
                 }
             ]
             parsed["check_ran"] = bool((raw.get("stdout") or "").strip())
+            parsed["method"] = "hydra-http-basic"
             return (parsed, raw.get("stdout"))
 
         if test_id == "U17":
-            parsed = await self._test_brute_force_protection(device_ip)
+            port_cache = _merge_nmap_scan_data(
+                _PORT_SCAN_CACHE.get(run_id),
+                _PORT_SCAN_CACHE.get(f"{run_id}_u08"),
+            )
+            parsed = await self._test_brute_force_protection(device_ip, port_cache)
             return (parsed, None)
 
         if test_id == "U18":
@@ -1704,6 +2425,7 @@ class TestEngine:
                 )
                 xml_out = _nmap_xml_or_raise("U19", raw)
                 parsed = nmap_parser.parse_xml(xml_out)
+                parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
             except Exception as exc:
                 logger.debug("U19 OS scan failed for %s: %s", device_ip, exc)
                 parsed = {"os_scan_inconclusive": True, "os_scan_error": str(exc)}
@@ -2055,32 +2777,88 @@ class TestEngine:
         """Detect whether a web endpoint actually presents an auth surface."""
         import httpx
 
-        scheme = "https" if service.startswith("https") or port == 443 else "http"
-        url = f"{scheme}://{device_ip}:{port}" if port not in (80, 443) else f"{scheme}://{device_ip}"
+        _scheme, base_url = _web_base_url(device_ip, port, service)
+        last_status: int | None = None
+        last_url = base_url
+        probe_errors: list[str] = []
         try:
             async with httpx.AsyncClient(timeout=10, verify=False, follow_redirects=True) as client:
-                resp = await client.get(url)
+                for path in _LOGIN_PATH_CANDIDATES:
+                    url = _target_url_for_path(base_url, path)
+                    try:
+                        resp = await client.get(url)
+                    except Exception as exc:
+                        probe_errors.append(f"{path}: {exc}")
+                        continue
+
+                    last_status = resp.status_code
+                    last_url = str(resp.url)
+                    if resp.status_code == 401 or resp.headers.get("www-authenticate"):
+                        return {"auth_required": True, "auth_type": "basic", "url": last_url}
+
+                    body = resp.text or ""
+                    body_lower = body.lower()
+                    if "signin cpt graphics" in body_lower:
+                        return {
+                            "auth_required": False,
+                            "auth_type": "tokenized_form",
+                            "url": last_url,
+                            "reason": (
+                                "EasyIO tokenized web login detected; generic Hydra form check is "
+                                "not applicable without the EasyIO authenticator."
+                            ),
+                        }
+
+                    login_form = _extract_login_form(body, last_url)
+                    if login_form:
+                        if login_form.get("tokenized"):
+                            return {
+                                "auth_required": False,
+                                "auth_type": "tokenized_form",
+                                "url": last_url,
+                                "login_form": login_form,
+                                "reason": (
+                                    "Tokenized web login detected; generic Hydra form check is not "
+                                    "applicable without a device-specific authenticator."
+                                ),
+                            }
+                        if login_form.get("form_method") != "post":
+                            return {
+                                "auth_required": False,
+                                "auth_type": "form",
+                                "url": last_url,
+                                "login_form": login_form,
+                                "reason": (
+                                    "HTML login form detected, but it does not submit with POST; "
+                                    "generic Hydra form probing is not reliable."
+                                ),
+                            }
+                        return {
+                            "auth_required": True,
+                            "auth_type": "form",
+                            "url": last_url,
+                            "login_form": login_form,
+                            "form_path": login_form["form_path"],
+                            "username_field": login_form["username_field"],
+                            "password_field": login_form["password_field"],
+                            "form_fields": _build_hydra_form_fields(login_form),
+                        }
         except Exception as exc:
             return {"auth_required": False, "reason": f"HTTP auth surface probe failed: {exc}"}
 
-        if resp.status_code == 401 or resp.headers.get("www-authenticate"):
-            return {"auth_required": True, "auth_type": "basic", "url": url}
-
-        body = (resp.text or "").lower()
-        if "<form" in body and ("password" in body or "passwd" in body or "login" in body):
-            if "authtoken" in body or "user[authhash]" in body:
-                return {
-                    "auth_required": False,
-                    "auth_type": "tokenized_form",
-                    "url": str(resp.url),
-                    "reason": "Tokenized web login detected; generic Hydra form check is not applicable.",
-                }
-            return {"auth_required": True, "auth_type": "form", "url": str(resp.url)}
-
+        if last_status is not None:
+            return {
+                "auth_required": False,
+                "url": last_url,
+                "reason": (
+                    f"Endpoint returned HTTP {last_status} without an HTTP auth challenge "
+                    "or a static username/password login form."
+                ),
+            }
         return {
             "auth_required": False,
-            "url": str(resp.url),
-            "reason": f"Endpoint returned HTTP {resp.status_code} without an authentication challenge.",
+            "url": last_url,
+            "reason": "HTTP auth surface probe failed: " + "; ".join(probe_errors[:3]),
         }
 
     async def _check_easyio_default_credentials(
@@ -2202,12 +2980,16 @@ class TestEngine:
             logger.debug("EasyIO default credential probe failed for %s: %s", device_ip, exc)
             return None
 
-    async def _test_brute_force_protection(self, device_ip: str) -> dict[str, Any]:
+    async def _test_brute_force_protection(
+        self,
+        device_ip: str,
+        port_cache: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Test brute force protection by sending rapid login attempts.
 
-        First detects whether the device uses form-based or HTTP basic auth,
-        then runs Hydra with the appropriate module.  Tries HTTPS if HTTP is
-        not available.
+        Prefers an SSH lockout probe when ssh_ports are present in the port
+        scan evidence. Otherwise, detects whether the device uses HTTP basic
+        or form-based auth and probes that web login surface.
         """
         import ipaddress as _ipaddress
         import httpx
@@ -2217,85 +2999,29 @@ class TestEngine:
             _ipaddress.ip_address(device_ip)
         except ValueError:
             logger.error("Invalid device IP address for brute force test: %r", device_ip)
-            return {"lockout_detected": False, "auth_type": "http-get", "error": "Invalid device IP address"}
+            return {
+                "lockout_detected": False,
+                "auth_type": "unknown",
+                "attempts": 0,
+                "error": "Invalid device IP address",
+                "lockout_duration_seconds": None,
+                "check_ran": False,
+            }
 
+        ssh_ports = _ssh_ports_from_scan_data(port_cache)
+        web_ports = _web_ports_from_scan_data(port_cache)
+        has_port_scan_evidence = _has_nmap_scan_evidence(port_cache)
         auth_type = "http-get"
         form_path = "/"
         form_fields = ""
+        login_form: dict[str, Any] = {}
         use_ssl = False
-
-        # Detect auth type by checking for a login form (try HTTP, then HTTPS)
-        try:
-            async with httpx.AsyncClient(timeout=10, verify=False, follow_redirects=True) as client:
-                resp = None
-                for scheme in ("http", "https"):
-                    try:
-                        resp = await client.get(f"{scheme}://{device_ip}/")
-                        if scheme == "https":
-                            use_ssl = True
-                        break
-                    except Exception:
-                        continue
-                if resp is not None:
-                    body = resp.text.lower()
-                    # Look for common login form patterns
-                    if "<form" in body and ("password" in body or "passwd" in body or "login" in body):
-                        if "authtoken" in body or "user[authhash]" in body:
-                            return {
-                                "lockout_detected": False,
-                                "auth_type": "tokenized_form",
-                                "attempts": 0,
-                                "error": "",
-                                "lockout_duration_seconds": None,
-                                "check_ran": False,
-                                "reason": "Tokenized web login detected; generic lockout probing is not applicable without a device-specific authenticator.",
-                            }
-                        auth_type = "http-post-form"
-                        # Try common login paths
-                        scheme = "https" if use_ssl else "http"
-                        for path in ["/login", "/auth", "/user/login", "/api/login", "/"]:
-                            try:
-                                r = await client.get(f"{scheme}://{device_ip}{path}")
-                                if "<form" in r.text.lower() and "password" in r.text.lower():
-                                    form_path = path
-                                    break
-                            except Exception:
-                                continue
-                        form_fields = f"{form_path}:username=^USER^&password=^PASS^:F=incorrect:H=Content-Type: application/x-www-form-urlencoded"
-                    elif resp.status_code == 401:
-                        auth_type = "http-get"
-                    else:
-                        signin_url = f"{resp.url.scheme}://{device_ip}/sdcard/cpt/app/signin.php"
-                        try:
-                            signin = await client.get(signin_url)
-                            if "signin cpt graphics" in (signin.text or "").lower():
-                                return {
-                                    "lockout_detected": False,
-                                    "auth_type": "tokenized_form",
-                                    "attempts": 0,
-                                    "error": "",
-                                    "lockout_duration_seconds": None,
-                                    "check_ran": False,
-                                    "reason": "EasyIO tokenized web login detected; generic lockout probing is not applicable without the EasyIO authenticator.",
-                                }
-                        except Exception:
-                            pass
-                        return {
-                            "lockout_detected": False,
-                            "auth_type": "none",
-                            "attempts": 0,
-                            "error": "",
-                            "lockout_duration_seconds": None,
-                            "check_ran": False,
-                            "reason": f"HTTP endpoint returned {resp.status_code} without an authentication challenge.",
-                        }
-        except Exception as e:
-            logger.debug("Auth type detection failed for %s: %s", device_ip, e)
-
-        lockout_detected = False
-        lockout_duration_seconds: int | None = None
-        error_msg = ""
-        attempts_made = 0
+        selected_port = 80
+        selected_base_url = f"http://{device_ip}"
+        username_field = "username"
+        password_field = "password"
+        http_auth_supported = True
+        unsupported_reason = ""
 
         def _text_indicates_lockout(text: str) -> bool:
             lowered = (text or "").lower()
@@ -2310,52 +3036,254 @@ class TestEngine:
                     "rate-limit",
                     "temporarily unavailable",
                     "retry later",
+                    "too many authentication failures",
+                    "too many connection",
+                    "max auth tries",
+                    "maximum authentication",
+                    "connection reset",
+                    "connection closed",
                 )
             )
 
+        def _combined_hydra_output(raw: dict[str, Any]) -> str:
+            return "\n".join(
+                part
+                for part in (
+                    raw.get("stdout", ""),
+                    raw.get("stderr", ""),
+                    raw.get("error", ""),
+                )
+                if part
+            )
+
+        def _hydra_probe_did_not_attempt_auth(output: str, probe_auth_type: str) -> bool:
+            lowered = (output or "").lower()
+            if probe_auth_type == "ssh" and (
+                "kex error" in lowered
+                or "no match for method" in lowered
+                or "server host key algo" in lowered
+                or "could not connect to ssh://" in lowered
+            ):
+                return True
+            return False
+
+        def _hydra_probe_was_blocked(output: str) -> bool:
+            lowered = (output or "").lower()
+            return any(
+                marker in lowered
+                for marker in (
+                    "blocked by firewall",
+                    "filtered by firewall",
+                    "host seems down",
+                    "network is unreachable",
+                    "no route to host",
+                    "operation timed out",
+                    "connection timed out",
+                )
+            )
+
+        async def _run_hydra_probe(
+            args: list[str],
+            probe_auth_type: str,
+            planned_attempts: int,
+        ) -> dict[str, Any]:
+            lockout_detected = False
+            lockout_duration_seconds: int | None = None
+            error_msg = ""
+            attempts_made = 0
+
+            try:
+                raw = await tools_client.hydra(device_ip, args, timeout=90)
+                output = _combined_hydra_output(raw)
+                error_msg = output
+                parsed = hydra_parser.parse(raw)
+                attempts_made = parsed.get("attempts") or planned_attempts
+                lockout_duration_seconds = self._extract_lockout_duration_seconds(output)
+
+                if _hydra_probe_did_not_attempt_auth(output, probe_auth_type):
+                    return {
+                        "lockout_detected": False,
+                        "auth_type": probe_auth_type,
+                        "attempts": 0,
+                        "error": error_msg,
+                        "lockout_duration_seconds": None,
+                        "check_ran": False,
+                        "reason": (
+                            "The brute-force probe could not authenticate to the SSH service because "
+                            "the scanner and device could not agree on SSH host-key/KEX algorithms."
+                        ),
+                    }
+
+                if _hydra_probe_was_blocked(output):
+                    return {
+                        "lockout_detected": False,
+                        "auth_type": probe_auth_type,
+                        "attempts": 0,
+                        "error": error_msg,
+                        "lockout_duration_seconds": None,
+                        "check_ran": False,
+                        "tool_blocked": True,
+                        "reason": (
+                            "The brute-force probe was blocked by the device or network before "
+                            "EDQ could verify whether authentication attempts reached the service."
+                        ),
+                    }
+
+                if _text_indicates_lockout(output):
+                    lockout_detected = True
+                elif raw.get("exit_code", 1) != 0 and (
+                    "connection refused" in output.lower()
+                    or "timeout" in output.lower()
+                ):
+                    lockout_detected = True
+            except Exception as exc:
+                error_msg = str(exc)
+
+            return {
+                "lockout_detected": lockout_detected,
+                "auth_type": probe_auth_type,
+                "attempts": attempts_made,
+                "error": error_msg,
+                "lockout_duration_seconds": lockout_duration_seconds,
+                "check_ran": True,
+            }
+
+        async def _run_ssh_probe() -> dict[str, Any]:
+            ssh_port = ssh_ports[0]
+            args = [
+                "-l",
+                "admin",
+                "-P",
+                "/usr/share/wordlists/lockout-passwords.txt",
+                "-t",
+                "1",
+                "-V",
+            ]
+            if ssh_port != 22:
+                args.extend(["-s", str(ssh_port)])
+            args.extend([device_ip, "ssh"])
+            result = await _run_hydra_probe(args, "ssh", 3)
+            result["target_port"] = ssh_port
+            return result
+
+        if ssh_ports:
+            return await _run_ssh_probe()
+
+        web_candidates = web_ports
+        if not web_candidates and not has_port_scan_evidence:
+            web_candidates = [
+                {"port": 80, "service": "http", "protocol": "tcp", "state": "open"},
+                {"port": 443, "service": "https", "protocol": "tcp", "state": "open"},
+            ]
+
+        if not web_candidates:
+            http_auth_supported = False
+            auth_type = "none"
+            unsupported_reason = "No SSH or HTTP/HTTPS authentication surface was detected in the port scan."
+        else:
+            http_auth_supported = False
+            for candidate in web_candidates:
+                selected_port = int(candidate.get("port") or 80)
+                service = "https-get" if _is_https_service(candidate) else "http-get"
+                scheme, base_url = _web_base_url(device_ip, selected_port, service)
+                try:
+                    auth_surface = await self._detect_http_auth_surface(device_ip, selected_port, service)
+                except Exception as e:
+                    logger.debug("Auth type detection failed for %s:%s: %s", device_ip, selected_port, e)
+                    unsupported_reason = "HTTP authentication surface detection failed."
+                    continue
+
+                if not auth_surface.get("auth_required"):
+                    unsupported_reason = auth_surface.get("reason") or "No supported authentication challenge was detected."
+                    auth_type = str(auth_surface.get("auth_type") or "none")
+                    continue
+
+                surface_url = urlparse(str(auth_surface.get("url") or base_url))
+                surface_scheme = surface_url.scheme or scheme
+                use_ssl = surface_scheme == "https"
+                selected_port = surface_url.port or (443 if use_ssl else 80)
+                _, selected_base_url = _web_base_url(
+                    device_ip,
+                    selected_port,
+                    "https-get" if use_ssl else "http-get",
+                )
+                if auth_surface.get("auth_type") == "basic":
+                    auth_type = "https-get" if use_ssl else "http-get"
+                    http_auth_supported = True
+                    break
+
+                if auth_surface.get("auth_type") == "form":
+                    login_form = auth_surface.get("login_form") if isinstance(auth_surface.get("login_form"), dict) else {}
+                    auth_type = "https-post-form" if use_ssl else "http-post-form"
+                    form_path = str(login_form.get("form_path") or auth_surface.get("form_path") or "/")
+                    username_field = str(login_form.get("username_field") or auth_surface.get("username_field") or "username")
+                    password_field = str(login_form.get("password_field") or auth_surface.get("password_field") or "password")
+                    form_fields = str(auth_surface.get("form_fields") or _build_hydra_form_fields(login_form))
+                    http_auth_supported = True
+                    break
+
+        if not http_auth_supported:
+            return {
+                "lockout_detected": False,
+                "auth_type": auth_type,
+                "attempts": 0,
+                "error": "",
+                "lockout_duration_seconds": None,
+                "check_ran": False,
+                "reason": unsupported_reason or "No supported authentication challenge was detected.",
+            }
+
+        lockout_detected = False
+        lockout_duration_seconds: int | None = None
+        error_msg = ""
+        attempts_made = 0
+
         try:
             base_args = ["-C", "/usr/share/wordlists/common.txt", "-t", "8", "-V"]
-            if use_ssl:
-                base_args.extend(["-s", "443"])
-            base_args.append(device_ip)
             if auth_type == "http-post-form":
-                svc = "https-post-form" if use_ssl else "http-post-form"
+                svc = "http-post-form"
+            elif auth_type == "https-post-form":
+                svc = "https-post-form"
+            else:
+                svc = "https-get" if use_ssl else "http-get"
+
+            default_port = (svc in {"http-get", "http-post-form"} and selected_port == 80) or (
+                svc in {"https-get", "https-post-form"} and selected_port == 443
+            )
+            if not default_port:
+                base_args.extend(["-s", str(selected_port)])
+            base_args.append(device_ip)
+            if auth_type in {"http-post-form", "https-post-form"}:
                 base_args.append(svc)
                 if form_fields:
                     base_args.append(form_fields)
             else:
-                base_args.append("https-get" if use_ssl else "http-get")
+                base_args.append(svc)
 
-            raw = await tools_client.hydra(device_ip, base_args, timeout=90)
-            stdout = raw.get("stdout", "")
-            error_msg = stdout
-            attempts_made += 27
-            lockout_duration_seconds = self._extract_lockout_duration_seconds(stdout)
-
-            if _text_indicates_lockout(stdout):
-                lockout_detected = True
-            elif raw.get("exit_code", 1) != 0 and (
-                "connection refused" in stdout.lower()
-                or "timeout" in stdout.lower()
-            ):
-                lockout_detected = True
+            result = await _run_hydra_probe(base_args, auth_type, 27)
+            lockout_detected = result["lockout_detected"]
+            lockout_duration_seconds = result["lockout_duration_seconds"]
+            error_msg = result["error"]
+            attempts_made = result["attempts"]
 
             if not lockout_detected:
                 try:
                     async with httpx.AsyncClient(timeout=10, verify=False, follow_redirects=False) as client:
-                        scheme = "https" if use_ssl else "http"
                         for attempt in range(10):
-                            if auth_type == "http-post-form":
+                            if auth_type in {"http-post-form", "https-post-form"}:
                                 verify_resp = await client.post(
-                                    f"{scheme}://{device_ip}{form_path or '/'}",
-                                    data={
-                                        "username": f"invalid{attempt}",
-                                        "password": f"invalid{attempt}",
-                                    },
+                                    _target_url_for_path(selected_base_url, form_path or "/"),
+                                    data=_build_form_probe_payload(
+                                        login_form,
+                                        username_field,
+                                        password_field,
+                                        f"invalid{attempt}",
+                                        f"invalid{attempt}",
+                                    ),
                                 )
                             else:
                                 verify_resp = await client.get(
-                                    f"{scheme}://{device_ip}/",
+                                    selected_base_url,
                                     auth=(f"invalid{attempt}", f"invalid{attempt}"),
                                 )
 
@@ -2382,8 +3310,6 @@ class TestEngine:
 
         except Exception as exc:
             error_msg = str(exc)
-            if "refused" in error_msg.lower() or "timeout" in error_msg.lower():
-                lockout_detected = True
 
         return {
             "lockout_detected": lockout_detected,
@@ -2391,6 +3317,16 @@ class TestEngine:
             "attempts": attempts_made,
             "error": error_msg,
             "lockout_duration_seconds": lockout_duration_seconds,
+            "check_ran": True,
+            "target_port": selected_port,
+            "login_form": (
+                {
+                    "form_path": form_path,
+                    "username_field": username_field,
+                    "password_field": password_field,
+                }
+                if auth_type in {"http-post-form", "https-post-form"} else None
+            ),
         }
 
     async def _test_http_redirect(self, device_ip: str) -> dict[str, Any]:
@@ -2443,16 +3379,13 @@ class TestEngine:
         return value
 
     async def _capture_http_security_headers(self, device_ip: str, run_id: str) -> dict[str, Any]:
-        """Capture HTTP response headers so U14 can report exact header output."""
+        """Capture HTTP response headers so U35 can report exact header output."""
         import httpx
 
         port_cache = _PORT_SCAN_CACHE.get(run_id) or _PORT_SCAN_CACHE.get(f"{run_id}_u08") or {}
         open_ports = port_cache.get("open_ports", [])
-        candidate_ports = [
-            p for p in open_ports
-            if p.get("port") is not None and _is_definite_open_port(p) and _is_http_service(p)
-        ]
-        if not candidate_ports:
+        selected_http_service = _preferred_http_service(open_ports)
+        if not selected_http_service:
             return {
                 "http_service_detected": False,
                 "status_line": None,
@@ -2462,13 +3395,8 @@ class TestEngine:
                 "response_url": None,
             }
 
-        https_candidates = [
-            p for p in candidate_ports
-            if _is_https_service(p)
-        ]
-        target_port = (https_candidates or candidate_ports)[0]["port"]
-        target_service = (https_candidates or candidate_ports)[0].get("service") or "http"
-        scheme = "https" if _is_https_service(https_candidates[0] if https_candidates else {"port": target_port, "service": target_service}) else "http"
+        target_port = int(selected_http_service["port"])
+        scheme = "https" if _is_https_service(selected_http_service) else "http"
         url = f"{scheme}://{device_ip}:{target_port}" if target_port not in (80, 443) else f"{scheme}://{device_ip}"
 
         verify_attempts = [settings.SSL_VERIFY_DEVICES]
@@ -2748,8 +3676,28 @@ class TestEngine:
             run.status = TestRunStatus.FAILED
             run.completed_at = utcnow_naive()
             metadata = dict(run.run_metadata) if isinstance(run.run_metadata, dict) else {}
+            current_test = metadata.get("current_test")
+            device = await db.get(Device, run.device_id) if run.device_id else None
+            template = await db.get(TestTemplate, run.template_id) if run.template_id else None
+            metadata["last_error"] = {
+                "message": message,
+                "device_ip": getattr(device, "ip_address", None),
+                "template_id": run.template_id,
+                "template_name": getattr(template, "name", None),
+                "selected_test_count": run.total_tests,
+                "current_test": current_test,
+                "recorded_at": utcnow_naive().isoformat(),
+            }
             metadata.pop("current_test", None)
             run.run_metadata = metadata
+            logger.error(
+                "Test run %s failed for device %s template %s after %s selected tests: %s",
+                run.id,
+                getattr(device, "ip_address", None) or run.device_id,
+                getattr(template, "name", None) or run.template_id,
+                run.total_tests,
+                message,
+            )
             await db.commit()
 
         await manager.broadcast(f"test-run:{run.id if run else 'unknown'}", {

@@ -26,6 +26,8 @@ def test_u04_passes_when_edq_acknowledges_dhcp_lease():
             "dhcp_lease_acknowledged": True,
             "offered_ip": "192.168.4.68",
             "dhcp_server": "192.168.4.1",
+            "dhcp_dns_server": "192.168.4.1",
+            "dhcp_ntp_server": "192.168.4.1",
             "dhcp_events": [{"message_type": 1}, {"message_type": 3}],
         },
     )
@@ -33,6 +35,8 @@ def test_u04_passes_when_edq_acknowledges_dhcp_lease():
     assert verdict == "pass"
     assert "lease acknowledgement" in comment
     assert "192.168.4.68" in comment
+    assert "DNS server 192.168.4.1" in comment
+    assert "NTP server 192.168.4.1" in comment
 
 
 def test_u04_observation_only_calls_out_missing_offer_configuration():
@@ -129,6 +133,22 @@ def test_u17_not_assessed_when_no_supported_auth_surface():
     assert "Tokenized web login" in comment
 
 
+def test_u17_reports_tool_blocked_as_inconclusive_info():
+    verdict, comment = evaluate_result(
+        "U17",
+        {
+            "lockout_detected": False,
+            "check_ran": False,
+            "tool_blocked": True,
+            "reason": "Hydra was blocked by the network before authentication.",
+        },
+    )
+
+    assert verdict == "info"
+    assert "Inconclusive" in comment
+    assert "blocked" in comment
+
+
 def test_u35_parses_modern_nikto_bracketed_findings():
     verdict, comment = evaluate_result(
         "U35",
@@ -147,6 +167,44 @@ def test_u35_parses_modern_nikto_bracketed_findings():
     assert verdict == "advisory"
     assert "[013587]" in comment
     assert "X-Content-Type-Options" in comment
+
+
+def test_u35_reports_all_moderate_nikto_findings():
+    raw = "\n".join(
+        [
+            "+ Target IP: 192.168.4.64",
+            *[
+                f"+ /: [01358{i}] Suggested security header missing: Header-{i}."
+                for i in range(8)
+            ],
+        ]
+    )
+
+    verdict, comment = evaluate_result("U35", {"raw": raw})
+
+    assert verdict == "advisory"
+    assert "Found 8 web/header issue(s)" in comment
+    for i in range(8):
+        assert f"Header-{i}" in comment
+
+
+def test_u35_dedupes_equivalent_missing_header_findings():
+    verdict, comment = evaluate_result(
+        "U35",
+        {
+            "raw": "+ /: [013587] The X-Content-Type-Options header is not set.",
+            "header_scan": {
+                "http_service_detected": True,
+                "headers": {},
+                "raw_headers": "HTTP/1.1 200 OK",
+                "response_url": "http://192.168.4.64/",
+            },
+        },
+    )
+
+    assert verdict == "advisory"
+    assert "Found 4 web/header issue(s)" in comment
+    assert comment.count("X-Content-Type-Options") == 1
 
 
 def test_u26_requires_observed_sync_for_pass():
@@ -238,6 +296,39 @@ def test_u11_lists_detected_cipher_suites_in_comment():
     assert "TLS_AES_256_GCM_SHA384" in comment
 
 
+def test_u11_reports_actionable_message_when_tls_exists_without_cipher_inventory():
+    verdict, comment = evaluate_result(
+        "U11",
+        {
+            "tls_versions": ["TLSv1.2"],
+            "ciphers": [],
+            "weak_ciphers": [],
+        },
+    )
+
+    assert verdict == "info"
+    assert "could not collect a cipher suite inventory" in comment
+    assert "testssl" in comment
+
+
+def test_u11_lists_all_detected_weak_cipher_suites():
+    weak_ciphers = [
+        {"name": f"TLS_WEAK_CIPHER_{index}", "protocol": "TLSv1.2"}
+        for index in range(1, 9)
+    ]
+    verdict, comment = evaluate_result(
+        "U11",
+        {
+            "ciphers": weak_ciphers,
+            "weak_ciphers": weak_ciphers,
+        },
+    )
+
+    assert verdict == "fail"
+    for index in range(1, 9):
+        assert f"TLS_WEAK_CIPHER_{index}" in comment
+
+
 def test_u12_includes_subject_issuer_and_validity_window():
     verdict, comment = evaluate_result(
         "U12",
@@ -255,6 +346,23 @@ def test_u12_includes_subject_issuer_and_validity_window():
     assert "Issuer: CN=EDQ Test CA" in comment
     assert "Not Before: 2026-04-01" in comment
     assert "Not After: 2027-04-01" in comment
+
+
+def test_u12_unverified_fallback_certificate_is_advisory():
+    verdict, comment = evaluate_result(
+        "U12",
+        {
+            "cert_valid": True,
+            "cert_trust_verified": False,
+            "cert_subject": "CN=device.local",
+            "cert_issuer": "CN=Private Device CA",
+            "cert_not_before": "2026-04-01",
+            "cert_not_after": "2027-04-01",
+        },
+    )
+
+    assert verdict == "advisory"
+    assert "not verified" in comment
 
 
 def test_u13_missing_hsts_without_tls_is_na_not_fail():
@@ -317,6 +425,35 @@ def test_u15_includes_algorithm_inventory_in_comment():
     assert "Ciphers: chacha20-poly1305@openssh.com" in comment
 
 
+def test_u15_lists_every_weak_algorithm_in_comment():
+    weak_algorithms = [
+        "ecdh-sha2-nistp521",
+        "ecdh-sha2-nistp384",
+        "ecdh-sha2-nistp256",
+        "diffie-hellman-group14-sha1",
+        "aes128-cbc",
+        "aes256-cbc",
+        "hmac-sha1",
+        "ssh-rsa",
+    ]
+    verdict, comment = evaluate_result(
+        "U15",
+        {
+            "overall_score": "fail",
+            "ssh_version": "SSH-2.0-dropbear_unknown",
+            "weak_kex": weak_algorithms[:4],
+            "weak_ciphers": weak_algorithms[4:6],
+            "weak_macs": weak_algorithms[6:7],
+            "weak_host_keys": weak_algorithms[7:],
+        },
+    )
+
+    assert verdict == "fail"
+    assert "8 weak algorithm(s) found" in comment
+    for algorithm in weak_algorithms:
+        assert algorithm in comment
+
+
 def test_u17_reports_lockout_duration_when_present():
     verdict, comment = evaluate_result(
         "U17",
@@ -328,6 +465,21 @@ def test_u17_reports_lockout_duration_when_present():
 
     assert verdict == "pass"
     assert "Lockout duration: 2 minute(s)." in comment
+
+
+def test_u17_reports_ssh_lockout_after_three_attempts():
+    verdict, comment = evaluate_result(
+        "U17",
+        {
+            "lockout_detected": True,
+            "auth_type": "ssh",
+            "attempts": 3,
+        },
+    )
+
+    assert verdict == "pass"
+    assert "on SSH" in comment
+    assert "after 3 failed login attempt(s)" in comment
 
 
 def test_u18_no_longer_passes_when_http_is_absent():

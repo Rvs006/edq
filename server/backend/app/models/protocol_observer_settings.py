@@ -23,6 +23,7 @@ class ProtocolObserverSettings(Base):
     dhcp_subnet_mask = Column(String(64), nullable=False, default="")
     dhcp_router_ip = Column(String(64), nullable=False, default="")
     dhcp_dns_server = Column(String(64), nullable=False, default="")
+    dhcp_ntp_server = Column(String(64), nullable=False, default="")
     dhcp_lease_seconds = Column(Integer, nullable=False, default=300)
     created_at = Column(DateTime, nullable=False, default=utcnow_naive)
     updated_at = Column(DateTime, nullable=False, default=utcnow_naive, onupdate=utcnow_naive)

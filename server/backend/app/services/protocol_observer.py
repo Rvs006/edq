@@ -39,6 +39,7 @@ _RUNTIME_FIELDS = {
     "dhcp_subnet_mask": "PROTOCOL_OBSERVER_DHCP_SUBNET_MASK",
     "dhcp_router_ip": "PROTOCOL_OBSERVER_DHCP_ROUTER_IP",
     "dhcp_dns_server": "PROTOCOL_OBSERVER_DHCP_DNS_SERVER",
+    "dhcp_ntp_server": "PROTOCOL_OBSERVER_DHCP_NTP_SERVER",
     "dhcp_lease_seconds": "PROTOCOL_OBSERVER_DHCP_LEASE_SECONDS",
 }
 
@@ -255,6 +256,7 @@ def build_dhcp_reply(
     subnet_mask: str = "",
     router_ip: str = "",
     dns_server: str = "",
+    ntp_server: str = "",
     lease_seconds: int = 300,
 ) -> bytes:
     if len(request) < 240:
@@ -279,6 +281,9 @@ def build_dhcp_reply(
     if dns_server:
         options.extend([6, 4])
         options.extend(socket.inet_aton(dns_server))
+    if ntp_server:
+        options.extend([42, 4])
+        options.extend(socket.inet_aton(ntp_server))
     options.append(255)
     return bytes(header) + bytes(options)
 
@@ -389,7 +394,10 @@ async def observe_dhcp_activity(
         loop = asyncio.get_running_loop()
         events: list[dict[str, Any]] = []
         offer_ip = settings.PROTOCOL_OBSERVER_DHCP_OFFER_IP or ""
-        server_ip = settings.PROTOCOL_OBSERVER_DHCP_ROUTER_IP or _local_ip_for_target("8.8.8.8") or ""
+        router_ip = settings.PROTOCOL_OBSERVER_DHCP_ROUTER_IP or ""
+        server_ip = _local_ip_for_target(offer_ip) or router_ip or _local_ip_for_target("8.8.8.8") or ""
+        dns_server = settings.PROTOCOL_OBSERVER_DHCP_DNS_SERVER or server_ip
+        ntp_server = settings.PROTOCOL_OBSERVER_DHCP_NTP_SERVER or server_ip
         observer_reply_types: list[int] = []
         lease_acknowledged = False
         try:
@@ -414,8 +422,9 @@ async def observe_dhcp_activity(
                         offer_ip=offer_ip,
                         server_ip=server_ip,
                         subnet_mask=settings.PROTOCOL_OBSERVER_DHCP_SUBNET_MASK,
-                        router_ip=settings.PROTOCOL_OBSERVER_DHCP_ROUTER_IP,
-                        dns_server=settings.PROTOCOL_OBSERVER_DHCP_DNS_SERVER,
+                        router_ip=router_ip,
+                        dns_server=dns_server,
+                        ntp_server=ntp_server,
                         lease_seconds=settings.PROTOCOL_OBSERVER_DHCP_LEASE_SECONDS,
                     )
                     if reply:
@@ -439,5 +448,7 @@ async def observe_dhcp_activity(
             "lease_acknowledged": lease_acknowledged,
             "offered_ip": offer_ip or None,
             "server_identifier": server_ip or None,
+            "dns_server": dns_server or None,
+            "ntp_server": ntp_server or None,
             "observer_reply_types": observer_reply_types,
         }

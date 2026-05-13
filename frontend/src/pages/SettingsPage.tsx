@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { authApi, brandingApi, getApiErrorMessage, protocolObserverApi } from '@/lib/api'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import type { TourState } from '@/lib/types'
-import { User, Lock, Sun, Moon, Loader2, Server, RotateCcw, Save, Palette, Upload, Shield, ShieldCheck, ShieldOff } from 'lucide-react'
+import { User, Lock, Sun, Moon, Loader2, Server, RotateCcw, Save, Palette, Upload, Shield, ShieldCheck, ShieldOff, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const LOGO_PREVIEW_BASE_URL = '/api/settings/branding/logo'
@@ -15,12 +15,12 @@ export default function SettingsPage({ tourState }: { tourState?: TourState }) {
   const [activeTab, setActiveTab] = useState('profile')
 
   const tabs = [
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'security', label: 'Security', icon: Lock },
-    { id: 'appearance', label: 'Appearance', icon: Sun },
-    { id: 'branding', label: 'Report Branding', icon: Palette },
-    { id: 'protocol', label: 'Protocol Harness', icon: ShieldCheck },
-    { id: 'system', label: 'System Status', icon: Server },
+    { id: 'profile', label: 'Profile', description: 'Identity', icon: User },
+    { id: 'security', label: 'Security', description: 'Password and 2FA', icon: Lock },
+    { id: 'appearance', label: 'Appearance', description: 'Theme', icon: Sun },
+    { id: 'branding', label: 'Report Branding', description: 'Reports', icon: Palette },
+    { id: 'protocol', label: 'Protocol Harness', description: 'DNS/NTP/DHCP', icon: ShieldCheck },
+    { id: 'system', label: 'System Status', description: 'Health checks', icon: Server },
   ]
 
   return (
@@ -31,25 +31,29 @@ export default function SettingsPage({ tourState }: { tourState?: TourState }) {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-5">
-        <div className="sm:w-48 flex sm:flex-col gap-1 overflow-x-auto pb-1 sm:pb-0">
+        <div className="card sm:w-56 flex sm:flex-col gap-1 overflow-x-auto p-1.5 sm:overflow-visible">
           {tabs.map(tab => (
             <button
               type="button"
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+              aria-pressed={activeTab === tab.id}
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-150 ${
                 activeTab === tab.id
-                  ? 'bg-brand-50 text-brand-500 dark:bg-brand-950/30 dark:text-brand-300'
-                  : 'text-zinc-600 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-800'
+                  ? 'bg-brand-50 text-brand-600 shadow-xs dark:bg-brand-950/30 dark:text-brand-300'
+                  : 'text-zinc-600 dark:text-slate-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-slate-800 dark:hover:text-slate-100'
               }`}
             >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
+              <tab.icon className="w-4 h-4 shrink-0" />
+              <span className="text-left">
+                <span className="block leading-tight">{tab.label}</span>
+                <span className="hidden text-[11px] font-normal text-zinc-400 dark:text-slate-500 sm:block">{tab.description}</span>
+              </span>
             </button>
           ))}
         </div>
 
-        <div className="flex-1" data-tour="settings-section">
+        <div className="flex-1 min-w-0 animate-page-enter" data-tour="settings-section">
           {activeTab === 'profile' && <ProfileSettings user={user} />}
           {activeTab === 'security' && <>
             <TwoFactorSettings />
@@ -212,6 +216,13 @@ function TwoFactorSettings() {
     }
   }
 
+  const verificationReady = verifyCode.length === 6
+  const setupSteps = [
+    { label: 'Create key', complete: Boolean(setupData) },
+    { label: 'Scan QR', complete: Boolean(setupData) },
+    { label: 'Verify code', complete: verificationReady && !submitting },
+  ]
+
   if (loading) {
     return (
       <div className="card p-5">
@@ -224,16 +235,34 @@ function TwoFactorSettings() {
 
   return (
     <div className="card p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Shield className="w-5 h-5 text-brand-500" />
-        <h2 className="font-semibold text-zinc-900 dark:text-slate-100">Two-Factor Authentication</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <Shield className="w-5 h-5 text-brand-500" />
+          <h2 className="font-semibold text-zinc-900 dark:text-slate-100">Two-Factor Authentication</h2>
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+          status?.enabled
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300'
+            : setupData
+              ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300'
+              : 'border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+        }`}>
+          {status?.enabled ? 'Enabled' : setupData ? 'Setup in progress' : 'Not enabled'}
+        </span>
       </div>
 
       {status?.enabled ? (
         <div>
-          <div className="flex items-center gap-2 mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/50 rounded-lg">
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span className="text-sm text-emerald-700 dark:text-emerald-300 font-medium">2FA is enabled</span>
+          <div className="flex items-start gap-3 mb-4 p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl">
+            <div className="mt-0.5 rounded-lg bg-white/80 p-2 dark:bg-emerald-950/50">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+            </div>
+            <div>
+              <span className="text-sm text-emerald-800 dark:text-emerald-200 font-semibold">2FA is protecting this account</span>
+              <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                Sign-in requires both your password and an authenticator code.
+              </p>
+            </div>
           </div>
 
           <p className="text-xs text-zinc-500 mb-3">To disable 2FA, enter your current TOTP code and password:</p>
@@ -263,24 +292,45 @@ function TwoFactorSettings() {
           </div>
         </div>
       ) : setupData ? (
-        <div>
-          <p className="text-sm text-zinc-600 dark:text-slate-400 mb-3">
-            Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password):
-          </p>
-          <div className="flex flex-col items-center gap-4 mb-4">
+        <div className="grid gap-5 lg:grid-cols-[240px_1fr]">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-center dark:border-slate-700 dark:bg-slate-900/60">
             <img
               src={`data:image/png;base64,${setupData.qr_code_base64}`}
               alt="2FA QR Code"
-              className="w-48 h-48 rounded-lg border border-zinc-200 dark:border-slate-700 bg-white p-2"
+              className="mx-auto h-48 w-48 rounded-lg border border-zinc-200 bg-white p-2 dark:border-slate-700"
             />
-            <div className="text-center">
-              <p className="text-[11px] text-zinc-400 mb-1">Or enter this key manually:</p>
-              <code className="text-xs font-mono bg-zinc-100 dark:bg-slate-800 px-2 py-1 rounded select-all">
+            <div className="mt-4">
+              <p className="text-[11px] text-zinc-400 mb-1">Manual setup key</p>
+              <code className="block rounded-lg bg-white px-2 py-2 text-xs font-mono text-zinc-700 select-all dark:bg-slate-800 dark:text-slate-200">
                 {setupData.secret}
               </code>
             </div>
           </div>
-          <div className="max-w-sm space-y-3">
+
+          <div>
+            <div className="mb-4 grid grid-cols-3 gap-2">
+              {setupSteps.map((step, index) => (
+                <div
+                  key={step.label}
+                  className={`rounded-lg border px-3 py-2 ${
+                    step.complete
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-300'
+                      : 'border-zinc-200 bg-white text-zinc-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    {step.complete ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="text-[11px] font-semibold">{index + 1}</span>}
+                    <span className="text-[11px] font-medium">{step.label}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-sm text-zinc-600 dark:text-slate-400 mb-4">
+              Scan the QR code with an authenticator app, then enter the current 6-digit code to finish setup.
+            </p>
+
+            <div className="max-w-sm space-y-3">
             <div>
               <label htmlFor="totp-verify" className="label">Verification Code</label>
               <input
@@ -295,25 +345,30 @@ function TwoFactorSettings() {
                 autoFocus
               />
             </div>
-            <button type="button" onClick={handleVerify} disabled={submitting || verifyCode.length !== 6} className="btn-primary w-full">
+            <button type="button" onClick={handleVerify} disabled={submitting || !verificationReady} className="btn-primary w-full">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
               Verify & Enable 2FA
             </button>
             <button type="button" onClick={() => { setSetupData(null); setVerifyCode('') }} className="text-xs text-zinc-500 hover:text-zinc-600">
               Cancel setup
             </button>
+            </div>
           </div>
         </div>
       ) : (
         <div>
-          <p className="text-sm text-zinc-600 dark:text-slate-400 mb-4">
-            Add an extra layer of security to your account. You'll need an authenticator app like
-            Google Authenticator, Authy, or 1Password.
-          </p>
-          <button type="button" onClick={handleSetup} disabled={submitting} className="btn-primary text-sm">
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
-            Set Up Two-Factor Authentication
-          </button>
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-slate-700 dark:bg-slate-900/60">
+            <p className="text-sm text-zinc-700 dark:text-slate-300">
+              Add an extra layer of security to your account with an authenticator app.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button type="button" onClick={handleSetup} disabled={submitting} className="btn-primary text-sm">
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                Start 2FA Setup
+              </button>
+              <span className="text-xs text-zinc-500 dark:text-slate-400">Works with Google Authenticator, Authy, 1Password, and similar apps.</span>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -701,6 +756,7 @@ type ProtocolObserverForm = {
   dhcp_subnet_mask: string
   dhcp_router_ip: string
   dhcp_dns_server: string
+  dhcp_ntp_server: string
   dhcp_lease_seconds: number
 }
 
@@ -718,6 +774,7 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
     dhcp_subnet_mask: '',
     dhcp_router_ip: '',
     dhcp_dns_server: '',
+    dhcp_ntp_server: '',
     dhcp_lease_seconds: 300,
   })
 
@@ -878,7 +935,7 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
         <div className="rounded-lg border border-zinc-200 dark:border-slate-700 p-4">
           <h3 className="text-sm font-medium text-zinc-900 dark:text-slate-100 mb-1">DHCP Offer Settings</h3>
           <p className="text-xs text-zinc-500 mb-4">
-            Leave these blank if you only want passive DHCP observation. Set them only when you have a safe isolated range for direct device testing.
+            Leave the offer IP blank for passive DHCP observation. When EDQ offers a lease, DNS and NTP default to the EDQ host address if left blank.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -924,6 +981,18 @@ function ProtocolObserverSettings({ role }: { role: string | null }) {
                 type="text"
                 value={form.dhcp_dns_server}
                 onChange={(e) => setField('dhcp_dns_server', e.target.value)}
+                className="input"
+                disabled={!isAdmin}
+                placeholder="192.168.4.1"
+              />
+            </div>
+            <div>
+              <label htmlFor="protocol-dhcp-ntp-server" className="label">NTP Server IP</label>
+              <input
+                id="protocol-dhcp-ntp-server"
+                type="text"
+                value={form.dhcp_ntp_server}
+                onChange={(e) => setField('dhcp_ntp_server', e.target.value)}
                 className="input"
                 disabled={!isAdmin}
                 placeholder="192.168.4.1"

@@ -31,7 +31,7 @@ const scenarios: {
     label: 'Scenario 2 - Test Lab',
     description: 'Device on an isolated test network.',
     icon: Building2,
-    routing: 'Scenario-sensitive tests use manual evidence',
+    routing: 'DHCP/NTP use EDQ harness where configured',
   },
   {
     value: 'site_network',

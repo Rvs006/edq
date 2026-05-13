@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import AuditLogPage from '@/pages/AuditLogPage'
+import { auditApi } from '@/lib/api'
+import toast from 'react-hot-toast'
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -41,7 +43,21 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe('AuditLogPage', () => {
-  beforeEach(() => { vi.clearAllMocks() })
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(auditApi.exportCsv).mockResolvedValue({
+      data: new Blob(['Timestamp,User,Action\n'], { type: 'text/csv' }),
+    } as Awaited<ReturnType<typeof auditApi.exportCsv>>)
+    Object.defineProperty(window.URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:audit-log'),
+    })
+    Object.defineProperty(window.URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+  })
 
   it('renders the page title', () => {
     renderWithProviders(<AuditLogPage />)
@@ -51,5 +67,15 @@ describe('AuditLogPage', () => {
   it('renders Export CSV button', () => {
     renderWithProviders(<AuditLogPage />)
     expect(screen.getByText('Export CSV')).toBeInTheDocument()
+  })
+
+  it('starts a CSV export from the toolbar', async () => {
+    renderWithProviders(<AuditLogPage />)
+
+    fireEvent.click(screen.getByText('Export CSV'))
+
+    await waitFor(() => expect(auditApi.exportCsv).toHaveBeenCalled())
+    expect(window.URL.createObjectURL).toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledWith('Export started')
   })
 })

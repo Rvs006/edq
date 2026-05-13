@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import TestRunDetailPage from '@/pages/TestRunDetailPage'
+
+let TestRunDetailPage: typeof import('@/pages/TestRunDetailPage').default
 
 const mockState = vi.hoisted(() => ({
   run: {} as Record<string, unknown>,
@@ -37,6 +38,7 @@ vi.mock('@/lib/api', () => ({
   testResultsApi: {
     list: vi.fn().mockImplementation(() => Promise.resolve({ data: mockState.results })),
     update: vi.fn(),
+    bulkUpdateManual: vi.fn(),
     override: vi.fn(),
   },
   reportsApi: {
@@ -44,6 +46,7 @@ vi.mock('@/lib/api', () => ({
     download: mockState.reportDownload,
   },
   profilesApi: { autoLearn: vi.fn() },
+  resolveApiUrl: vi.fn((path: string) => path),
   getApiErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
 }))
 
@@ -61,14 +64,34 @@ vi.mock('@/hooks/useTestRunWebSocket', () => ({
   }),
 }))
 
+vi.mock('framer-motion', async () => {
+  const React = await import('react')
+  const motionComponent = (tag: string) =>
+    React.forwardRef<HTMLElement, any>(
+      ({ children, initial, animate, exit, transition, ...props }, ref) =>
+        React.createElement(tag, { ...props, ref }, children)
+    )
+
+  return {
+    AnimatePresence: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement(React.Fragment, null, children),
+    motion: new Proxy({}, {
+      get: (_target, tag) => motionComponent(String(tag)),
+    }),
+  }
+})
+
 vi.mock('react-hot-toast', () => ({
   default: { success: vi.fn(), error: vi.fn() },
 }))
 
+const queryClients: QueryClient[] = []
+
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   })
+  queryClients.push(queryClient)
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/test-runs/run-1']}>
@@ -81,10 +104,19 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe('TestRunDetailPage', () => {
+  beforeAll(async () => {
+    TestRunDetailPage = (await import('@/pages/TestRunDetailPage')).default
+  })
+
+  afterEach(() => {
+    queryClients.splice(0).forEach((client) => client.clear())
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockState.reportGenerate.mockResolvedValue({ data: {} })
     mockState.reportDownload.mockResolvedValue({ data: new Blob([]) })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
     mockState.results = []
     mockState.run = {
       id: 'run-1',
@@ -161,6 +193,29 @@ describe('TestRunDetailPage', () => {
     expect(screen.getByText(/Report ready/i)).toBeInTheDocument()
   })
 
+  it('downloads generated Excel reports through the direct report URL', async () => {
+    mockState.reportGenerate.mockResolvedValue({
+      data: {
+        filename: 'EDQ_Report_12345678-1234-1234-1234-123456789abc_generic_20260512_122500.xlsx',
+        download_url: '/api/reports/download/EDQ_Report_12345678-1234-1234-1234-123456789abc_generic_20260512_122500.xlsx',
+      },
+    })
+
+    renderWithProviders(<TestRunDetailPage />)
+
+    const button = await screen.findByRole('button', { name: /generate report/i })
+    fireEvent.click(button)
+
+    await waitFor(() => expect(mockState.reportGenerate).toHaveBeenCalledWith({
+      test_run_id: 'run-1',
+      report_type: 'excel',
+      template_key: 'generic',
+      include_synopsis: false,
+    }))
+    expect(mockState.reportDownload).not.toHaveBeenCalled()
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
+  })
+
   it('shows loading state initially', () => {
     renderWithProviders(<TestRunDetailPage />)
     const spinner = document.querySelector('.animate-spin')
@@ -176,7 +231,7 @@ describe('TestRunDetailPage', () => {
       run_metadata: {
         current_test: {
           test_id: 'U35',
-          test_name: 'Web Server Vulnerability Scan',
+          test_name: 'Web Server and HTTP Header Assessment',
           status: 'running',
         },
       },
@@ -203,7 +258,7 @@ describe('TestRunDetailPage', () => {
       {
         id: 'result-u35',
         test_id: 'U35',
-        test_name: 'Web Server Vulnerability Scan',
+        test_name: 'Web Server and HTTP Header Assessment',
         tier: 'automatic',
         verdict: 'pending',
         is_essential: 'yes',
@@ -212,6 +267,84 @@ describe('TestRunDetailPage', () => {
 
     renderWithProviders(<TestRunDetailPage />)
 
-    expect(await screen.findByText(/Running: Web Server Vulnerability Scan/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Running: Web Server and HTTP Header Assessment/i)).toBeInTheDocument()
+  })
+
+  it('shows bulk manual controls for multiple pending manual tests', async () => {
+    const { testResultsApi } = await import('@/lib/api')
+    vi.mocked(testResultsApi.bulkUpdateManual).mockResolvedValue({ data: [] } as any)
+    mockState.run = {
+      ...mockState.run,
+      status: 'awaiting_manual',
+      overall_verdict: null,
+      progress_pct: 50,
+      completed_tests: 1,
+      total_tests: 3,
+      readiness_summary: {
+        ...(mockState.run.readiness_summary as Record<string, unknown>),
+        level: 'awaiting_manual_evidence',
+        label: 'Manual evidence required',
+        report_ready: false,
+        operational_ready: false,
+        pending_manual_count: 2,
+        manual_evidence_pending_count: 2,
+        completed_result_count: 1,
+        total_result_count: 3,
+        summary: 'Manual evidence required.',
+      },
+    }
+    mockState.results = [
+      {
+        id: 'result-u01',
+        test_id: 'U01',
+        test_name: 'Connectivity Check',
+        tier: 'automatic',
+        verdict: 'pass',
+        is_essential: 'yes',
+      },
+      {
+        id: 'result-u20',
+        test_id: 'U20',
+        test_name: 'Network Disconnection Behaviour',
+        tier: 'guided_manual',
+        verdict: 'pending',
+        is_essential: 'no',
+      },
+      {
+        id: 'result-u21',
+        test_id: 'U21',
+        test_name: 'Web Interface Password Change',
+        tier: 'guided_manual',
+        verdict: 'pending',
+        is_essential: 'yes',
+      },
+    ]
+
+    renderWithProviders(<TestRunDetailPage />)
+
+    expect(await screen.findByText(/Bulk manual result/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Select all$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Deselect all$/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/Bulk manual comments/i)).toBeInTheDocument()
+    expect(within(screen.getByLabelText(/Bulk manual verdict/i)).queryByRole('option', { name: /Pass/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Select all$/i }))
+    expect(screen.getByRole('button', { name: /Apply/i })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText(/Bulk manual comments/i), {
+      target: { value: 'Observed on the device and marked not applicable.' },
+    })
+
+    expect(screen.getByRole('button', { name: /Apply/i })).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /Apply/i }))
+
+    await waitFor(() => {
+      expect(testResultsApi.bulkUpdateManual).toHaveBeenCalledWith({
+        result_ids: ['result-u20', 'result-u21'],
+        verdict: 'na',
+        engineer_notes: 'Observed on the device and marked not applicable.',
+      })
+    })
   })
 })

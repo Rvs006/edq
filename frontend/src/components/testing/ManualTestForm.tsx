@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, XCircle, AlertTriangle, MinusCircle, Loader2, ArrowRight } from 'lucide-react'
+import { getManualEvidenceIssue } from '@/lib/manualEvidence'
 
 interface ManualTestFormProps {
   testId: string
@@ -51,22 +52,27 @@ export default function ManualTestForm({
 
   const handleSubmit = async () => {
     if (!selectedVerdict) return
+    if (evidenceIssue) return
     await onSubmit(selectedVerdict, notes)
     setSubmitted(true)
     setTimeout(() => setSubmitted(false), 2000)
   }
+
+  const evidenceIssue = selectedVerdict && selectedVerdict !== 'pending'
+    ? getManualEvidenceIssue(notes, { testNumber, testName })
+    : null
 
   const hasChanges =
     selectedVerdict !== (normalizeVerdict(currentVerdict) || null) ||
     notes !== (currentNotes || '')
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div>
-        <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+        <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
           Select Verdict
         </label>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
           {verdictOptions.map((opt) => {
             const isActive = selectedVerdict === opt.value
             const Icon = opt.icon
@@ -75,7 +81,7 @@ export default function ManualTestForm({
                 key={opt.value}
                 type="button"
                 onClick={() => setSelectedVerdict(opt.value)}
-                className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-semibold text-sm
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg font-semibold text-xs
                   transition-all duration-150
                   ${isActive ? `${opt.color} ring-2 ${opt.activeRing} shadow-md scale-[1.02]` : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'}
                 `}
@@ -90,23 +96,28 @@ export default function ManualTestForm({
 
       <div>
         <label htmlFor={`notes-${testId}`} className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">
-          Engineer Notes
+          Comments
         </label>
         <textarea
           id={`notes-${testId}`}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          placeholder="Observations, steps taken, or additional context..."
-          className="input resize-y text-sm"
+          placeholder="Observed setting, screen, log, port, or reason this test does not apply..."
+          className={`input resize-y text-sm ${evidenceIssue ? 'border-amber-400' : ''}`}
         />
+        {evidenceIssue && (
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            {evidenceIssue}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!selectedVerdict || isSubmitting}
+          disabled={!selectedVerdict || isSubmitting || Boolean(evidenceIssue)}
           className="btn-primary text-sm"
         >
           {isSubmitting ? (

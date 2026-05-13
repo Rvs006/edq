@@ -22,9 +22,9 @@ It replaces fragmented terminal work, spreadsheet transcription, and manual repo
 
 1. Register or discover a device.
 2. Auto-profile the device and load the right qualification setup.
-3. Run 59 active universal checks: 27 automated and 32 guided manual.
+3. Run 49 active universal checks across automated and guided manual steps.
 4. Review findings, overrides, and audit history.
-5. Generate Excel, Word, PDF, or CSV deliverables.
+5. Generate Excel or Word deliverables.
 
 ## Who Uses It
 
@@ -42,7 +42,7 @@ It replaces fragmented terminal work, spreadsheet transcription, and manual repo
 - Test Runs: live execution, manual steps, cancel and resume controls, and run history
 - Bulk Discovery: subnet scanning, enriched network results, and device intake
 - Templates, Test Plans, Scan Schedules, and Whitelists: reusable qualification configuration
-- Reports: Excel, Word, and PDF generation for completed runs
+- Reports: Excel and Word generation for completed runs
 - Review Queue: reviewer workflow and outcome control
 - Admin: users, settings, audit visibility, and system governance
 - Authorized Networks: admin-controlled scan boundaries for subnet discovery
@@ -109,6 +109,14 @@ Windows PowerShell:
 ```powershell
 .\scripts\verify-app.ps1
 ```
+
+On Windows, run the scanner preflight before real-device work if you are not using `scripts\start-edq.ps1`:
+
+```powershell
+.\scripts\preflight-scanner.ps1
+```
+
+The default full scanner runs in the Docker tools sidecar. Its required tools are `nmap`, `testssl.sh`, `ssh-audit`, `hydra`, `nikto`, and `snmpwalk`; the Windows host scanner is an optional helper for host-network ARP/Nmap visibility.
 
 1. Change the password after first login
 
@@ -204,7 +212,7 @@ Generated outputs are written to:
 - Interactive backend API docs are available only when `DEBUG=true`.
 - Subnet scanning is blocked until an admin configures at least one authorized network range in the app.
 - Single-IP discovery uses an AND-gate reachability check: a target must answer **both** a fresh TCP/ICMP probe and nmap's ARP-bypass ping before the full scan runs. This prevents stale-ARP ghost results on recently unplugged devices.
-- Frontend and backend development can run locally outside Docker. Scanner execution is Docker-backed by default, with an explicit Windows host-scanner mode for direct-Ethernet discovery. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
+- Frontend and backend development can run locally outside Docker. For Windows direct-Ethernet qualification, start EDQ with `scripts/start-edq.ps1` so scanner operations run from the host network namespace instead of Docker Desktop's NAT bridge. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
 - Historical product and engineering specs remain in `docs/` as archive material only and should not be treated as the current operational guide.
 - Only scan networks and devices your organization owns, administers, or has written permission to test.
 

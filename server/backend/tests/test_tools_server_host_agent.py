@@ -51,6 +51,121 @@ Interface: 192.168.4.10 --- 0x8
     ]
 
 
+def test_scan_arp_cache_falls_back_to_full_windows_table(monkeypatch):
+    tools_server = _load_tools_server()
+    tools_server._MAC_VENDOR_CACHE = {
+        "38D135": "EasyIO Corporation Sdn. Bhd.",
+    }
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run_tool(cmd, timeout, target=""):
+        calls.append(tuple(cmd))
+        if cmd == ["ping", "-n", "1", "-w", "2000", "192.168.4.54"]:
+            return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.01}
+        if cmd == ["arp", "-a", "192.168.4.54"]:
+            return {
+                "exit_code": 0,
+                "stdout": "No ARP Entries Found.\n",
+                "stderr": "",
+                "duration_seconds": 0.01,
+            }
+        if cmd == ["arp", "-a"]:
+            return {
+                "exit_code": 0,
+                "stdout": """
+Interface: 192.168.4.101 --- 0xf
+  Internet Address      Physical Address      Type
+  192.168.4.54          38-d1-35-01-02-89     dynamic
+  192.168.4.255         ff-ff-ff-ff-ff-ff     static
+""",
+                "stderr": "",
+                "duration_seconds": 0.01,
+            }
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(tools_server, "_is_windows", lambda: True)
+    monkeypatch.setattr(tools_server.shutil, "which", lambda name: "arp.exe" if name == "arp" else None)
+    monkeypatch.setattr(tools_server, "_run_tool", fake_run_tool)
+
+    client = tools_server.app.test_client()
+    response = client.post(
+        "/scan/arp-cache",
+        json={"target": "192.168.4.54"},
+        headers={"X-Tools-Key": tools_server.TOOLS_API_KEY},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["fallback_used"] == "windows_full_arp_table"
+    assert payload["entries"] == [
+        {
+            "ip": "192.168.4.54",
+            "mac": "38:D1:35:01:02:89",
+            "vendor": "EasyIO Corporation Sdn. Bhd.",
+            "device": "192.168.4.101",
+            "state": "DYNAMIC",
+        }
+    ]
+    assert calls == [
+        ("ping", "-n", "1", "-w", "2000", "192.168.4.54"),
+        ("arp", "-a", "192.168.4.54"),
+        ("arp", "-a"),
+    ]
+
+
+def test_scan_arp_cache_on_wsl_falls_back_to_windows_host_arp(monkeypatch):
+    tools_server = _load_tools_server()
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run_tool(cmd, timeout, target=""):
+        calls.append(tuple(cmd))
+        if cmd == ["ping", "-c", "1", "-W", "2", "192.168.4.54"]:
+            return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.01}
+        if cmd == ["ip", "neigh", "show", "192.168.4.54"]:
+            return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.01}
+        if cmd == ["ip", "neigh", "show"]:
+            return {"exit_code": 0, "stdout": "", "stderr": "", "duration_seconds": 0.01}
+        if cmd == ["/mnt/c/Windows/System32/arp.exe", "-a"]:
+            return {
+                "exit_code": 0,
+                "stdout": """
+Interface: 192.168.4.101 --- 0xf
+  Internet Address      Physical Address      Type
+  192.168.4.54          38-d1-35-01-02-89     dynamic
+""",
+                "stderr": "",
+                "duration_seconds": 0.01,
+            }
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(tools_server, "_is_windows", lambda: False)
+    monkeypatch.setattr(tools_server.shutil, "which", lambda name: "/sbin/ip" if name == "ip" else None)
+    monkeypatch.setattr(
+        tools_server,
+        "_windows_arp_executable_candidates",
+        lambda: ["/mnt/c/Windows/System32/arp.exe"],
+    )
+    monkeypatch.setattr(tools_server, "_run_tool", fake_run_tool)
+
+    client = tools_server.app.test_client()
+    response = client.post(
+        "/scan/arp-cache",
+        json={"target": "192.168.4.54"},
+        headers={"X-Tools-Key": tools_server.TOOLS_API_KEY},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["fallback_used"] == "windows_host_arp_table"
+    assert payload["entries"][0]["mac"] == "38:D1:35:01:02:89"
+    assert calls == [
+        ("ping", "-c", "1", "-W", "2", "192.168.4.54"),
+        ("ip", "neigh", "show", "192.168.4.54"),
+        ("ip", "neigh", "show"),
+        ("/mnt/c/Windows/System32/arp.exe", "-a"),
+    ]
+
+
 def test_parse_windows_ipconfig_returns_host_cidr():
     tools_server = _load_tools_server()
     stdout = """

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Network, Search, Play, CheckCircle2, XCircle, AlertTriangle,
@@ -9,7 +9,6 @@ import {
 import { AnimatePresence, motion } from 'framer-motion'
 import { networkScanApi, templatesApi, authorizedNetworksApi } from '@/lib/api'
 import {
-  SCENARIO_PRESELECTS,
   SCENARIOS,
   ACTIVE_NETWORK_SCAN_STATUSES,
   ACTIVE_TEST_RUN_STATUSES,
@@ -43,10 +42,11 @@ export default function NetworkScanPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [savedState] = useState(() => loadPersistedScanState())
+  const defaultSelectedTestIds = useMemo(() => ACTIVE_UNIVERSAL_TESTS.map((test) => test.id), [])
   const [step, setStep] = useState<NetworkScanStep>(savedState.step)
   const [cidr, setCidr] = useState(DEFAULT_CIDR)
-  const [scenario, setScenario] = useState('test_lab')
-  const [selectedTests, setSelectedTests] = useState<Set<string>>(new Set(SCENARIO_PRESELECTS.test_lab))
+  const [scenario, setScenario] = useState('direct')
+  const [selectedTests, setSelectedTests] = useState<Set<string>>(() => new Set(defaultSelectedTestIds))
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['Network']))
   const [discovering, setDiscovering] = useState(false)
   const [scanId, setScanId] = useState<string | null>(savedState.scanId)
@@ -57,7 +57,6 @@ export default function NetworkScanPage() {
   const [scanStatus, setScanStatus] = useState<string>('pending')
   const [monitorError, setMonitorError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const skipScenarioPresetRef = useRef(Boolean(savedState.scanId))
 
   // Persist scan state whenever it changes
   useEffect(() => {
@@ -83,15 +82,6 @@ export default function NetworkScanPage() {
   const cidrPrefix = cidrCheck.prefix
   const cidrPrefixInRange = cidrCheck.prefixInRange
   const hostCount = cidrCheck.hostCount
-
-  useEffect(() => {
-    const preselected = SCENARIO_PRESELECTS[scenario] || []
-    if (skipScenarioPresetRef.current) {
-      skipScenarioPresetRef.current = false
-      return
-    }
-    setSelectedTests(new Set(preselected))
-  }, [scenario])
 
   useEffect(() => {
     if (!savedState.scanId) return
@@ -292,8 +282,8 @@ export default function NetworkScanPage() {
         <div className="mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/50 rounded-xl flex items-center gap-2">
           <Shield className="w-4 h-4 text-emerald-500 shrink-0" />
           <p className="text-xs text-emerald-700 dark:text-emerald-300">
-            <strong>Authorized ranges:</strong>{' '}
-            {authorizedNets.map(n => n.label ? `${n.cidr} (${n.label})` : n.cidr).join(', ')}
+            <strong>{authorizedNets.length} authorized range{authorizedNets.length === 1 ? '' : 's'} available.</strong>{' '}
+            Pick one below or type a CIDR manually.
           </p>
         </div>
       )}
@@ -388,6 +378,7 @@ function ConfigureStep({
 }) {
   const [detecting, setDetecting] = useState(false)
   const [detectedNets, setDetectedNets] = useState<{ label: string; cidr: string; type: string; hosts_found: number; sample_hosts: string[] }[]>([])
+  const [showAdvancedTests, setShowAdvancedTests] = useState(false)
 
   useEffect(() => {
     if (authorizedNets.length === 1 && (!cidr || cidr === DEFAULT_CIDR)) {
@@ -419,75 +410,105 @@ function ConfigureStep({
     }
   }
 
+  const suggestedRanges = useMemo(() => {
+    const merged = new Map<string, {
+      cidr: string
+      label: string
+      source: 'authorized' | 'detected'
+      type?: string
+      hosts_found?: number
+    }>()
+
+    for (const net of authorizedNets) {
+      merged.set(net.cidr, {
+        cidr: net.cidr,
+        label: net.label || 'Authorized range',
+        source: 'authorized',
+      })
+    }
+    for (const net of detectedNets) {
+      merged.set(net.cidr, {
+        cidr: net.cidr,
+        label: net.label,
+        source: 'detected',
+        type: net.type,
+        hosts_found: net.hosts_found,
+      })
+    }
+
+    return Array.from(merged.values()).sort((a, b) => {
+      if (a.cidr === cidr) return -1
+      if (b.cidr === cidr) return 1
+      if (a.source !== b.source) return a.source === 'authorized' ? -1 : 1
+      return a.cidr.localeCompare(b.cidr)
+    })
+  }, [authorizedNets, detectedNets, cidr])
+
+  const applyTestPreset = (preset: 'full' | 'automatic' | 'essential') => {
+    const tests = ACTIVE_UNIVERSAL_TESTS.filter((test) => {
+      if (preset === 'automatic') return getEffectiveTestTier(test, scenario) === 'automatic'
+      if (preset === 'essential') return test.essential
+      return true
+    })
+    setSelectedTests(new Set(tests.map((test) => test.id)))
+  }
+
   return (
     <div className="space-y-4">
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Target Subnet</h3>
-          {authorizedNets.length === 0 && (
-            <button
-              onClick={detectNetworks}
-              disabled={detecting}
-              className="btn-secondary text-xs py-1.5 px-3"
-            >
-              {detecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-              {detecting ? 'Detecting...' : 'Detect My Network'}
-            </button>
-          )}
+          <button
+            onClick={detectNetworks}
+            disabled={detecting}
+            className="btn-secondary text-xs py-1.5 px-3"
+          >
+            {detecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+            {detecting ? 'Detecting...' : 'Detect My Network'}
+          </button>
         </div>
 
-        {/* Authorized networks */}
-        {authorizedNets.length > 0 && (
+        {/* Suggested network ranges */}
+        {suggestedRanges.length > 0 && (
           <div className="mb-3">
-            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400 mb-2 flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5" /> Authorized Networks
+            <p className="text-xs font-medium text-zinc-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+              <Search className="w-3.5 h-3.5" /> Suggested ranges
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {authorizedNets.map(net => (
+              {suggestedRanges.slice(0, 6).map(net => (
                 <button
                   key={net.cidr}
-                  onClick={() => setCidr(net.cidr)}
+                  onClick={() => {
+                    setCidr(net.cidr)
+                    if (net.type === 'direct') setScenario('direct')
+                  }}
                   className={`text-left p-3 rounded-lg border transition-all ${
                     cidr === net.cidr
-                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
-                      : 'border-zinc-200 dark:border-slate-700/50 hover:border-emerald-300 dark:hover:border-emerald-700'
+                      ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
+                      : 'border-zinc-200 dark:border-slate-700/50 hover:border-brand-300 dark:hover:border-brand-700'
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <Shield className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-zinc-800 dark:text-slate-200">{net.label || 'Authorized Range'}</span>
+                    {net.source === 'authorized'
+                      ? <Shield className="w-4 h-4 text-emerald-500" />
+                      : net.type === 'direct'
+                        ? <Monitor className="w-4 h-4 text-amber-500" />
+                        : <Wifi className="w-4 h-4 text-brand-500" />
+                    }
+                    <span className="text-sm font-medium text-zinc-800 dark:text-slate-200">{net.label}</span>
                   </div>
                   <p className="text-xs font-mono text-zinc-500 dark:text-slate-400">{net.cidr}</p>
+                  <p className="text-[10px] text-zinc-400 dark:text-slate-500 mt-1">
+                    {net.source === 'authorized'
+                      ? 'Authorized'
+                      : `${net.hosts_found ?? 0} host${net.hosts_found === 1 ? '' : 's'} detected`}
+                  </p>
                 </button>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* Detected networks */}
-        {detectedNets.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-3">
-            {detectedNets.map(net => (
-              <button
-                key={net.cidr}
-                onClick={() => {
-                  setCidr(net.cidr)
-                  if (net.type === 'direct') setScenario('direct')
-                }}
-                className={`text-left p-3 rounded-lg border transition-all ${
-                  cidr === net.cidr
-                    ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
-                    : 'border-zinc-200 dark:border-slate-700/50 hover:border-brand-300 dark:hover:border-brand-700'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  {net.type === 'direct' ? <Monitor className="w-4 h-4 text-amber-500" /> : <Wifi className="w-4 h-4 text-brand-500" />}
-                  <span className="text-sm font-medium text-zinc-800 dark:text-slate-200">{net.label}</span>
-                </div>
-                <p className="text-xs font-mono text-zinc-500 dark:text-slate-400">{net.cidr}</p>
-                <p className="text-[10px] text-zinc-400 dark:text-slate-500 mt-1">{net.hosts_found} host{net.hosts_found !== 1 ? 's' : ''} detected</p>
-              </button>
-            ))}
+            {suggestedRanges.length > 6 && (
+              <p className="mt-2 text-xs text-zinc-500">{suggestedRanges.length - 6} more range(s) hidden. Type a CIDR manually if needed.</p>
+            )}
           </div>
         )}
 
@@ -545,9 +566,44 @@ function ConfigureStep({
 
       <div className="card p-5">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Test Selection</h3>
-          <div className="flex items-center gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-slate-100">Test Scope</h3>
+            <p className="text-xs text-zinc-500 mt-0.5">Start from a preset, then customize only when needed.</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <span className="text-xs text-zinc-500">{selectedTests.size}/{ACTIVE_UNIVERSAL_TESTS.length} selected</span>
+            <button
+              type="button"
+              onClick={() => setShowAdvancedTests((value) => !value)}
+              className="btn-secondary h-8 px-2 text-xs"
+            >
+              {showAdvancedTests ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {showAdvancedTests ? 'Hide details' : 'Customize'}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {[
+            { key: 'full' as const, label: 'Full Assessment', desc: 'All active tests' },
+            { key: 'automatic' as const, label: 'Automatic Only', desc: 'Scanner-driven checks' },
+            { key: 'essential' as const, label: 'Essential Only', desc: 'Smallest critical set' },
+          ].map((preset) => (
+            <button
+              key={preset.key}
+              type="button"
+              onClick={() => applyTestPreset(preset.key)}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40 dark:border-slate-700/50 dark:hover:border-brand-700 dark:hover:bg-brand-950/20"
+            >
+              <p className="text-sm font-medium text-zinc-800 dark:text-slate-200">{preset.label}</p>
+              <p className="text-xs text-zinc-500">{preset.desc}</p>
+            </button>
+          ))}
+        </div>
+
+        {showAdvancedTests && (
+        <div className="space-y-1 mt-3">
+          <div className="mb-2 flex items-center gap-2 justify-end">
             <button
               onClick={() => setSelectedTests(new Set(ACTIVE_UNIVERSAL_TESTS.map(t => t.id)))}
               className="text-xs text-brand-500 hover:text-brand-600 font-medium"
@@ -557,9 +613,6 @@ function ConfigureStep({
               className="text-xs text-zinc-500 hover:text-zinc-600 font-medium"
             >Clear</button>
           </div>
-        </div>
-
-        <div className="space-y-1">
           {TEST_CATEGORIES.map(cat => {
             const catTests = ACTIVE_UNIVERSAL_TESTS.filter(t => t.category === cat)
             const allSelected = catTests.every(t => selectedTests.has(t.id))
@@ -617,6 +670,7 @@ function ConfigureStep({
             )
           })}
         </div>
+        )}
       </div>
 
       <div className="flex justify-end">
@@ -995,14 +1049,14 @@ function formatDuration(seconds: number | null): string {
 
 // Device relevance mapping: which test categories matter for each device type
 const DEVICE_RELEVANCE: Record<string, Set<string>> = {
-  camera: new Set(['U01','U02','U06','U07','U08','U09','U10','U11','U12','U13','U14','U16','U18','U19','U26','U34','U35','U37']),
-  controller: new Set(['U01','U02','U03','U04','U06','U07','U08','U09','U15','U16','U17','U19','U26','U28','U31','U34']),
-  intercom: new Set(['U01','U02','U06','U08','U10','U11','U12','U14','U16','U18','U19','U26','U34','U35','U37']),
-  access_panel: new Set(['U01','U02','U06','U08','U10','U14','U16','U18','U19','U26','U34','U35']),
-  hvac: new Set(['U01','U02','U03','U06','U08','U09','U15','U16','U19','U26','U28','U31','U34']),
-  lighting: new Set(['U01','U02','U06','U08','U09','U16','U19','U26','U32','U33','U34']),
-  iot_sensor: new Set(['U01','U02','U06','U08','U16','U19','U26','U32','U33','U34']),
-  meter: new Set(['U01','U02','U06','U08','U09','U15','U16','U19','U26','U31','U34']),
+  camera: new Set(['U01','U02','U06','U07','U08','U09','U10','U11','U12','U16','U18','U19','U26','U35']),
+  controller: new Set(['U01','U02','U03','U04','U06','U07','U08','U09','U15','U16','U17','U19','U26','U28']),
+  intercom: new Set(['U01','U02','U06','U08','U10','U11','U12','U16','U18','U19','U26','U35']),
+  access_panel: new Set(['U01','U02','U06','U08','U10','U16','U18','U19','U26','U35']),
+  hvac: new Set(['U01','U02','U03','U06','U08','U09','U15','U16','U19','U26','U28']),
+  lighting: new Set(['U01','U02','U06','U08','U09','U16','U19','U26']),
+  iot_sensor: new Set(['U01','U02','U06','U08','U16','U19','U26']),
+  meter: new Set(['U01','U02','U06','U08','U09','U15','U16','U19','U26']),
 }
 
 function getTestRelevance(testId: string, deviceCategory: string | null): 'high' | 'normal' | 'low' {

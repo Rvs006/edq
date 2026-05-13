@@ -197,7 +197,7 @@ export const profilesApi = {
 }
 
 export const templatesApi = {
-  list: (params?: { limit?: number }) => api.get<TestTemplate[]>('/test-templates/', { params }),
+  list: (params?: { include_internal?: boolean; limit?: number }) => api.get<TestTemplate[]>('/test-templates/', { params }),
   get: (id: string) => api.get<TestTemplate>(`/test-templates/${id}`),
   create: (data: { name: string; description?: string; test_ids: string[]; device_category?: string }) => api.post<TestTemplate>('/test-templates/', data),
   update: (id: string, data: { name?: string; description?: string; test_ids?: string[]; device_category?: string; is_default?: boolean }) => api.patch<TestTemplate>(`/test-templates/${id}`, data),
@@ -206,11 +206,11 @@ export const templatesApi = {
 }
 
 export const testRunsApi = {
-  list: (params?: { status?: string; device_id?: string; skip?: number; limit?: number }) =>
+  list: (params?: { status?: string; device_id?: string; include_internal?: boolean; skip?: number; limit?: number }) =>
     withNormalizedData(api.get<Record<string, unknown>[]>('/test-runs/', { params }), (data) => data.map(normalizeTestRun)),
   get: (id: string) =>
     withNormalizedData(api.get<Record<string, unknown>>(`/test-runs/${id}`), normalizeTestRun),
-  create: (data: { device_id: string; plan_id?: string; template_id?: string }) =>
+  create: (data: { device_id: string; plan_id?: string; template_id?: string; selected_test_ids?: string[] }) =>
     withNormalizedData(api.post<Record<string, unknown>>('/test-runs/', data), normalizeTestRun),
   update: (id: string, data: { connection_scenario?: string; synopsis?: string; synopsis_status?: string }) =>
     withNormalizedData(api.patch<Record<string, unknown>>(`/test-runs/${id}`, data), normalizeTestRun),
@@ -232,14 +232,16 @@ export const testResultsApi = {
     withNormalizedData(api.get<Record<string, unknown>[]>('/test-results/', { params }), (data) => data.map(normalizeTestResult)),
   get: (id: string) =>
     withNormalizedData(api.get<Record<string, unknown>>(`/test-results/${id}`), normalizeTestResult),
-  update: (id: string, data: { verdict?: string; comment?: string; findings?: unknown; raw_output?: string; engineer_notes?: string }) =>
+  update: (id: string, data: { verdict?: string; comment?: string; comment_override?: string | null; findings?: unknown; raw_output?: string; engineer_notes?: string }) =>
     withNormalizedData(api.patch<Record<string, unknown>>(`/test-results/${id}`, data), normalizeTestResult),
+  bulkUpdateManual: (data: { result_ids: string[]; verdict: string; engineer_notes?: string }) =>
+    withNormalizedData(api.patch<Record<string, unknown>[]>('/test-results/batch/manual', data), (items) => items.map(normalizeTestResult)),
   override: (id: string, data: { verdict: string; comment?: string; override_reason: string }) =>
     withNormalizedData(api.post<Record<string, unknown>>(`/test-results/${id}/override`, data), normalizeTestResult),
 }
 
 export const reportsApi = {
-  generate: (data: { test_run_id: string; report_type?: 'excel' | 'word' | 'pdf' | 'csv'; format?: string; template_id?: string; template_key?: string; include_synopsis?: boolean }) => api.post('/reports/generate', data),
+  generate: (data: { test_run_id: string; report_type?: 'excel' | 'xlsx' | 'word' | 'docx'; template_key?: string; include_synopsis?: boolean }) => api.post('/reports/generate', data),
   download: (filename: string) => api.get(`/reports/download/${filename}`, { responseType: 'blob' }),
   configs: () => api.get('/reports/configs'),
   templates: () => api.get('/reports/templates'),
@@ -393,6 +395,7 @@ export const protocolObserverApi = {
     dhcp_subnet_mask: string
     dhcp_router_ip: string
     dhcp_dns_server: string
+    dhcp_ntp_server: string
     dhcp_lease_seconds: number
   }>('/settings/protocol-observer'),
   update: (data: {
@@ -406,6 +409,7 @@ export const protocolObserverApi = {
     dhcp_subnet_mask?: string
     dhcp_router_ip?: string
     dhcp_dns_server?: string
+    dhcp_ntp_server?: string
     dhcp_lease_seconds?: number
   }) => api.put('/settings/protocol-observer', data),
 }

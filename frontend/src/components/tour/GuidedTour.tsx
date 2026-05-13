@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { X, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react'
 
@@ -35,14 +35,14 @@ const TOUR_STEPS: TourStep[] = [
   {
     page: '/test-runs',
     title: 'Test Sessions',
-    description: 'Each test session runs 59 active EDQ tests — 27 automated plus 32 guided manual checks where you physically verify the device and capture extra evidence.',
+    description: 'Each test session runs 49 active EDQ tests — 20 automated plus 29 guided manual checks where you physically verify the device and capture extra evidence.',
     targetSelector: '[data-tour="test-runs-table"]',
     position: 'bottom',
   },
   {
     page: '/reports',
     title: 'Generate Reports',
-    description: "Select a device and completed session, choose your format (Excel, Word, or PDF), and generate. Reports match Electracom's client format exactly.",
+    description: "Select a device and completed session, choose Excel or Word, and generate. Reports match Electracom's client format exactly.",
     targetSelector: '[data-tour="report-form"]',
     position: 'bottom',
   },
@@ -139,6 +139,13 @@ interface ViewportRect {
   height: number
 }
 
+interface TooltipPlacement {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 interface GuidedTourProps {
   isActive: boolean
   currentStep: number
@@ -152,7 +159,6 @@ export default function GuidedTour({ isActive, currentStep, onNext, onPrev, onSk
   const navigate = useNavigate()
   const location = useLocation()
   const [spotlight, setSpotlight] = useState<ViewportRect | null>(null)
-  const tooltipRef = useRef<HTMLDivElement>(null)
   const [navigating, setNavigating] = useState(false)
 
   const step = TOUR_STEPS[currentStep]
@@ -217,161 +223,181 @@ export default function GuidedTour({ isActive, currentStep, onNext, onPrev, onSk
 
   if (!isActive || !step) return null
 
-  // Compute tooltip position relative to viewport
-  const tooltipW = 360
-  const gap = 14
-  let tooltipStyle: React.CSSProperties = { pointerEvents: 'auto' }
-
-  if (spotlight) {
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    let top = 0
-    let left = 0
-
-    switch (step.position) {
-      case 'bottom':
-        top = spotlight.top + spotlight.height + gap
-        left = spotlight.left + spotlight.width / 2 - tooltipW / 2
-        break
-      case 'top':
-        top = spotlight.top - gap
-        left = spotlight.left + spotlight.width / 2 - tooltipW / 2
-        break
-      case 'right':
-        top = spotlight.top + spotlight.height / 2 - 100
-        left = spotlight.left + spotlight.width + gap
-        break
-      case 'left':
-        top = spotlight.top + spotlight.height / 2 - 100
-        left = spotlight.left - tooltipW - gap
-        break
-    }
-
-    // Clamp to viewport
-    left = Math.max(16, Math.min(left, vw - tooltipW - 16))
-    top = Math.max(16, Math.min(top, vh - 260))
-
-    // If tooltip overlaps spotlight on 'top', use transform to sit above
-    if (step.position === 'top') {
-      tooltipStyle = { ...tooltipStyle, bottom: vh - spotlight.top + gap, left, position: 'fixed' }
-    } else {
-      tooltipStyle = { ...tooltipStyle, top, left, position: 'fixed' }
-    }
-  } else {
-    // No target found — center the tooltip
-    tooltipStyle = {
-      ...tooltipStyle,
-      top: '50%',
-      left: '50%',
-      transform: 'translate(-50%, -50%)',
-      position: 'fixed',
-    }
-  }
+  const tooltipPlacement = getTooltipPlacement(spotlight, step.position)
 
   return (
-    <div className="fixed inset-0 z-[9999]" style={{ pointerEvents: 'none' }}>
+    <div className="fixed inset-0 z-[9999] pointer-events-none">
       {/* Dark overlay with spotlight cutout using clip-path */}
-      <div
-        className="absolute inset-0 bg-black/50"
-        style={{
-          pointerEvents: 'auto',
-          clipPath: spotlight
-            ? `polygon(
-                0% 0%, 0% 100%, 100% 100%, 100% 0%, 0% 0%,
-                ${spotlight.left}px ${spotlight.top}px,
-                ${spotlight.left}px ${spotlight.top + spotlight.height}px,
-                ${spotlight.left + spotlight.width}px ${spotlight.top + spotlight.height}px,
-                ${spotlight.left + spotlight.width}px ${spotlight.top}px,
-                ${spotlight.left}px ${spotlight.top}px
-              )`
-            : undefined,
-        }}
+      <svg
+        aria-hidden="true"
+        className="absolute inset-0 h-full w-full pointer-events-auto"
         onClick={() => { onSkip(); navigate('/') }}
-      />
+      >
+        <defs>
+          <mask id="guided-tour-spotlight-mask">
+            <rect x="0" y="0" width="100%" height="100%" fill="white" />
+            {spotlight && (
+              <rect
+                x={spotlight.left}
+                y={spotlight.top}
+                width={spotlight.width}
+                height={spotlight.height}
+                rx="8"
+                ry="8"
+                fill="black"
+              />
+            )}
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" fill="black" opacity="0.5" mask="url(#guided-tour-spotlight-mask)" />
+      </svg>
 
       {/* Spotlight ring */}
       {spotlight && (
-        <div
-          className="fixed rounded-lg ring-2 ring-brand-500"
-          style={{
-            top: spotlight.top,
-            left: spotlight.left,
-            width: spotlight.width,
-            height: spotlight.height,
-            pointerEvents: 'none',
-            boxShadow: '0 0 0 4px rgba(30, 64, 175, 0.15)',
-          }}
-        />
+        <svg aria-hidden="true" className="fixed inset-0 h-full w-full pointer-events-none">
+          <rect
+            x={spotlight.left}
+            y={spotlight.top}
+            width={spotlight.width}
+            height={spotlight.height}
+            rx="8"
+            ry="8"
+            fill="none"
+            stroke="rgb(30 64 175)"
+            strokeOpacity="0.15"
+            strokeWidth="10"
+          />
+          <rect
+            x={spotlight.left}
+            y={spotlight.top}
+            width={spotlight.width}
+            height={spotlight.height}
+            rx="8"
+            ry="8"
+            fill="none"
+            stroke="rgb(59 130 246)"
+            strokeWidth="2"
+          />
+        </svg>
       )}
 
       {/* Tooltip card */}
-      <div
-        ref={tooltipRef}
-        className="bg-white dark:bg-dark-card rounded-xl shadow-2xl border border-zinc-200 dark:border-slate-700/50 p-5 w-[360px] animate-fade-in"
-        style={tooltipStyle}
-      >
-        {/* Header row: step counter + exit */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-brand-500" />
-            <span className="text-xs font-semibold text-brand-500 uppercase tracking-wide">
-              Step {currentStep + 1} of {TOUR_STEPS.length}
-            </span>
-          </div>
-          <button
-            onClick={() => { onSkip(); navigate('/') }}
-            className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300 transition-colors"
-          >
-            <X className="w-3.5 h-3.5" />
-            Exit tour
-          </button>
-        </div>
-
-        <h3 className="text-base font-semibold text-zinc-900 dark:text-slate-100 mb-1.5">{step.title}</h3>
-        <p className="text-sm text-zinc-600 dark:text-slate-400 leading-relaxed mb-4">{step.description}</p>
-
-        {/* Footer: dots + nav buttons */}
-        <div className="flex items-center justify-between">
-          <div className="flex gap-1.5">
-            {TOUR_STEPS.map((_, i) => (
-              <div
-                key={i}
-                className={`w-2 h-2 rounded-full transition-colors ${
-                  i === currentStep ? 'bg-brand-500' : i < currentStep ? 'bg-brand-300' : 'bg-zinc-200 dark:bg-slate-700'
-                }`}
-              />
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {!isFirstStep && (
+      <svg className="fixed inset-0 h-full w-full overflow-visible pointer-events-none">
+        <foreignObject
+          x={tooltipPlacement.x}
+          y={tooltipPlacement.y}
+          width={tooltipPlacement.width}
+          height={tooltipPlacement.height}
+          className="overflow-visible pointer-events-auto"
+        >
+          <div className="bg-white dark:bg-dark-card rounded-xl shadow-2xl border border-zinc-200 dark:border-slate-700/50 p-5 w-full h-full overflow-y-auto animate-fade-in">
+            {/* Header row: step counter + exit */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-brand-500" />
+                <span className="text-xs font-semibold text-brand-500 uppercase tracking-wide">
+                  Step {currentStep + 1} of {TOUR_STEPS.length}
+                </span>
+              </div>
               <button
-                onClick={onPrev}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                onClick={() => { onSkip(); navigate('/') }}
+                className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-slate-300 transition-colors"
               >
-                <ChevronLeft className="w-3 h-3" />
-                Back
+                <X className="w-3.5 h-3.5" />
+                Exit tour
               </button>
-            )}
-            {isLastStep ? (
-              <button
-                onClick={() => { onComplete(); navigate('/') }}
-                className="inline-flex items-center gap-1 px-4 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
-              >
-                Finish Tour
-              </button>
-            ) : (
-              <button
-                onClick={onNext}
-                className="inline-flex items-center gap-1 px-4 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
-              >
-                Next
-                <ChevronRight className="w-3 h-3" />
-              </button>
-            )}
+            </div>
+
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-slate-100 mb-1.5">{step.title}</h3>
+            <p className="text-sm text-zinc-600 dark:text-slate-400 leading-relaxed mb-4">{step.description}</p>
+
+            {/* Footer: dots + nav buttons */}
+            <div className="flex items-center justify-between">
+              <div className="flex gap-1.5">
+                {TOUR_STEPS.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`w-2 h-2 rounded-full transition-colors ${
+                      i === currentStep ? 'bg-brand-500' : i < currentStep ? 'bg-brand-300' : 'bg-zinc-200 dark:bg-slate-700'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {!isFirstStep && (
+                  <button
+                    onClick={onPrev}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                    Back
+                  </button>
+                )}
+                {isLastStep ? (
+                  <button
+                    onClick={() => { onComplete(); navigate('/') }}
+                    className="inline-flex items-center gap-1 px-4 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
+                  >
+                    Finish Tour
+                  </button>
+                ) : (
+                  <button
+                    onClick={onNext}
+                    className="inline-flex items-center gap-1 px-4 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
+                  >
+                    Next
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </foreignObject>
+      </svg>
     </div>
   )
+}
+
+function getTooltipPlacement(
+  spotlight: ViewportRect | null,
+  position: TourStep['position'],
+): TooltipPlacement {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const gap = 14
+  const width = Math.min(360, Math.max(280, vw - 32))
+  const height = Math.max(96, Math.min(320, vh - 32))
+  const maxX = Math.max(16, vw - width - 16)
+  const maxY = Math.max(16, vh - height - 16)
+  let x = (vw - width) / 2
+  let y = (vh - height) / 2
+
+  if (spotlight) {
+    switch (position) {
+      case 'bottom':
+        y = spotlight.top + spotlight.height + gap
+        x = spotlight.left + spotlight.width / 2 - width / 2
+        break
+      case 'top':
+        y = spotlight.top - gap - height
+        x = spotlight.left + spotlight.width / 2 - width / 2
+        break
+      case 'right':
+        y = spotlight.top + spotlight.height / 2 - height / 2
+        x = spotlight.left + spotlight.width + gap
+        break
+      case 'left':
+        y = spotlight.top + spotlight.height / 2 - height / 2
+        x = spotlight.left - width - gap
+        break
+    }
+  }
+
+  return {
+    x: Math.round(Math.max(16, Math.min(x, maxX))),
+    y: Math.round(Math.max(16, Math.min(y, maxY))),
+    width: Math.round(width),
+    height,
+  }
 }

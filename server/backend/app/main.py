@@ -548,6 +548,7 @@ async def _load_protocol_observer_settings_from_db() -> None:
             "dhcp_subnet_mask": row.dhcp_subnet_mask,
             "dhcp_router_ip": row.dhcp_router_ip,
             "dhcp_dns_server": row.dhcp_dns_server,
+            "dhcp_ntp_server": row.dhcp_ntp_server,
             "dhcp_lease_seconds": row.dhcp_lease_seconds,
         })
 
@@ -628,6 +629,7 @@ def create_app() -> FastAPI:
         (test_results.router, "/test-results", "Test Results"),
         (reports.router, "/reports", "Reports"),
         (agents.router, "/agents", "Agents"),
+        (agents.compat_router, "/agent", "Agents"),
         (whitelists.router, "/whitelists", "Protocol Whitelists"),
         (discovery.router, "/discovery", "Discovery"),
         (audit_logs.router, "/audit-logs", "Audit Logs"),

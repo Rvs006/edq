@@ -36,6 +36,16 @@ _EMU_PER_PIXEL = 9525
 _DRAWING_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
 _IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 _DRAWING_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.drawing+xml"
+_WORKSHEET_ELEMENTS_AFTER_DRAWING = {
+    "legacyDrawing",
+    "legacyDrawingHF",
+    "picture",
+    "oleObjects",
+    "controls",
+    "webPublishItems",
+    "tableParts",
+    "extLst",
+}
 
 # Excel hard limit for cell text length
 _MAX_CELL_LENGTH = 32_767
@@ -330,12 +340,23 @@ def _patch_sheet_drawing_reference(xml_bytes: bytes, rel_id: str | None) -> byte
     if drawing_el is None:
         drawing_el = etree.Element(f"{{{_NS}}}drawing")
         drawing_el.set(f"{{{_NS_R}}}id", rel_id)
-        sheet_data = root.find(f"{{{_NS}}}sheetData")
-        if sheet_data is not None:
-            root.insert(list(root).index(sheet_data) + 1, drawing_el)
-        else:
-            root.append(drawing_el)
+        _insert_drawing_in_worksheet_order(root, drawing_el)
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _insert_drawing_in_worksheet_order(root: Any, drawing_el: Any) -> None:
+    """Insert worksheet drawing references at the OOXML schema position.
+
+    ``<drawing>`` must come after late worksheet blocks such as
+    ``mergeCells``, ``conditionalFormatting``, ``dataValidations``,
+    ``pageMargins`` and ``pageSetup``. Placing it immediately after
+    ``sheetData`` makes Excel repair the generated workbook on open.
+    """
+    for idx, child in enumerate(root):
+        if etree.QName(child).localname in _WORKSHEET_ELEMENTS_AFTER_DRAWING:
+            root.insert(idx, drawing_el)
+            return
+    root.append(drawing_el)
 
 
 def _max_picture_id(root: Any) -> int:
@@ -435,12 +456,27 @@ def _patch_content_types(xml_bytes: bytes, plans: list[_PlannedImageInsert]) -> 
         for node in root.findall(f"{{{_NS_CT}}}Override")
     }
 
+    # Find insertion position so new Default elements stay before any
+    # Override element. Excel tolerates either order per spec, but several
+    # downstream tools (and at least one Excel build) trigger a repair
+    # dialog when a Default appears after an Override.
+    first_override_idx = None
+    for idx, child in enumerate(root):
+        if etree.QName(child).localname == "Override":
+            first_override_idx = idx
+            break
+
     for plan in plans:
         ext = Path(plan.media_path).suffix.lower().lstrip(".")
         if ext not in existing_defaults:
-            default = etree.SubElement(root, f"{{{_NS_CT}}}Default")
+            default = etree.Element(f"{{{_NS_CT}}}Default")
             default.set("Extension", ext)
             default.set("ContentType", _image_content_type(f".{ext}"))
+            if first_override_idx is None:
+                root.append(default)
+            else:
+                root.insert(first_override_idx, default)
+                first_override_idx += 1
             existing_defaults.add(ext)
 
         part_name = f"/{plan.drawing_path}"

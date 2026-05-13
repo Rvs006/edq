@@ -16,11 +16,13 @@ This mode is not a full replacement for Docker on Windows. The default scan tool
 
 - `nmap` raw-socket capabilities
 - `testssl.sh`
+- `ssh-audit`
 - `hydra`
 - `nikto`
+- `snmpwalk`
 - other Linux-oriented network utilities installed in the tools container
 
-If you need reliable Windows direct-Ethernet discovery, run the scanner agent on the Windows host and point the backend at it with `TOOLS_SIDECAR_URL`.
+If you need reliable Windows direct-Ethernet discovery, run the scanner agent on the Windows host and point `HOST_NETWORK_SCANNER_URL` at it. Keep `TOOLS_SIDECAR_URL` on the Docker tools sidecar so Linux-only security tools still run from Docker.
 
 ## Prerequisites
 
@@ -35,14 +37,15 @@ Windows notes:
 
 - If `pnpm` is installed per-user but not on `PATH`, use `%APPDATA%\npm\pnpm.cmd` or add `%APPDATA%\npm` to your user `PATH`.
 - The workspace expects the backend virtual environment at `server/backend/.venv`.
+- Before Windows real-device scans, run `.\scripts\preflight-scanner.ps1`. `scripts\start-edq.ps1` runs the prerequisite portion automatically unless `-SkipPreflight` is passed.
 
 ## Supported Config Rules
 
 - The root `.env` file remains the source of truth.
 - Do not create `server/backend/.env`.
 - For local backend development with the Docker-backed scanner, keep `TOOLS_SIDECAR_URL=http://127.0.0.1:8001`.
-- For local backend development with a Windows host scanner, keep `TOOLS_SIDECAR_URL=http://127.0.0.1:8001` and set `EDQ_SCANNER_MODE=host`.
-- For Docker backend plus Windows host scanner, set `TOOLS_SIDECAR_URL=http://host.docker.internal:8002`, `EDQ_SCANNER_MODE=host`, and `EDQ_START_INTERNAL_TOOLS=false`.
+- For local backend development with a Windows host network scanner, keep `TOOLS_SIDECAR_URL=http://127.0.0.1:8001` and set `HOST_NETWORK_SCANNER_URL=http://127.0.0.1:8002`.
+- For Docker backend plus Windows host network scanner, keep `TOOLS_SIDECAR_URL=http://127.0.0.1:8001`, keep `EDQ_START_INTERNAL_TOOLS=true`, and set `HOST_NETWORK_SCANNER_URL=http://host.docker.internal:8002`.
 - The default local database path is PostgreSQL on `127.0.0.1:55432`. Override `DATABASE_URL` only if you intentionally want a different database.
 - Redis is optional locally. If you want shared-environment rate limiting behavior, start Docker with `--profile redis` and set `REDIS_URL=redis://127.0.0.1:6379/0`.
 
@@ -109,15 +112,16 @@ Then point the backend at it:
 
 ```powershell
 $env:TOOLS_SIDECAR_URL = "http://127.0.0.1:8001"
-$env:EDQ_SCANNER_MODE = "host"
+$env:HOST_NETWORK_SCANNER_URL = "http://127.0.0.1:8002"
 ```
 
-For the Docker backend to use the Windows host scanner instead of its internal sidecar, set these in the root `.env` before `docker compose up`:
+For the Docker backend to use the Windows host scanner for ARP/nmap probes while keeping its internal tools sidecar, set this in the root `.env` before `docker compose up`:
 
 ```dotenv
-TOOLS_SIDECAR_URL=http://host.docker.internal:8002
-EDQ_SCANNER_MODE=host
-EDQ_START_INTERNAL_TOOLS=false
+TOOLS_SIDECAR_URL=http://127.0.0.1:8001
+EDQ_START_INTERNAL_TOOLS=true
+HOST_NETWORK_SCANNER_URL=http://host.docker.internal:8002
+HOST_ARP_HELPER_URL=http://host.docker.internal:8002
 ```
 
 Run the host scanner on `8002` for that Docker-backend path so it does not collide with the backend service's published internal tools port:
@@ -129,20 +133,49 @@ $env:EDQ_SCANNER_PORT = "8002"
 python server.py
 ```
 
+For a persistent Windows MAC helper, install the startup task from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-host-mac-helper.ps1 -InstallDeps -InstallStartupTask
+```
+
+Then set this in the root `.env` for Docker-backed EDQ:
+
+```dotenv
+HOST_NETWORK_SCANNER_URL=http://host.docker.internal:8002
+HOST_ARP_HELPER_URL=http://host.docker.internal:8002
+```
+
+This keeps the normal Docker scanner for security tooling while letting U02 read the Windows host ARP table and letting nmap-based network checks run from the host network namespace.
+
+For day-to-day Windows use, the one-command launcher starts the host network scanner first and then starts Docker in hybrid scanner mode:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-edq.ps1
+```
+
+That path should be preferred for direct-Ethernet device qualification on Windows. It keeps the app/database in Docker while running network-layer scanner operations from the Windows host network namespace.
+
+If the default ports are already occupied, pass alternate ports:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-edq.ps1 -PublicPort 3100 -BackendPort 8100 -ToolsPort 8101 -PostgresPort 55433
+```
+
 ### Start the backend locally
 
 From `server\backend`:
 
 ```powershell
 $env:TOOLS_SIDECAR_URL = "http://127.0.0.1:8001"
-$env:EDQ_SCANNER_MODE = "host" # only when using the Windows host scanner
+$env:HOST_NETWORK_SCANNER_URL = "http://127.0.0.1:8002" # only when using the Windows host scanner
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Notes:
 
 - `TOOLS_SIDECAR_URL=http://127.0.0.1:8001` is required for a local backend process when you want to reuse either the Docker-hosted scanner port or a host scanner on the same machine.
-- Leave `EDQ_SCANNER_MODE` unset for the Docker-hosted scanner; set it to `host` for the Windows host scanner.
+- Leave `HOST_NETWORK_SCANNER_URL` empty for Docker-only scans; set it for the Windows host scanner.
 - The default `.env` now points local backend runs at PostgreSQL on `127.0.0.1:55432`, which is also exposed by `docker compose up -d postgres`.
 - If you need an isolated scratch database, override `DATABASE_URL` explicitly before starting the backend.
 

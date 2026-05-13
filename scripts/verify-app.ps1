@@ -32,6 +32,27 @@ function Get-RootEnvValue {
     return $value
 }
 
+function Resolve-ComposeFrontendUrl {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+
+    try {
+        $portLine = docker compose port frontend 8080 2>$null | Select-Object -First 1
+        if ($LASTEXITCODE -ne 0 -or -not $portLine) {
+            return $null
+        }
+        $port = ([string]$portLine -split ":")[-1].Trim()
+        if ($port -match "^\d+$") {
+            return "http://localhost:$port"
+        }
+    } catch {
+        return $null
+    }
+
+    return $null
+}
+
 function Resolve-BaseUrl {
     if ($BaseUrl) {
         return $BaseUrl.TrimEnd('/')
@@ -48,6 +69,11 @@ function Resolve-BaseUrl {
     $publicUrl = Get-RootEnvValue "EDQ_PUBLIC_URL"
     if ($publicUrl) {
         return $publicUrl.TrimEnd('/')
+    }
+
+    $composeUrl = Resolve-ComposeFrontendUrl
+    if ($composeUrl) {
+        return $composeUrl.TrimEnd('/')
     }
 
     $publicPort = $env:EDQ_PUBLIC_PORT
@@ -220,8 +246,19 @@ Write-Host ""
 Write-Host "--- Tools Sidecar ---"
 Invoke-Check "Tool versions" {
     $response = Invoke-RestMethod -Uri "$apiUrl/health/tools/versions" -Method Get -WebSession $session
-    $toolCount = Get-PropertyCount $response.tools
-    "{0} tools" -f $toolCount
+    $versions = if ($response.PSObject.Properties["tools"]) { $response.tools } else { $response.versions }
+    $required = @("nmap", "testssl", "ssh_audit", "hydra", "nikto", "snmpwalk")
+    $missing = @()
+    foreach ($tool in $required) {
+        $value = $versions.$tool
+        if (-not $value -or [string]$value -eq "unavailable") {
+            $missing += $tool
+        }
+    }
+    if ($missing.Count -gt 0) {
+        throw "Missing or unavailable scanner tools: $($missing -join ', ')"
+    }
+    "{0} required tools" -f $required.Count
 }
 
 Write-Host ""

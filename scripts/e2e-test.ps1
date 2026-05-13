@@ -207,8 +207,19 @@ Invoke-Check "Current user uses username auth" {
 
 Invoke-Check "Authenticated tool versions" {
     $response = Invoke-RestMethod -Uri "$apiUrl/health/tools/versions" -Method Get -WebSession $session
-    $toolCount = Get-PropertyCount $response.tools
-    "{0} tools" -f $toolCount
+    $versions = if ($response.PSObject.Properties["tools"]) { $response.tools } else { $response.versions }
+    $required = @("nmap", "testssl", "ssh_audit", "hydra", "nikto", "snmpwalk")
+    $missing = @()
+    foreach ($tool in $required) {
+        $value = $versions.$tool
+        if (-not $value -or [string]$value -eq "unavailable") {
+            $missing += $tool
+        }
+    }
+    if ($missing.Count -gt 0) {
+        throw "Missing or unavailable scanner tools: $($missing -join ', ')"
+    }
+    "{0} required tools" -f $required.Count
 }
 
 Write-Host ""

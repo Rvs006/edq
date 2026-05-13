@@ -53,6 +53,8 @@ web_modules/
 
 # Optional npm cache directory
 .npm
+.pnpm-store/
+frontend/.pnpm-store/
 
 # Optional eslint cache
 .eslintcache
@@ -189,6 +191,9 @@ reports/*
 server/backend/data/
 server/backend/reports/
 uploads/
+EDQ_*.xlsx
+Goal.rtf
+agentdb.rvf*
 
 # AI agent/session artifacts
 .tmp/

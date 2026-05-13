@@ -5,6 +5,7 @@ flagging weak or deprecated ones.
 """
 
 import json
+import re
 from typing import Any
 
 
@@ -39,6 +40,7 @@ WEAK_MACS = {
 
 WEAK_HOST_KEYS = {
     "ssh-dss",
+    "ssh-rsa",
 }
 
 
@@ -187,28 +189,32 @@ class SshAuditParser:
         section = None
         for line in stdout.splitlines():
             stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
+            if not stripped:
                 continue
 
-            if "banner:" in stripped.lower() or "ssh-" in stripped.lower():
-                if result["ssh_version"] is None:
-                    result["ssh_version"] = stripped
-
-            if "key exchange algorithms" in stripped.lower():
+            section_label = stripped.lstrip("# ").lower()
+            if "key exchange algorithms" in section_label:
                 section = "kex"
                 continue
-            elif "encryption algorithms" in stripped.lower() or "ciphers" in stripped.lower():
+            elif "encryption algorithms" in section_label or "ciphers" in section_label:
                 section = "enc"
                 continue
-            elif "mac algorithms" in stripped.lower():
+            elif "mac algorithms" in section_label:
                 section = "mac"
                 continue
-            elif "host key algorithms" in stripped.lower() or "host-key" in stripped.lower():
+            elif "host key algorithms" in section_label or "host-key" in section_label:
                 section = "hostkey"
                 continue
-            elif "recommendations" in stripped.lower():
+            elif "recommendations" in section_label:
                 section = "rec"
                 continue
+
+            if stripped.startswith("#"):
+                continue
+
+            if "banner:" in stripped.lower() or re.match(r"^\s*ssh-\d+(?:\.\d+)?-", stripped.lower()):
+                if result["ssh_version"] is None:
+                    result["ssh_version"] = stripped
 
             # Skip pure annotation lines like "[info]", "-- [warn]", but allow
             # algorithm lines prefixed with section markers like "(kex) algo ..."
@@ -247,7 +253,8 @@ class SshAuditParser:
                 result["recommendations"].append(stripped)
 
             # Also flag anything ssh-audit explicitly marks as warn/fail
-            if "(warn)" in stripped.lower() or "(fail)" in stripped.lower():
+            annotation = stripped.lower()
+            if "(warn)" in annotation or "(fail)" in annotation or "[warn]" in annotation or "[fail]" in annotation:
                 name = self._extract_alg_name(stripped)
                 if name:
                     if section == "kex" and name not in result["weak_kex"]:
@@ -256,6 +263,12 @@ class SshAuditParser:
                         result["weak_ciphers"].append(name)
                     elif section == "mac" and name not in result["weak_macs"]:
                         result["weak_macs"].append(name)
+                    elif (
+                        section == "hostkey"
+                        and name.lower() in WEAK_HOST_KEYS
+                        and name not in result["weak_host_keys"]
+                    ):
+                        result["weak_host_keys"].append(name)
 
         total_weak = (
             len(result["weak_kex"])

@@ -43,15 +43,15 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
     },
     {
         "test_id": "U04", "name": "DHCP Behaviour", "tier": "automatic", "tool": "discovery_metadata",
-        "is_essential": False, "description": "Determine if device uses DHCP or static IP assignment.",
+        "is_essential": False, "description": "Verify the device accepts an EDQ-hosted DHCP lease with DNS/NTP options.",
         "compliance_map": ["ISO 27001 A.13.1.1"],
-        "platform_notes": "Docker: detects DHCP server on segment via broadcast. For device-specific DHCP status, check device admin UI."
+        "platform_notes": "Scenario 1/2: EDQ can host the DHCP offer on an isolated segment. Configure a safe offer range; DNS/NTP options default to the EDQ host address."
     },
     {
-        "test_id": "U05", "name": "IPv6 Support Detection", "tier": "automatic", "tool": "nmap",
-        "is_essential": False, "description": "Check if device has IPv6 enabled and responding.",
+        "test_id": "U05", "name": "IPv6 Support Detection", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Manually confirm whether the device supports IPv6 addressing and services.",
         "compliance_map": ["ISO 27001 A.13.1.1"],
-        "platform_notes": "Docker: may not work if container lacks IPv6 connectivity."
+        "platform_notes": "Manual evidence required: record observed IPv6 addresses, SLAAC/DHCPv6 behaviour, or confirmation that IPv6 is disabled."
     },
     {
         "test_id": "U06", "name": "Full TCP Port Scan (All 65535)", "tier": "automatic", "tool": "nmap",
@@ -90,14 +90,16 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "compliance_map": ["ISO 27001 A.10.1.1"]
     },
     {
-        "test_id": "U13", "name": "HSTS Header Presence", "tier": "automatic", "tool": "testssl",
-        "is_essential": False, "description": "Verify HTTP Strict Transport Security header is set.",
-        "compliance_map": ["ISO 27001 A.14.1.2"]
+        "test_id": "U13", "name": "HSTS Header Presence (Merged into U35)", "tier": "automatic", "tool": "testssl",
+        "is_essential": False, "description": "Retired automatic check. HSTS/header findings are reported by U35 Web Server and HTTP Header Assessment.",
+        "compliance_map": ["ISO 27001 A.14.1.2"],
+        "deprecated": True,
     },
     {
-        "test_id": "U14", "name": "HTTP Security Headers", "tier": "automatic", "tool": "curl",
-        "is_essential": False, "description": "Check for security headers (CSP, X-Frame-Options, etc.).",
-        "compliance_map": ["ISO 27001 A.14.1.2"]
+        "test_id": "U14", "name": "HTTP Security Headers (Merged into U35)", "tier": "automatic", "tool": "curl",
+        "is_essential": False, "description": "Retired automatic check. HTTP security header findings are reported by U35 Web Server and HTTP Header Assessment.",
+        "compliance_map": ["ISO 27001 A.14.1.2"],
+        "deprecated": True,
     },
     {
         "test_id": "U15", "name": "SSH Algorithm Assessment", "tier": "automatic", "tool": "ssh-audit",
@@ -181,28 +183,31 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "compliance_map": ["ISO 27001 A.9.4.3", "Cyber Essentials", "SOC2 CC6.1"]
     },
     {
-        "test_id": "U31", "name": "SNMP Version Check", "tier": "automatic", "tool": "nmap",
-        "is_essential": False, "description": "Detect SNMP services and verify only SNMPv3 is enabled (v1/v2c are insecure).",
-        "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials"]
+        "test_id": "U31", "name": "SNMP Version Check", "tier": "automatic", "tool": "snmpwalk",
+        "is_essential": False, "description": "Detect SNMP exposure and verify insecure public-community SNMPv1/v2c access is not accepted.",
+        "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials"],
     },
     {
-        "test_id": "U32", "name": "UPnP/SSDP Exposure", "tier": "automatic", "tool": "nmap",
-        "is_essential": False, "description": "Check for UPnP/SSDP services on port 1900 which may expose device to network attacks.",
-        "compliance_map": ["ISO 27001 A.13.1.1"]
+        "test_id": "U32", "name": "UPnP/SSDP Exposure (Retired)", "tier": "automatic", "tool": "nmap",
+        "is_essential": False, "description": "Retired check. Protocol exposure is covered by U08 service detection and U09 whitelist review.",
+        "compliance_map": ["ISO 27001 A.13.1.1"],
+        "deprecated": True,
     },
     {
-        "test_id": "U33", "name": "mDNS/Bonjour Exposure", "tier": "automatic", "tool": "nmap",
-        "is_essential": False, "description": "Detect mDNS/Bonjour services on port 5353 which may leak device information.",
-        "compliance_map": ["ISO 27001 A.13.1.1"]
+        "test_id": "U33", "name": "mDNS/Bonjour Exposure (Retired)", "tier": "automatic", "tool": "nmap",
+        "is_essential": False, "description": "Retired check. Protocol exposure is covered by U08 service detection and U09 whitelist review.",
+        "compliance_map": ["ISO 27001 A.13.1.1"],
+        "deprecated": True,
     },
     {
-        "test_id": "U34", "name": "Telnet/Insecure Protocol Detection", "tier": "automatic", "tool": "nmap",
-        "is_essential": True, "description": "Detect Telnet (port 23), FTP (port 21), and other insecure cleartext protocols.",
-        "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials", "SOC2 CC6.1"]
+        "test_id": "U34", "name": "Telnet/Insecure Protocol Detection (Retired)", "tier": "automatic", "tool": "nmap",
+        "is_essential": True, "description": "Retired check. Insecure cleartext services are covered by U08 service detection and U09 whitelist review.",
+        "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials", "SOC2 CC6.1"],
+        "deprecated": True,
     },
     {
-        "test_id": "U35", "name": "Web Server Vulnerability Scan", "tier": "automatic", "tool": "nikto",
-        "is_essential": False, "description": "Run nikto web vulnerability scanner against HTTP/HTTPS services.",
+        "test_id": "U35", "name": "Web Server and HTTP Header Assessment", "tier": "automatic", "tool": "nikto",
+        "is_essential": False, "description": "Run nikto and capture HTTP response headers so web server, HSTS, and security header issues are reported together.",
         "compliance_map": ["ISO 27001 A.14.1.2"]
     },
     {
@@ -212,9 +217,10 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "deprecated": True,
     },
     {
-        "test_id": "U37", "name": "RTSP Stream Authentication", "tier": "automatic", "tool": "custom",
-        "is_essential": False, "description": "Check if RTSP video streams (port 554) require authentication.",
-        "compliance_map": ["ISO 27001 A.9.4.3"]
+        "test_id": "U37", "name": "RTSP Stream Authentication (Retired)", "tier": "automatic", "tool": "custom",
+        "is_essential": False, "description": "Retired check. Streaming services are covered by U08 service detection and U09 whitelist review.",
+        "compliance_map": ["ISO 27001 A.9.4.3"],
+        "deprecated": True,
     },
     {
         "test_id": "U38", "name": "MQTT Support & Security", "tier": "guided_manual", "tool": None,
@@ -222,24 +228,28 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "compliance_map": ["ISO 27001 A.13.1.1"]
     },
     {
-        "test_id": "U39", "name": "VLAN Tagging Support", "tier": "guided_manual", "tool": None,
-        "is_essential": False, "description": "Verify device supports 802.1Q VLAN tagging for network segmentation.",
-        "compliance_map": ["ISO 27001 A.13.1.1"]
+        "test_id": "U39", "name": "VLAN Tagging Support (Retired)", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Retired manual check.",
+        "compliance_map": ["ISO 27001 A.13.1.1"],
+        "deprecated": True,
     },
     {
-        "test_id": "U40", "name": "API Authentication Check", "tier": "guided_manual", "tool": None,
-        "is_essential": False, "description": "Verify all API endpoints require authentication. Test with and without credentials.",
-        "compliance_map": ["ISO 27001 A.9.4.3", "SOC2 CC6.1"]
+        "test_id": "U40", "name": "API Authentication Check (Retired)", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Retired manual check.",
+        "compliance_map": ["ISO 27001 A.9.4.3", "SOC2 CC6.1"],
+        "deprecated": True,
     },
     {
-        "test_id": "U41", "name": "Audit/Log Review", "tier": "guided_manual", "tool": None,
-        "is_essential": False, "description": "Review device logs for security events. Check if logging is enabled and adequate.",
-        "compliance_map": ["ISO 27001 A.12.4.1"]
+        "test_id": "U41", "name": "Audit/Log Review (Retired)", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Retired manual check.",
+        "compliance_map": ["ISO 27001 A.12.4.1"],
+        "deprecated": True,
     },
     {
-        "test_id": "U42", "name": "Data-at-Rest Encryption", "tier": "guided_manual", "tool": None,
-        "is_essential": False, "description": "Check if device encrypts stored data (recordings, configs, credentials).",
-        "compliance_map": ["ISO 27001 A.10.1.1"]
+        "test_id": "U42", "name": "Data-at-Rest Encryption (Retired)", "tier": "guided_manual", "tool": None,
+        "is_essential": False, "description": "Retired manual check.",
+        "compliance_map": ["ISO 27001 A.10.1.1"],
+        "deprecated": True,
     },
     {
         "test_id": "U43", "name": "End-of-Life / Vendor Support", "tier": "guided_manual", "tool": None,
@@ -406,6 +416,6 @@ def get_trust_level_counts() -> dict[TrustLevel, int]:
         "advisory": 0,
         "manual_evidence": 0,
     }
-    for test in UNIVERSAL_TESTS:
+    for test in get_active_tests():
         counts[test["trust_level"]] += 1
     return counts
