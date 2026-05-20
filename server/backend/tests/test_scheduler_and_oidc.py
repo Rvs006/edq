@@ -114,6 +114,63 @@ async def test_due_schedule_launches_background_execution(
 
 
 @pytest.mark.asyncio
+async def test_due_schedule_with_no_active_tests_advances_next_run(
+    client: AsyncClient,
+    db_engine,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    await register_and_login(client, suffix="scheduleNoActive", role="admin")
+    admin_id = await _get_user_id(db_session, "scheduleNoActiveuser")
+    device = Device(ip_address="10.0.0.78", category="unknown", status="discovered")
+    template = TemplateModel(
+        name="schedule-empty-template",
+        test_ids=["U34"],
+        version="1.0",
+    )
+    db_session.add_all([device, template])
+    await db_session.flush()
+    due_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    schedule = ScanSchedule(
+        device_id=device.id,
+        template_id=template.id,
+        created_by=admin_id,
+        frequency=ScheduleFrequency.DAILY,
+        next_run_at=due_at,
+        is_active=True,
+    )
+    db_session.add(schedule)
+    await db_session.commit()
+
+    session_factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(scan_scheduler, "async_session", session_factory)
+    monkeypatch.setattr(
+        scan_scheduler,
+        "launch_test_run",
+        lambda _run_id: pytest.fail("invalid scheduled scans must not launch"),
+    )
+
+    await scan_scheduler._execute_scheduled_scan(schedule.id)
+
+    async with session_factory() as verify_session:
+        refreshed_schedule = await verify_session.get(ScanSchedule, schedule.id)
+        assert refreshed_schedule is not None
+        assert refreshed_schedule.is_active is True
+        assert refreshed_schedule.run_count == 0
+        assert refreshed_schedule.last_run_at is not None
+        assert refreshed_schedule.next_run_at > refreshed_schedule.last_run_at
+        assert refreshed_schedule.diff_summary == {
+            "status": "skipped",
+            "reason": "no_active_tests",
+            "message": "Select at least one active test",
+        }
+        runs_result = await verify_session.execute(
+            select(RunModel).where(RunModel.template_id == template.id)
+        )
+        assert runs_result.scalars().all() == []
+
+
+@pytest.mark.asyncio
 async def test_validate_id_token_uses_verified_claims(
     monkeypatch: pytest.MonkeyPatch,
 ):

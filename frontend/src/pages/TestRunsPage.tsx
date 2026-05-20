@@ -15,6 +15,7 @@ import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 import Callout from '@/components/common/Callout'
 import { isExecutingTestRunStatus, toLocalDateString, toLocalDateOnly } from '@/lib/testContracts'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
+import { fetchTestRuns, invalidateTestRunResource, testRunKeys } from '@/lib/testRunResources'
 
 /* ── Status filter config with labels, icons, groups, tooltips ── */
 
@@ -134,8 +135,8 @@ export default function TestRunsPage() {
   const navigate = useNavigate()
 
   const { data: runs, isLoading, isError } = useQuery({
-    queryKey: ['test-runs', statusFilter, deviceId],
-    queryFn: () => testRunsApi.list({ status: statusFilter || undefined, device_id: deviceId }).then(r => r.data),
+    queryKey: testRunKeys.list({ status: statusFilter || undefined, device_id: deviceId }),
+    queryFn: () => fetchTestRuns({ status: statusFilter || undefined, device_id: deviceId }),
     refetchInterval: (query) => {
       const data = query.state.data as TestRun[] | undefined
       const hasActive = data?.some((r) => isExecutingTestRunStatus(r.status))
@@ -145,9 +146,12 @@ export default function TestRunsPage() {
 
   // Count runs per status for badges
   const { data: allRuns } = useQuery({
-    queryKey: ['test-runs-all-for-counts'],
-    queryFn: () => testRunsApi.list({ limit: 200 }).then(r => r.data),
-    refetchInterval: 10000,
+    queryKey: testRunKeys.list({ limit: 200 }),
+    queryFn: () => fetchTestRuns({ limit: 200 }),
+    refetchInterval: (query) => {
+      const data = query.state.data as TestRun[] | undefined
+      return data?.some((r) => isExecutingTestRunStatus(r.status)) ? 10000 : false
+    },
   })
 
   const runLabels = useMemo(() => buildRunLabels((runs || []) as TestRun[]), [runs])
@@ -457,10 +461,8 @@ function CreateRunModal({ onClose, onCreated }: { onClose: () => void; onCreated
     setLoading(true)
     try {
       const created = await testRunsApi.create({ device_id: deviceId, template_id: effectiveTemplateId })
-      queryClient.invalidateQueries({ queryKey: ['test-runs'] })
-      queryClient.invalidateQueries({ queryKey: ['test-runs-all-for-counts'] })
+      invalidateTestRunResource(queryClient, created.data.id, { includeLists: true })
       queryClient.invalidateQueries({ queryKey: ['run-stats'] })
-      queryClient.invalidateQueries({ queryKey: ['recent-runs'] })
       toast.success('Test run created')
       onClose()
       onCreated(created.data.id)

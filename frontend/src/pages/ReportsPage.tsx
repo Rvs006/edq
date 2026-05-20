@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { reportsApi, testRunsApi, getApiErrorMessage } from '@/lib/api'
+import { reportsApi, getApiErrorMessage } from '@/lib/api'
 import type { TestRun, ReportTemplate } from '@/lib/types'
 import { toLocalDateOnly, toLocalDateString } from '@/lib/testContracts'
+import { fetchTestRuns, testRunKeys } from '@/lib/testRunResources'
 import { Download, FileSpreadsheet, FileText, Loader2, LayoutTemplate } from 'lucide-react'
 import Callout from '@/components/common/Callout'
 import toast from 'react-hot-toast'
@@ -71,8 +72,8 @@ export default function ReportsPage() {
   const [generating, setGenerating] = useState(false)
 
   const { data: runs, isError } = useQuery({
-    queryKey: ['completed-runs'],
-    queryFn: () => testRunsApi.list({ status: 'completed' }).then(r => r.data),
+    queryKey: testRunKeys.list({ status: 'completed' }),
+    queryFn: () => fetchTestRuns({ status: 'completed' }),
   })
 
   const { data: templates } = useQuery({

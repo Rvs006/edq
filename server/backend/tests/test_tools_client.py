@@ -1,5 +1,7 @@
 """Tests for tools sidecar client scan argument adaptation."""
 
+import asyncio
+
 import httpx
 import pytest
 
@@ -17,6 +19,7 @@ def _client(in_docker: bool = True, raw_capable: bool = True) -> ToolsClient:
     client.host_network_scanner_url = ""
     client.host_arp_helper_url = ""
     client._headers = {}
+    client._target_locks = {}
     return client
 
 
@@ -165,6 +168,58 @@ async def test_post_stream_forwards_stderr_progress_lines():
 
 
 @pytest.mark.asyncio
+async def test_post_stream_retries_rate_limit_before_sync_fallback(monkeypatch):
+    client = _client(in_docker=False)
+    attempts = 0
+    sleeps: list[int] = []
+
+    async def no_sleep(seconds: int):
+        sleeps.append(seconds)
+
+    class FakeResponse:
+        def __init__(self, status_code: int):
+            self.status_code = status_code
+            self.request = httpx.Request("POST", "http://tools/stream/nmap")
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                response = httpx.Response(self.status_code, request=self.request, text="slow down")
+                raise httpx.HTTPStatusError("rate limited", request=self.request, response=response)
+
+        async def aiter_lines(self):
+            yield 'data: {"type": "result", "data": {"exit_code": 0, "stdout": "<nmaprun/>"}}'
+
+    class FakeStream:
+        def __init__(self, response: FakeResponse):
+            self.response = response
+
+        async def __aenter__(self):
+            return self.response
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeClient:
+        def stream(self, *_args, **_kwargs):
+            nonlocal attempts
+            attempts += 1
+            return FakeStream(FakeResponse(429 if attempts == 1 else 200))
+
+    async def fail_sync_fallback(*_args, **_kwargs):
+        raise AssertionError("429 streams should retry before sync fallback")
+
+    monkeypatch.setattr("app.services.tools_client.asyncio.sleep", no_sleep)
+    client._get_client = lambda _timeout=300: FakeClient()
+    client._post = fail_sync_fallback
+
+    result = await client._post_stream("/stream/nmap", {"target": "192.168.4.54"})
+
+    assert attempts == 2
+    assert sleeps == [2]
+    assert result["exit_code"] == 0
+
+
+@pytest.mark.asyncio
 async def test_tcp_probe_falls_back_to_nmap_when_endpoint_missing():
     client = _client(in_docker=True, raw_capable=False)
 
@@ -258,6 +313,33 @@ async def test_nmap_stream_uses_host_network_scanner_without_docker_flag_rewrite
     assert result["_scanner_source"] == "host"
     assert captured["base_url"] == "http://host-scanner"
     assert captured["payload"]["args"] == ["-sU", "--top-ports", "100", "-oX", "-"]
+
+
+@pytest.mark.asyncio
+async def test_nmap_serializes_same_target_host_scans():
+    client = _client(in_docker=True, raw_capable=False)
+    client.host_network_scanner_url = "http://host-scanner"
+    active = 0
+    max_active = 0
+
+    async def fake_post(path: str, payload: dict, timeout: int = 300, base_url: str | None = None):
+        nonlocal active, max_active
+        assert path == "/scan/nmap"
+        assert base_url == "http://host-scanner"
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return {"exit_code": 0, "stdout": "<nmaprun/>"}
+
+    client._post = fake_post
+
+    await asyncio.gather(
+        client.nmap("192.168.4.54", ["-sS", "-p", "80", "-oX", "-"]),
+        client.nmap("192.168.4.54", ["-sS", "-p", "80", "-oX", "-"]),
+    )
+
+    assert max_active == 1
 
 
 @pytest.mark.asyncio

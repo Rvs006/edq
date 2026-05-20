@@ -15,11 +15,11 @@ from app.models.database import async_session
 from app.models.device import Device
 from app.models.scan_schedule import ScanSchedule, ScheduleFrequency
 from app.models.test_run import TestRun, TestRunStatus
-from app.models.test_result import TestResult, TestTier
+from app.models.test_result import TestResult
 from app.models.test_template import TestTemplate
-from app.services.test_library import get_test_by_id
+from app.services.test_selection import TestSelectionError
+from app.services.test_run_provisioning import provision_test_run
 from app.services.test_run_launcher import is_run_executing, launch_test_run
-from app.utils.collections import ordered_unique
 from app.utils.datetime import utcnow_naive
 
 logger = logging.getLogger("edq.scheduler")
@@ -151,13 +151,6 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 logger.warning("Template %s not found for schedule %s", schedule.template_id, schedule_id)
                 return
 
-            raw_ids = template.test_ids
-            if isinstance(raw_ids, str):
-                import json as _json
-                raw_ids = _json.loads(raw_ids)
-
-            deduped_ids = ordered_unique(raw_ids)
-
             # Preserve project membership from the scheduled device onto the run.
             device_result = await db.execute(
                 select(Device).where(Device.id == schedule.device_id)
@@ -171,34 +164,35 @@ async def _execute_scheduled_scan(schedule_id: str) -> None:
                 )
                 return
 
-            # Create a new test run with total_tests
-            new_run = TestRun(
-                device_id=schedule.device_id,
-                template_id=schedule.template_id,
-                engineer_id=schedule.created_by,
-                project_id=device.project_id if device else None,
-                status=TestRunStatus.PENDING,
-                connection_scenario="direct",
-                total_tests=len(deduped_ids),
-                run_metadata={"scheduled_scan_id": schedule.id},
-            )
-            db.add(new_run)
-            await db.flush()
-
-            # Create TestResult entries for each test in the template
-            for test_id in deduped_ids:
-                test_def = get_test_by_id(test_id)
-                if test_def:
-                    tr = TestResult(
-                        test_run_id=new_run.id,
-                        test_id=test_id,
-                        test_name=test_def["name"],
-                        tier=TestTier(test_def["tier"]),
-                        tool=test_def.get("tool"),
-                        is_essential="yes" if test_def["is_essential"] else "no",
-                        compliance_map=test_def.get("compliance_map", []),
-                    )
-                    db.add(tr)
+            try:
+                provisioned = await provision_test_run(
+                    db,
+                    device=device,
+                    template=template,
+                    engineer_id=schedule.created_by,
+                    connection_scenario="direct",
+                    metadata={"scheduled_scan_id": schedule.id},
+                    include_selection_metadata=False,
+                    apply_scenario_routing=False,
+                )
+            except TestSelectionError as exc:
+                now = utcnow_naive()
+                schedule.last_run_at = now
+                schedule.next_run_at = compute_next_run(schedule.frequency, now)
+                schedule.diff_summary = {
+                    "status": "skipped",
+                    "reason": "no_active_tests",
+                    "message": str(exc),
+                }
+                await db.commit()
+                logger.warning(
+                    "Scheduled scan %s: template %s has no active tests; next run scheduled at %s",
+                    schedule_id,
+                    schedule.template_id,
+                    schedule.next_run_at,
+                )
+                return
+            new_run = provisioned.run
 
             # Update schedule metadata
             now = utcnow_naive()

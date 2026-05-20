@@ -161,6 +161,8 @@ __pycache__/
 .pytest_cache/
 pytest-cache-files-*
 .pytest-cache-files-*/
+.pytest-tmp-*/
+**/.pytest-tmp-*/
 .venv/
 .venv-win/
 .venv-pylance/
@@ -199,6 +201,7 @@ agentdb.rvf*
 .tmp/
 .verdent/
 .playwright-mcp/
+.compound-engineering/*.local.yaml
 .agents/
 .claude-flow/
 .hive-mind/

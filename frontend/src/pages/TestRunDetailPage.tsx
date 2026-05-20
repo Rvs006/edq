@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { testRunsApi, testResultsApi, reportsApi, resolveApiUrl, getApiErrorMessage } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
-import { useTestRunWebSocket } from '@/hooks/useTestRunWebSocket'
+import { useLiveTestRunState } from '@/hooks/useLiveTestRunState'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   ArrowLeft, Loader2, Monitor,
@@ -32,6 +32,13 @@ import {
 } from '@/lib/testRunDetailPage'
 import { summarizeRunProgress } from '@/lib/testUi'
 import { formatConnectionScenarioLabel } from '@/lib/universal-tests'
+import {
+  fetchTestRun,
+  fetchTestRunResults,
+  invalidateTestRunResource,
+  refetchTestRunResource,
+  testRunKeys,
+} from '@/lib/testRunResources'
 
 type CurrentTestMeta = {
   test_id: string
@@ -70,7 +77,6 @@ export default function TestRunDetailPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
 
-  const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Ref tracks live WebSocket freshness so that the refetchInterval
   // callbacks (which are re-invoked by React Query on every tick) can read
   // it without creating a circular dependency between `ws` and the queries.
@@ -86,8 +92,8 @@ export default function TestRunDetailPage() {
   const [bulkManualNotes, setBulkManualNotes] = useState('')
 
   const { data: run, isLoading: runLoading } = useQuery({
-    queryKey: ['test-run', id],
-    queryFn: () => testRunsApi.get(id!).then((r) => r.data),
+    queryKey: testRunKeys.detail(id),
+    queryFn: () => fetchTestRun(id!),
     enabled: !!id,
     refetchInterval: (query: { state: { data?: unknown } }) => {
       // WebSocket provides real-time updates — skip polling entirely when live.
@@ -99,8 +105,8 @@ export default function TestRunDetailPage() {
   })
 
   const { data: results = EMPTY_RESULTS, isLoading: resultsLoading } = useQuery({
-    queryKey: ['test-results', id],
-    queryFn: () => testResultsApi.list({ test_run_id: id }).then((r) => r.data),
+    queryKey: testRunKeys.results(id),
+    queryFn: () => fetchTestRunResults(id!),
     enabled: !!id,
     refetchInterval: () => {
       // WebSocket invalidates this query on test_complete/run_complete messages.
@@ -110,50 +116,13 @@ export default function TestRunDetailPage() {
     },
   })
 
-  const ws = useTestRunWebSocket(
-    run && isExecutingTestRunStatus(run.status) ? id : undefined
-  )
+  const ws = useLiveTestRunState(id, run?.status)
 
   // Keep the ref in sync with the live WS connection state so that
   // the refetchInterval callbacks above can read the latest value.
   useEffect(() => {
     wsHealthyRef.current = ws.isConnected && ws.isFresh
   }, [ws.isConnected, ws.isFresh])
-
-  useEffect(() => {
-    return () => {
-      if (invalidateTimerRef.current) {
-        clearTimeout(invalidateTimerRef.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!ws.lastProgress) return
-    const msg = ws.lastProgress
-
-    const shouldRefreshRun =
-      msg.type === 'run_started'
-      || msg.type === 'run_complete'
-      || msg.type === 'run_failed'
-      || msg.type === 'run_error'
-      || msg.type === 'cable_disconnected'
-      || msg.type === 'cable_reconnected'
-      || msg.type === 'cable_timeout'
-    const shouldRefreshResults = msg.type === 'test_complete'
-
-    if (shouldRefreshRun || shouldRefreshResults) {
-      if (invalidateTimerRef.current) clearTimeout(invalidateTimerRef.current)
-      invalidateTimerRef.current = setTimeout(() => {
-        if (shouldRefreshResults) {
-          queryClient.invalidateQueries({ queryKey: ['test-results', id] })
-        }
-        if (shouldRefreshRun || shouldRefreshResults) {
-          queryClient.invalidateQueries({ queryKey: ['test-run', id] })
-        }
-      }, 500)
-    }
-  }, [ws.lastProgress, id, queryClient])
 
   useEffect(() => {
     if (!ws.lastProgress) return
@@ -165,14 +134,6 @@ export default function TestRunDetailPage() {
       }
     }
   }, [ws.lastProgress, results])
-
-  // Sync state after WebSocket reconnection (catch missed messages)
-  useEffect(() => {
-    if (ws.reconnectCount > 0) {
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
-      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
-    }
-  }, [ws.reconnectCount, id, queryClient])
 
   const currentTestFromRun = useMemo(
     () => getCurrentTestFromMetadata(run?.run_metadata),
@@ -293,7 +254,7 @@ export default function TestRunDetailPage() {
         await testRunsApi.update(id!, { connection_scenario: nextScenario })
       }
       const resp = await testRunsApi.start(id!)
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      invalidateTestRunResource(queryClient, id)
       setScenarioDialogOpen(false)
       if (resp.data?.status === 'paused_cable') {
         toast(resp.data?.message || 'Device is not connected. Tests are paused until it comes back online.')
@@ -311,7 +272,7 @@ export default function TestRunDetailPage() {
     setIsActioning(true)
     try {
       await testRunsApi.pause(id!)
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      invalidateTestRunResource(queryClient, id)
       toast.success('Test run paused')
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to pause'))
@@ -324,7 +285,7 @@ export default function TestRunDetailPage() {
     setIsActioning(true)
     try {
       await testRunsApi.resume(id!)
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      invalidateTestRunResource(queryClient, id)
       toast.success('Test run resumed')
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to resume'))
@@ -337,8 +298,7 @@ export default function TestRunDetailPage() {
     setIsActioning(true)
     try {
       await testRunsApi.cancel(id!)
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
-      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+      invalidateTestRunResource(queryClient, id)
       toast.success('Test run cancelled')
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to cancel'))
@@ -350,7 +310,7 @@ export default function TestRunDetailPage() {
   const handleFlagCable = async () => {
     try {
       await testRunsApi.pauseCable(id!)
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      invalidateTestRunResource(queryClient, id)
       toast.success('Cable disconnect flagged')
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to flag cable'))
@@ -386,7 +346,7 @@ export default function TestRunDetailPage() {
     setIsActioning(true)
     try {
       await testRunsApi.complete(id!)
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      invalidateTestRunResource(queryClient, id)
       toast.success('Test run approved and completed')
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to approve'))
@@ -399,7 +359,7 @@ export default function TestRunDetailPage() {
     setIsActioning(true)
     try {
       await testRunsApi.requestReview(id!)
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      invalidateTestRunResource(queryClient, id)
       toast.success('Submitted for review')
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Failed to submit for review'))
@@ -436,8 +396,7 @@ export default function TestRunDetailPage() {
         comment_override: notes,
         engineer_notes: notes,
       })
-      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
-      queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+      invalidateTestRunResource(queryClient, id)
 
       const nextId = findNextPendingManual(resultId)
       if (nextId) {
@@ -452,14 +411,14 @@ export default function TestRunDetailPage() {
 
   const handleSaveComment = async (resultId: string, comment: string) => {
     const commentOverride = comment.trim() ? comment : null
-    queryClient.setQueryData(['test-results', id], (old: TestResult[] | undefined) => {
+    queryClient.setQueryData(testRunKeys.results(id), (old: TestResult[] | undefined) => {
       if (!old) return old
       return old.map(r => r.id === resultId ? { ...r, comment_override: commentOverride } : r)
     })
     try {
       await testResultsApi.update(resultId, { comment_override: commentOverride })
     } catch (err: unknown) {
-      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+      queryClient.invalidateQueries({ queryKey: testRunKeys.results(id) })
       toast.error(getApiErrorMessage(err, 'Failed to save comments'))
     }
   }
@@ -467,7 +426,7 @@ export default function TestRunDetailPage() {
   const handleOverride = async (resultId: string, verdict: string, reason: string) => {
     try {
       await testResultsApi.override(resultId, { verdict, override_reason: reason })
-      queryClient.invalidateQueries({ queryKey: ['test-results', id] })
+      invalidateTestRunResource(queryClient, id)
       toast.success('Verdict overridden')
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err, 'Override failed'))
@@ -485,7 +444,7 @@ export default function TestRunDetailPage() {
       const resp = await profilesApi.autoLearn(id)
       if (resp.data?.created) {
         toast.success(resp.data.message || 'Profile saved')
-        queryClient.invalidateQueries({ queryKey: ['test-run', id] })
+        invalidateTestRunResource(queryClient, id)
       } else {
         toast.error(resp.data?.message || 'Could not create profile')
       }
@@ -550,10 +509,7 @@ export default function TestRunDetailPage() {
         verdict: bulkManualVerdict,
         ...(trimmedNotes ? { engineer_notes: trimmedNotes } : {}),
       })
-      await Promise.all([
-        queryClient.refetchQueries({ queryKey: ['test-results', id] }),
-        queryClient.refetchQueries({ queryKey: ['test-run', id] }),
-      ])
+      await refetchTestRunResource(queryClient, id!)
       toast.success(`Updated ${bulkManualSelectedIds.length} manual tests`)
       setBulkManualSelectedIds([])
       setBulkManualNotes('')

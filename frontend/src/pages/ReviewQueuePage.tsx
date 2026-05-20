@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { testRunsApi } from '@/lib/api'
 import type { TestRun } from '@/lib/types'
 import { toLocalDateOnly } from '@/lib/testContracts'
+import { fetchTestRuns, testRunKeys } from '@/lib/testRunResources'
 import { Eye, Loader2, ClipboardCheck, ArrowUpDown } from 'lucide-react'
 import VerdictBadge, { StatusBadge } from '@/components/common/VerdictBadge'
 
@@ -15,8 +15,8 @@ export default function ReviewQueuePage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const { data: runs, isLoading } = useQuery({
-    queryKey: ['review-queue'],
-    queryFn: () => testRunsApi.list({ status: 'awaiting_review' }).then(r => r.data),
+    queryKey: testRunKeys.list({ status: 'awaiting_review' }),
+    queryFn: () => fetchTestRuns({ status: 'awaiting_review' }),
   })
 
   const toggleSort = (field: SortField) => {

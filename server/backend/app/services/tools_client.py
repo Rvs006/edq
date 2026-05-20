@@ -16,7 +16,7 @@ from app.config import settings
 
 logger = logging.getLogger("edq.services.tools_client")
 
-_RETRYABLE_STATUS = {502, 503, 504}
+_RETRYABLE_STATUS = {429, 502, 503, 504}
 _MAX_RETRIES = 3
 _RETRY_BACKOFF = 2  # seconds, doubled each retry
 
@@ -81,6 +81,7 @@ class ToolsClient:
         self.scanner_in_docker: bool = self.scanner_mode == "docker"
         self._docker_raw_scan_capable = self._detect_docker_raw_scan_capability()
         self._client: Optional[httpx.AsyncClient] = None
+        self._target_locks: dict[str, asyncio.Lock] = {}
 
     def _tools_url_is_loopback(self) -> bool:
         host = (urlparse(self.base_url).hostname or "").lower()
@@ -178,6 +179,19 @@ class ToolsClient:
             )
         return self._client
 
+    @staticmethod
+    def _target_lock_key(payload: Dict[str, Any]) -> str:
+        target = str(payload.get("target") or payload.get("subnet") or "").strip()
+        return target.lower() or "__untargeted__"
+
+    def _target_lock(self, payload: Dict[str, Any]) -> asyncio.Lock:
+        lock_key = self._target_lock_key(payload)
+        lock = self._target_locks.get(lock_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._target_locks[lock_key] = lock
+        return lock
+
     async def close(self) -> None:
         """Close the persistent HTTP client. Call on app shutdown."""
         if self._client and not self._client.is_closed:
@@ -255,43 +269,62 @@ class ToolsClient:
         Falls back to the non-streaming endpoint if SSE fails.
         """
         target_base_url = (base_url or self.base_url).rstrip("/")
-        result: Dict[str, Any] = {}
-        try:
-            client = self._get_client(timeout)
-            async with client.stream(
-                "POST",
-                f"{target_base_url}{path}",
-                json=payload,
-                headers=self._headers,
-                timeout=timeout + 30,
-            ) as resp:
-                resp.raise_for_status()
-                async for raw_line in resp.aiter_lines():
-                    if not raw_line.startswith("data: "):
-                        continue
-                    try:
-                        event = json.loads(raw_line[6:])
-                    except json.JSONDecodeError:
-                        continue
-                    event_type = event.get("type")
-                    if event_type in {"stdout", "stderr"} and on_line:
-                        line = event.get("line", "")
-                        if event_type == "stderr":
-                            line = f"[stderr] {line}"
-                        await on_line(line)
-                    elif event.get("type") == "result":
-                        result = event.get("data", {})
-        except Exception as exc:
-            logger.warning("Streaming failed for %s, falling back to sync: %s", path, exc)
-            # Fall back to non-streaming endpoint
+        for attempt in range(_MAX_RETRIES):
+            result: Dict[str, Any] = {}
+            try:
+                client = self._get_client(timeout)
+                async with client.stream(
+                    "POST",
+                    f"{target_base_url}{path}",
+                    json=payload,
+                    headers=self._headers,
+                    timeout=timeout + 30,
+                ) as resp:
+                    resp.raise_for_status()
+                    async for raw_line in resp.aiter_lines():
+                        if not raw_line.startswith("data: "):
+                            continue
+                        try:
+                            event = json.loads(raw_line[6:])
+                        except json.JSONDecodeError:
+                            continue
+                        event_type = event.get("type")
+                        if event_type in {"stdout", "stderr"} and on_line:
+                            line = event.get("line", "")
+                            if event_type == "stderr":
+                                line = f"[stderr] {line}"
+                            await on_line(line)
+                        elif event.get("type") == "result":
+                            result = event.get("data", {})
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                if status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
+                    logger.warning("Retryable %d from %s stream (attempt %d)", status_code, path, attempt + 1)
+                    await asyncio.sleep(_RETRY_BACKOFF * (2 ** attempt))
+                    continue
+                logger.warning("Streaming failed for %s, falling back to sync: %s", path, exc)
+                sync_path = path.replace("/stream/", "/scan/")
+                return await self._post(sync_path, payload, timeout=timeout, base_url=target_base_url)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                if attempt < _MAX_RETRIES - 1:
+                    logger.warning("Connection error to sidecar stream (attempt %d): %s", attempt + 1, exc)
+                    await asyncio.sleep(_RETRY_BACKOFF * (2 ** attempt))
+                    continue
+                logger.warning("Streaming failed for %s, falling back to sync: %s", path, exc)
+                sync_path = path.replace("/stream/", "/scan/")
+                return await self._post(sync_path, payload, timeout=timeout, base_url=target_base_url)
+            except Exception as exc:
+                logger.warning("Streaming failed for %s, falling back to sync: %s", path, exc)
+                sync_path = path.replace("/stream/", "/scan/")
+                return await self._post(sync_path, payload, timeout=timeout, base_url=target_base_url)
+
+            if result:
+                return result
+
             sync_path = path.replace("/stream/", "/scan/")
             return await self._post(sync_path, payload, timeout=timeout, base_url=target_base_url)
 
-        if not result:
-            sync_path = path.replace("/stream/", "/scan/")
-            return await self._post(sync_path, payload, timeout=timeout, base_url=target_base_url)
-
-        return result
+        raise RuntimeError("Unexpected stream retry exhaustion")
 
     async def _get_json(
         self,
@@ -322,13 +355,15 @@ class ToolsClient:
     ) -> Dict[str, Any]:
         if self.has_host_network_scanner():
             try:
-                return self._with_scanner_source(
-                    await self._post(
+                async with self._target_lock(host_payload):
+                    result = await self._post(
                         path,
                         host_payload,
                         timeout=timeout,
                         base_url=self.host_network_scanner_url,
-                    ),
+                    )
+                return self._with_scanner_source(
+                    result,
                     "host",
                 )
             except Exception as exc:
@@ -354,14 +389,16 @@ class ToolsClient:
     ) -> Dict[str, Any]:
         if self.has_host_network_scanner():
             try:
-                return self._with_scanner_source(
-                    await self._post_stream(
+                async with self._target_lock(host_payload):
+                    result = await self._post_stream(
                         path,
                         host_payload,
                         timeout=timeout,
                         on_line=on_line,
                         base_url=self.host_network_scanner_url,
-                    ),
+                    )
+                return self._with_scanner_source(
+                    result,
                     "host",
                 )
             except Exception as exc:

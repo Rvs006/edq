@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { devicesApi, testRunsApi, cveApi, discoveryApi, getApiErrorMessage } from '@/lib/api'
+import { devicesApi, cveApi, discoveryApi, getApiErrorMessage } from '@/lib/api'
 import type { Device, TestRun, CVELookupResponse } from '@/lib/types'
 import {
   ArrowLeft, Monitor, Play, Loader2, Shield, Search,
@@ -17,6 +17,7 @@ import { toLocalDateOnly } from '@/lib/testContracts'
 import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { fetchTestRuns, testRunKeys } from '@/lib/testRunResources'
 
 function SeverityBadge({ severity }: { severity: string }) {
   const colors: Record<string, string> = {
@@ -60,8 +61,8 @@ export default function DeviceDetailPage() {
     enabled: !!id,
   })
   const { data: runs } = useQuery({
-    queryKey: ['device-runs', id],
-    queryFn: () => testRunsApi.list({ device_id: id }).then(r => r.data),
+    queryKey: testRunKeys.list({ device_id: id }),
+    queryFn: () => fetchTestRuns({ device_id: id }),
     enabled: !!id,
   })
   const { data: trendData, isLoading: isTrendLoading, isError: isTrendError } = useQuery<TrendData>({

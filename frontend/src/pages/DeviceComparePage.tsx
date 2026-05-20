@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
-import { devicesApi, testRunsApi } from '@/lib/api'
+import { devicesApi } from '@/lib/api'
 import type { Device, TestRun } from '@/lib/types'
 import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react'
 import VerdictBadge from '@/components/common/VerdictBadge'
 import CategoryBadge from '@/components/common/CategoryBadge'
 import { getPreferredDeviceName } from '@/lib/deviceLabels'
+import { fetchTestRuns, testRunKeys } from '@/lib/testRunResources'
 
 /** Returns the set of values for a given row across all devices. */
 function uniqueValues(devices: Device[], accessor: (d: Device) => string): Set<string> {
@@ -138,9 +139,8 @@ export default function DeviceComparePage() {
   // Fetch the latest test runs per device for pass-rate calculation
   const runQueries = useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['test-runs', { device_id: id, status: 'completed', limit: 1 }],
-      queryFn: () =>
-        testRunsApi.list({ device_id: id, status: 'completed', limit: 1 }).then((r) => r.data as unknown as TestRun[]),
+      queryKey: testRunKeys.list({ device_id: id, status: 'completed', limit: 1 }),
+      queryFn: () => fetchTestRuns({ device_id: id, status: 'completed', limit: 1 }),
       enabled: !validationMessage,
     })),
   })

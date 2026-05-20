@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import ReportsPage from '@/pages/ReportsPage'
 import { reportsApi, testRunsApi } from '@/lib/api'
 import type { TestRun } from '@/lib/types'
+import { testRunKeys } from '@/lib/testRunResources'
 import toast from 'react-hot-toast'
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'edq-http'
 
@@ -99,7 +100,7 @@ function renderWithProviders(ui: React.ReactElement, options: { completedRuns?: 
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
   if (options.completedRuns) {
-    queryClient.setQueryData(['completed-runs'], options.completedRuns)
+    queryClient.setQueryData(testRunKeys.list({ status: 'completed' }), options.completedRuns)
   }
   return render(
     <QueryClientProvider client={queryClient}>

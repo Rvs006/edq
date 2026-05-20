@@ -12,6 +12,7 @@ import VerdictBadge from '@/components/common/VerdictBadge'
 import type { TestRun, TourState } from '@/lib/types'
 import { toLocalDateOnly } from '@/lib/testContracts'
 import { getDeviceMetaSummary, getPreferredDeviceName } from '@/lib/deviceLabels'
+import { fetchTestRuns, testRunKeys } from '@/lib/testRunResources'
 
 export default function DashboardPage({ tourState }: { tourState?: TourState }) {
   const { user } = useAuth()
@@ -27,8 +28,8 @@ export default function DashboardPage({ tourState }: { tourState?: TourState }) 
     refetchInterval: 15000,
   })
   const recentRunsQuery = useQuery({
-    queryKey: ['recent-runs'],
-    queryFn: () => testRunsApi.list({ limit: 8 }).then((r) => r.data),
+    queryKey: testRunKeys.list({ limit: 8 }),
+    queryFn: () => fetchTestRuns({ limit: 8 }),
     refetchInterval: 15000,
   })
 

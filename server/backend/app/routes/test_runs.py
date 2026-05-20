@@ -31,7 +31,6 @@ from app.services.run_readiness import (
     merge_readiness_into_metadata,
 )
 from app.services.scenario_routing import (
-    get_manual_routing_note,
     get_scenario_routing_decision,
     is_manual_routing_note,
     normalize_connection_scenario,
@@ -39,13 +38,20 @@ from app.services.scenario_routing import (
 from app.services.test_run_connectivity import ensure_device_execution_readiness
 from app.services.test_library import get_test_by_id
 from app.services.run_visibility import can_include_internal, can_view_template, public_template_clause
-from app.services.test_selection import TestSelectionError, validate_active_test_ids
+from app.services.test_selection import TestSelectionError
+from app.services.test_run_lifecycle import (
+    can_cancel_run,
+    can_flag_cable_issue,
+    can_pause_run,
+    can_resume_run,
+    can_start_run,
+)
+from app.services.test_run_provisioning import provision_test_run
 from app.services.test_run_launcher import cancel_test_run as _cancel_test_run, is_run_executing, launch_test_run
 from app.services.wobbly_cable import get_cable_handler
 from app.services.nessus_parser import nessus_parser
 from app.config import settings
 from app.utils.audit import log_action
-from app.utils.collections import ordered_unique
 from app.utils.datetime import utcnow_naive
 from app.models.user import UserRole
 from app.models.authorized_network import AuthorizedNetwork
@@ -64,13 +70,6 @@ def _apply_public_run_visibility(query, user: User, include_internal: bool = Fal
         .where(TestTemplate.is_active == True)
         .where(public_template_clause())
     )
-
-
-def _validate_selected_test_ids_for_route(test_ids: list[str] | None) -> list[str]:
-    try:
-        return validate_active_test_ids(test_ids)
-    except TestSelectionError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
 
 
 def _nessus_upload_path(run_id: str) -> Path:
@@ -108,11 +107,6 @@ async def _ensure_test_run_target_authorized(db: AsyncSession, user: User, devic
         ))
         await db.flush()
         logger.info("Auto-authorized test-run target %s for admin %s", subnet, user.username)
-
-
-def _resolve_result_tier(test_id: str, connection_scenario: str, base_tier: str) -> TestTier:
-    decision = get_scenario_routing_decision(test_id, base_tier, connection_scenario)
-    return TestTier(decision.tier)
 
 
 async def _sync_run_result_routing(
@@ -471,79 +465,23 @@ async def create_test_run(
     if not can_view_template(user, template, include_internal):
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # Handle both native list and double-serialized JSON string
-    raw_ids = template.test_ids
-    if isinstance(raw_ids, str):
-        import json as _json
-        raw_ids = _json.loads(raw_ids)
-
-    template_test_ids = ordered_unique(raw_ids)
-    selected_test_ids = None
-    if data.selected_test_ids is not None:
-        selected_test_ids = _validate_selected_test_ids_for_route(data.selected_test_ids)
-        template_active_ids = {
-            test_id
-            for test_id in template_test_ids
-            if (test_def := get_test_by_id(test_id)) and not test_def.get("deprecated")
-        }
-        outside_template = [test_id for test_id in selected_test_ids if test_id not in template_active_ids]
-        if outside_template:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Selected test id(s) are not part of the chosen template: "
-                    f"{', '.join(outside_template)}"
-                ),
-            )
-
-    raw_ids = selected_test_ids or template_test_ids
-    test_defs = [
-        (test_id, test_def)
-        for test_id in raw_ids
-        if (test_def := get_test_by_id(test_id)) and not test_def.get("deprecated")
-    ]
-    if not test_defs:
-        raise HTTPException(status_code=422, detail="Select at least one active test")
-
-    metadata = dict(data.metadata) if isinstance(data.metadata, dict) else {}
-    if data.metadata is not None and not isinstance(data.metadata, dict):
-        metadata["request_metadata"] = data.metadata
-    if selected_test_ids is not None:
-        metadata["selected_test_ids"] = selected_test_ids
-        metadata["selection_source"] = "explicit"
-    metadata["selected_test_count"] = len(test_defs)
-
-    test_run = TestRun(
-        device_id=data.device_id,
-        template_id=data.template_id,
-        engineer_id=user.id,
-        project_id=device.project_id,
-        agent_id=data.agent_id,
-        connection_scenario=connection_scenario,
-        total_tests=len(test_defs),
-        status=TestRunStatus.PENDING,
-        run_metadata=metadata or data.metadata,
-    )
-    db.add(test_run)
-    await db.flush()
-
-    for test_id, test_def in test_defs:
-        result = TestResult(
-            test_run_id=test_run.id,
-            test_id=test_id,
-            test_name=test_def["name"],
-            tier=_resolve_result_tier(test_id, connection_scenario, test_def["tier"]),
-            tool=test_def.get("tool"),
-            verdict=TestVerdict.PENDING,
-            is_essential="yes" if test_def["is_essential"] else "no",
-            compliance_map=test_def.get("compliance_map", []),
+    try:
+        provisioned = await provision_test_run(
+            db,
+            device=device,
+            template=template,
+            engineer_id=user.id,
+            connection_scenario=connection_scenario,
+            selected_test_ids=data.selected_test_ids,
+            metadata=data.metadata,
+            selection_source="explicit",
+            agent_id=data.agent_id,
+            require_selected_within_template=True,
         )
-        manual_note = get_manual_routing_note(test_id, connection_scenario)
-        if manual_note:
-            result.comment = manual_note
-        db.add(result)
+    except TestSelectionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
-    await db.flush()
+    test_run = provisioned.run
     await _sync_run_result_routing(db, test_run.id, connection_scenario)
     await db.refresh(test_run)
     logger.info(
@@ -551,7 +489,7 @@ async def create_test_run(
         test_run.id,
         getattr(device, "ip_address", data.device_id),
         template.name,
-        len(test_defs),
+        len(provisioned.test_ids),
     )
     await log_action(
         db,
@@ -563,8 +501,8 @@ async def create_test_run(
             "device_id": data.device_id,
             "device_ip": device.ip_address,
             "template_id": data.template_id,
-            "test_count": len(test_defs),
-            "selection_source": "explicit" if selected_test_ids is not None else "template",
+            "test_count": len(provisioned.test_ids),
+            "selection_source": provisioned.selection_source,
         },
         request,
     )
@@ -622,11 +560,7 @@ async def start_test_run(
     run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
-    if run_status not in (
-        TestRunStatus.PENDING.value,
-        TestRunStatus.FAILED.value,
-        TestRunStatus.CANCELLED.value,
-    ):
+    if not can_start_run(run_status):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot start run in '{run_status}' status. Must be 'pending', 'failed', or 'cancelled'.",
@@ -710,13 +644,7 @@ async def cancel_test_run(
     run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
-    if run_status not in (
-        TestRunStatus.RUNNING.value,
-        TestRunStatus.SELECTING_INTERFACE.value,
-        TestRunStatus.SYNCING.value,
-        TestRunStatus.PAUSED_MANUAL.value,
-        TestRunStatus.PAUSED_CABLE.value,
-    ):
+    if not can_cancel_run(run_status):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot cancel run in '{run_status}' status. Must be active or paused.",
@@ -753,7 +681,7 @@ async def pause_test_run(
     run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
-    if run_status != TestRunStatus.RUNNING.value:
+    if not can_pause_run(run_status):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot pause run in '{run_status}' status. Must be 'running'.",
@@ -782,7 +710,7 @@ async def pause_test_run_for_cable(
     run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
-    if run_status not in (TestRunStatus.RUNNING.value, TestRunStatus.AWAITING_MANUAL.value):
+    if not can_flag_cable_issue(run_status):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot flag cable issue in '{run_status}' status. Must be 'running' or 'awaiting_manual'.",
@@ -823,10 +751,7 @@ async def resume_test_run(
     run = await _get_authorized_test_run(run_id, user, db, include_internal)
     run_status = normalize_test_run_status(run.status)
 
-    if run_status not in (
-        TestRunStatus.PAUSED_MANUAL.value,
-        TestRunStatus.PAUSED_CABLE.value,
-    ):
+    if not can_resume_run(run_status):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot resume run in '{run_status}' status. Must be paused.",

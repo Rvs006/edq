@@ -110,6 +110,18 @@ Windows PowerShell:
 .\scripts\verify-app.ps1
 ```
 
+To exercise the browser UI end to end and save console/network artifacts:
+
+```bash
+node scripts/browser-e2e.mjs
+```
+
+```powershell
+node .\scripts\browser-e2e.mjs
+```
+
+The browser E2E run logs screenshots, page text, console output, runtime exceptions, and network responses under `reports/browser-e2e/`.
+
 On Windows, run the scanner preflight before real-device work if you are not using `scripts\start-edq.ps1`:
 
 ```powershell

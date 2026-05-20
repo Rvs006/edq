@@ -1,6 +1,5 @@
 """Report generation routes."""
 
-import json
 import logging
 import re
 from pathlib import Path
@@ -11,28 +10,22 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.models.database import get_db
-from app.models.branding import BrandingSettings
-from app.models.test_result import TestTier, TestVerdict
-from app.models.protocol_whitelist import ProtocolWhitelist
 from app.models.report_config import ReportConfig
-from app.models.test_result import TestResult
 from app.models.test_run import TestRun
-from app.models.test_template import TestTemplate
 from app.models.user import User, UserRole
 from app.security.auth import get_current_active_user
 from app.middleware.rate_limit import check_rate_limit, check_user_rate_limit
 from app.services.report_generator import (
-    generate_excel_report,
-    generate_word_report,
     get_available_templates,
 )
-from app.services.run_readiness import (
-    build_run_readiness_summary,
-    get_report_readiness_block_message,
+from app.services.report_artifacts import (
+    ReportContextNotFoundError,
+    ReportNotReadyError,
+    generate_report_artifact,
+    load_report_context,
 )
 from app.utils.audit import log_action
 
@@ -75,87 +68,10 @@ class ReportRequest(BaseModel):
     template_key: Literal["generic"] = "generic"
 
 
-def _normalize_report_type(report_type: str) -> str:
-    aliases = {
-        "xlsx": "excel",
-        "docx": "word",
-    }
-    return aliases.get(report_type, report_type)
-
-
 @router.get("/templates")
 async def list_report_templates(_: User = Depends(get_current_active_user)):
     """List available Excel report templates and their device categories."""
     return get_available_templates()
-
-
-async def _load_run_context(data: ReportRequest, db: AsyncSession):
-    result = await db.execute(
-        select(TestRun)
-        .options(selectinload(TestRun.device), selectinload(TestRun.engineer))
-        .where(TestRun.id == data.test_run_id)
-    )
-    test_run = result.scalar_one_or_none()
-    if not test_run:
-        raise HTTPException(status_code=404, detail="Test run not found")
-
-    results = await db.execute(
-        select(TestResult)
-        .where(TestResult.test_run_id == data.test_run_id)
-        .order_by(TestResult.test_id)
-    )
-    test_results = results.scalars().all()
-
-    report_config = None
-    if data.report_config_id:
-        config_result = await db.execute(
-            select(ReportConfig).where(ReportConfig.id == data.report_config_id)
-        )
-        report_config = config_result.scalar_one_or_none()
-
-    enabled_test_ids = None
-    template = None
-    if test_run.template_id:
-        tmpl_result = await db.execute(
-            select(TestTemplate).where(TestTemplate.id == test_run.template_id)
-        )
-        template = tmpl_result.scalar_one_or_none()
-        if template and template.test_ids:
-            raw_ids = template.test_ids
-            if isinstance(raw_ids, str):
-                try:
-                    raw_ids = json.loads(raw_ids)
-                except (json.JSONDecodeError, TypeError):
-                    raw_ids = None
-            if isinstance(raw_ids, list):
-                enabled_test_ids = raw_ids
-
-    whitelist_entries = None
-    if template and getattr(template, "whitelist_id", None):
-        wl_result = await db.execute(
-            select(ProtocolWhitelist).where(ProtocolWhitelist.id == template.whitelist_id)
-        )
-        wl = wl_result.scalar_one_or_none()
-        if wl and wl.entries:
-            entries = wl.entries
-            if isinstance(entries, str):
-                try:
-                    entries = json.loads(entries)
-                except (json.JSONDecodeError, TypeError):
-                    entries = None
-            whitelist_entries = entries
-
-    branding_result = await db.execute(select(BrandingSettings).limit(1))
-    branding_settings = branding_result.scalar_one_or_none()
-
-    return (
-        test_run,
-        test_results,
-        report_config,
-        enabled_test_ids,
-        whitelist_entries,
-        branding_settings,
-    )
 
 
 def _extract_report_run_id(filename: str) -> str | None:
@@ -190,57 +106,41 @@ async def generate_report(
     if user.role == UserRole.ENGINEER and tr.engineer_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    test_run, test_results, report_config, enabled_test_ids, whitelist_entries, branding_settings = (
-        await _load_run_context(data, db)
-    )
-    readiness_summary = build_run_readiness_summary(test_run, test_results)
-    if not readiness_summary["report_ready"]:
-        raise HTTPException(
-            status_code=409,
-            detail=get_report_readiness_block_message(readiness_summary),
-        )
-
     try:
-        report_type = _normalize_report_type(data.report_type)
-        if report_type == "excel":
-            file_path = await generate_excel_report(
-                test_run,
-                test_results,
-                report_config,
-                template_key=data.template_key,
-                enabled_test_ids=enabled_test_ids,
-                whitelist_entries=whitelist_entries,
-                include_synopsis=data.include_synopsis,
-                branding_settings=branding_settings,
-                readiness_summary=readiness_summary,
-            )
-        elif report_type == "word":
-            file_path = await generate_word_report(
-                test_run,
-                test_results,
-                report_config,
-                include_synopsis=data.include_synopsis,
-                enabled_test_ids=enabled_test_ids,
-                whitelist_entries=whitelist_entries,
-                template_key=data.template_key,
-                branding_settings=branding_settings,
-                readiness_summary=readiness_summary,
-            )
-        else:
-            raise HTTPException(
-                status_code=400, detail="Invalid report type. Use 'excel' or 'word'."
-            )
-
-        filename = Path(file_path).name
-        await log_action(db, user, "report.generate", "report", data.test_run_id, {"type": report_type, "filename": filename}, request)
+        context = await load_report_context(
+            db,
+            test_run_id=data.test_run_id,
+            report_config_id=data.report_config_id,
+        )
+        artifact = await generate_report_artifact(
+            context,
+            report_type=data.report_type,
+            template_key=data.template_key,
+            include_synopsis=data.include_synopsis,
+        )
+        await log_action(
+            db,
+            user,
+            "report.generate",
+            "report",
+            data.test_run_id,
+            {"type": artifact.report_type, "filename": artifact.filename},
+            request,
+        )
         return {
-            "filename": filename,
-            "report_type": report_type,
+            "filename": artifact.filename,
+            "report_type": artifact.report_type,
             "template_key": data.template_key,
-            "download_url": f"/api/reports/download/{filename}",
-            "readiness_summary": readiness_summary,
+            "download_url": f"/api/reports/download/{artifact.filename}",
+            "readiness_summary": artifact.readiness_summary,
             "message": "Report generated successfully",
         }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ReportContextNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ReportNotReadyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except RuntimeError as exc:
         logger.exception("Report generation failed for run %s", data.test_run_id)
         raise HTTPException(status_code=500, detail=str(exc))
