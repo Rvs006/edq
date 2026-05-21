@@ -45,6 +45,8 @@ Tip: Set `ENVIRONMENT=cloud` in `.env` for production deployments — this auto-
    - `TOOLS_API_KEY`
    - `INITIAL_ADMIN_PASSWORD`
    - `POSTGRES_PASSWORD`
+   Generate `JWT_SECRET` and `JWT_REFRESH_SECRET` as separate values of at
+   least 32 characters; `openssl rand -hex 64` is the recommended command.
 3. Set production-safe values for:
    - `COOKIE_SECURE=true`
    - `DEBUG=false`

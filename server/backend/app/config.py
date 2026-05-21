@@ -284,7 +284,35 @@ import sys as _sys
 import warnings as _warnings
 
 
+_MIN_JWT_SIGNING_SECRET_CHARS = 32
+
+
+def _validate_jwt_signing_secrets(runtime_settings: Settings) -> None:
+    jwt_secrets = {
+        "JWT_SECRET": runtime_settings.JWT_SECRET,
+        "JWT_REFRESH_SECRET": runtime_settings.JWT_REFRESH_SECRET,
+    }
+    for name, value in jwt_secrets.items():
+        if len(value.strip()) < _MIN_JWT_SIGNING_SECRET_CHARS:
+            raise RuntimeError(
+                f"[EDQ SECURITY] {name} must be at least "
+                f"{_MIN_JWT_SIGNING_SECRET_CHARS} characters for HS256 signing. "
+                "Generate a strong secret with: openssl rand -hex 64"
+            )
+
+    if _secrets.compare_digest(
+        runtime_settings.JWT_SECRET,
+        runtime_settings.JWT_REFRESH_SECRET,
+    ):
+        raise RuntimeError(
+            "[EDQ SECURITY] JWT_SECRET and JWT_REFRESH_SECRET must be different values. "
+            "Generate separate secrets with: openssl rand -hex 64"
+        )
+
+
 def _apply_runtime_security_guards(runtime_settings: Settings) -> Settings:
+    _validate_jwt_signing_secrets(runtime_settings)
+
     localhost_origins, localhost_only = _partition_localhost_origins(runtime_settings.CORS_ORIGINS)
     production_like_env = runtime_settings.ENVIRONMENT == "cloud" or (
         runtime_settings.ENVIRONMENT == "docker" and runtime_settings.COOKIE_SECURE

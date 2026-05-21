@@ -7,8 +7,8 @@ from app.config import Settings, _apply_runtime_security_guards
 
 def _base_settings(**overrides) -> Settings:
     values = {
-        "JWT_SECRET": "jwt_test_value_for_tests_only",
-        "JWT_REFRESH_SECRET": "refresh_test_value_for_tests_only",
+        "JWT_SECRET": "jwt_test_value_for_tests_only_minimum_32_chars",
+        "JWT_REFRESH_SECRET": "refresh_test_value_for_tests_only_minimum_32_chars",
         "SECRET_KEY": "app_test_value_for_tests_only",
         "TOOLS_API_KEY": "tools_api_value_for_tests_only",
         "INITIAL_ADMIN_PASSWORD": "AdminPassForTests1",
@@ -137,3 +137,22 @@ def test_cloud_defaults_ignore_host_mapped_postgres_port(monkeypatch):
 def test_redis_required_defaults_false():
     settings = _base_settings()
     assert settings.REDIS_REQUIRED is False
+
+
+def test_runtime_security_guards_reject_short_jwt_signing_secret():
+    with pytest.raises(RuntimeError, match="JWT_SECRET must be at least 32 characters"):
+        _apply_runtime_security_guards(
+            _base_settings(JWT_SECRET="short-jwt-secret")
+        )
+
+
+def test_runtime_security_guards_reject_reused_jwt_signing_secrets():
+    reused_secret = "shared_jwt_secret_value_for_tests_minimum_32_chars"
+
+    with pytest.raises(RuntimeError, match="must be different values"):
+        _apply_runtime_security_guards(
+            _base_settings(
+                JWT_SECRET=reused_secret,
+                JWT_REFRESH_SECRET=reused_secret,
+            )
+        )
