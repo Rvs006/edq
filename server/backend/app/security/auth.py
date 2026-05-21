@@ -96,11 +96,11 @@ def generate_api_key() -> str:
 
 
 def hash_api_key(api_key: str) -> str:
-    digest = hmac.new(
+    digest = hmac.digest(
         settings.JWT_SECRET.encode("utf-8"),
         api_key.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+        "sha256",
+    ).hex()
     return f"{_API_KEY_DIGEST_VERSION}:{digest}"
 
 
