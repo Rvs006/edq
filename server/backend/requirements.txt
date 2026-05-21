@@ -1,6 +1,6 @@
 fastapi==0.136.0
 uvicorn[standard]==0.44.0
-uvloop>=0.22.1
+uvloop>=0.22.1; sys_platform != "win32"
 httptools>=0.7.1
 sqlalchemy[asyncio]==2.0.49
 aiosqlite==0.22.1

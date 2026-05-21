@@ -16,6 +16,7 @@ Current repository automation includes:
 - Dependabot configuration for GitHub Actions, frontend, Electron, backend Python dependencies, tools Python dependencies, and Dockerfiles.
 - Routine Dependabot version-update PRs are disabled with `open-pull-requests-limit: 0`; security updates remain enabled through GitHub security settings.
 - CodeQL workflow for Python and JavaScript/TypeScript.
+- Backend Python dependency auditing through `scripts/audit_python_deps.py`.
 - Container security workflow that scans the backend image for critical and high CVEs.
 - Nightly full-verification workflow for broader backend, frontend, and Docker smoke coverage.
 - Branch protection requires the real CI job names plus `container-scan`.
@@ -28,6 +29,7 @@ Current repository automation includes:
 .\scripts\security-doctor.ps1
 .\scripts\security-scan.ps1
 .\scripts\security-scan.ps1 -Format json
+python .\scripts\audit_python_deps.py
 ```
 
 ### Bash / WSL
@@ -36,7 +38,16 @@ Current repository automation includes:
 ./scripts/security-doctor.sh
 ./scripts/security-scan.sh
 ./scripts/security-scan.sh json
+python scripts/audit_python_deps.py
 ```
+
+## Accepted Python advisory
+
+`scripts/audit_python_deps.py` ignores `PYSEC-2025-183` / `CVE-2025-45768`
+for PyJWT. The advisory is disputed, PyJWT 2.12.1 is the latest available
+release, and no fixed version is published. EDQ mitigates the weak-key
+condition by rejecting short JWT signing secrets and reused access/refresh
+signing secrets during backend configuration startup.
 
 ### Windows launchers
 

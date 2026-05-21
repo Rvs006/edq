@@ -8,8 +8,8 @@ on:
 permissions: read-all
 
 env:
-  JWT_SECRET: ci-jwt-secret-for-nightly
-  JWT_REFRESH_SECRET: ci-refresh-secret-for-nightly
+  JWT_SECRET: ci-jwt-secret-for-nightly-minimum-32-characters
+  JWT_REFRESH_SECRET: ci-refresh-secret-for-nightly-minimum-32-characters
   SECRET_KEY: ci-secret-key-for-nightly
   TOOLS_API_KEY: ci-test-tools-key-32-character-value
   INITIAL_ADMIN_PASSWORD: ci-test-admin-password
@@ -33,8 +33,8 @@ jobs:
 
           path = Path(".env")
           values = {
-              "JWT_SECRET": "ci-jwt-secret-for-nightly",
-              "JWT_REFRESH_SECRET": "ci-refresh-secret-for-nightly",
+              "JWT_SECRET": "ci-jwt-secret-for-nightly-minimum-32-characters",
+              "JWT_REFRESH_SECRET": "ci-refresh-secret-for-nightly-minimum-32-characters",
               "SECRET_KEY": "ci-secret-key-for-nightly",
               "TOOLS_API_KEY": "ci-test-tools-key-32-character-value",
               "INITIAL_ADMIN_PASSWORD": "ci-test-admin-password",
@@ -95,8 +95,8 @@ jobs:
 
           path = Path(".env")
           values = {
-              "JWT_SECRET": "ci-jwt-secret-for-nightly",
-              "JWT_REFRESH_SECRET": "ci-refresh-secret-for-nightly",
+              "JWT_SECRET": "ci-jwt-secret-for-nightly-minimum-32-characters",
+              "JWT_REFRESH_SECRET": "ci-refresh-secret-for-nightly-minimum-32-characters",
               "SECRET_KEY": "ci-secret-key-for-nightly",
               "TOOLS_API_KEY": "ci-test-tools-key-32-character-value",
               "INITIAL_ADMIN_PASSWORD": "ci-test-admin-password",

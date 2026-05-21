@@ -48,6 +48,10 @@ jobs:
       - run: |
           cd server/backend
           pip install -r requirements.txt -r requirements-dev.txt
+      - name: Audit backend Python dependencies
+        run: python scripts/audit_python_deps.py
+      - run: |
+          cd server/backend
           pytest tests/test_auth.py tests/test_authorization.py tests/security/test_auth_security.py tests/security/test_rate_limiting.py tests/security/test_injection.py tests/test_health.py -v --tb=short
 
   frontend-verify:
