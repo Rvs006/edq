@@ -246,7 +246,22 @@ def test_parse_scan_request_rejects_extra_ip_targets_in_args():
     assert target is None
     assert args is None
     assert timeout is None
-    assert err == ("Unexpected positional target(s) in nmap args: 192.168.4.65", 400)
+    assert err == ("Unexpected positional target in nmap arguments", 400)
+
+
+def test_command_vector_rejects_unknown_executable():
+    tools_server = _load_tools_server()
+
+    with pytest.raises(ValueError, match="Unsupported scanner executable"):
+        tools_server._validate_command_vector(["python", "-c", "print('unsafe')"])
+
+
+def test_command_vector_accepts_validated_scanner_command():
+    tools_server = _load_tools_server()
+
+    command = tools_server._validate_command_vector(["nmap", "-sT", "-p", "80", "192.168.4.64"])
+
+    assert command == ["nmap", "-sT", "-p", "80", "192.168.4.64"]
 
 
 def test_hydra_args_must_match_validated_target():

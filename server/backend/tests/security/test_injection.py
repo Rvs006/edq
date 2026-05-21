@@ -3,6 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
+from app.utils.sanitize import _strip_html_fallback
+
 from ..conftest import register_and_login
 
 
@@ -37,3 +39,20 @@ async def test_xss_project_name(client: AsyncClient):
     assert "<script" not in stored_name.lower(), (
         f"Script tag survived sanitization: {stored_name!r}"
     )
+
+
+def test_strip_html_fallback_handles_pathological_angle_brackets():
+    payload = "<" * 5000 + "script>alert(1)</script>"
+
+    sanitized = _strip_html_fallback(payload)
+
+    assert "javascript:" not in sanitized.lower()
+    assert "<script" not in sanitized.lower()
+
+
+def test_strip_html_fallback_removes_tags_and_javascript_urls():
+    payload = '<a href="javascript:alert(1)" onclick="alert(2)">Open</a>'
+
+    sanitized = _strip_html_fallback(payload)
+
+    assert sanitized == "Open"

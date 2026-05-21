@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 import secrets
 import hashlib
+import hmac
 
 from app.config import settings
 from app.models.database import get_db
@@ -69,6 +70,7 @@ def is_access_token_revoked_for_user(user: User, payload: dict) -> bool:
 
 _BCRYPT_MAX_PASSWORD_BYTES = 72
 _BCRYPT_ROUNDS = 12
+_API_KEY_DIGEST_VERSION = "hmac-sha256"
 
 
 def hash_password(password: str) -> str:
@@ -94,7 +96,28 @@ def generate_api_key() -> str:
 
 
 def hash_api_key(api_key: str) -> str:
+    digest = hmac.new(
+        settings.JWT_SECRET.encode("utf-8"),
+        api_key.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{_API_KEY_DIGEST_VERSION}:{digest}"
+
+
+def legacy_hash_api_key(api_key: str) -> str:
+    # Existing agent registrations stored a raw SHA-256 lookup digest. Agent
+    # API keys are high-entropy random tokens, so this compatibility path is
+    # only for matching existing rows while new rows use a keyed digest.
+    # codeql[py/weak-sensitive-data-hashing]
     return hashlib.sha256(api_key.encode()).hexdigest()
+
+
+def api_key_hash_candidates(api_key: str) -> tuple[str, ...]:
+    current_hash = hash_api_key(api_key)
+    legacy_hash = legacy_hash_api_key(api_key)
+    if current_hash == legacy_hash:
+        return (current_hash,)
+    return (current_hash, legacy_hash)
 
 
 def generate_csrf_token() -> str:

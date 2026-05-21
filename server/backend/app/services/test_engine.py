@@ -1826,6 +1826,9 @@ class TestEngine:
                 context.minimum_version = version
                 context.maximum_version = version
                 with socket.create_connection((host, port), timeout=4) as sock:
+                    # EDQ is a scanner: it intentionally attempts deprecated
+                    # protocol negotiation to detect and report weak endpoints.
+                    # codeql[py/insecure-protocol]
                     with context.wrap_socket(sock, server_hostname=host) as tls_sock:
                         negotiated = tls_sock.version() or label
                         if label not in result["tls_versions"]:

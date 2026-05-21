@@ -465,7 +465,7 @@ async def detect_networks(
             "scanner_in_docker": getattr(tools_client, "scanner_in_docker", tools_client.in_docker),
             "scanner_mode": getattr(tools_client, "scanner_mode", "auto"),
             "scan_recommendation": None,
-            "debug": {"error": str(exc)},
+            "debug": {"error": "network_detection_failed"},
         }
 
 

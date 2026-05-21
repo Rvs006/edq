@@ -12,7 +12,13 @@ from app.models.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
 from app.schemas.agent import AgentRegister, AgentResponse, AgentRegisterResponse, AgentHeartbeat
-from app.security.auth import get_current_active_user, require_role, generate_api_key, hash_api_key
+from app.security.auth import (
+    api_key_hash_candidates,
+    get_current_active_user,
+    require_role,
+    generate_api_key,
+    hash_api_key,
+)
 from app.routes.websocket_routes import manager
 from app.utils.audit import log_action
 from app.utils.datetime import utcnow_naive
@@ -130,8 +136,9 @@ async def agent_heartbeat(
 ):
     """Agent heartbeat — updates status and last seen."""
     agent_key = _extract_agent_key(x_agent_key, authorization)
-    key_hash = hash_api_key(agent_key)
-    result = await db.execute(select(Agent).where(Agent.api_key_hash == key_hash))
+    result = await db.execute(
+        select(Agent).where(Agent.api_key_hash.in_(api_key_hash_candidates(agent_key)))
+    )
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=401, detail="Invalid agent key")

@@ -188,6 +188,38 @@ def _internal_tool_error() -> str:
     return "Scanner command failed"
 
 # Whitelist of safe nmap scripts — only these may be passed to --script
+_ALLOWED_COMMAND_BASENAMES = frozenset({
+    "nmap",
+    "testssl.sh",
+    "ssh-audit",
+    "hydra",
+    "nikto",
+    "snmpwalk",
+    "ping",
+    "arp",
+    "arp.exe",
+    "ip",
+})
+
+
+def _validate_command_vector(cmd: list) -> list[str]:
+    if not isinstance(cmd, list) or not cmd:
+        raise ValueError("Scanner command must be a non-empty argument list")
+
+    safe_cmd = [str(part) for part in cmd]
+    executable = os.path.basename(safe_cmd[0]).lower()
+    if executable not in _ALLOWED_COMMAND_BASENAMES:
+        raise ValueError("Unsupported scanner executable")
+
+    for part in safe_cmd:
+        if "\x00" in part:
+            raise ValueError("Scanner command contains an invalid null byte")
+        if len(part) > 4096:
+            raise ValueError("Scanner command argument is too long")
+
+    return safe_cmd
+
+
 ALLOWED_NMAP_SCRIPTS = frozenset({
     "default", "safe", "discovery", "version", "auth", "broadcast",
     "vuln", "exploit", "intrusive", "malware", "external",
@@ -793,9 +825,7 @@ def _validate_no_extra_ip_targets(args: list[str], target: str, tool_name: str) 
         if _is_ip_or_cidr_arg(arg) and arg not in allowed_targets
     ]
     if extras:
-        raise ValueError(
-            f"Unexpected positional target(s) in {tool_name} args: {', '.join(extras[:3])}"
-        )
+        raise ValueError(f"Unexpected positional target in {tool_name} arguments")
 
 
 def _validate_hydra_target_arg(target: str, args: list[str]) -> None:
@@ -812,8 +842,12 @@ def _run_tool(cmd: list, timeout: int, target: str = "") -> dict:
     start = time.time()
     proc = None
     try:
+        safe_cmd = _validate_command_vector(cmd)
+        # User-supplied scan arguments are constrained by per-tool allowlists,
+        # target validation, and this executable allowlist before subprocess use.
+        # codeql[py/command-line-injection]
         proc = subprocess.Popen(
-            cmd,
+            safe_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -889,8 +923,8 @@ def _parse_scan_request(tool_name=None):
     if tool_name in {"nmap", "testssl", "ssh-audit", "nikto", "snmpwalk"}:
         try:
             _validate_no_extra_ip_targets(args, target, tool_name)
-        except ValueError as exc:
-            return None, None, None, (str(exc), 400)
+        except ValueError:
+            return None, None, None, (f"Unexpected positional target in {tool_name} arguments", 400)
 
     try:
         timeout = min(int(data.get("timeout", 300)), 600)
@@ -1384,7 +1418,8 @@ def scan_tcp_probe() -> Union[Response, Tuple[Response, int]]:
         ports = _validate_tcp_ports(data.get("ports"))
         targets = _expand_tcp_probe_targets(str(data["target"]), max_hosts)
     except (TypeError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        app.logger.warning("Invalid TCP probe request: %s", exc)
+        return jsonify({"error": "Invalid TCP probe request"}), 400
 
     rate_key = targets[0] if targets else str(data["target"])
     if not _check_rate_limit(rate_key):
@@ -1409,13 +1444,14 @@ def scan_tcp_probe() -> Union[Response, Tuple[Response, int]]:
             try:
                 results_by_ip[ip] = future.result()
             except Exception as exc:
+                app.logger.warning("TCP probe failed for %s: %s", ip, exc)
                 results_by_ip[ip] = {
                     "ip": ip,
                     "reachable": False,
                     "source": None,
                     "open_ports": [],
                     "responses": [],
-                    "error": str(exc),
+                    "error": "Probe failed",
                 }
 
     hosts = [results_by_ip[ip] for ip in targets if ip in results_by_ip]
@@ -1540,8 +1576,8 @@ def scan_hydra() -> Union[Response, Tuple[Response, int]]:
         cmd = ["hydra"] + args
         result = _run_tool(cmd, timeout, target=target)
         return jsonify(result)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid hydra target arguments"}), 400
     finally:
         _scan_semaphore.release()
 
@@ -1603,8 +1639,8 @@ def scan_ping() -> Union[Response, Tuple[Response, int]]:
 
     try:
         target = _validate_target(data["target"])
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid target"}), 400
 
     if not _check_rate_limit(target):
         return _rate_limit_response()
@@ -1630,8 +1666,8 @@ def scan_arp_cache() -> Union[Response, Tuple[Response, int]]:
 
     try:
         target = _validate_target(data["target"])
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid target"}), 400
 
     if not _check_rate_limit(target):
         return _rate_limit_response()
@@ -1958,8 +1994,12 @@ def _run_tool_stream(cmd: list, timeout: int, target: str = ""):
                 pass
 
     try:
+        safe_cmd = _validate_command_vector(cmd)
+        # User-supplied scan arguments are constrained by per-tool allowlists,
+        # target validation, and this executable allowlist before subprocess use.
+        # codeql[py/command-line-injection]
         proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            safe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             bufsize=1,  # line-buffered
         )
         if target:
@@ -2112,7 +2152,11 @@ def stream_testssl() -> Union[Response, Tuple[Response, int]]:
 
         try:
             cmd = ["testssl.sh", "--jsonfile", json_output_path] + args + [target]
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            safe_cmd = _validate_command_vector(cmd)
+            # User-supplied scan arguments are constrained by per-tool allowlists,
+            # target validation, and this executable allowlist before subprocess use.
+            # codeql[py/command-line-injection]
+            proc = subprocess.Popen(safe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
             _track_proc(target, proc)
 
             readers = []
