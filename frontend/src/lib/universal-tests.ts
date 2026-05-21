@@ -13,11 +13,11 @@ export interface UniversalTest {
 export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U01', name: 'Ping Response', tier: 'automatic', category: 'Network', essential: true },
   { id: 'U02', name: 'MAC Address Vendor Lookup', tier: 'automatic', category: 'Network', essential: true },
-  { id: 'U03', name: 'Switch Negotiation', tier: 'guided_manual', category: 'Network', essential: false },
+  { id: 'U03', name: 'Switch Negotiation', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U04', name: 'DHCP Behaviour', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U05', name: 'IPv6 Support Detection', tier: 'guided_manual', category: 'Manual', essential: false },
-  { id: 'U06', name: 'Full TCP Port Scan', tier: 'automatic', category: 'Network', essential: true },
-  { id: 'U07', name: 'UDP Top-100 Port Scan', tier: 'automatic', category: 'Network', essential: false },
+  { id: 'U06', name: 'TCP/UDP Port Scan', tier: 'automatic', category: 'Network', essential: true },
+  { id: 'U07', name: 'UDP Port Scan (Merged into U06)', tier: 'automatic', category: 'Network', essential: false, deprecated: true },
   { id: 'U08', name: 'Service Version Detection', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U09', name: 'Protocol Whitelist Compliance', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U10', name: 'TLS Version Assessment', tier: 'automatic', category: 'TLS', essential: true },
@@ -30,7 +30,7 @@ export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U17', name: 'Brute Force Protection', tier: 'automatic', category: 'SSH', essential: false },
   { id: 'U18', name: 'HTTP vs HTTPS Redirect', tier: 'automatic', category: 'Web', essential: false },
   { id: 'U19', name: 'OS Fingerprinting', tier: 'automatic', category: 'Network', essential: false },
-  { id: 'U20', name: 'Network Disconnection Behaviour', tier: 'guided_manual', category: 'Manual', essential: false },
+  { id: 'U20', name: 'Network Disconnection Behaviour', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U21', name: 'Web Interface Password Change', tier: 'guided_manual', category: 'Manual', essential: true },
   { id: 'U22', name: 'Firmware Update Mechanism', tier: 'guided_manual', category: 'Manual', essential: false },
   { id: 'U23', name: 'Session Timeout Validation', tier: 'guided_manual', category: 'Manual', essential: false },
@@ -41,7 +41,7 @@ export const UNIVERSAL_TESTS: UniversalTest[] = [
   { id: 'U28', name: 'BACnet/IP Discovery', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U29', name: 'DNS Support Verification', tier: 'automatic', category: 'Network', essential: false },
   { id: 'U30', name: 'Password Policy Assessment', tier: 'guided_manual', category: 'Manual', essential: false },
-  { id: 'U31', name: 'SNMP Version Check', tier: 'automatic', category: 'Network', essential: false },
+  { id: 'U31', name: 'SNMP Version Check (Not Required)', tier: 'automatic', category: 'Network', essential: false, deprecated: true },
   { id: 'U32', name: 'UPnP/SSDP Exposure (Retired)', tier: 'automatic', category: 'Network', essential: false, deprecated: true },
   { id: 'U33', name: 'mDNS/Bonjour Exposure (Retired)', tier: 'automatic', category: 'Network', essential: false, deprecated: true },
   { id: 'U34', name: 'Telnet/Insecure Protocol Detection (Retired)', tier: 'automatic', category: 'Network', essential: true, deprecated: true },
@@ -78,8 +78,8 @@ export const TEST_CATEGORIES = ['Network', 'TLS', 'SSH', 'Web', 'Manual'] as con
 export const ACTIVE_UNIVERSAL_TESTS = UNIVERSAL_TESTS.filter((test) => !test.deprecated)
 
 const SCENARIO_MANUAL_TEST_IDS: Record<string, Set<string>> = {
-  test_lab: new Set(['U03']),
-  site_network: new Set(['U03', 'U04', 'U26', 'U29']),
+  test_lab: new Set(['U03', 'U20']),
+  site_network: new Set(['U03', 'U04', 'U20', 'U26', 'U29']),
 }
 const DIRECT_SCENARIOS = new Set(['direct', 'direct_cable'])
 

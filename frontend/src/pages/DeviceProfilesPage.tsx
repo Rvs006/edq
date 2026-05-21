@@ -75,7 +75,7 @@ const BUILTIN_PROFILES: DeviceProfile[] = [
     icon: Camera,
     description: 'RTSP/ONVIF video surveillance cameras with streaming capabilities',
     color: 'blue',
-    testIds: ['U01', 'U02', 'U06', 'U07', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19', 'U35'],
+    testIds: ['U01', 'U02', 'U06', 'U08', 'U09', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19', 'U35'],
   },
   {
     id: 'controller',
@@ -91,7 +91,7 @@ const BUILTIN_PROFILES: DeviceProfile[] = [
     icon: Radio,
     description: 'Edge gateways bridging IoT protocols (Zigbee, Z-Wave, BACnet)',
     color: 'green',
-    testIds: ['U01', 'U02', 'U06', 'U07', 'U08', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19'],
+    testIds: ['U01', 'U02', 'U06', 'U08', 'U10', 'U11', 'U12', 'U15', 'U16', 'U19'],
   },
   {
     id: 'intercom',

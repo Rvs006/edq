@@ -316,6 +316,36 @@ async def test_nmap_stream_uses_host_network_scanner_without_docker_flag_rewrite
 
 
 @pytest.mark.asyncio
+async def test_host_interface_control_requires_host_scanner():
+    client = _client(in_docker=True, raw_capable=False)
+
+    with pytest.raises(RuntimeError, match="Host network scanner"):
+        await client.host_interface_state("Ethernet")
+
+
+@pytest.mark.asyncio
+async def test_host_interface_control_posts_to_host_scanner():
+    client = _client(in_docker=True, raw_capable=False)
+    client.host_network_scanner_url = "http://host-scanner"
+    captured: dict[str, object] = {}
+
+    async def fake_post(path: str, payload: dict, timeout: int = 300, base_url: str | None = None):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["base_url"] = base_url
+        return {"supported": True, "interface": payload["interface"]}
+
+    client._post = fake_post
+
+    result = await client.set_host_interface_profile("Ethernet", 100, "full")
+
+    assert result["supported"] is True
+    assert captured["path"] == "/host/network-control/link-profile"
+    assert captured["base_url"] == "http://host-scanner"
+    assert captured["payload"] == {"interface": "Ethernet", "speed_mbps": 100, "duplex": "full"}
+
+
+@pytest.mark.asyncio
 async def test_nmap_serializes_same_target_host_scans():
     client = _client(in_docker=True, raw_capable=False)
     client.host_network_scanner_url = "http://host-scanner"

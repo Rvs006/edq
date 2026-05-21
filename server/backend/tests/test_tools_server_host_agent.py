@@ -264,6 +264,38 @@ def test_command_vector_accepts_validated_scanner_command():
     assert command == ["nmap", "-sT", "-p", "80", "192.168.4.64"]
 
 
+def test_host_network_control_rejects_invalid_interface():
+    tools_server = _load_tools_server()
+
+    with pytest.raises(ValueError, match="Invalid network interface"):
+        tools_server._validate_network_interface_name("Ethernet; Remove-Item")
+
+
+def test_host_network_control_cycle_endpoint_uses_validated_interface(monkeypatch):
+    tools_server = _load_tools_server()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(tools_server, "_network_control_supported", lambda: (True, None))
+
+    def fake_cycle(interface: str, down_seconds: int):
+        captured["interface"] = interface
+        captured["down_seconds"] = down_seconds
+        return {"exit_code": 0}
+
+    monkeypatch.setattr(tools_server, "_cycle_interface", fake_cycle)
+    client = tools_server.app.test_client()
+
+    response = client.post(
+        "/host/network-control/cycle",
+        json={"interface": "Ethernet 2", "down_seconds": 3},
+        headers={"X-Tools-Key": tools_server.TOOLS_API_KEY},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["supported"] is True
+    assert captured == {"interface": "Ethernet 2", "down_seconds": 3}
+
+
 def test_hydra_args_must_match_validated_target():
     tools_server = _load_tools_server()
 

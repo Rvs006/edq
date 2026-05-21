@@ -621,6 +621,68 @@ class ToolsClient:
         """Get detected host/container networks from the sidecar."""
         return await self._network_get_json("/detect-networks", timeout=30)
 
+    def _require_host_network_scanner(self) -> str:
+        url = getattr(self, "host_network_scanner_url", "")
+        if not url:
+            raise RuntimeError("Host network scanner is required for adapter-control workflows.")
+        return url
+
+    async def host_network_interfaces(self) -> Dict[str, Any]:
+        """Return host interfaces and adapter-control capability from the host scanner."""
+        return await self._get_json(
+            "/host/network-control/interfaces",
+            timeout=15,
+            base_url=self._require_host_network_scanner(),
+        )
+
+    async def host_interface_state(self, interface: str) -> Dict[str, Any]:
+        """Read current state for a selected host Ethernet interface."""
+        return await self._post(
+            "/host/network-control/state",
+            {"interface": interface},
+            timeout=15,
+            base_url=self._require_host_network_scanner(),
+        )
+
+    async def set_host_interface_profile(
+        self,
+        interface: str,
+        speed_mbps: int,
+        duplex: str,
+    ) -> Dict[str, Any]:
+        """Set a host Ethernet interface speed/duplex profile via the host scanner."""
+        return await self._post(
+            "/host/network-control/link-profile",
+            {"interface": interface, "speed_mbps": speed_mbps, "duplex": duplex},
+            timeout=60,
+            base_url=self._require_host_network_scanner(),
+        )
+
+    async def cycle_host_interface(self, interface: str, down_seconds: int = 5) -> Dict[str, Any]:
+        """Disable and re-enable a host Ethernet interface via the host scanner."""
+        return await self._post(
+            "/host/network-control/cycle",
+            {"interface": interface, "down_seconds": down_seconds},
+            timeout=max(70, down_seconds + 60),
+            base_url=self._require_host_network_scanner(),
+        )
+
+    async def restore_host_interface(
+        self,
+        interface: str,
+        original_state: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """Restore a host Ethernet interface after a link-profile workflow."""
+        payload: Dict[str, Any] = {"interface": interface}
+        if original_state:
+            payload["original_state"] = original_state
+        return await self._post(
+            "/host/network-control/restore",
+            payload,
+            timeout=60,
+            base_url=self._require_host_network_scanner(),
+        )
+
     async def ping(
         self,
         target: str,

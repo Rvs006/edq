@@ -13,7 +13,7 @@ from app.config import settings
 from app.models.database import async_session
 from app.services.tools_client import tools_client
 
-TOOL_KEYS = ("nmap", "testssl", "ssh_audit", "hydra", "nikto", "snmpwalk")
+TOOL_KEYS = ("nmap", "testssl", "ssh_audit", "hydra", "nikto")
 _TOOLS_VERSION_CACHE_TTL = 300.0
 _TOOLS_UPDATE_CACHE_TTL = 3600.0
 _tools_version_cache: dict[str, Any] = {"versions": None, "status": None, "message": None, "ts": 0.0}

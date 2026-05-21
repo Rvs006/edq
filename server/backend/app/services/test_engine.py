@@ -136,6 +136,16 @@ _DOCKER_TCP_BASELINE_PORTS = (
     8081, 8088, 8181, 8443, 8883, 8888, 9000, 9001, 9100, 9443, 10000,
     20000, 37777, 44443, 44444, 47808,
 )
+_U06_UDP_PORTS = (
+    53, 67, 68, 69, 123, 137, 138, 161, 162, 1900, 3702, 47808, 5353,
+)
+_HOST_LINK_PROFILES = (
+    {"speed_mbps": 10, "duplex": "half"},
+    {"speed_mbps": 10, "duplex": "full"},
+    {"speed_mbps": 100, "duplex": "half"},
+    {"speed_mbps": 100, "duplex": "full"},
+    {"speed_mbps": 1000, "duplex": "full"},
+)
 _COMMON_SERVICE_BY_PORT = {
     21: "ftp",
     22: "ssh",
@@ -192,15 +202,23 @@ _COMMON_SERVICE_BY_PORT = {
 _LOGIN_PATH_CANDIDATES = (
     "/",
     "/login",
+    "/login.htm",
     "/login.html",
+    "/login.asp",
+    "/login.cgi",
     "/signin",
     "/sign-in",
+    "/web/login",
+    "/web/camera/login",
+    "/view/login",
     "/user/login",
     "/auth",
     "/auth/login",
     "/api/login",
+    "/cgi-bin/login",
     "/admin",
     "/admin/login",
+    "/admin/login.html",
     "/index.html",
     "/sdcard/cpt/app/signin.php",
 )
@@ -428,6 +446,17 @@ def _text_has_tokenized_login_markers(text: str) -> bool:
     return any(marker in lowered for marker in ("authtoken", "user[authhash]", "authhash", "auth token"))
 
 
+def _text_has_login_surface_markers(text: str) -> bool:
+    lowered = (text or "").lower()
+    has_password = "password" in lowered or "type=\"password\"" in lowered or "type='password'" in lowered
+    has_identity = any(
+        marker in lowered
+        for marker in ("username", "user name", "userid", "user id", "account", "email")
+    )
+    has_action = any(marker in lowered for marker in ("sign in", "signin", "log in", "login"))
+    return has_password and (has_identity or has_action)
+
+
 def _is_token_field_name(name: str) -> bool:
     lowered = name.lower()
     return any(marker in lowered for marker in _TOKEN_FIELD_MARKERS)
@@ -439,18 +468,19 @@ def _html_input_name(input_node: Any) -> str:
 
 def _extract_login_form(html_text: str, response_url: str) -> dict[str, Any] | None:
     """Extract a static username/password form that Hydra can target."""
-    if "<form" not in (html_text or "").lower():
-        return None
-
     try:
         from lxml import html as lxml_html
 
-        root = lxml_html.fromstring(html_text)
+        root = lxml_html.fromstring(html_text or "")
     except Exception:
         return None
 
     best_form: dict[str, Any] | None = None
-    for form in root.xpath("//form"):
+    form_nodes = list(root.xpath("//form"))
+    if not form_nodes:
+        form_nodes = [root]
+
+    for form in form_nodes:
         inputs = list(form.xpath(".//input"))
         password_inputs = [
             item for item in inputs
@@ -497,20 +527,22 @@ def _extract_login_form(html_text: str, response_url: str) -> dict[str, Any] | N
                 token_fields.append(name)
 
         action = str(form.get("action") or "")
-        target_url = urljoin(response_url, action)
+        target_url = urljoin(response_url, action) if action else response_url
         parsed = urlparse(target_url)
         form_path = parsed.path or "/"
         if parsed.query:
             form_path = f"{form_path}?{parsed.query}"
+        form_tag = str(getattr(form, "tag", "") or "").lower()
 
         best_form = {
             "form_path": form_path,
-            "form_method": str(form.get("method") or "post").lower(),
+            "form_method": str(form.get("method") or "post").lower() if form_tag == "form" else "post",
             "username_field": username_field,
             "password_field": password_field,
             "hidden_fields": hidden_fields,
             "token_fields": token_fields,
             "tokenized": bool(token_fields) or _text_has_tokenized_login_markers(html_text),
+            "synthetic_form": form_tag != "form",
         }
         break
 
@@ -1249,7 +1281,7 @@ class TestEngine:
             completed = 0
 
             # Discovery test IDs — these run first, before fingerprinting
-            DISCOVERY_TESTS = {"U01", "U02", "U03", "U04", "U05", "U06", "U07", "U08"}
+            DISCOVERY_TESTS = {"U01", "U02", "U03", "U04", "U05", "U06", "U08"}
             skip_test_ids: set[str] = set()
             skip_reasons: dict[str, str] = {}
 
@@ -1788,6 +1820,40 @@ class TestEngine:
         parsed = _tcp_probe_to_scan_data(device_ip, payload, ports)
         return parsed, json.dumps(payload, sort_keys=True)
 
+    async def _u06_udp_inventory(
+        self,
+        device_ip: str,
+        on_line: Callable[[str], Coroutine[Any, Any, None]] | None = None,
+    ) -> tuple[dict[str, Any], str | None]:
+        """Target required UDP ports that were previously covered by U07."""
+        port_list = ",".join(str(port) for port in _U06_UDP_PORTS)
+        try:
+            raw = await tools_client.nmap_stream(
+                device_ip,
+                [
+                    "-sU", "-p", port_list, "--max-retries", "1",
+                    "--host-timeout", "75s", "--open", "-n", "-oX", "-",
+                ],
+                timeout=100,
+                on_line=on_line,
+            )
+            xml_out = _nmap_xml_or_raise("U06 UDP", raw)
+            parsed = nmap_parser.parse_xml(xml_out)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
+            parsed["udp_ports_scanned"] = list(_U06_UDP_PORTS)
+            return parsed, xml_out
+        except Exception as exc:
+            return (
+                {
+                    "hosts": [],
+                    "open_ports": [],
+                    "scan_info": {"type": "udp-probe", "protocol": "udp"},
+                    "udp_ports_scanned": list(_U06_UDP_PORTS),
+                    "scan_error": describe_tools_error(exc, fallback="UDP inventory failed"),
+                },
+                None,
+            )
+
     def _tls_probe_sync(self, host: str, port: int) -> dict[str, Any]:
         result: dict[str, Any] = {
             "tls_versions": [],
@@ -1893,6 +1959,291 @@ class TestEngine:
         )
         xml_out = _nmap_xml_or_raise("U11", raw)
         return _extract_ssl_enum_cipher_inventory(nmap_parser.parse_xml(xml_out))
+
+    @staticmethod
+    def _metadata_network_interface(metadata: dict[str, Any]) -> str | None:
+        raw = (
+            metadata.get("network_interface")
+            or metadata.get("selected_network_interface")
+            or metadata.get("host_network_interface")
+        )
+        if isinstance(raw, dict):
+            raw = raw.get("name") or raw.get("interface") or raw.get("id") or raw.get("label")
+        interface = str(raw or "").strip()
+        return interface or None
+
+    async def _await_required_network_interface(self, run_id: str, test_id: str) -> tuple[str | None, str | None]:
+        announced = False
+        while True:
+            async with async_session() as db:
+                run = await db.get(TestRun, run_id)
+                if not run:
+                    return None, "Test run metadata is unavailable; no host interface was selected."
+                metadata = dict(run.run_metadata) if isinstance(run.run_metadata, dict) else {}
+                interface = self._metadata_network_interface(metadata)
+                if interface:
+                    metadata.pop("interface_selection", None)
+                    run.run_metadata = metadata
+                    if normalize_test_run_status(run.status) == TestRunStatus.SELECTING_INTERFACE.value:
+                        run.status = TestRunStatus.RUNNING
+                    await db.commit()
+                    return interface, None
+
+                status = normalize_test_run_status(run.status)
+                if status in {
+                    TestRunStatus.CANCELLED.value,
+                    TestRunStatus.FAILED.value,
+                    TestRunStatus.COMPLETED.value,
+                }:
+                    return None, f"Run is {status}; host interface selection was not completed."
+
+                metadata["interface_selection"] = {
+                    "required": True,
+                    "test_id": test_id,
+                    "reason": "Select the Ethernet interface connected to the device for Scenario 1 host workflows.",
+                }
+                run.run_metadata = metadata
+                run.status = TestRunStatus.SELECTING_INTERFACE
+                await db.commit()
+
+            if not announced:
+                announced = True
+                await manager.broadcast(f"test-run:{run_id}", {
+                    "type": "interface_selection_required",
+                    "data": {
+                        "run_id": run_id,
+                        "test_id": test_id,
+                        "status": TestRunStatus.SELECTING_INTERFACE.value,
+                    },
+                })
+            await asyncio.sleep(2)
+
+    @staticmethod
+    def _host_workflow_probe_ports(device: Device) -> list[int]:
+        return extract_probe_ports(getattr(device, "open_ports", None) or [])
+
+    async def _probe_after_host_network_change(self, device_ip: str, device: Device) -> dict[str, Any]:
+        probe_ports = self._host_workflow_probe_ports(device)
+        reachable, source = await probe_device_connectivity(
+            device_ip,
+            probe_ports=probe_ports,
+            tcp_timeout=2.0,
+            trust_icmp_only=True,
+        )
+        return {
+            "reachable": reachable,
+            "source": source,
+            "probe_ports": probe_ports,
+        }
+
+    async def _test_switch_negotiation(
+        self,
+        device_ip: str,
+        run_id: str,
+        device: Device,
+    ) -> tuple[dict[str, Any], str | None]:
+        if not getattr(tools_client, "has_host_network_scanner", lambda: False)():
+            return ({
+                "check_ran": False,
+                "reason": "Host network scanner is not configured; speed/duplex control cannot run from Docker-only mode.",
+            }, None)
+
+        interface, reason = await self._await_required_network_interface(run_id, "U03")
+        if not interface:
+            return ({"check_ran": False, "reason": reason}, None)
+
+        original_state: dict[str, Any] | None = None
+        restore_status: dict[str, Any] | None = None
+        profiles: list[dict[str, Any]] = []
+        raw_lines: list[str] = []
+        try:
+            original_state = await tools_client.host_interface_state(interface)
+            raw_lines.append(json.dumps({"original_state": original_state}, sort_keys=True))
+            for profile in _HOST_LINK_PROFILES:
+                profile_result: dict[str, Any] = {
+                    "speed_mbps": profile["speed_mbps"],
+                    "duplex": profile["duplex"],
+                }
+                try:
+                    set_result = await tools_client.set_host_interface_profile(
+                        interface,
+                        int(profile["speed_mbps"]),
+                        str(profile["duplex"]),
+                    )
+                    profile_result["set_result"] = set_result
+                    await asyncio.sleep(2)
+                    profile_result["probe_result"] = await self._probe_after_host_network_change(device_ip, device)
+                except Exception as exc:
+                    profile_result["error"] = describe_tools_error(exc, fallback="Interface profile change failed")
+                    profile_result["probe_result"] = {"reachable": False, "source": None}
+                profiles.append(profile_result)
+                raw_lines.append(json.dumps(profile_result, sort_keys=True))
+        finally:
+            try:
+                restore_status = await tools_client.restore_host_interface(interface, original_state)
+            except Exception as exc:
+                restore_status = {
+                    "supported": False,
+                    "error": describe_tools_error(exc, fallback="Interface restore failed"),
+                }
+            raw_lines.append(json.dumps({"restore_status": restore_status}, sort_keys=True))
+
+        attempted = [item for item in profiles if "set_result" in item]
+        reachable_count = sum(1 for item in profiles if (item.get("probe_result") or {}).get("reachable"))
+        return ({
+            "check_ran": True,
+            "selected_interface": interface,
+            "profiles": profiles,
+            "attempted_profile_count": len(attempted),
+            "reachable_profile_count": reachable_count,
+            "all_profiles_reachable": bool(profiles) and reachable_count == len(profiles),
+            "restore_status": restore_status,
+        }, "\n".join(raw_lines))
+
+    async def _test_network_disconnection(
+        self,
+        device_ip: str,
+        run_id: str,
+        device: Device,
+    ) -> tuple[dict[str, Any], str | None]:
+        if not getattr(tools_client, "has_host_network_scanner", lambda: False)():
+            return ({
+                "check_ran": False,
+                "reason": "Host network scanner is not configured; adapter disable/enable cannot run from Docker-only mode.",
+            }, None)
+
+        interface, reason = await self._await_required_network_interface(run_id, "U20")
+        if not interface:
+            return ({"check_ran": False, "reason": reason}, None)
+
+        original_state = await tools_client.host_interface_state(interface)
+        cycle_result: dict[str, Any] | None = None
+        restore_status: dict[str, Any] | None = None
+        probe_result: dict[str, Any] = {"reachable": False, "source": None, "probe_ports": []}
+        try:
+            cycle_result = await tools_client.cycle_host_interface(interface, down_seconds=5)
+            await asyncio.sleep(3)
+            probe_result = await self._probe_after_host_network_change(device_ip, device)
+        finally:
+            try:
+                restore_status = await tools_client.restore_host_interface(interface, original_state)
+            except Exception as exc:
+                restore_status = {
+                    "supported": False,
+                    "error": describe_tools_error(exc, fallback="Interface restore failed"),
+                }
+
+        parsed = {
+            "check_ran": True,
+            "selected_interface": interface,
+            "original_state": original_state,
+            "cycle_result": cycle_result,
+            "probe_result": probe_result,
+            "reachable_after_reconnect": bool(probe_result.get("reachable")),
+            "restore_status": restore_status,
+        }
+        return (parsed, json.dumps(parsed, sort_keys=True))
+
+    @staticmethod
+    def _dhcp_phase_configs(metadata: dict[str, Any], device_ip: str) -> list[dict[str, Any]]:
+        raw_ranges = metadata.get("dhcp_ranges") or metadata.get("dhcp_test_ranges")
+        if isinstance(raw_ranges, list) and len(raw_ranges) >= 2:
+            return [dict(item) for item in raw_ranges[:2] if isinstance(item, dict)]
+
+        phase_a = metadata.get("dhcp_phase_a")
+        phase_b = metadata.get("dhcp_phase_b")
+        if isinstance(phase_a, dict) and isinstance(phase_b, dict):
+            return [dict(phase_a), dict(phase_b)]
+
+        try:
+            network = ipaddress.ip_network(f"{device_ip}/24", strict=False)
+            router_ip = str(next(network.hosts()))
+            hosts = list(network.hosts())
+            return [
+                {"name": "range_a", "offer_ip": str(hosts[min(67, len(hosts) - 1)]), "router_ip": router_ip},
+                {"name": "range_b", "offer_ip": str(hosts[min(68, len(hosts) - 1)]), "router_ip": router_ip},
+            ]
+        except Exception:
+            return []
+
+    async def _test_dhcp_two_phase_workflow(
+        self,
+        device_ip: str,
+        run_id: str,
+        device: Device,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        if not getattr(tools_client, "has_host_network_scanner", lambda: False)():
+            return None, None
+
+        try:
+            async with async_session() as db:
+                run = await db.get(TestRun, run_id)
+                metadata = dict(run.run_metadata) if run and isinstance(run.run_metadata, dict) else {}
+                run_exists = run is not None
+        except Exception:
+            return None, None
+
+        if not run_exists:
+            return None, None
+
+        interface, reason = await self._await_required_network_interface(run_id, "U04")
+        if not interface:
+            return ({"dhcp_two_phase": True, "check_ran": False, "reason": reason}, None)
+
+        mac = getattr(device, "mac_address", None)
+        if not mac and getattr(device, "id", None):
+            async with async_session() as db:
+                fresh_device = await db.get(Device, device.id)
+                mac = getattr(fresh_device, "mac_address", None) if fresh_device else None
+        expected_mac = mac.strip() if mac else ""
+        if not expected_mac:
+            return ({
+                "dhcp_two_phase": True,
+                "check_ran": False,
+                "selected_interface": interface,
+                "reason": "Device MAC address is required for the two-phase DHCP host workflow.",
+            }, None)
+
+        phases: list[dict[str, Any]] = []
+        raw_lines: list[str] = []
+        for index, phase in enumerate(self._dhcp_phase_configs(metadata, device_ip)):
+            offer_ip = str(phase.get("offer_ip") or phase.get("start_ip") or "").strip()
+            if not offer_ip:
+                continue
+            observed = await observe_dhcp_activity(
+                expected_mac=expected_mac,
+                timeout_seconds=int(phase.get("timeout_seconds") or 35),
+                offer_ip=offer_ip,
+                router_ip=str(phase.get("router_ip") or phase.get("router") or ""),
+                subnet_mask=str(phase.get("subnet_mask") or "255.255.255.0"),
+                dns_server=str(phase.get("dns_server") or ""),
+                ntp_server=str(phase.get("ntp_server") or ""),
+                lease_seconds=int(phase.get("lease_seconds") or 30),
+            )
+            phase_result = {
+                "name": phase.get("name") or f"range_{chr(ord('A') + index)}",
+                "offer_ip": offer_ip,
+                "observed": observed.get("observed", False),
+                "lease_acknowledged": observed.get("lease_acknowledged", False),
+                "request_count": observed.get("request_count", 0),
+                "events": observed.get("events", []),
+            }
+            phases.append(phase_result)
+            raw_lines.append(json.dumps(phase_result, sort_keys=True))
+
+        renewal_verified = (
+            len(phases) >= 2
+            and bool(phases[0].get("lease_acknowledged"))
+            and bool(phases[1].get("lease_acknowledged"))
+            and phases[0].get("offer_ip") != phases[1].get("offer_ip")
+        )
+        return ({
+            "dhcp_two_phase": True,
+            "check_ran": True,
+            "selected_interface": interface,
+            "phases": phases,
+            "renewal_verified": renewal_verified,
+        }, "\n".join(raw_lines))
 
     async def _dispatch_test(
         self,
@@ -2009,9 +2360,20 @@ class TestEngine:
             return (parsed, raw.get("stdout"))
 
         if test_id == "U03":
-            return ({"ethtool_available": False}, None)
+            return await self._test_switch_negotiation(device_ip, run_id, device)
 
         if test_id == "U04":
+            if (
+                normalize_connection_scenario(connection_scenario) == "direct"
+                and settings.PROTOCOL_OBSERVER_ENABLED
+            ):
+                workflow_result, workflow_raw = await self._test_dhcp_two_phase_workflow(
+                    device_ip,
+                    run_id,
+                    device,
+                )
+                if workflow_result is not None:
+                    return (workflow_result, workflow_raw)
             if (
                 normalize_connection_scenario(connection_scenario) in {"direct", "test_lab"}
                 and settings.PROTOCOL_OBSERVER_ENABLED
@@ -2087,6 +2449,14 @@ class TestEngine:
                 try:
                     parsed, raw_out = await self._docker_tcp_inventory(device_ip, device)
                     parsed["scanner_source"] = tools_client.network_scanner_source()
+                    udp_parsed, udp_raw = await self._u06_udp_inventory(device_ip, on_line)
+                    parsed = _merge_nmap_scan_data(parsed, udp_parsed)
+                    parsed["scanner_source"] = tools_client.network_scanner_source()
+                    parsed["udp_ports_scanned"] = list(_U06_UDP_PORTS)
+                    if udp_parsed.get("scan_error"):
+                        parsed["udp_scan_error"] = udp_parsed["scan_error"]
+                    if udp_raw:
+                        raw_out = f"{raw_out}\n\nUDP scan:\n{udp_raw}"
                     _PORT_SCAN_CACHE[run_id] = parsed
                     from app.services.wobbly_cable import get_cable_handler
                     _handler = get_cable_handler(run_id)
@@ -2125,6 +2495,14 @@ class TestEngine:
                         xml_out = f"{xml_out}\n\nTCP probe fallback:\n{fallback_raw}"
                 except Exception as exc:
                     logger.debug("U06 TCP fallback found no ports for %s: %s", device_ip, exc)
+            udp_parsed, udp_raw = await self._u06_udp_inventory(device_ip, on_line)
+            parsed = _merge_nmap_scan_data(parsed, udp_parsed)
+            parsed["scanner_source"] = raw.get("_scanner_source") or tools_client.network_scanner_source()
+            parsed["udp_ports_scanned"] = list(_U06_UDP_PORTS)
+            if udp_parsed.get("scan_error"):
+                parsed["udp_scan_error"] = udp_parsed["scan_error"]
+            if udp_raw:
+                xml_out = f"{xml_out}\n\nUDP scan:\n{udp_raw}"
             _PORT_SCAN_CACHE[run_id] = parsed
             # Hot-update the cable handler's probe ports with newly discovered ports
             from app.services.wobbly_cable import get_cable_handler
@@ -2155,7 +2533,9 @@ class TestEngine:
             u06_cached = _PORT_SCAN_CACHE.get(run_id)
             if u06_cached and u06_cached.get("open_ports"):
                 port_list = ",".join(
-                    str(p["port"]) for p in u06_cached["open_ports"] if "port" in p
+                    str(p["port"])
+                    for p in u06_cached["open_ports"]
+                    if "port" in p and str(p.get("protocol") or "tcp").lower() == "tcp"
                 )
                 if port_list:
                     u08_args = ["-sV", "-p", port_list, "--open", "-oX", "-"]
@@ -2442,6 +2822,9 @@ class TestEngine:
                         parsed["os_fingerprint"] = inferred
             return (parsed, xml_out)
 
+        if test_id == "U20":
+            return await self._test_network_disconnection(device_ip, run_id, device)
+
         if test_id == "U26":
             if connection_scenario == "direct" and settings.PROTOCOL_OBSERVER_ENABLED:
                 try:
@@ -2461,7 +2844,7 @@ class TestEngine:
                         )
                 except Exception as exc:
                     logger.debug("U26 NTP observer unavailable for %s: %s", device_ip, exc)
-            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
+            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or _PORT_SCAN_CACHE.get(run_id) or {}
             ntp_port = next(
                 (
                     p for p in udp_cache.get("open_ports", [])
@@ -2519,7 +2902,7 @@ class TestEngine:
             )
 
         if test_id == "U28":
-            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
+            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or _PORT_SCAN_CACHE.get(run_id) or {}
             bacnet_port = next(
                 (
                     p for p in udp_cache.get("open_ports", [])
@@ -2589,7 +2972,7 @@ class TestEngine:
                         )
                 except Exception as exc:
                     logger.debug("U29 DNS observer unavailable for %s: %s", device_ip, exc)
-            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or {}
+            udp_cache = _PORT_SCAN_CACHE.get(f"{run_id}_u07") or _PORT_SCAN_CACHE.get(run_id) or {}
             dns_port = next(
                 (p for p in udp_cache.get("open_ports", []) if p.get("port") == 53 and _is_definite_open_port(p)),
                 None,
@@ -2845,6 +3228,16 @@ class TestEngine:
                             "username_field": login_form["username_field"],
                             "password_field": login_form["password_field"],
                             "form_fields": _build_hydra_form_fields(login_form),
+                        }
+                    if _text_has_login_surface_markers(body):
+                        return {
+                            "auth_required": False,
+                            "auth_type": "detected_login_page",
+                            "url": last_url,
+                            "reason": (
+                                "Web login page detected, but EDQ could not identify a static "
+                                "POST form suitable for generic Hydra probing."
+                            ),
                         }
         except Exception as exc:
             return {"auth_required": False, "reason": f"HTTP auth surface probe failed: {exc}"}

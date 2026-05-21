@@ -1,8 +1,8 @@
 {
   "template_name": "canonical_generated_report",
-  "synopsis_sheet": "General Test Information",
-  "testplan_sheet": "Test Results",
-  "additional_sheet": "Additional Device Information",
+  "synopsis_sheet": "TEST SUMMARY",
+  "testplan_sheet": "TESTPLAN",
+  "additional_sheet": "ADDITIONAL INFORMATION",
   "metadata_cells": {
     "test_attempt": "B4",
     "date_range": "B5",
@@ -19,13 +19,15 @@
   "testplan_columns": {
     "test_number": "B",
     "brief_description": "C",
-    "tier": "D",
-    "tool": "E",
-    "essential_test": "F",
-    "test_result": "G",
-    "test_comments": "H",
-    "engineer_notes": "I",
-    "evidence_summary": "J"
+    "test_description": "D",
+    "essential_test": "E",
+    "test_result": "F",
+    "test_comments": "G",
+    "tier": "H",
+    "tool": "I",
+    "engineer_notes": "J",
+    "evidence_summary": "K",
+    "raw_evidence": "L"
   },
   "verdict_map": {
     "pass": "PASS",

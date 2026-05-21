@@ -2,6 +2,7 @@
 
 import logging
 import ipaddress
+import re
 import uuid
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -60,6 +61,7 @@ from app.routes.authorized_networks import get_active_networks, is_ip_authorized
 logger = logging.getLogger("edq.routes.test_runs")
 
 router = APIRouter()
+_NETWORK_INTERFACE_RE = re.compile(r"^[A-Za-z0-9_.:() -]{1,128}$")
 
 
 def _apply_public_run_visibility(query, user: User, include_internal: bool = False):
@@ -545,6 +547,34 @@ async def update_test_run(
         run.synopsis = updates["synopsis"]
     if "synopsis_status" in updates:
         run.synopsis_status = updates["synopsis_status"]
+    await db.flush()
+    await db.refresh(run)
+    return await _enrich_run(run, db)
+
+
+@router.post("/{run_id}/network-interface", response_model=TestRunResponse)
+async def select_test_run_network_interface(
+    run_id: str,
+    payload: dict,
+    include_internal: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    run = await _get_authorized_test_run(run_id, user, db, include_internal)
+    raw_interface = payload.get("interface") or payload.get("name")
+    interface = str(raw_interface or "").strip()
+    if not _NETWORK_INTERFACE_RE.match(interface):
+        raise HTTPException(status_code=400, detail="Invalid network interface")
+
+    metadata = dict(run.run_metadata) if isinstance(run.run_metadata, dict) else {}
+    metadata["network_interface"] = {
+        "name": interface,
+        "label": str(payload.get("label") or interface),
+    }
+    metadata.pop("interface_selection", None)
+    run.run_metadata = metadata
+    if normalize_test_run_status(run.status) == TestRunStatus.SELECTING_INTERFACE.value:
+        run.status = TestRunStatus.RUNNING
     await db.flush()
     await db.refresh(run)
     return await _enrich_run(run, db)

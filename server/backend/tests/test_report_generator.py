@@ -79,20 +79,22 @@ def test_generic_template_is_available():
 def test_generic_mapping_uses_canonical_generated_report_layout():
     mapping = report_generator._load_mapping("generic")
 
-    assert mapping["synopsis_sheet"] == "General Test Information"
-    assert mapping["testplan_sheet"] == "Test Results"
-    assert mapping["additional_sheet"] == "Additional Device Information"
+    assert mapping["synopsis_sheet"] == "TEST SUMMARY"
+    assert mapping["testplan_sheet"] == "TESTPLAN"
+    assert mapping["additional_sheet"] == "ADDITIONAL INFORMATION"
     assert "row_sources" not in mapping
     assert list(mapping["testplan_columns"]) == [
         "test_number",
         "brief_description",
-        "tier",
-        "tool",
+        "test_description",
         "essential_test",
         "test_result",
         "test_comments",
+        "tier",
+        "tool",
         "engineer_notes",
         "evidence_summary",
+        "raw_evidence",
     ]
 
 
@@ -143,16 +145,15 @@ async def test_generate_excel_report_preserves_generic_workbook_structure(tmp_pa
     workbook = load_workbook(output)
     try:
         assert workbook.sheetnames == [
-            "General Test Information",
-            "Test Results",
-            "Additional Device Information",
-            "Raw Evidence",
+            "TEST SUMMARY",
+            "TESTPLAN",
+            "ADDITIONAL INFORMATION",
         ]
-        assert workbook["General Test Information"]["C1"].value == "IP Device Qualification Report"
-        assert workbook["Test Results"]["B3"].value == "Test ID"
-        assert workbook["Test Results"]["G3"].value == "Test Result"
-        assert workbook["Test Results"]["H3"].value == "Test Comments"
-        assert workbook["Raw Evidence"]["D3"].value == "Detailed Evidence"
+        assert workbook["TEST SUMMARY"]["C1"].value == "IP Device Qualification Report"
+        assert workbook["TESTPLAN"]["B3"].value == "Test Number"
+        assert workbook["TESTPLAN"]["F3"].value == "Test Result"
+        assert workbook["TESTPLAN"]["G3"].value == "Test Comments"
+        assert workbook["TESTPLAN"]["L3"].value == "Raw Evidence"
     finally:
         workbook.close()
 
@@ -514,31 +515,32 @@ async def test_generic_report_writes_canonical_results_and_keeps_evidence(tmp_pa
 
     wb = load_workbook(output)
     try:
-        ws = wb["Test Results"]
-        headers = [ws[f"{col}3"].value for col in ["B", "C", "D", "E", "F", "G", "H", "I", "J"]]
+        ws = wb["TESTPLAN"]
+        headers = [ws[f"{col}3"].value for col in ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]]
         assert headers == [
-            "Test ID",
-            "Test Name",
-            "Tier",
-            "Tool",
+            "Test Number",
+            "Brief Description",
+            "Test Description",
             "Essential Test",
             "Test Result",
             "Test Comments",
+            "Tier",
+            "Tool",
             "Engineer Notes",
             "Evidence Summary",
+            "Raw Evidence",
         ]
         assert ws["B4"].value == "U01"
         assert ws["C4"].value == "Network Reachability"
-        assert ws["G4"].value == "PASS"
-        assert "Device responded as expected." in ws["H4"].value
-        assert "Host is up.\n1 open tcp port discovered." in ws["J4"].value
+        assert ws["F4"].value == "PASS"
+        assert "Device responded as expected." in ws["G4"].value
+        assert "Host is up.\n1 open tcp port discovered." in ws["K4"].value
+        assert "Host is up.\n1 open tcp port discovered." in ws["L4"].value
         assert ws["B5"].value == "U03"
         assert ws["C5"].value == "Switch Negotiation"
-        assert ws["G5"].value == "PASS"
-        assert ws["I5"].value == "Observed from managed switch port status page."
-        raw_ws = wb["Raw Evidence"]
-        assert raw_ws["A4"].value == "U01"
-        assert "Host is up.\n1 open tcp port discovered." in raw_ws["D4"].value
+        assert ws["F5"].value == "PASS"
+        assert ws["J5"].value == "Observed from managed switch port status page."
+        assert "Raw Evidence" not in wb.sheetnames
     finally:
         wb.close()
 
@@ -559,16 +561,15 @@ async def test_report_exports_strip_illegal_xml_control_characters(tmp_path, mon
 
     wb = load_workbook(output)
     try:
-        results_ws = wb["Test Results"]
-        evidence_ws = wb["Raw Evidence"]
+        results_ws = wb["TESTPLAN"]
         exported_values = [
-            results_ws["H4"].value,
-            results_ws["I4"].value,
+            results_ws["G4"].value,
             results_ws["J4"].value,
-            evidence_ws["D4"].value,
+            results_ws["K4"].value,
+            results_ws["L4"].value,
         ]
         assert all("\x00" not in str(value) and "\x0b" not in str(value) and "\x1b" not in str(value) for value in exported_values)
-        assert "[31m1 open tcp port discovered." in str(evidence_ws["D4"].value)
+        assert "[31m1 open tcp port discovered." in str(results_ws["L4"].value)
     finally:
         wb.close()
 
@@ -680,14 +681,13 @@ async def test_protocol_settings_reload_drive_u04_exported_evidence(
 
     wb = load_workbook(output)
     try:
-        results_ws = wb["Test Results"]
-        evidence_ws = wb["Raw Evidence"]
+        results_ws = wb["TESTPLAN"]
         assert results_ws["B4"].value == "U04"
         assert results_ws["C4"].value == "DHCP Behaviour"
-        assert results_ws["G4"].value in {"PASS", "INFO"}
-        assert "lease acknowledgement" in str(results_ws["H4"].value).lower()
-        assert "192.168.4.68" in str(results_ws["H4"].value)
-        evidence_detail = str(evidence_ws["D4"].value)
+        assert results_ws["F4"].value in {"PASS", "INFO"}
+        assert "lease acknowledgement" in str(results_ws["G4"].value).lower()
+        assert "192.168.4.68" in str(results_ws["G4"].value)
+        evidence_detail = str(results_ws["L4"].value)
         assert '"dhcp_lease_acknowledged": true' in evidence_detail.lower()
         assert '"offered_ip": "192.168.4.68"' in evidence_detail
     finally:
@@ -726,8 +726,8 @@ async def test_engineer_notes_written_to_excel_cell(tmp_path, monkeypatch):
 
     wb = load_workbook(output)
     try:
-        ws = wb["Test Results"]
-        assert ws["I4"].value == note
+        ws = wb["TESTPLAN"]
+        assert ws["J4"].value == note
     finally:
         wb.close()
 

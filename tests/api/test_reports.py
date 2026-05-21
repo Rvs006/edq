@@ -30,7 +30,7 @@ async def _create_template(admin_client: httpx.AsyncClient) -> str:
     resp = await admin_client.post(
         "/api/test-templates/",
         json={
-            "name": f"report-smoke-{uuid.uuid4().hex[:6]}",
+            "name": f"report-api-{uuid.uuid4().hex[:6]}",
             "description": "Minimal template for report smoke tests",
             "test_ids": ["U01"],
             "device_category": "camera",
@@ -100,15 +100,15 @@ async def test_generate_generic_excel_report(admin_client: httpx.AsyncClient, te
         workbook = load_workbook(BytesIO(download.content))
         try:
             assert workbook.sheetnames == [
-                "General Test Information",
-                "Test Results",
-                "Additional Device Information",
-                "Raw Evidence",
+                "TEST SUMMARY",
+                "TESTPLAN",
+                "ADDITIONAL INFORMATION",
             ]
-            assert workbook["Test Results"]["B4"].value == "U01"
-            assert workbook["Test Results"]["G4"].value == "PASS"
-            assert "Integration report smoke test" in workbook["Test Results"]["H4"].value
-            assert workbook["Raw Evidence"]["A4"].value == "U01"
+            assert workbook["TESTPLAN"]["B4"].value == "U01"
+            assert workbook["TESTPLAN"]["F4"].value == "PASS"
+            assert "Integration report smoke test" in workbook["TESTPLAN"]["G4"].value
+            assert workbook["TESTPLAN"]["L3"].value == "Raw Evidence"
+            assert "Raw Evidence" not in workbook.sheetnames
         finally:
             workbook.close()
     finally:
@@ -187,7 +187,7 @@ async def test_generate_report_rejects_pending_manual_results(admin_client: http
             json={
                 "device_id": test_device["id"],
                 "template_id": template_id,
-                "connection_scenario": "direct",
+                "connection_scenario": "test_lab",
             },
         )
         assert run_resp.status_code == 201, run_resp.text

@@ -1049,8 +1049,8 @@ function formatDuration(seconds: number | null): string {
 
 // Device relevance mapping: which test categories matter for each device type
 const DEVICE_RELEVANCE: Record<string, Set<string>> = {
-  camera: new Set(['U01','U02','U06','U07','U08','U09','U10','U11','U12','U16','U18','U19','U26','U35']),
-  controller: new Set(['U01','U02','U03','U04','U06','U07','U08','U09','U15','U16','U17','U19','U26','U28']),
+  camera: new Set(['U01','U02','U06','U08','U09','U10','U11','U12','U16','U18','U19','U26','U35']),
+  controller: new Set(['U01','U02','U03','U04','U06','U08','U09','U15','U16','U17','U19','U26','U28']),
   intercom: new Set(['U01','U02','U06','U08','U10','U11','U12','U16','U18','U19','U26','U35']),
   access_panel: new Set(['U01','U02','U06','U08','U10','U16','U18','U19','U26','U35']),
   hvac: new Set(['U01','U02','U03','U06','U08','U09','U15','U16','U19','U26','U28']),

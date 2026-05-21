@@ -52,7 +52,7 @@ async def test_provision_test_run_creates_run_results_and_selection_metadata(
     results = {row.test_id: row for row in result.scalars().all()}
     assert set(results) == {"U01", "U03"}
     assert all(row.verdict == TestVerdict.PENDING for row in results.values())
-    assert results["U03"].tier == TestTier.GUIDED_MANUAL
+    assert results["U03"].tier == TestTier.AUTOMATIC
 
 
 def test_resolve_test_run_selection_rejects_ids_outside_template():
@@ -73,7 +73,7 @@ def test_resolve_test_run_selection_rejects_ids_outside_template():
 def test_resolve_test_run_selection_filters_deprecated_template_ids():
     template = TestTemplate(
         name="Legacy Template",
-        test_ids=["U01", "U34"],
+        test_ids=["U01", "U07", "U31", "U34"],
         version="1.0",
     )
 
@@ -85,9 +85,9 @@ def test_resolve_test_run_selection_filters_deprecated_template_ids():
 def test_resolve_test_run_selection_rejects_explicit_deprecated_ids():
     template = TestTemplate(
         name="Legacy Template",
-        test_ids=["U01", "U34"],
+        test_ids=["U01", "U07", "U31", "U34"],
         version="1.0",
     )
 
     with pytest.raises(TestSelectionError, match="Unsupported or deprecated"):
-        resolve_test_run_selection(template, ["U34"])
+        resolve_test_run_selection(template, ["U07", "U31", "U34"])

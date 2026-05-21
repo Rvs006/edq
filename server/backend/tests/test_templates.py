@@ -170,5 +170,5 @@ async def test_get_test_library(client: AsyncClient):
     assert "test_id" in library[0]
     assert "name" in library[0]
     by_id = {test["test_id"]: test for test in library}
-    assert by_id["U03"]["tier"] == "guided_manual"
+    assert by_id["U03"]["tier"] == "automatic"
     assert "U36" not in by_id

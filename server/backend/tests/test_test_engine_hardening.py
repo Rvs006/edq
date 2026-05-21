@@ -684,6 +684,26 @@ def test_login_form_extraction_uses_actual_input_names():
     assert "submit=Login" in hydra_fields
 
 
+def test_login_form_extraction_synthesizes_input_only_login_page():
+    form = test_engine_module._extract_login_form(
+        """
+        <html><body>
+          <input id="username" type="text" />
+          <input id="password" type="password" />
+          <button>Sign in</button>
+        </body></html>
+        """,
+        "http://192.168.4.31/web/camera/login",
+    )
+
+    assert form is not None
+    assert form["synthetic_form"] is True
+    assert form["form_path"] == "/web/camera/login"
+    assert form["username_field"] == "username"
+    assert form["password_field"] == "password"
+    assert form["form_method"] == "post"
+
+
 @pytest.mark.asyncio
 async def test_u17_uses_discovered_web_login_port_and_form_fields(monkeypatch):
     import httpx
@@ -920,10 +940,14 @@ async def test_u06_full_scan_has_bounded_host_timeout(monkeypatch):
         captured["timeout"] = timeout
         return {"exit_code": 0, "stdout": xml}
 
+    async def no_udp_inventory(*_args, **_kwargs):
+        return ({"open_ports": [], "scan_info": {"type": "udp-probe", "protocol": "udp"}}, None)
+
     monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
     monkeypatch.setattr(test_engine_module.tools_client, "scanner_in_docker", False)
     monkeypatch.setattr(test_engine_module.tools_client, "backend_in_docker", False)
     monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "")
+    monkeypatch.setattr(engine, "_u06_udp_inventory", no_udp_inventory)
 
     parsed, raw = await engine._dispatch_test(
         "U06",
@@ -939,6 +963,145 @@ async def test_u06_full_scan_has_bounded_host_timeout(monkeypatch):
     assert "180s" in captured["args"]
     assert "--stats-every" in captured["args"]
     assert captured["timeout"] == 240
+
+
+@pytest.mark.asyncio
+async def test_u06_merges_required_udp_ports_into_tcp_scan(monkeypatch):
+    engine = TestEngine()
+    calls: list[list[str]] = []
+    tcp_xml = (
+        '<?xml version="1.0"?><nmaprun><scaninfo type="connect" protocol="tcp"/>'
+        '<host><status state="up"/><address addr="192.168.4.64" addrtype="ipv4"/>'
+        '<ports><port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port></ports>'
+        "</host></nmaprun>"
+    )
+    udp_xml = (
+        '<?xml version="1.0"?><nmaprun><scaninfo type="udp" protocol="udp"/>'
+        '<host><status state="up"/><address addr="192.168.4.64" addrtype="ipv4"/>'
+        '<ports><port protocol="udp" portid="3702"><state state="open|filtered"/><service name="ws-discovery"/></port>'
+        '<port protocol="udp" portid="47808"><state state="open"/><service name="bacnet"/></port></ports>'
+        "</host></nmaprun>"
+    )
+
+    async def fake_nmap_stream(target, args=None, timeout=300, on_line=None):
+        calls.append(args or [])
+        return {"exit_code": 0, "stdout": udp_xml if "-sU" in (args or []) else tcp_xml}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
+    monkeypatch.setattr(test_engine_module.tools_client, "scanner_in_docker", False)
+    monkeypatch.setattr(test_engine_module.tools_client, "backend_in_docker", False)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "")
+
+    parsed, raw = await engine._dispatch_test(
+        "U06",
+        "192.168.4.64",
+        "run-udp-merge",
+        SimpleNamespace(open_ports=[]),
+        "direct",
+    )
+
+    assert any("-sU" in args and any("67,68" in str(arg) for arg in args) for args in calls)
+    assert {(p["protocol"], p["port"]) for p in parsed["open_ports"]} == {
+        ("tcp", 22),
+        ("udp", 3702),
+        ("udp", 47808),
+    }
+    assert parsed["udp_ports_scanned"] == list(test_engine_module._U06_UDP_PORTS)
+    assert raw and "UDP scan:" in raw
+
+
+@pytest.mark.asyncio
+async def test_u03_host_workflow_cycles_profiles_and_restores(monkeypatch):
+    engine = TestEngine()
+    calls: list[tuple[object, ...]] = []
+
+    async def fake_required_interface(run_id: str, test_id: str):
+        assert run_id == "run-1"
+        assert test_id == "U03"
+        return "Ethernet 2", None
+
+    async def fake_state(interface: str):
+        calls.append(("state", interface))
+        return {"interface": interface, "state": "up"}
+
+    async def fake_set_profile(interface: str, speed_mbps: int, duplex: str):
+        calls.append(("profile", interface, speed_mbps, duplex))
+        return {"supported": True}
+
+    async def fake_restore(interface: str, original_state=None):
+        calls.append(("restore", interface, original_state))
+        return {"supported": True}
+
+    async def fake_probe(device_ip: str, device):
+        calls.append(("probe", device_ip))
+        return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", fake_state)
+    monkeypatch.setattr(test_engine_module.tools_client, "set_host_interface_profile", fake_set_profile)
+    monkeypatch.setattr(test_engine_module.tools_client, "restore_host_interface", fake_restore)
+    monkeypatch.setattr(engine, "_probe_after_host_network_change", fake_probe)
+
+    parsed, raw = await engine._dispatch_test(
+        "U03",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(open_ports=[{"port": 80}]),
+        "direct",
+    )
+
+    assert parsed["check_ran"] is True
+    assert parsed["selected_interface"] == "Ethernet 2"
+    assert parsed["attempted_profile_count"] == 5
+    assert parsed["all_profiles_reachable"] is True
+    assert any(call[0] == "restore" for call in calls)
+    assert raw and "restore_status" in raw
+
+
+@pytest.mark.asyncio
+async def test_u20_host_workflow_cycles_adapter_and_confirms_reachability(monkeypatch):
+    engine = TestEngine()
+    calls: list[tuple[object, ...]] = []
+
+    async def fake_required_interface(run_id: str, test_id: str):
+        assert test_id == "U20"
+        return "Ethernet 2", None
+
+    async def fake_state(interface: str):
+        return {"interface": interface, "state": "up"}
+
+    async def fake_cycle(interface: str, down_seconds: int = 5):
+        calls.append(("cycle", interface, down_seconds))
+        return {"supported": True}
+
+    async def fake_restore(interface: str, original_state=None):
+        calls.append(("restore", interface, original_state))
+        return {"supported": True}
+
+    async def fake_probe(device_ip: str, device):
+        return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", fake_state)
+    monkeypatch.setattr(test_engine_module.tools_client, "cycle_host_interface", fake_cycle)
+    monkeypatch.setattr(test_engine_module.tools_client, "restore_host_interface", fake_restore)
+    monkeypatch.setattr(engine, "_probe_after_host_network_change", fake_probe)
+
+    parsed, raw = await engine._dispatch_test(
+        "U20",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(open_ports=[{"port": 80}]),
+        "direct",
+    )
+
+    assert parsed["check_ran"] is True
+    assert parsed["reachable_after_reconnect"] is True
+    assert calls[0] == ("cycle", "Ethernet 2", 5)
+    assert calls[-1][0] == "restore"
+    assert raw and "reachable_after_reconnect" in raw
 
 
 @pytest.mark.asyncio
@@ -1023,6 +1186,11 @@ async def test_u06_docker_mode_uses_fast_tcp_inventory(monkeypatch):
     monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "")
     monkeypatch.setattr(test_engine_module.tools_client, "tcp_probe", fake_tcp_probe)
 
+    async def no_udp_inventory(*_args, **_kwargs):
+        return ({"open_ports": [], "scan_info": {"type": "udp-probe", "protocol": "udp"}}, None)
+
+    monkeypatch.setattr(engine, "_u06_udp_inventory", no_udp_inventory)
+
     parsed, raw = await engine._dispatch_test(
         "U06",
         "192.168.4.64",
@@ -1061,11 +1229,15 @@ async def test_u06_docker_backend_uses_host_network_full_scan_when_configured(mo
     async def fail_fast_inventory(*_args, **_kwargs):
         raise AssertionError("fast Docker inventory should not run when host network scanner is configured")
 
+    async def no_udp_inventory(*_args, **_kwargs):
+        return ({"open_ports": [], "scan_info": {"type": "udp-probe", "protocol": "udp"}}, None)
+
     monkeypatch.setattr(test_engine_module.tools_client, "scanner_in_docker", True)
     monkeypatch.setattr(test_engine_module.tools_client, "backend_in_docker", True)
     monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
     monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
     monkeypatch.setattr(engine, "_docker_tcp_inventory", fail_fast_inventory)
+    monkeypatch.setattr(engine, "_u06_udp_inventory", no_udp_inventory)
 
     parsed, raw = await engine._dispatch_test(
         "U06",

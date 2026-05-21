@@ -23,7 +23,7 @@ async def _create_template(db: AsyncSession) -> str:
 
     template = TestTemplate(
         name=f"scenario-routing-{uuid.uuid4().hex[:6]}",
-        test_ids=["U01", "U03", "U04", "U05", "U09", "U26", "U28", "U29", "U34"],
+        test_ids=["U01", "U03", "U04", "U05", "U09", "U20", "U26", "U28", "U29", "U34"],
         version="1.0",
     )
     db.add(template)
@@ -67,6 +67,7 @@ async def test_create_run_reclassifies_scenario_sensitive_tests_to_manual(
     assert results["U04"]["tier"] == "guided_manual"
     assert results["U05"]["tier"] == "guided_manual"
     assert results["U09"]["tier"] == "automatic"
+    assert results["U20"]["tier"] == "guided_manual"
     assert results["U26"]["tier"] == "guided_manual"
     assert results["U28"]["tier"] == "automatic"
     assert results["U29"]["tier"] == "guided_manual"
@@ -108,6 +109,40 @@ async def test_lab_scenario_keeps_dhcp_and_ntp_synchronisation_automatic(
     assert results["U04"]["tier"] == "automatic"
     assert results["U05"]["tier"] == "guided_manual"
     assert results["U09"]["tier"] == "automatic"
+    assert results["U20"]["tier"] == "guided_manual"
     assert results["U28"]["tier"] == "automatic"
     assert results["U29"]["tier"] == "automatic"
     assert "U34" not in results
+
+
+@pytest.mark.asyncio
+async def test_select_network_interface_stores_run_metadata(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    headers = await register_and_login(client, suffix="selectIface")
+    device_id = await _create_device(db_session)
+    template_id = await _create_template(db_session)
+    await db_session.commit()
+
+    run_resp = await client.post(
+        "/api/v1/test-runs/",
+        json={
+            "device_id": device_id,
+            "template_id": template_id,
+            "connection_scenario": "direct",
+        },
+        headers=headers,
+    )
+    assert run_resp.status_code == 201, run_resp.text
+    run_id = run_resp.json()["id"]
+
+    iface_resp = await client.post(
+        f"/api/v1/test-runs/{run_id}/network-interface",
+        json={"interface": "Ethernet 2", "label": "Bench NIC"},
+        headers=headers,
+    )
+
+    assert iface_resp.status_code == 200, iface_resp.text
+    metadata = iface_resp.json()["run_metadata"]
+    assert metadata["network_interface"] == {"name": "Ethernet 2", "label": "Bench NIC"}

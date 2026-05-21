@@ -199,6 +199,19 @@ _ALLOWED_COMMAND_BASENAMES = frozenset({
     "arp",
     "arp.exe",
     "ip",
+    "ethtool",
+    "powershell",
+    "powershell.exe",
+    "sh",
+})
+
+_ALLOWED_NETWORK_CONTROL_SHELL_SNIPPETS = frozenset({
+    'ip -j link show dev "$EDQ_IFACE"',
+    'ethtool "$EDQ_IFACE"',
+    'ethtool -s "$EDQ_IFACE" speed "$EDQ_SPEED" duplex "$EDQ_DUPLEX" autoneg off',
+    'ip link set dev "$EDQ_IFACE" down',
+    'ip link set dev "$EDQ_IFACE" up',
+    'ethtool -s "$EDQ_IFACE" autoneg on',
 })
 
 
@@ -210,6 +223,12 @@ def _validate_command_vector(cmd: list) -> list[str]:
     executable = os.path.basename(safe_cmd[0]).lower()
     if executable not in _ALLOWED_COMMAND_BASENAMES:
         raise ValueError("Unsupported scanner executable")
+    if executable == "sh" and (
+        len(safe_cmd) != 3
+        or safe_cmd[1] != "-c"
+        or safe_cmd[2] not in _ALLOWED_NETWORK_CONTROL_SHELL_SNIPPETS
+    ):
+        raise ValueError("Unsupported shell command")
 
     for part in safe_cmd:
         if "\x00" in part:
@@ -528,6 +547,206 @@ def _detect_host_interfaces() -> tuple[list[dict], str | None, dict]:
             host_ip = sample_hosts[0]
 
     return deduped, host_ip, debug
+
+
+_NETWORK_CONTROL_INTERFACE_RE = re.compile(r"^[A-Za-z0-9_.:() -]{1,128}$")
+
+
+def _validate_network_interface_name(value: str | None) -> str:
+    interface = str(value or "").strip()
+    if not interface or not _NETWORK_CONTROL_INTERFACE_RE.match(interface):
+        raise ValueError("Invalid network interface")
+    return interface
+
+
+def _run_network_control_command(
+    cmd: list[str],
+    *,
+    timeout: int = 30,
+    env: dict[str, str] | None = None,
+) -> dict:
+    started = time.time()
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    try:
+        safe_cmd = _validate_command_vector(cmd)
+        # Interface names are regex-validated, executable names are allowlisted,
+        # and shell execution is disabled before invoking host network controls.
+        # codeql[py/command-line-injection]
+        result = subprocess.run(
+            safe_cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=timeout,
+            env=merged_env,
+        )
+        return {
+            "exit_code": result.returncode,
+            "stdout": result.stdout or "",
+            "stderr": _sanitize_stderr(result.stderr or ""),
+            "duration_seconds": round(time.time() - started, 2),
+            "command": os.path.basename(safe_cmd[0]),
+        }
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "exit_code": 124,
+            "stdout": exc.stdout or "",
+            "stderr": "Network-control command timed out",
+            "duration_seconds": round(time.time() - started, 2),
+            "command": os.path.basename(cmd[0]) if cmd else "",
+        }
+
+
+def _network_control_supported() -> tuple[bool, str | None]:
+    if _running_in_docker():
+        return False, "Network adapter control requires the host scanner, not the Docker tools sidecar."
+    if _is_windows():
+        return (shutil.which("powershell.exe") or shutil.which("powershell")) is not None, "PowerShell is unavailable."
+    if not shutil.which("ip"):
+        return False, "The 'ip' command is unavailable."
+    if not shutil.which("sh"):
+        return False, "The 'sh' command is unavailable."
+    return True, None
+
+
+def _powershell_executable() -> str:
+    return shutil.which("powershell.exe") or shutil.which("powershell") or "powershell"
+
+
+def _shell_executable() -> str:
+    return shutil.which("sh") or "sh"
+
+
+def _interface_state(interface: str) -> dict:
+    if _is_windows():
+        script = (
+            "$ErrorActionPreference='Stop'; "
+            "$adapter = Get-NetAdapter -Name $env:EDQ_IFACE -ErrorAction Stop; "
+            "$adapter | Select-Object Name,Status,LinkSpeed,MacAddress,InterfaceDescription | ConvertTo-Json -Compress"
+        )
+        result = _run_network_control_command(
+            [_powershell_executable(), "-NoProfile", "-NonInteractive", "-Command", script],
+            timeout=10,
+            env={"EDQ_IFACE": interface},
+        )
+        return result
+
+    state: dict = {}
+    if shutil.which("ip"):
+        state["ip_link"] = _run_network_control_command(
+            [_shell_executable(), "-c", 'ip -j link show dev "$EDQ_IFACE"'],
+            timeout=10,
+            env={"EDQ_IFACE": interface},
+        )
+    if shutil.which("ethtool"):
+        state["ethtool"] = _run_network_control_command(
+            [_shell_executable(), "-c", 'ethtool "$EDQ_IFACE"'],
+            timeout=10,
+            env={"EDQ_IFACE": interface},
+        )
+    return state
+
+
+def _set_interface_profile(interface: str, speed_mbps: int, duplex: str) -> dict:
+    if speed_mbps not in {10, 100, 1000, 2500, 5000, 10000}:
+        raise ValueError("Unsupported interface speed")
+    duplex = duplex.lower()
+    if duplex not in {"half", "full"}:
+        raise ValueError("Unsupported duplex setting")
+
+    if _is_windows():
+        script = (
+            "$ErrorActionPreference='Stop'; "
+            "$duplex = if ($env:EDQ_DUPLEX -eq 'half') { 'Half' } else { 'Full' }; "
+            "$value = \"$env:EDQ_SPEED Mbps $duplex Duplex\"; "
+            "Set-NetAdapterAdvancedProperty -Name $env:EDQ_IFACE -DisplayName 'Speed & Duplex' "
+            "-DisplayValue $value -NoRestart; "
+            "Restart-NetAdapter -Name $env:EDQ_IFACE -Confirm:$false"
+        )
+        return _run_network_control_command(
+            [_powershell_executable(), "-NoProfile", "-NonInteractive", "-Command", script],
+            timeout=45,
+            env={
+                "EDQ_IFACE": interface,
+                "EDQ_SPEED": str(speed_mbps),
+                "EDQ_DUPLEX": duplex,
+            },
+        )
+
+    if not shutil.which("ethtool"):
+        raise RuntimeError("ethtool is unavailable for speed/duplex control")
+    return _run_network_control_command(
+        [
+            _shell_executable(),
+            "-c",
+            'ethtool -s "$EDQ_IFACE" speed "$EDQ_SPEED" duplex "$EDQ_DUPLEX" autoneg off',
+        ],
+        timeout=20,
+        env={"EDQ_IFACE": interface, "EDQ_SPEED": str(speed_mbps), "EDQ_DUPLEX": duplex},
+    )
+
+
+def _cycle_interface(interface: str, down_seconds: int) -> dict:
+    down_seconds = min(max(int(down_seconds), 1), 60)
+    if _is_windows():
+        script = (
+            "$ErrorActionPreference='Stop'; "
+            "Disable-NetAdapter -Name $env:EDQ_IFACE -Confirm:$false; "
+            "Start-Sleep -Seconds $env:EDQ_DOWN_SECONDS; "
+            "Enable-NetAdapter -Name $env:EDQ_IFACE -Confirm:$false"
+        )
+        return _run_network_control_command(
+            [_powershell_executable(), "-NoProfile", "-NonInteractive", "-Command", script],
+            timeout=down_seconds + 45,
+            env={"EDQ_IFACE": interface, "EDQ_DOWN_SECONDS": str(down_seconds)},
+        )
+
+    if not shutil.which("ip"):
+        raise RuntimeError("ip is unavailable for adapter cycling")
+    down = _run_network_control_command(
+        [_shell_executable(), "-c", 'ip link set dev "$EDQ_IFACE" down'],
+        timeout=15,
+        env={"EDQ_IFACE": interface},
+    )
+    time.sleep(down_seconds)
+    up = _run_network_control_command(
+        [_shell_executable(), "-c", 'ip link set dev "$EDQ_IFACE" up'],
+        timeout=15,
+        env={"EDQ_IFACE": interface},
+    )
+    return {"down": down, "up": up, "exit_code": up.get("exit_code", 1)}
+
+
+def _restore_interface(interface: str) -> dict:
+    if _is_windows():
+        script = (
+            "$ErrorActionPreference='Stop'; "
+            "Set-NetAdapterAdvancedProperty -Name $env:EDQ_IFACE -DisplayName 'Speed & Duplex' "
+            "-DisplayValue 'Auto Negotiation' -NoRestart; "
+            "Restart-NetAdapter -Name $env:EDQ_IFACE -Confirm:$false"
+        )
+        return _run_network_control_command(
+            [_powershell_executable(), "-NoProfile", "-NonInteractive", "-Command", script],
+            timeout=45,
+            env={"EDQ_IFACE": interface},
+        )
+
+    if shutil.which("ethtool"):
+        return _run_network_control_command(
+            [_shell_executable(), "-c", 'ethtool -s "$EDQ_IFACE" autoneg on'],
+            timeout=20,
+            env={"EDQ_IFACE": interface},
+        )
+    if shutil.which("ip"):
+        return _run_network_control_command(
+            [_shell_executable(), "-c", 'ip link set dev "$EDQ_IFACE" up'],
+            timeout=15,
+            env={"EDQ_IFACE": interface},
+        )
+    raise RuntimeError("No supported interface restore command is available")
 
 
 def _parse_neighbor_table(stdout: str, subnet: str | None = None) -> list[dict[str, str | None]]:
@@ -1010,6 +1229,11 @@ def root() -> Response:
             "/scan/ping",
             "/scan/tcp-probe",
             "/scan/neighbors",
+            "/host/network-control/interfaces",
+            "/host/network-control/state",
+            "/host/network-control/link-profile",
+            "/host/network-control/cycle",
+            "/host/network-control/restore",
         ],
         "note": "Use /health in a browser. Scan endpoints require X-Tools-Key.",
         "runtime": _runtime_info(),
@@ -1278,6 +1502,121 @@ def detect_networks() -> Response:
             "otherwise it falls back to TCP connect (-sT -Pn)."
         ) if in_docker else None,
         "debug": debug_info,
+    })
+
+
+@app.route("/host/network-control/interfaces", methods=["GET"])
+@require_api_key
+def host_network_control_interfaces() -> Response:
+    supported, reason = _network_control_supported()
+    interfaces, host_ip, debug_info = _detect_host_interfaces()
+    return jsonify({
+        "supported": supported,
+        "reason": None if supported else reason,
+        "interfaces": interfaces,
+        "host_ip": host_ip,
+        "runtime": _runtime_info(),
+        "debug": debug_info,
+    })
+
+
+@app.route("/host/network-control/state", methods=["POST"])
+@require_api_key
+def host_network_control_state() -> Union[Response, Tuple[Response, int]]:
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        interface = _validate_network_interface_name(data.get("interface"))
+    except ValueError:
+        return jsonify({"error": "Invalid network interface"}), 400
+
+    supported, reason = _network_control_supported()
+    if not supported:
+        return jsonify({"supported": False, "error": reason}), 503
+    try:
+        state = _interface_state(interface)
+    except RuntimeError:
+        app.logger.warning("Network-control state probe failed", exc_info=True)
+        return jsonify({"supported": False, "error": "Unable to read interface state"}), 400
+    return jsonify({"supported": True, "interface": interface, "state": state})
+
+
+@app.route("/host/network-control/link-profile", methods=["POST"])
+@require_api_key
+def host_network_control_link_profile() -> Union[Response, Tuple[Response, int]]:
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        interface = _validate_network_interface_name(data.get("interface"))
+        speed_mbps = int(data.get("speed_mbps"))
+        duplex = str(data.get("duplex") or "").strip().lower()
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid link profile"}), 400
+
+    supported, reason = _network_control_supported()
+    if not supported:
+        return jsonify({"supported": False, "error": reason}), 503
+
+    try:
+        result = _set_interface_profile(interface, speed_mbps, duplex)
+    except (RuntimeError, ValueError):
+        app.logger.warning("Network-control link profile change failed", exc_info=True)
+        return jsonify({"supported": False, "error": "Unable to change link profile"}), 400
+    return jsonify({
+        "supported": True,
+        "interface": interface,
+        "speed_mbps": speed_mbps,
+        "duplex": duplex,
+        "result": result,
+    })
+
+
+@app.route("/host/network-control/cycle", methods=["POST"])
+@require_api_key
+def host_network_control_cycle() -> Union[Response, Tuple[Response, int]]:
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        interface = _validate_network_interface_name(data.get("interface"))
+        down_seconds = int(data.get("down_seconds", 5))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid adapter cycle request"}), 400
+
+    supported, reason = _network_control_supported()
+    if not supported:
+        return jsonify({"supported": False, "error": reason}), 503
+    try:
+        result = _cycle_interface(interface, down_seconds)
+    except RuntimeError:
+        app.logger.warning("Network-control adapter cycle failed", exc_info=True)
+        return jsonify({"supported": False, "error": "Unable to cycle interface"}), 400
+    return jsonify({
+        "supported": True,
+        "interface": interface,
+        "down_seconds": min(max(down_seconds, 1), 60),
+        "result": result,
+    })
+
+
+@app.route("/host/network-control/restore", methods=["POST"])
+@require_api_key
+def host_network_control_restore() -> Union[Response, Tuple[Response, int]]:
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        interface = _validate_network_interface_name(data.get("interface"))
+    except ValueError:
+        return jsonify({"error": "Invalid network interface"}), 400
+
+    supported, reason = _network_control_supported()
+    if not supported:
+        return jsonify({"supported": False, "error": reason}), 503
+    try:
+        result = _restore_interface(interface)
+    except RuntimeError:
+        app.logger.warning("Network-control interface restore failed", exc_info=True)
+        return jsonify({"supported": False, "error": "Unable to restore interface"}), 400
+    return jsonify({
+        "supported": True,
+        "interface": interface,
+        "restore_mode": "auto_negotiation",
+        "result": result,
     })
 
 
