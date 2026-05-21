@@ -15,7 +15,49 @@ def test_u04_dhcp_offer_is_reported_as_segment_evidence_not_device_proof():
     assert verdict == "info"
     assert "DHCP offer observed" in comment
     assert "does not prove the device under test accepted the lease" in comment
-    assert "IP Offered: 192.168.4.68" in comment
+    assert "Client IP obtained from DHCP server: 192.168.4.68" in comment
+
+
+def test_u06_reports_merged_tcp_udp_port_scan_with_spaced_table():
+    verdict, comment = evaluate_result(
+        "U06",
+        {
+            "open_ports": [
+                {"port": 322, "protocol": "tcp", "state": "open", "service": "rtsps"},
+                {"port": 3702, "protocol": "udp", "state": "open|filtered", "service": "ws-discovery"},
+            ]
+        },
+    )
+
+    assert verdict == "info"
+    assert "1 open TCP port(s) and 1 open/open-filtered UDP port(s)" in comment
+    assert "PORT" in comment
+    assert "322/tcp" in comment
+    assert "open" in comment
+    assert "rtsps" in comment
+    assert "\t" not in comment
+
+
+def test_u03_reports_host_workflow_profiles():
+    verdict, comment = evaluate_result(
+        "U03",
+        {
+            "check_ran": True,
+            "selected_interface": "Ethernet 2",
+            "attempted_profile_count": 2,
+            "reachable_profile_count": 2,
+            "all_profiles_reachable": True,
+            "restore_status": {"supported": True},
+            "profiles": [
+                {"speed_mbps": 100, "duplex": "full", "probe_result": {"reachable": True}},
+                {"speed_mbps": 1000, "duplex": "full", "probe_result": {"reachable": True}},
+            ],
+        },
+    )
+
+    assert verdict == "pass"
+    assert "Ethernet 2" in comment
+    assert "1000Mbps full duplex: reachable" in comment
 
 
 def test_u04_passes_when_edq_acknowledges_dhcp_lease():
@@ -37,6 +79,26 @@ def test_u04_passes_when_edq_acknowledges_dhcp_lease():
     assert "192.168.4.68" in comment
     assert "DNS server 192.168.4.1" in comment
     assert "NTP server 192.168.4.1" in comment
+
+
+def test_u04_two_phase_dhcp_workflow_passes_when_second_range_acknowledged():
+    verdict, comment = evaluate_result(
+        "U04",
+        {
+            "dhcp_two_phase": True,
+            "check_ran": True,
+            "selected_interface": "Ethernet 2",
+            "renewal_verified": True,
+            "phases": [
+                {"name": "range_a", "offer_ip": "192.168.4.68", "lease_acknowledged": True},
+                {"name": "range_b", "offer_ip": "192.168.4.69", "lease_acknowledged": True},
+            ],
+        },
+    )
+
+    assert verdict == "pass"
+    assert "range A and then range B" in comment
+    assert "192.168.4.69" in comment
 
 
 def test_u04_observation_only_calls_out_missing_offer_configuration():
@@ -89,6 +151,17 @@ def test_u09_allows_tcp_udp_whitelist_entries():
         "U09",
         {"open_ports": [{"port": 53, "protocol": "udp", "service": "domain"}]},
         whitelist_entries=[{"port": 53, "protocol": "TCP/UDP", "service": "DNS"}],
+    )
+
+    assert verdict == "pass"
+    assert "All open ports match" in comment
+
+
+def test_u09_allows_tcp_322_by_default():
+    verdict, comment = evaluate_result(
+        "U09",
+        {"open_ports": [{"port": 322, "protocol": "tcp", "service": "rtsps"}]},
+        whitelist_entries=[],
     )
 
     assert verdict == "pass"
@@ -164,9 +237,10 @@ def test_u35_parses_modern_nikto_bracketed_findings():
         },
     )
 
-    assert verdict == "advisory"
+    assert verdict == "info"
     assert "[013587]" in comment
     assert "X-Content-Type-Options" in comment
+    assert "x-powered-by" not in comment.lower()
 
 
 def test_u35_reports_all_moderate_nikto_findings():
@@ -182,8 +256,8 @@ def test_u35_reports_all_moderate_nikto_findings():
 
     verdict, comment = evaluate_result("U35", {"raw": raw})
 
-    assert verdict == "advisory"
-    assert "Found 8 web/header issue(s)" in comment
+    assert verdict == "info"
+    assert "Found 8 suggested HTTP security header issue(s)" in comment
     for i in range(8):
         assert f"Header-{i}" in comment
 
@@ -202,8 +276,8 @@ def test_u35_dedupes_equivalent_missing_header_findings():
         },
     )
 
-    assert verdict == "advisory"
-    assert "Found 4 web/header issue(s)" in comment
+    assert verdict == "info"
+    assert "Found 4 suggested HTTP security header issue(s)" in comment
     assert comment.count("X-Content-Type-Options") == 1
 
 
@@ -275,7 +349,8 @@ def test_u36_includes_script_output_in_banner_comment():
     )
 
     assert verdict == "info"
-    assert "PORT\tSTATE\tSERVICE\tVERSION" in comment
+    assert "PORT" in comment
+    assert "\t" not in comment
     assert "Server: nginx/1.16.1" in comment
 
 
@@ -482,7 +557,7 @@ def test_u17_reports_ssh_lockout_after_three_attempts():
     assert "after 3 failed login attempt(s)" in comment
 
 
-def test_u18_no_longer_passes_when_http_is_absent():
+def test_u18_passes_when_http_is_absent():
     verdict, comment = evaluate_result(
         "U18",
         {
@@ -491,8 +566,25 @@ def test_u18_no_longer_passes_when_http_is_absent():
         },
     )
 
-    assert verdict == "advisory"
-    assert "does not satisfy a redirect verification requirement" in comment
+    assert verdict == "pass"
+    assert "test passed/not applicable" in comment
+
+
+def test_u20_reports_reachable_after_adapter_cycle():
+    verdict, comment = evaluate_result(
+        "U20",
+        {
+            "check_ran": True,
+            "selected_interface": "Ethernet 2",
+            "probe_result": {"reachable": True, "source": "tcp:80"},
+            "reachable_after_reconnect": True,
+            "restore_status": {"supported": True},
+        },
+    )
+
+    assert verdict == "pass"
+    assert "disabled and re-enabled" in comment
+    assert "tcp:80" in comment
 
 
 def test_u19_includes_device_type_running_guess_and_cpe():

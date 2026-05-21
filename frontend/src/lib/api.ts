@@ -210,7 +210,7 @@ export const testRunsApi = {
     withNormalizedData(api.get<Record<string, unknown>[]>('/test-runs/', { params }), (data) => data.map(normalizeTestRun)),
   get: (id: string) =>
     withNormalizedData(api.get<Record<string, unknown>>(`/test-runs/${id}`), normalizeTestRun),
-  create: (data: { device_id: string; plan_id?: string; template_id?: string; selected_test_ids?: string[] }) =>
+  create: (data: { device_id: string; plan_id?: string; template_id?: string; selected_test_ids?: string[]; metadata?: Record<string, unknown> }) =>
     withNormalizedData(api.post<Record<string, unknown>>('/test-runs/', data), normalizeTestRun),
   update: (id: string, data: { connection_scenario?: string; synopsis?: string; synopsis_status?: string }) =>
     withNormalizedData(api.patch<Record<string, unknown>>(`/test-runs/${id}`, data), normalizeTestRun),
@@ -219,6 +219,8 @@ export const testRunsApi = {
   pause: (id: string) => api.post(`/test-runs/${id}/pause`),
   pauseCable: (id: string) => api.post(`/test-runs/${id}/pause-cable`),
   resume: (id: string) => api.post(`/test-runs/${id}/resume`),
+  selectNetworkInterface: (id: string, data: { interface: string; label?: string }) =>
+    withNormalizedData(api.post<Record<string, unknown>>(`/test-runs/${id}/network-interface`, data), normalizeTestRun),
   requestReview: (id: string) =>
     withNormalizedData(api.post<Record<string, unknown>>(`/test-runs/${id}/request-review`), normalizeTestRun),
   complete: (id: string) =>

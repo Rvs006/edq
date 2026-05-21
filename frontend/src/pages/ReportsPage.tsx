@@ -49,9 +49,9 @@ const FORMAT_PREVIEW: Record<ReportFormat, { title: string; highlights: string[]
   excel: {
     title: 'Excel Workbook Preview',
     highlights: [
-      'Workbook tabs: General Test Information, Test Results, Additional Device Information, Raw Evidence',
-      'Per-test rows with verdict, comments, engineer notes, and evidence summary',
-      'Detailed observer/tool evidence is preserved in the Raw Evidence tab',
+      'Workbook tabs: TEST SUMMARY, TESTPLAN, ADDITIONAL INFORMATION',
+      'TESTPLAN rows with verdict, comments, engineer notes, evidence summary, and raw evidence',
+      'Detailed observer/tool evidence is preserved in the far-right Raw Evidence column',
     ],
   },
   word: {

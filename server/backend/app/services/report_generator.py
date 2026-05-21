@@ -188,6 +188,7 @@ _TESTPLAN_COLUMN_LABELS = {
     "test_comments": "Test Comments",
     "engineer_notes": "Engineer Notes",
     "evidence_summary": "Evidence Summary",
+    "raw_evidence": "Raw Evidence",
     "script_flag": "Script Flag",
 }
 
@@ -497,15 +498,17 @@ def _test_sort_key(result: Any) -> tuple[int, str]:
 
 def _generic_testplan_columns() -> list[tuple[str, str]]:
     return [
-        ("test_number", "Test ID"),
-        ("brief_description", "Test Name"),
-        ("tier", "Tier"),
-        ("tool", "Tool"),
+        ("test_number", "Test Number"),
+        ("brief_description", "Brief Description"),
+        ("test_description", "Test Description"),
         ("essential_test", "Essential Test"),
         ("test_result", "Test Result"),
         ("test_comments", "Test Comments"),
+        ("tier", "Tier"),
+        ("tool", "Tool"),
         ("engineer_notes", "Engineer Notes"),
         ("evidence_summary", "Evidence Summary"),
+        ("evidence_detail", "Raw Evidence"),
     ]
 
 
@@ -603,21 +606,27 @@ def _resolve_testplan_columns(mapping: dict[str, Any]) -> list[tuple[str, str]]:
         "test_number",
         "brief_description",
         "test_description",
-        "tier",
-        "tool",
         "essential_test",
         "essential_pass",
         "test_result",
         "test_comments",
+        "tier",
+        "tool",
         "engineer_notes",
         "evidence_summary",
+        "raw_evidence",
         "script_flag",
     ]
     resolved: list[tuple[str, str]] = []
     for key in ordered_keys:
         if key not in columns:
             continue
-        attribute = "essential_test" if key == "essential_pass" else key
+        if key == "essential_pass":
+            attribute = "essential_test"
+        elif key == "raw_evidence":
+            attribute = "evidence_detail"
+        else:
+            attribute = key
         resolved.append((attribute, _TESTPLAN_COLUMN_LABELS.get(key, key.replace("_", " ").title())))
     if resolved:
         return resolved
@@ -869,18 +878,19 @@ def _logo_display_name(path: Path | None) -> str:
 def _write_generic_excel_report(path: Path, report: ReportDocument) -> None:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     summary_ws = wb.active
     summary_ws.title = report.summary_section_title
     results_ws = wb.create_sheet(report.testplan_section_title)
     additional_ws = wb.create_sheet(report.additional_section_title)
-    evidence_ws = wb.create_sheet("Raw Evidence")
 
     title_fill = PatternFill("solid", fgColor="1F4E78")
     band_fill = PatternFill("solid", fgColor="D9EAF7")
     title_font = Font(color="FFFFFF", bold=True, size=14)
     header_font = Font(bold=True)
+    mono_font = Font(name="Consolas")
     wrap = Alignment(vertical="top", wrap_text=True)
     issuer_logo = _resolve_electracom_report_logo_path()
     client_logo = _resolve_uploaded_logo_path(report.branding.logo_path)
@@ -914,38 +924,61 @@ def _write_generic_excel_report(path: Path, report: ReportDocument) -> None:
     summary_ws.freeze_panes = "A4"
 
     _add_openpyxl_logo(results_ws, issuer_logo, "A1", width_px=150)
-    results_ws.merge_cells("B1:J1")
+    start_col_idx = 2
+    end_col_idx = start_col_idx + len(report.testplan_columns) - 1
+    start_col = get_column_letter(start_col_idx)
+    end_col = get_column_letter(end_col_idx)
+    results_ws.merge_cells(f"{start_col}1:{end_col}1")
     results_ws["B1"] = "Per-Test Results and Evidence"
     results_ws["B1"].fill = title_fill
     results_ws["B1"].font = title_font
     results_ws["B1"].alignment = Alignment(horizontal="center", vertical="center")
     header_row = 3
-    columns = ["B", "C", "D", "E", "F", "G", "H", "I", "J"]
-    widths = {
-        "B": 12,
-        "C": 34,
-        "D": 16,
-        "E": 14,
-        "F": 16,
-        "G": 44,
-        "H": 28,
-        "I": 16,
-        "J": 90,
+    columns = [get_column_letter(idx) for idx in range(start_col_idx, end_col_idx + 1)]
+    width_hints = {
+        "test_number": (12, 14),
+        "brief_description": (22, 34),
+        "test_description": (36, 64),
+        "essential_test": (14, 16),
+        "test_result": (14, 18),
+        "test_comments": (44, 70),
+        "tier": (14, 20),
+        "tool": (12, 18),
+        "engineer_notes": (24, 40),
+        "evidence_summary": (42, 72),
+        "evidence_detail": (55, 95),
     }
-    for col, (_, label) in zip(columns, report.testplan_columns, strict=False):
+
+    def _suggest_width(attribute: str, label: str, values: list[str]) -> float:
+        min_width, max_width = width_hints.get(attribute, (12, 40))
+        longest = max([len(label), *(min(len(line), max_width) for value in values for line in str(value).splitlines())], default=min_width)
+        return float(max(min_width, min(max_width, longest + 2)))
+
+    row_values = [
+        _report_row_values(row_values, report.testplan_columns)
+        for row_values in report.rows
+    ]
+    values_by_attribute = {
+        attribute: [values[idx] for values in row_values if idx < len(values)]
+        for idx, (attribute, _label) in enumerate(report.testplan_columns)
+    }
+
+    for col, (attribute, label) in zip(columns, report.testplan_columns, strict=False):
         results_ws[f"{col}{header_row}"] = label
         results_ws[f"{col}{header_row}"].font = header_font
         results_ws[f"{col}{header_row}"].fill = band_fill
         results_ws[f"{col}{header_row}"].alignment = wrap
-        results_ws.column_dimensions[col].width = widths[col]
+        results_ws.column_dimensions[col].width = _suggest_width(attribute, label, values_by_attribute.get(attribute, []))
 
-    for offset, row_values in enumerate(report.rows, start=header_row + 1):
-        for col, value in zip(columns, _report_row_values(row_values, report.testplan_columns), strict=False):
+    for offset, values in enumerate(row_values, start=header_row + 1):
+        for col, (attribute, _label), value in zip(columns, report.testplan_columns, values, strict=False):
             results_ws[f"{col}{offset}"] = value
             results_ws[f"{col}{offset}"].alignment = wrap
+            if attribute == "evidence_detail" or "\nPORT" in str(value) or str(value).startswith("PORT"):
+                results_ws[f"{col}{offset}"].font = mono_font
 
     results_ws.freeze_panes = "B4"
-    results_ws.auto_filter.ref = f"B{header_row}:J{max(header_row, len(report.rows) + header_row)}"
+    results_ws.auto_filter.ref = f"B{header_row}:{end_col}{max(header_row, len(report.rows) + header_row)}"
 
     additional_ws.merge_cells("A1:B1")
     additional_ws["A1"] = "Supporting Notes"
@@ -962,32 +995,6 @@ def _write_generic_excel_report(path: Path, report: ReportDocument) -> None:
         additional_ws[f"B{section_row}"] = section.body
         additional_ws[f"B{section_row}"].alignment = wrap
         section_row += 2
-
-    evidence_ws.merge_cells("A1:D1")
-    evidence_ws["A1"] = "Detailed Evidence"
-    evidence_ws["A1"].fill = title_fill
-    evidence_ws["A1"].font = title_font
-    evidence_ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    evidence_headers = ["Test ID", "Test Name", "Engineer Notes", "Detailed Evidence"]
-    evidence_widths = {"A": 12, "B": 34, "C": 30, "D": 120}
-    for idx, header in enumerate(evidence_headers, start=1):
-        cell = evidence_ws.cell(row=3, column=idx)
-        cell.value = header
-        cell.font = header_font
-        cell.fill = band_fill
-        cell.alignment = wrap
-        evidence_ws.column_dimensions[chr(64 + idx)].width = evidence_widths[chr(64 + idx)]
-
-    for row_index, item in enumerate(report.rows, start=4):
-        evidence_ws[f"A{row_index}"] = item.test_number
-        evidence_ws[f"B{row_index}"] = item.brief_description
-        evidence_ws[f"C{row_index}"] = item.engineer_notes
-        evidence_ws[f"D{row_index}"] = item.evidence_detail or item.evidence_summary
-        for col in ("A", "B", "C", "D"):
-            evidence_ws[f"{col}{row_index}"].alignment = wrap
-
-    evidence_ws.freeze_panes = "A4"
-    evidence_ws.auto_filter.ref = f"A3:D{max(3, len(report.rows) + 3)}"
 
     wb.save(str(path))
 

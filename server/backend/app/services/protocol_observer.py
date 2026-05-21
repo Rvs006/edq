@@ -386,6 +386,12 @@ async def observe_dhcp_activity(
     expected_mac: str | None,
     timeout_seconds: int | None = None,
     port: int | None = None,
+    offer_ip: str | None = None,
+    router_ip: str | None = None,
+    subnet_mask: str | None = None,
+    dns_server: str | None = None,
+    ntp_server: str | None = None,
+    lease_seconds: int | None = None,
 ) -> dict[str, Any]:
     timeout = timeout_seconds or settings.PROTOCOL_OBSERVER_TIMEOUT_SECONDS
     bind_port = port or settings.PROTOCOL_OBSERVER_DHCP_PORT
@@ -393,11 +399,13 @@ async def observe_dhcp_activity(
         sock = _bind_udp_socket(bind_port)
         loop = asyncio.get_running_loop()
         events: list[dict[str, Any]] = []
-        offer_ip = settings.PROTOCOL_OBSERVER_DHCP_OFFER_IP or ""
-        router_ip = settings.PROTOCOL_OBSERVER_DHCP_ROUTER_IP or ""
+        offer_ip = offer_ip or settings.PROTOCOL_OBSERVER_DHCP_OFFER_IP or ""
+        router_ip = router_ip or settings.PROTOCOL_OBSERVER_DHCP_ROUTER_IP or ""
         server_ip = _local_ip_for_target(offer_ip) or router_ip or _local_ip_for_target("8.8.8.8") or ""
-        dns_server = settings.PROTOCOL_OBSERVER_DHCP_DNS_SERVER or server_ip
-        ntp_server = settings.PROTOCOL_OBSERVER_DHCP_NTP_SERVER or server_ip
+        dns_server = dns_server or settings.PROTOCOL_OBSERVER_DHCP_DNS_SERVER or server_ip
+        ntp_server = ntp_server or settings.PROTOCOL_OBSERVER_DHCP_NTP_SERVER or server_ip
+        subnet_mask = subnet_mask or settings.PROTOCOL_OBSERVER_DHCP_SUBNET_MASK
+        lease_seconds = lease_seconds or settings.PROTOCOL_OBSERVER_DHCP_LEASE_SECONDS
         observer_reply_types: list[int] = []
         lease_acknowledged = False
         try:
@@ -421,11 +429,11 @@ async def observe_dhcp_activity(
                         message_type=reply_type,
                         offer_ip=offer_ip,
                         server_ip=server_ip,
-                        subnet_mask=settings.PROTOCOL_OBSERVER_DHCP_SUBNET_MASK,
+                        subnet_mask=subnet_mask,
                         router_ip=router_ip,
                         dns_server=dns_server,
                         ntp_server=ntp_server,
-                        lease_seconds=settings.PROTOCOL_OBSERVER_DHCP_LEASE_SECONDS,
+                        lease_seconds=lease_seconds,
                     )
                     if reply:
                         try:

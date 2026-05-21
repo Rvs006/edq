@@ -90,6 +90,35 @@ def _eval_u02(data: dict, _wl: list) -> tuple[str, str]:
 
 def _eval_u03(data: dict, _wl: list) -> tuple[str, str]:
     """Switch negotiation guidance for direct-cable verification."""
+    if data.get("check_ran") is False:
+        reason = data.get("reason") or "Host interface workflow was not available."
+        return ("na", f"Switch Negotiation (Speed/Duplex) - Not assessed. {reason}")
+    if data.get("check_ran") is True:
+        interface = data.get("selected_interface") or "selected interface"
+        attempted = data.get("attempted_profile_count", 0)
+        reachable = data.get("reachable_profile_count", 0)
+        restore_status = data.get("restore_status") or {}
+        restore_ok = restore_status.get("supported") is not False and not restore_status.get("error")
+        profile_lines = []
+        for item in data.get("profiles") or []:
+            probe = item.get("probe_result") or {}
+            status = "reachable" if probe.get("reachable") else "not reachable"
+            profile_lines.append(
+                f"- {item.get('speed_mbps')}Mbps {item.get('duplex')} duplex: {status}"
+            )
+        detail = "\n" + "\n".join(profile_lines) if profile_lines else ""
+        restore_note = " Interface restore completed." if restore_ok else " Interface restore needs manual confirmation."
+        if data.get("all_profiles_reachable") and restore_ok:
+            return (
+                "pass",
+                f"Switch Negotiation (Speed/Duplex) - Device stayed reachable on {interface} "
+                f"for all {attempted} attempted speed/duplex profile(s).{restore_note}{detail}",
+            )
+        return (
+            "advisory",
+            f"Switch Negotiation (Speed/Duplex) - Device was reachable for {reachable} of {attempted} "
+            f"attempted speed/duplex profile(s) on {interface}.{restore_note}{detail}",
+        )
     return (
         "na",
         "Switch Negotiation (Speed/Duplex) - Manual verification required. "
@@ -176,6 +205,28 @@ def _eval_u04(data: dict, _wl: list) -> tuple[str, str]:
 
 def _eval_u04_v2(data: dict, _wl: list) -> tuple[str, str]:
     """DHCP Behaviour."""
+    if data.get("dhcp_two_phase"):
+        if data.get("check_ran") is False:
+            reason = data.get("reason") or "Two-phase DHCP host workflow could not run."
+            return ("info", f"DHCP Behaviour - Two-phase Scenario 1 workflow not assessed. {reason}")
+        phases = data.get("phases") or []
+        phase_lines = []
+        for phase in phases:
+            ack = "ACK observed" if phase.get("lease_acknowledged") else "ACK not observed"
+            phase_lines.append(f"- {phase.get('name')}: offered {phase.get('offer_ip')} ({ack})")
+        details = "\n" + "\n".join(phase_lines) if phase_lines else ""
+        if data.get("renewal_verified"):
+            return (
+                "pass",
+                "DHCP Behaviour - Device accepted DHCP leases from range A and then range B "
+                "without a port toggle. Renewal into the second range was verified." + details,
+            )
+        return (
+            "info",
+            "DHCP Behaviour - Two-phase DHCP workflow ran, but EDQ did not verify a lease "
+            "renewal into the second range." + details,
+        )
+
     dhcp = data.get("dhcp_detected", data.get("dhcp_enabled"))
     dhcp_server = data.get("dhcp_server")
     dhcp_dns_server = data.get("dhcp_dns_server")
@@ -236,11 +287,26 @@ def _eval_u04_v2(data: dict, _wl: list) -> tuple[str, str]:
         return ("info", " ".join(details))
 
     if dhcp is True:
+        parsed_details = data.get("details") if isinstance(data.get("details"), dict) else {}
+        router = data.get("dhcp_router") or parsed_details.get("Router")
+        subnet_mask = data.get("dhcp_subnet_mask") or parsed_details.get("Subnet Mask")
+        domain = data.get("dhcp_domain") or parsed_details.get("Domain Name")
+        dns_server = dhcp_dns_server or parsed_details.get("Domain Name Server")
+        client_ip = data.get("client_ip") or offered_ip or (dhcp_server if not router else None)
+        server_address = data.get("dhcp_server_address") or router or (dhcp_server if dhcp_server != client_ip else None)
         details = "DHCP Behaviour - DHCP offer observed on the network segment."
-        if dhcp_server:
-            details += f" Server Identifier: {dhcp_server}."
-        if offered_ip:
-            details += f" IP Offered: {offered_ip}."
+        if client_ip:
+            details += f" Client IP obtained from DHCP server: {client_ip}."
+        if server_address:
+            details += f" DHCP Server Address: {server_address}."
+        if subnet_mask:
+            details += f" Subnet Mask: {subnet_mask}."
+        if router:
+            details += f" Router: {router}."
+        if dns_server:
+            details += f" Domain Name Server: {dns_server}."
+        if domain:
+            details += f" Domain Name: {domain}."
         details += (
             " This confirms DHCP service is present, but it does not prove the device under test accepted the lease."
             " Confirm the device network settings or lease table for a true DHCP behaviour check."
@@ -283,18 +349,21 @@ def _format_port_table(open_ports: list[dict], include_version: bool = False) ->
         key=lambda p: (str(p.get("protocol", "tcp")), int(p.get("port", 0))),
     )
     if include_version:
-        lines = ["PORT\tSTATE\tSERVICE\tVERSION"]
+        lines = [f"{'PORT':<10} {'STATE':<13} {'SERVICE':<18} VERSION"]
         for p in sorted_ports:
             version = (p.get("version") or "").strip()
             lines.append(
-                f"{p.get('port')}/{p.get('protocol', 'tcp')}\t{p.get('state', 'open')}\t{p.get('service', '?')}\t{version}".rstrip()
+                f"{str(p.get('port')) + '/' + str(p.get('protocol', 'tcp')):<10} "
+                f"{str(p.get('state', 'open')):<13} "
+                f"{str(p.get('service', '?')):<18} {version}".rstrip()
             )
         return "\n".join(lines)
 
-    lines = ["PORT\tSTATE\tSERVICE"]
+    lines = [f"{'PORT':<10} {'STATE':<13} SERVICE"]
     for p in sorted_ports:
         lines.append(
-            f"{p.get('port')}/{p.get('protocol', 'tcp')}\t{p.get('state', 'open')}\t{p.get('service', '?')}"
+            f"{str(p.get('port')) + '/' + str(p.get('protocol', 'tcp')):<10} "
+            f"{str(p.get('state', 'open')):<13} {p.get('service', '?')}"
         )
     return "\n".join(lines)
 
@@ -377,14 +446,21 @@ def _script_output(script: dict | None) -> str:
 
 
 def _eval_u06(data: dict, _wl: list) -> tuple[str, str]:
-    """Full TCP Port Scan."""
+    """TCP/UDP Port Scan."""
     open_ports = data.get("open_ports", [])
     count = len(open_ports)
+    tcp_count = sum(1 for port in open_ports if str(port.get("protocol") or "tcp").lower() == "tcp")
+    udp_count = sum(1 for port in open_ports if str(port.get("protocol") or "tcp").lower() == "udp")
+    udp_error = data.get("udp_scan_error")
     if count == 0:
-        return ("info", "TCP Port Scan — No open TCP ports found. Verify the device is reachable and not blocking scans.")
+        suffix = f" UDP scan note: {udp_error}" if udp_error else ""
+        return ("info", f"TCP/UDP Port Scan - No open TCP or UDP ports found. Verify the device is reachable and not blocking scans.{suffix}")
+    summary = f"TCP/UDP Port Scan - {tcp_count} open TCP port(s) and {udp_count} open/open-filtered UDP port(s) found."
+    if udp_error:
+        summary += f" UDP scan note: {udp_error}"
     return (
         "info",
-        f"TCP Port Scan — {count} open TCP port(s) found.\n{_format_port_table(open_ports)}",
+        f"{summary}\n{_format_port_table(open_ports)}",
     )
 
 
@@ -425,6 +501,7 @@ def _eval_u09(data: dict, wl: list) -> tuple[str, str]:
         return ("pass", "Whitelist Compliance — No open ports to compare against whitelist.")
 
     allowed_ports = set()
+    allowed_ports.add(("TCP", 322))
     for entry in wl:
         port_val = entry.get("port")
         if port_val is not None:
@@ -479,14 +556,14 @@ def _eval_u11(data: dict, _wl: list) -> tuple[str, str]:
             )
         return ("na", "Cipher Strength - No cipher suites detected. TLS may not be configured.")
     cipher_names = [
-        c.get("name", str(c)).strip()
+        str(c.get("name") or c).strip() if isinstance(c, dict) else str(c).strip()
         for c in ciphers
-        if (c.get("name", str(c)).strip() if isinstance(c, dict) else str(c).strip())
+        if (str(c.get("name") or c).strip() if isinstance(c, dict) else str(c).strip())
     ]
     weak_names = [
-        c.get("name", str(c)).strip()
+        str(c.get("name") or c).strip() if isinstance(c, dict) else str(c).strip()
         for c in weak_ciphers
-        if (c.get("name", str(c)).strip() if isinstance(c, dict) else str(c).strip())
+        if (str(c.get("name") or c).strip() if isinstance(c, dict) else str(c).strip())
     ]
     cipher_lines = "\n".join(f"- {name}" for name in cipher_names[:12])
     if weak_ciphers:
@@ -676,8 +753,7 @@ def _eval_u18(data: dict, _wl: list) -> tuple[str, str]:
         suffix = f" Status: {status_code}. Redirect target: {location}." if status_code else ""
         return ("pass", "HTTP to HTTPS Redirect - HTTP correctly redirects to HTTPS." + suffix)
     if not http_open:
-        return ("advisory", "HTTP to HTTPS Redirect - No HTTP service detected on port 80. "
-                "This is more secure than serving plaintext HTTP, but it does not satisfy a redirect verification requirement.")
+        return ("pass", "HTTP to HTTPS Redirect - No HTTP service detected on port 80, so test passed/not applicable.")
     suffix = f" Status: {status_code}. Response location: {location}." if status_code or location else ""
     return ("fail", "HTTP to HTTPS Redirect - HTTP does not redirect to HTTPS. Configure the web server to redirect port 80 to port 443." + suffix)
 
@@ -702,6 +778,36 @@ def _eval_u19(data: dict, _wl: list) -> tuple[str, str]:
     return ("info", "OS Fingerprint - Could not determine OS. The device may block fingerprinting probes.\n\n"
                      "Platform note: OS fingerprinting works best with a direct network connection (not through Docker NAT). "
                      "Alternatively, check the device admin interface for OS/firmware information.")
+
+
+def _eval_u20(data: dict, _wl: list) -> tuple[str, str]:
+    """Network Disconnection Behaviour."""
+    if data.get("check_ran") is False:
+        reason = data.get("reason") or "Host adapter workflow was not available."
+        return ("na", f"Network Disconnection Behaviour - Not assessed. {reason}")
+    if data.get("check_ran") is True:
+        interface = data.get("selected_interface") or "selected interface"
+        probe = data.get("probe_result") or {}
+        restore_status = data.get("restore_status") or {}
+        restore_ok = restore_status.get("supported") is not False and not restore_status.get("error")
+        source = probe.get("source") or "no probe source"
+        if data.get("reachable_after_reconnect") and restore_ok:
+            return (
+                "pass",
+                f"Network Disconnection Behaviour - {interface} was disabled and re-enabled; "
+                f"the device was reachable afterwards ({source}). Interface restore completed.",
+            )
+        return (
+            "advisory",
+            f"Network Disconnection Behaviour - {interface} was cycled, but EDQ could not confirm "
+            f"device reachability after reconnect ({source}). Confirm manually before qualification.",
+        )
+    return (
+        "na",
+        "Network Disconnection Behaviour - Manual verification required. Disconnect/reconnect the network path "
+        "and confirm the device returns to normal operation.",
+    )
+
 
 def _eval_u26(data: dict, _wl: list) -> tuple[str, str]:
     """NTP Synchronisation Check."""
@@ -871,21 +977,14 @@ def _eval_u35(data: dict, _wl: list) -> tuple[str, str]:
         *_extract_nikto_findings(stdout),
         *_extract_http_header_findings(header_scan),
     ])
+    issues = [issue for issue in issues if _canonical_finding_key(issue.lower()).startswith("missing-header:")]
     vuln_count = len(issues)
     raw_headers = str(header_scan.get("raw_headers") or "").strip()
     header_block = f"\nCaptured headers:\n{raw_headers}" if raw_headers else ""
 
-    if vuln_count > 10:
-        details = "; ".join(issues[:20])
-        if vuln_count > 20:
-            details += f"; (+{vuln_count - 20} more)"
-        return ("fail", f"Web Assessment — Found {vuln_count} web/header issue(s): {details}. Review and patch the web server.{header_block}")
-    if vuln_count > 3:
-        details = "; ".join(issues)
-        return ("advisory", f"Web Assessment — Found {vuln_count} web/header issue(s): {details}. Review and patch.{header_block}")
     if vuln_count > 0:
         details = "; ".join(issues)
-        return ("advisory", f"Web Assessment — Found {vuln_count} minor web/header issue(s): {details}.{header_block}")
+        return ("info", f"Web Assessment - Found {vuln_count} suggested HTTP security header issue(s): {details}.{header_block}")
     return ("pass", "Web Assessment — Nikto found no significant issues and required HTTP security headers were present." + header_block)
 
 
@@ -1032,13 +1131,10 @@ def _extract_http_header_findings(header_scan: dict[str, Any]) -> list[str]:
 
     required_headers = {
         "Content-Security-Policy": _header_lookup(headers, "Content-Security-Policy"),
-        "X-Frame-Options": _header_lookup(headers, "X-Frame-Options"),
+        "Permissions-Policy": _header_lookup(headers, "Permissions-Policy"),
         "X-Content-Type-Options": _header_lookup(headers, "X-Content-Type-Options"),
         "Referrer-Policy": _header_lookup(headers, "Referrer-Policy"),
     }
-    response_url = str(header_scan.get("response_url") or "")
-    if response_url.lower().startswith("https://"):
-        required_headers["Strict-Transport-Security"] = _header_lookup(headers, "Strict-Transport-Security")
 
     return [
         f"Missing HTTP security header: {name}"
@@ -1067,6 +1163,7 @@ _EVALUATORS: dict[str, Any] = {
     "U17": _eval_u17,
     "U18": _eval_u18,
     "U19": _eval_u19,
+    "U20": _eval_u20,
     "U26": _eval_u26,
     "U28": _eval_u28,
     "U29": _eval_u29,

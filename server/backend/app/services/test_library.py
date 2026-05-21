@@ -36,10 +36,10 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "platform_notes": "Best results: Linux/Windows host on same subnet. Docker: limited by NAT (L2 adjacency required for MAC)."
     },
     {
-        "test_id": "U03", "name": "Switch Negotiation (Speed/Duplex)", "tier": "guided_manual", "tool": None,
+        "test_id": "U03", "name": "Switch Negotiation (Speed/Duplex)", "tier": "automatic", "tool": "host_scanner",
         "is_essential": False, "description": "Verify Ethernet link negotiation parameters.",
         "compliance_map": [],
-        "platform_notes": "Manual evidence required: verify switch interface status or run ethtool on a host with direct Ethernet access. Not possible via Docker or remote scan."
+        "platform_notes": "Scenario 1 requires a privileged host scanner and selected Ethernet interface. Scenario 2/3 are routed to manual evidence."
     },
     {
         "test_id": "U04", "name": "DHCP Behaviour", "tier": "automatic", "tool": "discovery_metadata",
@@ -54,15 +54,16 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "platform_notes": "Manual evidence required: record observed IPv6 addresses, SLAAC/DHCPv6 behaviour, or confirmation that IPv6 is disabled."
     },
     {
-        "test_id": "U06", "name": "Full TCP Port Scan (All 65535)", "tier": "automatic", "tool": "nmap",
-        "is_essential": True, "description": "Scan all 65535 TCP ports to identify open services.",
+        "test_id": "U06", "name": "TCP/UDP Port Scan", "tier": "automatic", "tool": "nmap",
+        "is_essential": True, "description": "Scan all TCP ports and required UDP smart-building ports to identify exposed services.",
         "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials", "SOC2 CC6.1"]
     },
     {
-        "test_id": "U07", "name": "UDP Top-100 Port Scan", "tier": "automatic", "tool": "nmap",
-        "is_essential": False, "description": "Scan top 100 UDP ports for open services.",
+        "test_id": "U07", "name": "UDP Port Scan (Merged into U06)", "tier": "automatic", "tool": "nmap",
+        "is_essential": False, "description": "Retired check. UDP port evidence is now collected and reported by U06 TCP/UDP Port Scan.",
         "compliance_map": ["ISO 27001 A.13.1.1"],
-        "platform_notes": "Docker: UDP scanning through NAT may miss ports. Direct host connection recommended."
+        "platform_notes": "Legacy results remain readable; do not create this test for new runs.",
+        "deprecated": True,
     },
     {
         "test_id": "U08", "name": "Service Version Detection", "tier": "automatic", "tool": "nmap",
@@ -128,9 +129,11 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "platform_notes": "Docker: OS detection limited through NAT. Best on Linux host with direct connection."
     },
     {
-        "test_id": "U20", "name": "Network Disconnection Behaviour", "tier": "guided_manual", "tool": None,
+        "test_id": "U20", "name": "Network Disconnection Behaviour", "tier": "automatic", "tool": "host_scanner",
         "is_essential": False, "description": "Verify device behaviour when network cable is disconnected and reconnected.",
-        "compliance_map": ["ISO 27001 A.17.1.1"]
+        "compliance_map": ["ISO 27001 A.17.1.1"],
+        "platform_notes": "Scenario 1 can be automated by disabling/re-enabling the selected host Ethernet interface. Scenario 2/3 require manual evidence.",
+        "trust_level": "manual_evidence",
     },
     {
         "test_id": "U21", "name": "Web Interface Password Change", "tier": "guided_manual", "tool": None,
@@ -183,9 +186,10 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "compliance_map": ["ISO 27001 A.9.4.3", "Cyber Essentials", "SOC2 CC6.1"]
     },
     {
-        "test_id": "U31", "name": "SNMP Version Check", "tier": "automatic", "tool": "snmpwalk",
-        "is_essential": False, "description": "Detect SNMP exposure and verify insecure public-community SNMPv1/v2c access is not accepted.",
+        "test_id": "U31", "name": "SNMP Version Check (Not Required)", "tier": "automatic", "tool": "snmpwalk",
+        "is_essential": False, "description": "Retired check. SNMP exposure is covered by service discovery and protocol whitelist review where required.",
         "compliance_map": ["ISO 27001 A.13.1.1", "Cyber Essentials"],
+        "deprecated": True,
     },
     {
         "test_id": "U32", "name": "UPnP/SSDP Exposure (Retired)", "tier": "automatic", "tool": "nmap",
@@ -367,6 +371,7 @@ DEFAULT_WHITELIST_ENTRIES = [
     {"port": 68, "protocol": "UDP", "service": "DHCP (RFC 2131)", "required_version": None},
     {"port": 123, "protocol": "UDP", "service": "NTP (RFC 5905)", "required_version": "NTPv4"},
     {"port": 161, "protocol": "TCP/UDP", "service": "SNMPv3 (RFC 3411-3418)", "required_version": "v3 only"},
+    {"port": 322, "protocol": "TCP", "service": "RTSPS / secure device management", "required_version": None},
     {"port": 443, "protocol": "TCP", "service": "HTTPS (RFC 2616)", "required_version": None},
     {"port": 636, "protocol": "TCP/UDP", "service": "LDAPS (RFC 4513)", "required_version": None},
     {"port": 989, "protocol": "TCP/UDP", "service": "FTPS data (RFC 4217)", "required_version": None},

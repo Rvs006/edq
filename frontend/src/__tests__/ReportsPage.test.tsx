@@ -171,7 +171,7 @@ describe('ReportsPage', () => {
   it('shows the excel workbook preview by default', () => {
     renderWithProviders(<ReportsPage />)
     expect(screen.getByText('Excel Workbook Preview')).toBeInTheDocument()
-    expect(screen.getByText(/workbook tabs: General Test Information, Test Results, Additional Device Information, Raw Evidence/i)).toBeInTheDocument()
+    expect(screen.getByText(/workbook tabs: TEST SUMMARY, TESTPLAN, ADDITIONAL INFORMATION/i)).toBeInTheDocument()
   })
 
   it('groups report-ready runs by device and marks the latest timestamp', async () => {

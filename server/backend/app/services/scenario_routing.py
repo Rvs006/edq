@@ -22,10 +22,12 @@ _SCENARIO_LABELS: dict[str, str] = {
 _SCENARIO_MANUAL_ROUTING: dict[str, dict[str, str]] = {
     "test_lab": {
         "U03": "Switch negotiation must be verified manually in the test lab scenario.",
+        "U20": "Network disconnection behaviour must be verified manually in the test lab scenario.",
     },
     "site_network": {
         "U03": "Switch negotiation must be verified manually on a live site network.",
         "U04": "DHCP behaviour must be verified manually on a live site network.",
+        "U20": "Network disconnection behaviour must be verified manually on a live site network.",
         "U26": "NTP synchronisation requires manual evidence on a live site network.",
         "U29": "DNS support requires manual evidence on a live site network.",
     },
