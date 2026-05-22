@@ -87,3 +87,49 @@ Minimum rules:
 ## Production Rating Gate
 
 EDQ can move from pilot-ready to production-ready only after the release gate, backup drill, monitoring gate, and scanner-governance checks have evidence attached.
+
+## Evidence Record Template
+
+Create one record per release candidate or pilot rollout. Store it in the team's operational evidence system, not in the public repository if it includes customer names, network ranges, screenshots, logs, or backup filenames.
+
+```text
+EDQ release candidate:
+Commit:
+Operator:
+Date:
+Environment:
+Access boundary:
+
+Release gate:
+- GitHub CI:
+- CodeQL:
+- Container scan:
+- Local smoke test:
+- API regression:
+- Backend regression:
+
+Backup and restore:
+- Backup command:
+- Backup location:
+- Restore host or disposable environment:
+- Restore validation:
+- Data loss/recovery notes:
+
+Monitoring:
+- Error monitoring:
+- Log aggregation:
+- Health alert:
+- Disk/backup alert:
+
+Scanner governance:
+- Approved CIDRs:
+- Approver:
+- Audit-log review:
+- Pilot devices tested:
+- False positives / false negatives:
+- Report-quality issues:
+
+Go/no-go decision:
+Decision maker:
+Follow-up issues:
+```
