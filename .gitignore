@@ -183,6 +183,7 @@ frontend/vite.config.d.ts
 *.db-wal
 
 # Application data
+backups/
 reports/*
 !reports/schemas/
 !reports/schemas/**

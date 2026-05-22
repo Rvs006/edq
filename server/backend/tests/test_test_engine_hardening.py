@@ -37,6 +37,8 @@ def test_nmap_xml_or_raise_rejects_empty_scanner_output():
 
 
 def test_system_status_tools_have_active_test_coverage():
+    required_status_tools = {"nmap", "testssl", "ssh_audit", "hydra", "nikto", "snmpwalk"}
+
     def normalize_tool_name(tool: str) -> str:
         return {
             "ssh-audit": "ssh_audit",
@@ -49,7 +51,10 @@ def test_system_status_tools_have_active_test_coverage():
         if test.get("tool")
     }
 
-    assert set(system_status_module.TOOL_KEYS).issubset(active_tool_keys)
+    status_tools = set(system_status_module.TOOL_KEYS)
+
+    assert status_tools == required_status_tools
+    assert (status_tools - {"snmpwalk"}).issubset(active_tool_keys)
 
 
 def test_nmap_xml_or_raise_keeps_parseable_xml_from_nonzero_nmap_exit():
@@ -1057,6 +1062,84 @@ async def test_u03_host_workflow_cycles_profiles_and_restores(monkeypatch):
     assert parsed["all_profiles_reachable"] is True
     assert any(call[0] == "restore" for call in calls)
     assert raw and "restore_status" in raw
+
+
+@pytest.mark.asyncio
+async def test_u03_host_workflow_degrades_when_host_scanner_unavailable(monkeypatch):
+    engine = TestEngine()
+
+    async def fake_required_interface(run_id: str, test_id: str):
+        assert run_id == "run-1"
+        assert test_id == "U03"
+        return "Ethernet 2", None
+
+    async def unavailable_state(interface: str):
+        raise RuntimeError("host scanner offline")
+
+    async def unexpected_restore(*_args, **_kwargs):
+        raise AssertionError("restore should not run when original state was not captured")
+
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", unavailable_state)
+    monkeypatch.setattr(test_engine_module.tools_client, "restore_host_interface", unexpected_restore)
+
+    parsed, raw = await engine._dispatch_test(
+        "U03",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(open_ports=[{"port": 80}]),
+        "direct",
+    )
+
+    verdict, comment = evaluate_result("U03", parsed)
+    assert parsed["check_ran"] is False
+    assert parsed["selected_interface"] == "Ethernet 2"
+    assert verdict == "na"
+    assert "host scanner offline" in comment
+    assert raw and "host scanner offline" in raw
+
+
+@pytest.mark.asyncio
+async def test_u04_two_phase_observer_degrades_when_capture_fails(monkeypatch):
+    engine = TestEngine()
+    run = SimpleNamespace(run_metadata={"dhcp_ranges": [{"name": "range_a", "offer_ip": "192.168.4.68"}]})
+
+    class DummySession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, _model, _id):
+            return run
+
+    async def fake_required_interface(run_id: str, test_id: str):
+        assert run_id == "run-1"
+        assert test_id == "U04"
+        return "Ethernet 2", None
+
+    async def failing_observer(**_kwargs):
+        raise RuntimeError("DHCP socket unavailable")
+
+    monkeypatch.setattr(test_engine_module, "async_session", lambda: DummySession())
+    monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
+    monkeypatch.setattr(test_engine_module, "observe_dhcp_activity", failing_observer)
+
+    parsed, raw = await engine._test_dhcp_two_phase_workflow(
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(mac_address="38:D1:35:02:47:1A"),
+    )
+
+    verdict, comment = evaluate_result("U04", parsed)
+    assert parsed["dhcp_two_phase"] is True
+    assert parsed["check_ran"] is False
+    assert parsed["selected_interface"] == "Ethernet 2"
+    assert verdict == "info"
+    assert "DHCP socket unavailable" in comment
+    assert raw and "DHCP socket unavailable" in raw
 
 
 @pytest.mark.asyncio

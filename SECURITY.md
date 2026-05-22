@@ -6,9 +6,15 @@ This document reflects the current application behavior in the repository. It is
 
 EDQ has application-level security controls suitable for a controlled pilot: cookie auth, refresh-token rotation, CSRF protection, role-based access, scan authorization gates, audit logging, and a hardened backend image.
 
+Repository security controls are in place for the current GitHub project:
+
+- Dependabot security updates are enabled
+- CodeQL runs on pull requests, pushes to `main`, and a weekly schedule
+- backend container CVE scanning runs on pull requests, pushes to `main`, and a weekly schedule
+- secret scanning and push protection are enabled
+
 Remaining production gaps are operational rather than purely code-level:
 
-- repository Dependabot, code scanning, and secret scanning are not currently enforced
 - deployment monitoring and alerting are optional and must be configured
 - backup restore has to be tested by the deployment owner
 - scan authorization depends on admin configuration and process discipline
