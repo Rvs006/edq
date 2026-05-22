@@ -2058,6 +2058,15 @@ class TestEngine:
         raw_lines: list[str] = []
         try:
             original_state = await tools_client.host_interface_state(interface)
+        except Exception as exc:
+            reason = describe_tools_error(exc, fallback="Host network scanner is unavailable.")
+            return ({
+                "check_ran": False,
+                "selected_interface": interface,
+                "reason": reason,
+            }, json.dumps({"error": reason, "selected_interface": interface}, sort_keys=True))
+
+        try:
             raw_lines.append(json.dumps({"original_state": original_state}, sort_keys=True))
             for profile in _HOST_LINK_PROFILES:
                 profile_result: dict[str, Any] = {
@@ -2210,16 +2219,26 @@ class TestEngine:
             offer_ip = str(phase.get("offer_ip") or phase.get("start_ip") or "").strip()
             if not offer_ip:
                 continue
-            observed = await observe_dhcp_activity(
-                expected_mac=expected_mac,
-                timeout_seconds=int(phase.get("timeout_seconds") or 35),
-                offer_ip=offer_ip,
-                router_ip=str(phase.get("router_ip") or phase.get("router") or ""),
-                subnet_mask=str(phase.get("subnet_mask") or "255.255.255.0"),
-                dns_server=str(phase.get("dns_server") or ""),
-                ntp_server=str(phase.get("ntp_server") or ""),
-                lease_seconds=int(phase.get("lease_seconds") or 30),
-            )
+            try:
+                observed = await observe_dhcp_activity(
+                    expected_mac=expected_mac,
+                    timeout_seconds=int(phase.get("timeout_seconds") or 35),
+                    offer_ip=offer_ip,
+                    router_ip=str(phase.get("router_ip") or phase.get("router") or ""),
+                    subnet_mask=str(phase.get("subnet_mask") or "255.255.255.0"),
+                    dns_server=str(phase.get("dns_server") or ""),
+                    ntp_server=str(phase.get("ntp_server") or ""),
+                    lease_seconds=int(phase.get("lease_seconds") or 30),
+                )
+            except Exception as exc:
+                reason = describe_tools_error(exc, fallback="DHCP two-phase observer failed")
+                logger.debug("U04 two-phase DHCP observer failed for %s: %s", device_ip, reason)
+                return ({
+                    "dhcp_two_phase": True,
+                    "check_ran": False,
+                    "selected_interface": interface,
+                    "reason": reason,
+                }, json.dumps({"error": reason, "selected_interface": interface}, sort_keys=True))
             phase_result = {
                 "name": phase.get("name") or f"range_{chr(ord('A') + index)}",
                 "offer_ip": offer_ip,
