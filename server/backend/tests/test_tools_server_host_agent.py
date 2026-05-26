@@ -272,6 +272,47 @@ def test_host_network_control_rejects_invalid_interface():
         tools_server._validate_network_interface_name("Ethernet; Remove-Item")
 
 
+def test_windows_network_control_requires_administrator(monkeypatch):
+    tools_server = _load_tools_server()
+
+    monkeypatch.setattr(tools_server, "_running_in_docker", lambda: False)
+    monkeypatch.setattr(tools_server, "_is_windows", lambda: True)
+    monkeypatch.setattr(tools_server.shutil, "which", lambda name: "powershell.exe" if name == "powershell.exe" else None)
+    monkeypatch.setattr(tools_server, "_has_network_control_privileges", lambda: False)
+
+    supported, reason = tools_server._network_control_supported()
+
+    assert supported is False
+    assert "Administrator" in reason
+
+
+def test_host_network_control_interfaces_reports_missing_privilege(monkeypatch):
+    tools_server = _load_tools_server()
+
+    monkeypatch.setattr(
+        tools_server,
+        "_network_control_supported",
+        lambda: (False, "Host scanner is not running as Administrator."),
+    )
+    monkeypatch.setattr(
+        tools_server,
+        "_detect_host_interfaces",
+        lambda: ([{"label": "Ethernet", "cidr": "192.168.4.0/24"}], "192.168.4.101", {}),
+    )
+    client = tools_server.app.test_client()
+
+    response = client.get(
+        "/host/network-control/interfaces",
+        headers={"X-Tools-Key": tools_server.TOOLS_API_KEY},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["supported"] is False
+    assert payload["reason"] == "Host scanner is not running as Administrator."
+    assert payload["interfaces"][0]["label"] == "Ethernet"
+
+
 def test_host_network_control_cycle_endpoint_uses_validated_interface(monkeypatch):
     tools_server = _load_tools_server()
     captured: dict[str, object] = {}

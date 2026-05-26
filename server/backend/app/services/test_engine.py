@@ -2078,18 +2078,36 @@ class TestEngine:
             "cidr": str(selected.get("cidr") or ""),
         }
 
-    async def _auto_select_network_interface(self, device_ip: str) -> dict[str, str] | None:
+    async def _host_network_control_unavailable_reason(self) -> str | None:
+        try:
+            response = await tools_client.host_network_interfaces()
+        except Exception as exc:
+            return describe_tools_error(exc, fallback="Host network scanner is unavailable.")
+
+        if response.get("supported") is False:
+            return (
+                response.get("reason")
+                or response.get("error")
+                or "Host network scanner cannot control the selected adapter."
+            )
+        return None
+
+    async def _auto_select_network_interface(self, device_ip: str) -> tuple[dict[str, str] | None, str | None]:
         try:
             response = await tools_client.host_network_interfaces()
         except Exception as exc:
             logger.info("Could not auto-select host interface: %s", describe_tools_error(exc))
-            return None
+            return None, describe_tools_error(exc, fallback="Host network scanner is unavailable.")
 
         if response.get("supported") is False:
-            return None
+            return None, (
+                response.get("reason")
+                or response.get("error")
+                or "Host network scanner cannot control the selected adapter."
+            )
         raw_interfaces = response.get("interfaces")
         if not isinstance(raw_interfaces, list):
-            return None
+            return None, None
 
         selection = self._find_safe_auto_network_interface(device_ip, raw_interfaces)
         if selection:
@@ -2098,7 +2116,7 @@ class TestEngine:
                 selection["name"],
                 device_ip,
             )
-        return selection
+        return selection, None
 
     async def _await_required_network_interface(
         self,
@@ -2133,7 +2151,9 @@ class TestEngine:
 
                 if auto_select_device_ip and not auto_selection_attempted:
                     auto_selection_attempted = True
-                    selection = await self._auto_select_network_interface(auto_select_device_ip)
+                    selection, unavailable_reason = await self._auto_select_network_interface(auto_select_device_ip)
+                    if unavailable_reason:
+                        return None, unavailable_reason
                     if selection:
                         metadata["network_interface"] = {
                             "name": selection["name"],
@@ -2198,6 +2218,13 @@ class TestEngine:
             return ({
                 "check_ran": False,
                 "reason": "Host network scanner is not configured; speed/duplex control cannot run from Docker-only mode.",
+            }, None)
+
+        unavailable_reason = await self._host_network_control_unavailable_reason()
+        if unavailable_reason:
+            return ({
+                "check_ran": False,
+                "reason": unavailable_reason,
             }, None)
 
         interface, reason = await self._await_required_network_interface(
@@ -2286,6 +2313,13 @@ class TestEngine:
             return ({
                 "check_ran": False,
                 "reason": "Host network scanner is not configured; adapter disable/enable cannot run from Docker-only mode.",
+            }, None)
+
+        unavailable_reason = await self._host_network_control_unavailable_reason()
+        if unavailable_reason:
+            return ({
+                "check_ran": False,
+                "reason": unavailable_reason,
             }, None)
 
         interface, reason = await self._await_required_network_interface(run_id, "U20")

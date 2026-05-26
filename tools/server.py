@@ -1,6 +1,7 @@
 """EDQ scanner agent — REST API wrapper for security scanning tools."""
 
 import base64
+import ctypes
 import errno
 import hmac
 import ipaddress
@@ -607,12 +608,35 @@ def _network_control_supported() -> tuple[bool, str | None]:
     if _running_in_docker():
         return False, "Network adapter control requires the host scanner, not the Docker tools sidecar."
     if _is_windows():
-        return (shutil.which("powershell.exe") or shutil.which("powershell")) is not None, "PowerShell is unavailable."
+        if not (shutil.which("powershell.exe") or shutil.which("powershell")):
+            return False, "PowerShell is unavailable."
+        if not _has_network_control_privileges():
+            return False, (
+                "Host scanner is not running as Administrator. Restart the EDQ host scanner from an "
+                "elevated terminal before running Scenario 1 speed/duplex or adapter-cycle workflows."
+            )
+        return True, None
     if not shutil.which("ip"):
         return False, "The 'ip' command is unavailable."
     if not shutil.which("sh"):
         return False, "The 'sh' command is unavailable."
+    if not _has_network_control_privileges():
+        return False, (
+            "Host scanner is not running with network-control privileges. Restart it as root or grant "
+            "the required network administration capability before running Scenario 1 adapter workflows."
+        )
     return True, None
+
+
+def _has_network_control_privileges() -> bool:
+    if _is_windows():
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
+    if hasattr(os, "geteuid"):
+        return os.geteuid() == 0
+    return True
 
 
 def _powershell_executable() -> str:

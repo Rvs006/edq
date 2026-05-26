@@ -1096,7 +1096,11 @@ async def test_u03_host_workflow_cycles_profiles_and_restores(monkeypatch):
         calls.append(("probe", device_ip))
         return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
 
+    async def control_available():
+        return None
+
     monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_host_network_control_unavailable_reason", control_available)
     monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
     monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", fake_state)
     monkeypatch.setattr(test_engine_module.tools_client, "set_host_interface_profile", fake_set_profile)
@@ -1147,7 +1151,11 @@ async def test_u03_host_workflow_does_not_probe_or_pass_failed_profile_changes(m
         probe_calls.append(device_ip)
         return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
 
+    async def control_available():
+        return None
+
     monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_host_network_control_unavailable_reason", control_available)
     monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
     monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", fake_state)
     monkeypatch.setattr(test_engine_module.tools_client, "set_host_interface_profile", failed_set_profile)
@@ -1175,6 +1183,43 @@ async def test_u03_host_workflow_does_not_probe_or_pass_failed_profile_changes(m
 
 
 @pytest.mark.asyncio
+async def test_u03_host_workflow_preflights_missing_admin_privilege(monkeypatch):
+    engine = TestEngine()
+
+    async def unavailable_interfaces():
+        return {
+            "supported": False,
+            "reason": "Host scanner is not running as Administrator.",
+            "interfaces": [{"label": "Ethernet", "cidr": "192.168.4.0/24"}],
+        }
+
+    async def unexpected_required_interface(*_args, **_kwargs):
+        raise AssertionError("U03 should not ask for an interface when host control is unavailable")
+
+    async def unexpected_set_profile(*_args, **_kwargs):
+        raise AssertionError("U03 should not change speed/duplex without host-control privilege")
+
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_interfaces", unavailable_interfaces)
+    monkeypatch.setattr(engine, "_await_required_network_interface", unexpected_required_interface)
+    monkeypatch.setattr(test_engine_module.tools_client, "set_host_interface_profile", unexpected_set_profile)
+
+    parsed, raw = await engine._dispatch_test(
+        "U03",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(open_ports=[{"port": 80}]),
+        "direct",
+    )
+
+    verdict, comment = evaluate_result("U03", parsed)
+    assert parsed == {"check_ran": False, "reason": "Host scanner is not running as Administrator."}
+    assert verdict == "na"
+    assert "Administrator" in comment
+    assert raw is None
+
+
+@pytest.mark.asyncio
 async def test_u03_host_workflow_degrades_when_host_scanner_unavailable(monkeypatch):
     engine = TestEngine()
 
@@ -1189,7 +1234,11 @@ async def test_u03_host_workflow_degrades_when_host_scanner_unavailable(monkeypa
     async def unexpected_restore(*_args, **_kwargs):
         raise AssertionError("restore should not run when original state was not captured")
 
+    async def control_available():
+        return None
+
     monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_host_network_control_unavailable_reason", control_available)
     monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
     monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", unavailable_state)
     monkeypatch.setattr(test_engine_module.tools_client, "restore_host_interface", unexpected_restore)
@@ -1276,7 +1325,11 @@ async def test_u20_host_workflow_cycles_adapter_and_confirms_reachability(monkey
     async def fake_probe(device_ip: str, device):
         return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
 
+    async def control_available():
+        return None
+
     monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_host_network_control_unavailable_reason", control_available)
     monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
     monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", fake_state)
     monkeypatch.setattr(test_engine_module.tools_client, "cycle_host_interface", fake_cycle)
@@ -1327,7 +1380,11 @@ async def test_u20_host_workflow_does_not_pass_when_adapter_cycle_fails(monkeypa
         probe_calls.append(device_ip)
         return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
 
+    async def control_available():
+        return None
+
     monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_host_network_control_unavailable_reason", control_available)
     monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
     monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", fake_state)
     monkeypatch.setattr(test_engine_module.tools_client, "cycle_host_interface", failed_cycle)
@@ -1350,6 +1407,43 @@ async def test_u20_host_workflow_does_not_pass_when_adapter_cycle_fails(monkeypa
     assert verdict == "na"
     assert "could not disable and re-enable" in comment
     assert raw and "Access is denied" in raw
+
+
+@pytest.mark.asyncio
+async def test_u20_host_workflow_preflights_missing_admin_privilege(monkeypatch):
+    engine = TestEngine()
+
+    async def unavailable_interfaces():
+        return {
+            "supported": False,
+            "reason": "Host scanner is not running as Administrator.",
+            "interfaces": [{"label": "Ethernet", "cidr": "192.168.4.0/24"}],
+        }
+
+    async def unexpected_required_interface(*_args, **_kwargs):
+        raise AssertionError("U20 should not ask for an interface when host control is unavailable")
+
+    async def unexpected_cycle(*_args, **_kwargs):
+        raise AssertionError("U20 should not cycle adapters without host-control privilege")
+
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_interfaces", unavailable_interfaces)
+    monkeypatch.setattr(engine, "_await_required_network_interface", unexpected_required_interface)
+    monkeypatch.setattr(test_engine_module.tools_client, "cycle_host_interface", unexpected_cycle)
+
+    parsed, raw = await engine._dispatch_test(
+        "U20",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(open_ports=[{"port": 80}]),
+        "direct",
+    )
+
+    verdict, comment = evaluate_result("U20", parsed)
+    assert parsed == {"check_ran": False, "reason": "Host scanner is not running as Administrator."}
+    assert verdict == "na"
+    assert "Administrator" in comment
+    assert raw is None
 
 
 @pytest.mark.asyncio
