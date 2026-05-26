@@ -219,7 +219,10 @@ export default function TestRunDetailPage() {
     () => getInterfaceSelectionFromMetadata(run?.run_metadata),
     [run?.run_metadata]
   )
-  const interfaceSelectionRequired = run?.status === 'selecting_interface' || interfaceSelection?.required === true
+  const interfaceSelectionRequired = Boolean(
+    run?.status === 'selecting_interface'
+      || (isExecutingTestRunStatus(run?.status) && interfaceSelection?.required === true)
+  )
 
   const runningTestId = useMemo(() => {
     const wsRunningTestId = getRunningTestIdFromProgress(ws.lastProgress)

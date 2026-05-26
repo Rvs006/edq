@@ -425,4 +425,49 @@ describe('TestRunDetailPage', () => {
       })
     })
   })
+
+  it('does not show a stale host interface selector after cancellation', async () => {
+    mockState.run = {
+      ...mockState.run,
+      status: 'cancelled',
+      progress_pct: 4.3,
+      completed_tests: 2,
+      total_tests: 47,
+      run_metadata: {
+        interface_selection: {
+          required: true,
+          test_id: 'U03',
+          reason: 'Select the Ethernet interface connected to the device for Scenario 1 host workflows.',
+        },
+      },
+      readiness_summary: {
+        ...(mockState.run.readiness_summary as Record<string, unknown>),
+        level: 'not_started',
+        label: 'Run cancelled',
+        report_ready: false,
+        operational_ready: false,
+        completed_result_count: 2,
+        total_result_count: 47,
+        summary: 'Connect the device and start the session to begin running tests.',
+      },
+    }
+    mockState.results = [
+      {
+        id: 'result-u03',
+        test_id: 'U03',
+        test_name: 'Switch Negotiation (Speed/Duplex)',
+        tier: 'automatic',
+        verdict: 'pending',
+        is_essential: 'no',
+      },
+    ]
+
+    renderWithProviders(<TestRunDetailPage />)
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Connect the device and start the session/i).length).toBeGreaterThan(0)
+    })
+    expect(screen.queryByText(/Select host interface/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Continue U03/i })).not.toBeInTheDocument()
+  })
 })
