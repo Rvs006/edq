@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { ACTIVE_UNIVERSAL_TESTS, getEffectiveTestTier, UNIVERSAL_TESTS } from './universal-tests'
+import {
+  ACTIVE_UNIVERSAL_TESTS,
+  getEffectiveTestTier,
+  isScenarioManualRoutedTestId,
+  UNIVERSAL_TESTS,
+} from './universal-tests'
 
 function testById(id: string) {
   const test = UNIVERSAL_TESTS.find((item) => item.id === id)
@@ -15,7 +20,8 @@ describe('getEffectiveTestTier', () => {
   })
 
   it('keeps template-scriptable lab checks automatic', () => {
-    expect(getEffectiveTestTier(testById('U03'), 'test_lab')).toBe('guided_manual')
+    expect(getEffectiveTestTier(testById('U03'), 'test_lab')).toBe('automatic')
+    expect(isScenarioManualRoutedTestId('U03')).toBe(false)
     expect(getEffectiveTestTier(testById('U04'), 'test_lab')).toBe('automatic')
     expect(getEffectiveTestTier(testById('U09'), 'test_lab')).toBe('automatic')
     expect(getEffectiveTestTier(testById('U20'), 'test_lab')).toBe('guided_manual')
@@ -25,7 +31,7 @@ describe('getEffectiveTestTier', () => {
   })
 
   it('reroutes only site-network checks the template cannot script', () => {
-    expect(getEffectiveTestTier(testById('U03'), 'site_network')).toBe('guided_manual')
+    expect(getEffectiveTestTier(testById('U03'), 'site_network')).toBe('automatic')
     expect(getEffectiveTestTier(testById('U04'), 'site_network')).toBe('guided_manual')
     expect(getEffectiveTestTier(testById('U09'), 'site_network')).toBe('automatic')
     expect(getEffectiveTestTier(testById('U20'), 'site_network')).toBe('guided_manual')

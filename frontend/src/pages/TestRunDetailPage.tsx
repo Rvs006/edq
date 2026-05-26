@@ -31,7 +31,7 @@ import {
   getRunningTestIdFromProgress,
 } from '@/lib/testRunDetailPage'
 import { summarizeRunProgress } from '@/lib/testUi'
-import { formatConnectionScenarioLabel } from '@/lib/universal-tests'
+import { formatConnectionScenarioLabel, isScenarioManualRoutedTestId } from '@/lib/universal-tests'
 import {
   fetchTestRun,
   fetchTestRunResults,
@@ -420,11 +420,12 @@ export default function TestRunDetailPage() {
     }
   }
 
-  const handleStartTests = () => {
-    setScenarioDialogOpen(true)
-  }
+  const shouldAutoStartU03 = useMemo(() => {
+    const ids = new Set((results as TestResult[]).map((result) => result.test_id))
+    return ids.has('U03') && !Array.from(ids).some(isScenarioManualRoutedTestId)
+  }, [results])
 
-  const handleConfirmStart = async (scenario: string) => {
+  const startTestRun = async (scenario?: string) => {
     // Guard against double-click: if a start (or any action) is already in
     // flight, ignore subsequent invocations. Prevents the backend 500
     // "Test run is already executing" error.
@@ -432,7 +433,7 @@ export default function TestRunDetailPage() {
     setIsActioning(true)
     try {
       const nextScenario = scenario === 'direct_cable' ? 'direct' : scenario
-      if (run?.status === 'pending' && nextScenario !== run.connection_scenario) {
+      if (nextScenario && run?.status === 'pending' && nextScenario !== run.connection_scenario) {
         await testRunsApi.update(id!, { connection_scenario: nextScenario })
       }
       const resp = await testRunsApi.start(id!)
@@ -448,6 +449,18 @@ export default function TestRunDetailPage() {
     } finally {
       setIsActioning(false)
     }
+  }
+
+  const handleStartTests = () => {
+    if (shouldAutoStartU03) {
+      void startTestRun('direct')
+      return
+    }
+    setScenarioDialogOpen(true)
+  }
+
+  const handleConfirmStart = async (scenario: string) => {
+    await startTestRun(scenario)
   }
 
   const handlePause = async () => {

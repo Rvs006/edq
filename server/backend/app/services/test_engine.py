@@ -2172,7 +2172,7 @@ class TestEngine:
                 metadata["interface_selection"] = {
                     "required": True,
                     "test_id": test_id,
-                    "reason": "Select the Ethernet interface connected to the device for Scenario 1 host workflows.",
+                    "reason": f"Select the Ethernet interface connected to the device for the {test_id} host workflow.",
                 }
                 run.run_metadata = metadata
                 run.status = TestRunStatus.SELECTING_INTERFACE

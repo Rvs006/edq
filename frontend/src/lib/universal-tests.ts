@@ -78,8 +78,8 @@ export const TEST_CATEGORIES = ['Network', 'TLS', 'SSH', 'Web', 'Manual'] as con
 export const ACTIVE_UNIVERSAL_TESTS = UNIVERSAL_TESTS.filter((test) => !test.deprecated)
 
 const SCENARIO_MANUAL_TEST_IDS: Record<string, Set<string>> = {
-  test_lab: new Set(['U03', 'U20']),
-  site_network: new Set(['U03', 'U04', 'U20', 'U26', 'U29']),
+  test_lab: new Set(['U20']),
+  site_network: new Set(['U04', 'U20', 'U26', 'U29']),
 }
 const DIRECT_SCENARIOS = new Set(['direct', 'direct_cable'])
 
@@ -90,6 +90,10 @@ export function getEffectiveTestTier(
   if (test.tier === 'guided_manual') return 'guided_manual'
   if (!scenario || DIRECT_SCENARIOS.has(scenario)) return test.tier
   return SCENARIO_MANUAL_TEST_IDS[scenario]?.has(test.id) ? 'guided_manual' : test.tier
+}
+
+export function isScenarioManualRoutedTestId(testId: string): boolean {
+  return Object.values(SCENARIO_MANUAL_TEST_IDS).some((testIds) => testIds.has(testId))
 }
 
 export function formatConnectionScenarioLabel(scenario?: string | null): string {

@@ -200,7 +200,7 @@ def _eval_u03(data: dict, _wl: list) -> tuple[str, str]:
     return (
         "na",
         "Switch Negotiation (Speed/Duplex) - Manual verification required. "
-        "Run this in Scenario 1 - Direct Cable using a host with direct Ethernet access to the device port. "
+        "Run this using a privileged host scanner with direct Ethernet access to the device port. "
         "Check switch interface status or run 'ethtool <interface>'. "
         "Expected result: auto-negotiation enabled and the link settled at 100Mbps or 1Gbps full-duplex.",
     )

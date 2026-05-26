@@ -65,7 +65,7 @@ async def test_create_run_reclassifies_scenario_sensitive_tests_to_manual(
     results = {item["test_id"]: item for item in results_resp.json()}
 
     assert results["U01"]["tier"] == "automatic"
-    assert results["U03"]["tier"] == "guided_manual"
+    assert results["U03"]["tier"] == "automatic"
     assert results["U04"]["tier"] == "guided_manual"
     assert results["U05"]["tier"] == "guided_manual"
     assert results["U09"]["tier"] == "automatic"
@@ -107,7 +107,7 @@ async def test_lab_scenario_keeps_dhcp_and_ntp_synchronisation_automatic(
     results = {item["test_id"]: item for item in results_resp.json()}
 
     assert results["U26"]["tier"] == "automatic"
-    assert results["U03"]["tier"] == "guided_manual"
+    assert results["U03"]["tier"] == "automatic"
     assert results["U04"]["tier"] == "automatic"
     assert results["U05"]["tier"] == "guided_manual"
     assert results["U09"]["tier"] == "automatic"

@@ -277,6 +277,90 @@ describe('TestRunDetailPage', () => {
     expect(await screen.findByText(/Running: Web Server and HTTP Header Assessment/i)).toBeInTheDocument()
   })
 
+  it('starts a pending U03 run without reopening the scenario picker', async () => {
+    const { testRunsApi } = await import('@/lib/api')
+    vi.mocked(testRunsApi.start).mockResolvedValue({
+      data: { status: 'syncing', message: 'Test execution queued.' },
+    } as any)
+    mockState.run = {
+      ...mockState.run,
+      status: 'pending',
+      overall_verdict: null,
+      connection_scenario: 'direct',
+      progress_pct: 0,
+      completed_tests: 0,
+      total_tests: 1,
+      completed_at: null,
+      readiness_summary: {
+        ...(mockState.run.readiness_summary as Record<string, unknown>),
+        level: 'not_started',
+        label: 'Not started',
+        report_ready: false,
+        operational_ready: false,
+        completed_result_count: 0,
+        total_result_count: 1,
+        summary: 'Connect the device and start the session to begin running tests.',
+      },
+    }
+    mockState.results = [
+      {
+        id: 'result-u03',
+        test_id: 'U03',
+        test_name: 'Switch Negotiation (Speed/Duplex)',
+        tier: 'automatic',
+        verdict: 'pending',
+        is_essential: 'no',
+      },
+    ]
+
+    renderWithProviders(<TestRunDetailPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Start Automated Tests/i }))
+
+    await waitFor(() => expect(testRunsApi.start).toHaveBeenCalledWith('run-1'))
+    expect(testRunsApi.update).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Connection Scenario/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps scenario selection for pending runs with other scenario-routed tests', async () => {
+    const { testRunsApi } = await import('@/lib/api')
+    mockState.run = {
+      ...mockState.run,
+      status: 'pending',
+      overall_verdict: null,
+      connection_scenario: 'direct',
+      progress_pct: 0,
+      completed_tests: 0,
+      total_tests: 2,
+      completed_at: null,
+    }
+    mockState.results = [
+      {
+        id: 'result-u04',
+        test_id: 'U04',
+        test_name: 'DHCP Behaviour',
+        tier: 'automatic',
+        verdict: 'pending',
+        is_essential: 'no',
+      },
+      {
+        id: 'result-u20',
+        test_id: 'U20',
+        test_name: 'Network Disconnection Behaviour',
+        tier: 'automatic',
+        verdict: 'pending',
+        is_essential: 'no',
+      },
+    ]
+
+    renderWithProviders(<TestRunDetailPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Start Automated Tests/i }))
+
+    expect((await screen.findAllByText(/Connection Scenario/i)).length).toBeGreaterThan(0)
+    expect(testRunsApi.start).not.toHaveBeenCalled()
+  })
+
   it('shows bulk manual controls for multiple pending manual tests', async () => {
     const { testResultsApi } = await import('@/lib/api')
     vi.mocked(testResultsApi.bulkUpdateManual).mockResolvedValue({ data: [] } as any)
@@ -386,7 +470,7 @@ describe('TestRunDetailPage', () => {
         interface_selection: {
           required: true,
           test_id: 'U03',
-          reason: 'Select the Ethernet interface connected to the device for Scenario 1 host workflows.',
+          reason: 'Select the Ethernet interface connected to the device for the U03 host workflow.',
         },
       },
       readiness_summary: {
@@ -441,7 +525,7 @@ describe('TestRunDetailPage', () => {
         interface_selection: {
           required: true,
           test_id: 'U03',
-          reason: 'Select the Ethernet interface connected to the device for Scenario 1 host workflows.',
+          reason: 'Select the Ethernet interface connected to the device for the U03 host workflow.',
         },
       },
       readiness_summary: {

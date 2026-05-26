@@ -613,7 +613,7 @@ def _network_control_supported() -> tuple[bool, str | None]:
         if not _has_network_control_privileges():
             return False, (
                 "Host scanner is not running as Administrator. Restart the EDQ host scanner from an "
-                "elevated terminal before running Scenario 1 speed/duplex or adapter-cycle workflows."
+                "elevated terminal before running U03 speed/duplex or U20 adapter-cycle workflows."
             )
         return True, None
     if not shutil.which("ip"):
@@ -623,7 +623,7 @@ def _network_control_supported() -> tuple[bool, str | None]:
     if not _has_network_control_privileges():
         return False, (
             "Host scanner is not running with network-control privileges. Restart it as root or grant "
-            "the required network administration capability before running Scenario 1 adapter workflows."
+            "the required network administration capability before running U03/U20 adapter workflows."
         )
     return True, None
 

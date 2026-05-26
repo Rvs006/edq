@@ -39,7 +39,7 @@ UNIVERSAL_TESTS: list[TestDefinition] = [
         "test_id": "U03", "name": "Switch Negotiation (Speed/Duplex)", "tier": "automatic", "tool": "host_scanner",
         "is_essential": False, "description": "Verify Ethernet link negotiation parameters.",
         "compliance_map": [],
-        "platform_notes": "Scenario 1 requires a privileged host scanner and selected Ethernet interface. Scenario 2/3 are routed to manual evidence."
+        "platform_notes": "Requires a privileged host scanner and selected Ethernet interface. EDQ auto-selects the interface only when exactly one safe physical Ethernet adapter matches the device subnet."
     },
     {
         "test_id": "U04", "name": "DHCP Behaviour", "tier": "automatic", "tool": "discovery_metadata",
