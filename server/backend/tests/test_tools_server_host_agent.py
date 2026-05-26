@@ -338,6 +338,39 @@ def test_host_network_control_cycle_endpoint_uses_validated_interface(monkeypatc
     assert captured == {"interface": "Ethernet 2", "down_seconds": 3}
 
 
+def test_windows_link_profile_uses_adapter_display_value_for_gigabit(monkeypatch):
+    tools_server = _load_tools_server()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(tools_server, "_is_windows", lambda: True)
+    monkeypatch.setattr(tools_server, "_powershell_executable", lambda: "powershell.exe")
+
+    def fake_run_network_control_command(cmd, timeout, env):
+        captured["cmd"] = cmd
+        captured["timeout"] = timeout
+        captured["env"] = env
+        return {"exit_code": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(
+        tools_server,
+        "_run_network_control_command",
+        fake_run_network_control_command,
+    )
+
+    result = tools_server._set_interface_profile("Ethernet", 1000, "full")
+
+    assert result["exit_code"] == 0
+    assert captured["timeout"] == 45
+    assert captured["env"] == {
+        "EDQ_IFACE": "Ethernet",
+        "EDQ_SPEED": "1000",
+        "EDQ_DUPLEX": "full",
+    }
+    script = captured["cmd"][-1]
+    assert "'1.0 Gbps'" in script
+    assert "\"$env:EDQ_SPEED Mbps\"" in script
+
+
 def test_hydra_args_must_match_validated_target():
     tools_server = _load_tools_server()
 

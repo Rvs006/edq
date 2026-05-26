@@ -688,7 +688,8 @@ def _set_interface_profile(interface: str, speed_mbps: int, duplex: str) -> dict
         script = (
             "$ErrorActionPreference='Stop'; "
             "$duplex = if ($env:EDQ_DUPLEX -eq 'half') { 'Half' } else { 'Full' }; "
-            "$value = \"$env:EDQ_SPEED Mbps $duplex Duplex\"; "
+            "$speedLabel = if ($env:EDQ_SPEED -eq '1000') { '1.0 Gbps' } else { \"$env:EDQ_SPEED Mbps\" }; "
+            "$value = \"$speedLabel $duplex Duplex\"; "
             "Set-NetAdapterAdvancedProperty -Name $env:EDQ_IFACE -DisplayName 'Speed & Duplex' "
             "-DisplayValue $value -NoRestart; "
             "Restart-NetAdapter -Name $env:EDQ_IFACE -Confirm:$false"
