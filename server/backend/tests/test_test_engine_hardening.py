@@ -1031,11 +1031,11 @@ async def test_u03_host_workflow_cycles_profiles_and_restores(monkeypatch):
 
     async def fake_set_profile(interface: str, speed_mbps: int, duplex: str):
         calls.append(("profile", interface, speed_mbps, duplex))
-        return {"supported": True}
+        return {"supported": True, "result": {"exit_code": 0}}
 
     async def fake_restore(interface: str, original_state=None):
         calls.append(("restore", interface, original_state))
-        return {"supported": True}
+        return {"supported": True, "result": {"exit_code": 0}}
 
     async def fake_probe(device_ip: str, device):
         calls.append(("probe", device_ip))
@@ -1059,9 +1059,64 @@ async def test_u03_host_workflow_cycles_profiles_and_restores(monkeypatch):
     assert parsed["check_ran"] is True
     assert parsed["selected_interface"] == "Ethernet 2"
     assert parsed["attempted_profile_count"] == 5
+    assert parsed["successful_profile_change_count"] == 5
     assert parsed["all_profiles_reachable"] is True
     assert any(call[0] == "restore" for call in calls)
     assert raw and "restore_status" in raw
+
+
+@pytest.mark.asyncio
+async def test_u03_host_workflow_does_not_probe_or_pass_failed_profile_changes(monkeypatch):
+    engine = TestEngine()
+    probe_calls: list[str] = []
+
+    async def fake_required_interface(run_id: str, test_id: str):
+        return "Ethernet 2", None
+
+    async def fake_state(interface: str):
+        return {"interface": interface, "state": "up"}
+
+    async def failed_set_profile(interface: str, speed_mbps: int, duplex: str):
+        return {
+            "supported": True,
+            "result": {
+                "exit_code": 1,
+                "stderr": "Set-NetAdapterAdvancedProperty : Access is denied.",
+            },
+        }
+
+    async def fake_restore(interface: str, original_state=None):
+        return {"supported": True, "result": {"exit_code": 0}}
+
+    async def unexpected_probe(device_ip: str, device):
+        probe_calls.append(device_ip)
+        return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", fake_state)
+    monkeypatch.setattr(test_engine_module.tools_client, "set_host_interface_profile", failed_set_profile)
+    monkeypatch.setattr(test_engine_module.tools_client, "restore_host_interface", fake_restore)
+    monkeypatch.setattr(engine, "_probe_after_host_network_change", unexpected_probe)
+
+    parsed, raw = await engine._dispatch_test(
+        "U03",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(open_ports=[{"port": 80}]),
+        "direct",
+    )
+
+    verdict, comment = evaluate_result("U03", parsed)
+    assert parsed["check_ran"] is True
+    assert parsed["attempted_profile_count"] == 5
+    assert parsed["successful_profile_change_count"] == 0
+    assert parsed["all_profiles_reachable"] is False
+    assert all(item["profile_applied"] is False for item in parsed["profiles"])
+    assert probe_calls == []
+    assert verdict == "na"
+    assert "could not apply any speed/duplex profile" in comment
+    assert raw and "Access is denied" in raw
 
 
 @pytest.mark.asyncio
@@ -1157,11 +1212,11 @@ async def test_u20_host_workflow_cycles_adapter_and_confirms_reachability(monkey
 
     async def fake_cycle(interface: str, down_seconds: int = 5):
         calls.append(("cycle", interface, down_seconds))
-        return {"supported": True}
+        return {"supported": True, "result": {"exit_code": 0}}
 
     async def fake_restore(interface: str, original_state=None):
         calls.append(("restore", interface, original_state))
-        return {"supported": True}
+        return {"supported": True, "result": {"exit_code": 0}}
 
     async def fake_probe(device_ip: str, device):
         return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
@@ -1182,10 +1237,64 @@ async def test_u20_host_workflow_cycles_adapter_and_confirms_reachability(monkey
     )
 
     assert parsed["check_ran"] is True
+    assert parsed["cycle_completed"] is True
     assert parsed["reachable_after_reconnect"] is True
     assert calls[0] == ("cycle", "Ethernet 2", 5)
     assert calls[-1][0] == "restore"
     assert raw and "reachable_after_reconnect" in raw
+
+
+@pytest.mark.asyncio
+async def test_u20_host_workflow_does_not_pass_when_adapter_cycle_fails(monkeypatch):
+    engine = TestEngine()
+    probe_calls: list[str] = []
+
+    async def fake_required_interface(run_id: str, test_id: str):
+        assert test_id == "U20"
+        return "Ethernet 2", None
+
+    async def fake_state(interface: str):
+        return {"interface": interface, "state": "up"}
+
+    async def failed_cycle(interface: str, down_seconds: int = 5):
+        return {
+            "supported": True,
+            "result": {
+                "exit_code": 1,
+                "stderr": "Disable-NetAdapter : Access is denied.",
+            },
+        }
+
+    async def fake_restore(interface: str, original_state=None):
+        return {"supported": True, "result": {"exit_code": 0}}
+
+    async def unexpected_probe(device_ip: str, device):
+        probe_calls.append(device_ip)
+        return {"reachable": True, "source": "tcp:80", "probe_ports": [80]}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
+    monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
+    monkeypatch.setattr(test_engine_module.tools_client, "host_interface_state", fake_state)
+    monkeypatch.setattr(test_engine_module.tools_client, "cycle_host_interface", failed_cycle)
+    monkeypatch.setattr(test_engine_module.tools_client, "restore_host_interface", fake_restore)
+    monkeypatch.setattr(engine, "_probe_after_host_network_change", unexpected_probe)
+
+    parsed, raw = await engine._dispatch_test(
+        "U20",
+        "192.168.4.64",
+        "run-1",
+        SimpleNamespace(open_ports=[{"port": 80}]),
+        "direct",
+    )
+
+    verdict, comment = evaluate_result("U20", parsed)
+    assert parsed["check_ran"] is True
+    assert parsed["cycle_completed"] is False
+    assert parsed["reachable_after_reconnect"] is False
+    assert probe_calls == []
+    assert verdict == "na"
+    assert "could not disable and re-enable" in comment
+    assert raw and "Access is denied" in raw
 
 
 @pytest.mark.asyncio
@@ -1505,6 +1614,47 @@ async def test_u11_uses_nmap_ssl_enum_fallback_when_testssl_has_no_ciphers(monke
     assert parsed["probe_source"] == "testssl+nmap-ssl-enum-ciphers"
     assert parsed["cipher_inventory_complete"] is True
     assert [cipher["name"] for cipher in parsed["ciphers"]] == ["TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"]
+
+
+@pytest.mark.asyncio
+async def test_u11_marks_cipher_inventory_incomplete_when_all_probes_find_no_ciphers(monkeypatch):
+    engine = TestEngine()
+    run_id = "run-tls-no-ciphers"
+    test_engine_module._TESTSSL_CACHE.pop(run_id, None)
+    findings = [
+        {"id": "TLS1_2", "finding": "offered", "severity": "OK"},
+    ]
+    encoded = base64.b64encode(json.dumps(findings).encode("utf-8")).decode("ascii")
+    nmap_xml = (
+        '<?xml version="1.0"?><nmaprun><scaninfo type="connect" protocol="tcp"/>'
+        '<host><status state="up"/><address addr="192.168.4.54" addrtype="ipv4"/>'
+        '<ports><port protocol="tcp" portid="443"><state state="open"/>'
+        '<service name="https"/></port></ports></host></nmaprun>'
+    )
+
+    async def fake_testssl_stream(target, args=None, timeout=300, on_line=None):
+        return {"exit_code": 0, "stdout": "", "output_file": encoded}
+
+    async def fake_nmap_stream(target, args=None, timeout=300, on_line=None):
+        return {"exit_code": 0, "stdout": nmap_xml, "_scanner_source": "host"}
+
+    monkeypatch.setattr(test_engine_module.tools_client, "testssl_stream", fake_testssl_stream)
+    monkeypatch.setattr(test_engine_module.tools_client, "nmap_stream", fake_nmap_stream)
+
+    try:
+        parsed, _raw = await engine._dispatch_test(
+            "U11",
+            "192.168.4.54",
+            run_id,
+            SimpleNamespace(open_ports=[{"port": 443, "service": "https"}]),
+            "direct",
+        )
+    finally:
+        test_engine_module._TESTSSL_CACHE.pop(run_id, None)
+
+    assert parsed["probe_source"] == "testssl"
+    assert parsed["cipher_inventory_complete"] is False
+    assert parsed["ciphers"] == []
 
 
 @pytest.mark.asyncio

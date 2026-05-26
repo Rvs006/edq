@@ -41,6 +41,47 @@ def _header_lookup(headers: dict[str, Any], *names: str) -> str | None:
     return None
 
 
+def _host_control_result_succeeded(result: Any) -> bool:
+    """Return True only when a stored host adapter-control command succeeded."""
+    if not isinstance(result, dict):
+        return False
+    if result.get("supported") is False or result.get("error"):
+        return False
+
+    if "down" in result or "up" in result:
+        return (
+            _host_control_result_succeeded(result.get("down"))
+            and _host_control_result_succeeded(result.get("up"))
+        )
+
+    nested_result = result.get("result")
+    if isinstance(nested_result, dict):
+        return _host_control_result_succeeded(nested_result)
+
+    if "exit_code" in result:
+        return result.get("exit_code") == 0
+
+    return result.get("supported") is True
+
+
+def _host_control_error_summary(result: Any) -> str:
+    if not isinstance(result, dict):
+        return ""
+    for key in ("error", "stderr", "detail"):
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().splitlines()[0]
+    nested_result = result.get("result")
+    nested_summary = _host_control_error_summary(nested_result)
+    if nested_summary:
+        return nested_summary
+    for key in ("down", "up"):
+        nested_summary = _host_control_error_summary(result.get(key))
+        if nested_summary:
+            return nested_summary
+    return ""
+
+
 def evaluate_result(
     test_id: str,
     parsed_data: dict[str, Any],
@@ -96,18 +137,55 @@ def _eval_u03(data: dict, _wl: list) -> tuple[str, str]:
     if data.get("check_ran") is True:
         interface = data.get("selected_interface") or "selected interface"
         attempted = data.get("attempted_profile_count", 0)
+        successful = data.get("successful_profile_change_count")
+        if successful is None:
+            successful = sum(
+                1
+                for item in data.get("profiles") or []
+                if _host_control_result_succeeded(item.get("set_result"))
+            )
         reachable = data.get("reachable_profile_count", 0)
         restore_status = data.get("restore_status") or {}
-        restore_ok = restore_status.get("supported") is not False and not restore_status.get("error")
+        restore_ok = _host_control_result_succeeded(restore_status)
         profile_lines = []
+        failure_reasons = []
         for item in data.get("profiles") or []:
             probe = item.get("probe_result") or {}
-            status = "reachable" if probe.get("reachable") else "not reachable"
+            applied = item.get("profile_applied")
+            if applied is None:
+                applied = _host_control_result_succeeded(item.get("set_result"))
+            if not applied:
+                reason = _host_control_error_summary(item.get("set_result")) or item.get("error") or "profile change failed"
+                if reason not in failure_reasons:
+                    failure_reasons.append(reason)
+                status = "profile change failed"
+            else:
+                status = "reachable" if probe.get("reachable") else "not reachable"
             profile_lines.append(
                 f"- {item.get('speed_mbps')}Mbps {item.get('duplex')} duplex: {status}"
             )
         detail = "\n" + "\n".join(profile_lines) if profile_lines else ""
         restore_note = " Interface restore completed." if restore_ok else " Interface restore needs manual confirmation."
+        if not attempted:
+            return (
+                "na",
+                f"Switch Negotiation (Speed/Duplex) - Not assessed. EDQ did not apply any "
+                f"speed/duplex profile on {interface}.",
+            )
+        if attempted and successful == 0:
+            reason_text = f" First failure: {failure_reasons[0]}." if failure_reasons else ""
+            return (
+                "na",
+                f"Switch Negotiation (Speed/Duplex) - Not assessed. EDQ could not apply any "
+                f"speed/duplex profile on {interface}.{reason_text}{detail}",
+            )
+        if attempted and successful < attempted:
+            return (
+                "advisory",
+                f"Switch Negotiation (Speed/Duplex) - EDQ applied {successful} of {attempted} "
+                f"speed/duplex profile(s) on {interface}; incomplete host-control evidence."
+                f"{restore_note}{detail}",
+            )
         if data.get("all_profiles_reachable") and restore_ok:
             return (
                 "pass",
@@ -789,7 +867,18 @@ def _eval_u20(data: dict, _wl: list) -> tuple[str, str]:
         interface = data.get("selected_interface") or "selected interface"
         probe = data.get("probe_result") or {}
         restore_status = data.get("restore_status") or {}
-        restore_ok = restore_status.get("supported") is not False and not restore_status.get("error")
+        restore_ok = _host_control_result_succeeded(restore_status)
+        cycle_completed = data.get("cycle_completed")
+        if cycle_completed is None:
+            cycle_completed = _host_control_result_succeeded(data.get("cycle_result"))
+        if not cycle_completed:
+            reason = _host_control_error_summary(data.get("cycle_result"))
+            reason_text = f" First failure: {reason}." if reason else ""
+            return (
+                "na",
+                f"Network Disconnection Behaviour - Not assessed. EDQ could not disable and "
+                f"re-enable {interface}.{reason_text}",
+            )
         source = probe.get("source") or "no probe source"
         if data.get("reachable_after_reconnect") and restore_ok:
             return (

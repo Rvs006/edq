@@ -45,12 +45,25 @@ def test_u03_reports_host_workflow_profiles():
             "check_ran": True,
             "selected_interface": "Ethernet 2",
             "attempted_profile_count": 2,
+            "successful_profile_change_count": 2,
             "reachable_profile_count": 2,
             "all_profiles_reachable": True,
             "restore_status": {"supported": True},
             "profiles": [
-                {"speed_mbps": 100, "duplex": "full", "probe_result": {"reachable": True}},
-                {"speed_mbps": 1000, "duplex": "full", "probe_result": {"reachable": True}},
+                {
+                    "speed_mbps": 100,
+                    "duplex": "full",
+                    "profile_applied": True,
+                    "set_result": {"result": {"exit_code": 0}},
+                    "probe_result": {"reachable": True},
+                },
+                {
+                    "speed_mbps": 1000,
+                    "duplex": "full",
+                    "profile_applied": True,
+                    "set_result": {"result": {"exit_code": 0}},
+                    "probe_result": {"reachable": True},
+                },
             ],
         },
     )
@@ -58,6 +71,39 @@ def test_u03_reports_host_workflow_profiles():
     assert verdict == "pass"
     assert "Ethernet 2" in comment
     assert "1000Mbps full duplex: reachable" in comment
+
+
+def test_u03_does_not_pass_when_profile_commands_fail():
+    verdict, comment = evaluate_result(
+        "U03",
+        {
+            "check_ran": True,
+            "selected_interface": "Ethernet",
+            "attempted_profile_count": 1,
+            "successful_profile_change_count": 0,
+            "reachable_profile_count": 1,
+            "all_profiles_reachable": False,
+            "restore_status": {"supported": True},
+            "profiles": [
+                {
+                    "speed_mbps": 100,
+                    "duplex": "full",
+                    "profile_applied": False,
+                    "set_result": {
+                        "result": {
+                            "exit_code": 1,
+                            "stderr": "Set-NetAdapterAdvancedProperty : Access is denied.",
+                        },
+                    },
+                    "probe_result": {"reachable": True},
+                },
+            ],
+        },
+    )
+
+    assert verdict == "na"
+    assert "could not apply any speed/duplex profile" in comment
+    assert "Access is denied" in comment
 
 
 def test_u04_passes_when_edq_acknowledges_dhcp_lease():
@@ -576,6 +622,8 @@ def test_u20_reports_reachable_after_adapter_cycle():
         {
             "check_ran": True,
             "selected_interface": "Ethernet 2",
+            "cycle_completed": True,
+            "cycle_result": {"result": {"exit_code": 0}},
             "probe_result": {"reachable": True, "source": "tcp:80"},
             "reachable_after_reconnect": True,
             "restore_status": {"supported": True},
@@ -585,6 +633,30 @@ def test_u20_reports_reachable_after_adapter_cycle():
     assert verdict == "pass"
     assert "disabled and re-enabled" in comment
     assert "tcp:80" in comment
+
+
+def test_u20_does_not_pass_when_adapter_cycle_command_fails():
+    verdict, comment = evaluate_result(
+        "U20",
+        {
+            "check_ran": True,
+            "selected_interface": "Ethernet",
+            "cycle_result": {
+                "result": {
+                    "exit_code": 1,
+                    "stderr": "Disable-NetAdapter : Access is denied.",
+                },
+            },
+            "cycle_completed": False,
+            "probe_result": {"reachable": True, "source": "tcp:22"},
+            "reachable_after_reconnect": True,
+            "restore_status": {"supported": True},
+        },
+    )
+
+    assert verdict == "na"
+    assert "could not disable and re-enable Ethernet" in comment
+    assert "Access is denied" in comment
 
 
 def test_u19_includes_device_type_running_guess_and_cpe():

@@ -799,6 +799,29 @@ def _merge_cipher_inventory(parsed: dict[str, Any], fallback: dict[str, Any]) ->
     return merged
 
 
+def _host_control_result_succeeded(result: Any) -> bool:
+    """Return True only when a host adapter-control command actually succeeded."""
+    if not isinstance(result, dict):
+        return False
+    if result.get("supported") is False or result.get("error"):
+        return False
+
+    if "down" in result or "up" in result:
+        return (
+            _host_control_result_succeeded(result.get("down"))
+            and _host_control_result_succeeded(result.get("up"))
+        )
+
+    nested_result = result.get("result")
+    if isinstance(nested_result, dict):
+        return _host_control_result_succeeded(nested_result)
+
+    if "exit_code" in result:
+        return result.get("exit_code") == 0
+
+    return result.get("supported") is True
+
+
 def _tls_cache_satisfies_test(test_id: str, cached: dict[str, Any] | None) -> bool:
     if not cached:
         return False
@@ -2080,10 +2103,15 @@ class TestEngine:
                         str(profile["duplex"]),
                     )
                     profile_result["set_result"] = set_result
-                    await asyncio.sleep(2)
-                    profile_result["probe_result"] = await self._probe_after_host_network_change(device_ip, device)
+                    profile_result["profile_applied"] = _host_control_result_succeeded(set_result)
+                    if profile_result["profile_applied"]:
+                        await asyncio.sleep(2)
+                        profile_result["probe_result"] = await self._probe_after_host_network_change(device_ip, device)
+                    else:
+                        profile_result["probe_result"] = {"reachable": False, "source": None}
                 except Exception as exc:
                     profile_result["error"] = describe_tools_error(exc, fallback="Interface profile change failed")
+                    profile_result["profile_applied"] = False
                     profile_result["probe_result"] = {"reachable": False, "source": None}
                 profiles.append(profile_result)
                 raw_lines.append(json.dumps(profile_result, sort_keys=True))
@@ -2098,14 +2126,20 @@ class TestEngine:
             raw_lines.append(json.dumps({"restore_status": restore_status}, sort_keys=True))
 
         attempted = [item for item in profiles if "set_result" in item]
+        successful = [item for item in attempted if item.get("profile_applied")]
         reachable_count = sum(1 for item in profiles if (item.get("probe_result") or {}).get("reachable"))
         return ({
             "check_ran": True,
             "selected_interface": interface,
             "profiles": profiles,
             "attempted_profile_count": len(attempted),
+            "successful_profile_change_count": len(successful),
             "reachable_profile_count": reachable_count,
-            "all_profiles_reachable": bool(profiles) and reachable_count == len(profiles),
+            "all_profiles_reachable": (
+                bool(profiles)
+                and len(successful) == len(profiles)
+                and reachable_count == len(profiles)
+            ),
             "restore_status": restore_status,
         }, "\n".join(raw_lines))
 
@@ -2131,8 +2165,9 @@ class TestEngine:
         probe_result: dict[str, Any] = {"reachable": False, "source": None, "probe_ports": []}
         try:
             cycle_result = await tools_client.cycle_host_interface(interface, down_seconds=5)
-            await asyncio.sleep(3)
-            probe_result = await self._probe_after_host_network_change(device_ip, device)
+            if _host_control_result_succeeded(cycle_result):
+                await asyncio.sleep(3)
+                probe_result = await self._probe_after_host_network_change(device_ip, device)
         finally:
             try:
                 restore_status = await tools_client.restore_host_interface(interface, original_state)
@@ -2147,6 +2182,7 @@ class TestEngine:
             "selected_interface": interface,
             "original_state": original_state,
             "cycle_result": cycle_result,
+            "cycle_completed": _host_control_result_succeeded(cycle_result),
             "probe_result": probe_result,
             "reachable_after_reconnect": bool(probe_result.get("reachable")),
             "restore_status": restore_status,
@@ -2636,7 +2672,7 @@ class TestEngine:
             else:
                 parsed = testssl_parser.parse_from_stdout(raw.get("stdout", ""))
             parsed["probe_source"] = "testssl"
-            parsed["cipher_inventory_complete"] = True
+            parsed["cipher_inventory_complete"] = test_id != "U11" or bool(parsed.get("ciphers"))
             parsed["hsts_checked"] = True
             if not parsed.get("tls_versions"):
                 try:
@@ -2654,6 +2690,7 @@ class TestEngine:
                     )
                 except Exception as exc:
                     logger.debug("Nmap TLS cipher fallback failed for %s:%s: %s", device_ip, tls_port, exc)
+                parsed["cipher_inventory_complete"] = bool(parsed.get("ciphers"))
             _TESTSSL_CACHE[run_id] = parsed
             return (parsed, raw.get("stdout"))
 
