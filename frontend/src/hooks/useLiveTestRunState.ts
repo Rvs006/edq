@@ -29,6 +29,7 @@ export function useLiveTestRunState(
 
     const refreshRun =
       msg.type === 'run_started'
+      || msg.type === 'interface_selection_required'
       || msg.type === 'run_complete'
       || msg.type === 'run_failed'
       || msg.type === 'run_error'

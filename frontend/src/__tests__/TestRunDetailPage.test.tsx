@@ -34,6 +34,7 @@ vi.mock('@/lib/api', () => ({
     resume: vi.fn(),
     complete: vi.fn(),
     requestReview: vi.fn(),
+    selectNetworkInterface: vi.fn(),
   },
   testResultsApi: {
     list: vi.fn().mockImplementation(() => Promise.resolve({ data: mockState.results })),
@@ -46,6 +47,9 @@ vi.mock('@/lib/api', () => ({
     download: mockState.reportDownload,
   },
   profilesApi: { autoLearn: vi.fn() },
+  networkScanApi: {
+    detectNetworks: vi.fn().mockResolvedValue({ data: { interfaces: [] } }),
+  },
   resolveApiUrl: vi.fn((path: string) => path),
   getApiErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
 }))
@@ -112,8 +116,11 @@ describe('TestRunDetailPage', () => {
     queryClients.splice(0).forEach((client) => client.clear())
   })
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
+    const { networkScanApi, testRunsApi } = await import('@/lib/api')
+    vi.mocked(networkScanApi.detectNetworks).mockResolvedValue({ data: { interfaces: [] } } as any)
+    vi.mocked(testRunsApi.selectNetworkInterface).mockResolvedValue({ data: mockState.run } as any)
     mockState.reportGenerate.mockResolvedValue({ data: {} })
     mockState.reportDownload.mockResolvedValue({ data: new Blob([]) })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
@@ -344,6 +351,77 @@ describe('TestRunDetailPage', () => {
         result_ids: ['result-u20', 'result-u21'],
         verdict: 'na',
         engineer_notes: 'Observed on the device and marked not applicable.',
+      })
+    })
+  })
+
+  it('lets an engineer select the host interface when U03 is waiting', async () => {
+    const { networkScanApi, testRunsApi } = await import('@/lib/api')
+    vi.mocked(networkScanApi.detectNetworks).mockResolvedValue({
+      data: {
+        interfaces: [
+          { label: 'Wi-Fi', cidr: '192.168.1.0/24', host_ip: '192.168.1.171' },
+          { label: 'Ethernet', cidr: '192.168.4.0/24', host_ip: '192.168.4.101' },
+        ],
+      },
+    } as any)
+    vi.mocked(testRunsApi.selectNetworkInterface).mockResolvedValue({
+      data: { ...mockState.run, status: 'running' },
+    } as any)
+
+    mockState.run = {
+      ...mockState.run,
+      status: 'selecting_interface',
+      device_ip: '192.168.4.64',
+      progress_pct: 4.3,
+      completed_tests: 2,
+      total_tests: 47,
+      run_metadata: {
+        current_test: {
+          test_id: 'U03',
+          test_name: 'Switch Negotiation (Speed/Duplex)',
+          status: 'running',
+        },
+        interface_selection: {
+          required: true,
+          test_id: 'U03',
+          reason: 'Select the Ethernet interface connected to the device for Scenario 1 host workflows.',
+        },
+      },
+      readiness_summary: {
+        ...(mockState.run.readiness_summary as Record<string, unknown>),
+        level: 'in_progress',
+        label: 'Run still in progress',
+        report_ready: false,
+        operational_ready: false,
+        completed_result_count: 2,
+        total_result_count: 47,
+        summary: 'Run still in progress.',
+      },
+    }
+    mockState.results = [
+      {
+        id: 'result-u03',
+        test_id: 'U03',
+        test_name: 'Switch Negotiation (Speed/Duplex)',
+        tier: 'automatic',
+        verdict: 'pending',
+        is_essential: 'no',
+      },
+    ]
+
+    renderWithProviders(<TestRunDetailPage />)
+
+    expect(await screen.findByText(/Select host interface/i)).toBeInTheDocument()
+    const selector = await screen.findByLabelText(/Host network interface/i)
+    await waitFor(() => expect(selector).toHaveValue('Ethernet'))
+
+    fireEvent.click(screen.getByRole('button', { name: /Continue U03/i }))
+
+    await waitFor(() => {
+      expect(testRunsApi.selectNetworkInterface).toHaveBeenCalledWith('run-1', {
+        interface: 'Ethernet',
+        label: 'Ethernet',
       })
     })
   })

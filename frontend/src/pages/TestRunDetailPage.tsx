@@ -1,12 +1,12 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { testRunsApi, testResultsApi, reportsApi, resolveApiUrl, getApiErrorMessage } from '@/lib/api'
+import { testRunsApi, testResultsApi, reportsApi, networkScanApi, resolveApiUrl, getApiErrorMessage } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLiveTestRunState } from '@/hooks/useLiveTestRunState'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   ArrowLeft, Loader2, Monitor,
-  FileText, Cpu, Menu, X, Fingerprint, Save, ListChecks, CheckSquare, Square
+  FileText, Cpu, Menu, X, Fingerprint, Save, ListChecks, CheckSquare, Square, RefreshCw
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -48,6 +48,24 @@ type CurrentTestMeta = {
 
 type ReportTemplateKey = 'generic'
 
+type InterfaceSelectionMeta = {
+  required: boolean
+  test_id?: string
+  reason?: string
+}
+
+type HostInterfaceOption = {
+  name?: string
+  interface?: string
+  id?: string
+  label?: string
+  cidr?: string
+  type?: string
+  host_ip?: string
+  sample_hosts?: string[]
+  reachable?: boolean
+}
+
 const bulkVerdictOptions = [
   { value: 'na', label: 'N/A' },
 ]
@@ -65,6 +83,59 @@ function getCurrentTestFromMetadata(metadata: TestRun['run_metadata'] | undefine
     test_name: typeof current.test_name === 'string' && current.test_name.trim() ? current.test_name : testId,
     status: typeof current.status === 'string' ? current.status : 'running',
   }
+}
+
+function getInterfaceSelectionFromMetadata(metadata: TestRun['run_metadata'] | undefined): InterfaceSelectionMeta | null {
+  const value = metadata?.interface_selection
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const selection = value as Record<string, unknown>
+  return {
+    required: selection.required === true,
+    test_id: typeof selection.test_id === 'string' ? selection.test_id : undefined,
+    reason: typeof selection.reason === 'string' ? selection.reason : undefined,
+  }
+}
+
+function getInterfaceValue(option: HostInterfaceOption): string {
+  return String(option.name || option.interface || option.id || option.label || '').trim()
+}
+
+function formatInterfaceLabel(option: HostInterfaceOption): string {
+  const name = getInterfaceValue(option)
+  const details = [option.cidr, option.host_ip].filter(Boolean).join(' · ')
+  return details ? `${option.label || name} (${details})` : option.label || name
+}
+
+function ipv4ToNumber(value: string | null | undefined): number | null {
+  const parts = String(value || '').split('.')
+  if (parts.length !== 4) return null
+  let total = 0
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return null
+    const octet = Number(part)
+    if (octet < 0 || octet > 255) return null
+    total = (total * 256) + octet
+  }
+  return total >>> 0
+}
+
+function ipMatchesCidr(ip: string | null | undefined, cidr: string | null | undefined): boolean {
+  const [networkIp, prefixText] = String(cidr || '').split('/')
+  const ipNumber = ipv4ToNumber(ip)
+  const networkNumber = ipv4ToNumber(networkIp)
+  const prefix = Number(prefixText)
+  if (ipNumber === null || networkNumber === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+    return false
+  }
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0
+  return (ipNumber & mask) === (networkNumber & mask)
+}
+
+function findSuggestedInterface(options: HostInterfaceOption[], deviceIp: string | null | undefined): HostInterfaceOption | null {
+  const matching = options.filter((option) => ipMatchesCidr(deviceIp, option.cidr))
+  if (matching.length === 1) return matching[0]
+  if (options.length === 1) return options[0]
+  return null
 }
 
 function inferReportTemplateKey(run: TestRun | undefined): ReportTemplateKey {
@@ -90,6 +161,10 @@ export default function TestRunDetailPage() {
   const [bulkManualSelectedIds, setBulkManualSelectedIds] = useState<string[]>([])
   const [bulkManualVerdict, setBulkManualVerdict] = useState('na')
   const [bulkManualNotes, setBulkManualNotes] = useState('')
+  const [hostInterfaces, setHostInterfaces] = useState<HostInterfaceOption[]>([])
+  const [interfacesLoading, setInterfacesLoading] = useState(false)
+  const [interfacesError, setInterfacesError] = useState<string | null>(null)
+  const [selectedInterface, setSelectedInterface] = useState('')
 
   const { data: run, isLoading: runLoading } = useQuery({
     queryKey: testRunKeys.detail(id),
@@ -140,6 +215,12 @@ export default function TestRunDetailPage() {
     [run?.run_metadata]
   )
 
+  const interfaceSelection = useMemo(
+    () => getInterfaceSelectionFromMetadata(run?.run_metadata),
+    [run?.run_metadata]
+  )
+  const interfaceSelectionRequired = run?.status === 'selecting_interface' || interfaceSelection?.required === true
+
   const runningTestId = useMemo(() => {
     const wsRunningTestId = getRunningTestIdFromProgress(ws.lastProgress)
     if (wsRunningTestId) return wsRunningTestId
@@ -160,6 +241,40 @@ export default function TestRunDetailPage() {
       setSelectedTestId(running.id)
     }
   }, [currentTestFromRun, results, ws.lastProgress])
+
+  const loadHostInterfaces = useCallback(async () => {
+    if (!interfaceSelectionRequired) return
+    setInterfacesLoading(true)
+    setInterfacesError(null)
+    try {
+      const response = await networkScanApi.detectNetworks()
+      const interfaces = Array.isArray(response.data?.interfaces)
+        ? response.data.interfaces.filter((option: unknown): option is HostInterfaceOption => {
+            if (!option || typeof option !== 'object' || Array.isArray(option)) return false
+            return Boolean(getInterfaceValue(option as HostInterfaceOption))
+          })
+        : []
+      setHostInterfaces(interfaces)
+      const suggested = findSuggestedInterface(interfaces, run?.device_ip)
+      if (suggested) {
+        setSelectedInterface((current) => current || getInterfaceValue(suggested))
+      }
+    } catch (error) {
+      setHostInterfaces([])
+      setInterfacesError(getApiErrorMessage(error, 'Unable to load host interfaces.'))
+    } finally {
+      setInterfacesLoading(false)
+    }
+  }, [interfaceSelectionRequired, run?.device_ip])
+
+  useEffect(() => {
+    if (!interfaceSelectionRequired) {
+      setInterfacesError(null)
+      setSelectedInterface('')
+      return
+    }
+    void loadHostInterfaces()
+  }, [interfaceSelectionRequired, loadHostInterfaces])
 
   const sidebarResults: TestResultItem[] = useMemo(
     () =>
@@ -237,6 +352,24 @@ export default function TestRunDetailPage() {
   const progressSegments = useMemo(() => {
     return buildProgressSegments(results as TestResult[], runningTestId, run?.status)
   }, [results, runningTestId, run?.status])
+
+  const handleSelectNetworkInterface = async () => {
+    if (!id || !selectedInterface.trim()) return
+    setIsSubmitting(true)
+    try {
+      const selected = hostInterfaces.find((option) => getInterfaceValue(option) === selectedInterface)
+      await testRunsApi.selectNetworkInterface(id, {
+        interface: selectedInterface.trim(),
+        label: selected?.label || selectedInterface.trim(),
+      })
+      toast.success('Network interface selected')
+      await refetchTestRunResource(queryClient, id)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to select network interface.'))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   const handleStartTests = () => {
     setScenarioDialogOpen(true)
@@ -739,6 +872,80 @@ export default function TestRunDetailPage() {
           </div>
         </SmartPrompt>
       </div>
+
+      {interfaceSelectionRequired && (
+        <div className="flex-shrink-0 px-4 pt-2">
+          <div className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-3 text-purple-950 dark:border-purple-800 dark:bg-purple-950/30 dark:text-purple-100">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <strong className="text-sm">Select host interface</strong>
+                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-mono text-purple-700 dark:bg-purple-900/60 dark:text-purple-200">
+                    {interfaceSelection?.test_id || currentTestFromRun?.test_id || 'U03'}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-purple-800 dark:text-purple-200">
+                  {interfaceSelection?.reason || 'Select the Ethernet adapter connected to the device so the host workflow can continue.'}
+                </p>
+                <p className="mt-1 text-[11px] text-purple-700 dark:text-purple-300">
+                  EDQ will briefly change speed/duplex profiles on the selected adapter and restore auto-negotiation afterwards.
+                </p>
+                {interfacesError && (
+                  <p className="mt-1 text-[11px] text-red-700 dark:text-red-300">{interfacesError}</p>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                {hostInterfaces.length > 0 ? (
+                  <select
+                    aria-label="Host network interface"
+                    value={selectedInterface}
+                    onChange={(event) => setSelectedInterface(event.target.value)}
+                    className="input h-9 min-w-0 text-sm sm:w-80"
+                  >
+                    <option value="">Choose interface...</option>
+                    {hostInterfaces.map((option) => {
+                      const value = getInterfaceValue(option)
+                      return (
+                        <option key={`${value}-${option.cidr || ''}`} value={value}>
+                          {formatInterfaceLabel(option)}
+                        </option>
+                      )
+                    })}
+                  </select>
+                ) : (
+                  <input
+                    aria-label="Host network interface"
+                    value={selectedInterface}
+                    onChange={(event) => setSelectedInterface(event.target.value)}
+                    placeholder="Ethernet"
+                    className="input h-9 min-w-0 text-sm sm:w-64"
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={() => void loadHostInterfaces()}
+                  disabled={interfacesLoading}
+                  className="btn-secondary h-9 text-sm disabled:opacity-50"
+                  title="Refresh host interfaces"
+                >
+                  {interfacesLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSelectNetworkInterface}
+                  disabled={!selectedInterface.trim() || isSubmitting}
+                  className="btn-primary h-9 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckSquare className="w-4 h-4" />}
+                  Continue U03
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {run.status === 'awaiting_manual' && pendingManualResults.length > 1 && (
         <div className="flex-shrink-0 border-b border-zinc-200 dark:border-slate-700/50 bg-zinc-50 dark:bg-slate-900/40 px-4 py-2">

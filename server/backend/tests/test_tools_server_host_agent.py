@@ -181,6 +181,7 @@ Ethernet adapter Ethernet:
 
     assert interfaces == [
         {
+            "name": "Ethernet",
             "label": "Ethernet",
             "type": "ethernet",
             "cidr": "192.168.4.0/24",

@@ -433,6 +433,7 @@ def _parse_windows_ipconfig(stdout: str) -> list[dict[str, str]]:
             return
         interfaces.append(
             {
+                "name": current_name or f"Host Interface ({network})",
                 "label": current_name or f"Host Interface ({network})",
                 "type": "direct" if ip_obj.is_link_local else "ethernet",
                 "cidr": str(network),
@@ -487,6 +488,7 @@ def _detect_host_interfaces() -> tuple[list[dict], str | None, dict]:
                 host_ip = item["host_ip"]
                 interfaces.append(
                     {
+                        "name": item.get("name") or item["label"],
                         "label": item["label"],
                         "type": item["type"],
                         "cidr": str(network),
@@ -522,6 +524,7 @@ def _detect_host_interfaces() -> tuple[list[dict], str | None, dict]:
                     continue
                 interfaces.append(
                     {
+                        "name": device,
                         "label": f"{device} ({network})",
                         "type": "direct" if interface.ip.is_link_local else "ethernet",
                         "cidr": str(network),
