@@ -185,8 +185,8 @@ async def test_start_batch_without_selection_uses_full_default_template(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    headers = await register_and_login(client, suffix="batchdefault49", role="admin")
-    user_result = await db_session.execute(select(User).where(User.username == "batchdefault49user"))
+    headers = await register_and_login(client, suffix="batchdefaultactive", role="admin")
+    user_result = await db_session.execute(select(User).where(User.username == "batchdefaultactiveuser"))
     user_id = user_result.scalar_one().id
     default_ids = get_default_test_ids()
 
@@ -230,9 +230,10 @@ async def test_start_batch_without_selection_uses_full_default_template(
         select(RunModel).where(RunModel.id.in_(body["run_ids"] or []))
     )
     runs = run_result.scalars().all()
-    assert len(default_ids) == 49
+    expected_count = len(default_ids)
+    assert expected_count > 0
     assert len(runs) == 1
-    assert runs[0].total_tests == 49
+    assert runs[0].total_tests == expected_count
 
     db_session.expire_all()
     saved_scan = await db_session.get(NetworkScan, scan_id)

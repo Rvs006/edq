@@ -1124,6 +1124,7 @@ async def test_u04_two_phase_observer_degrades_when_capture_fails(monkeypatch):
         raise RuntimeError("DHCP socket unavailable")
 
     monkeypatch.setattr(test_engine_module, "async_session", lambda: DummySession())
+    monkeypatch.setattr(test_engine_module.tools_client, "host_network_scanner_url", "http://host-scanner")
     monkeypatch.setattr(engine, "_await_required_network_interface", fake_required_interface)
     monkeypatch.setattr(test_engine_module, "observe_dhcp_activity", failing_observer)
 
