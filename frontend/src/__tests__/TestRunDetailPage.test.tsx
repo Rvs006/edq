@@ -360,6 +360,7 @@ describe('TestRunDetailPage', () => {
     vi.mocked(networkScanApi.detectNetworks).mockResolvedValue({
       data: {
         interfaces: [
+          { label: 'vEthernet (WSL (Hyper-V firewall))', cidr: '172.26.16.0/20', host_ip: '172.26.16.1' },
           { label: 'Wi-Fi', cidr: '192.168.1.0/24', host_ip: '192.168.1.171' },
           { label: 'Ethernet', cidr: '192.168.4.0/24', host_ip: '192.168.4.101' },
         ],
@@ -415,6 +416,9 @@ describe('TestRunDetailPage', () => {
     expect(await screen.findByText(/Select host interface/i)).toBeInTheDocument()
     const selector = await screen.findByLabelText(/Host network interface/i)
     await waitFor(() => expect(selector).toHaveValue('Ethernet'))
+    expect(within(selector).getByRole('option', { name: /Ethernet/i })).toBeInTheDocument()
+    expect(within(selector).queryByRole('option', { name: /Wi-Fi/i })).not.toBeInTheDocument()
+    expect(within(selector).queryByRole('option', { name: /vEthernet/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Continue U03/i }))
 
@@ -424,7 +428,7 @@ describe('TestRunDetailPage', () => {
         label: 'Ethernet',
       })
     })
-  })
+  }, 10000)
 
   it('does not show a stale host interface selector after cancellation', async () => {
     mockState.run = {

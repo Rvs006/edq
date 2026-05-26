@@ -131,7 +131,52 @@ function ipMatchesCidr(ip: string | null | undefined, cidr: string | null | unde
   return (ipNumber & mask) === (networkNumber & mask)
 }
 
+function isSafeEthernetCandidate(option: HostInterfaceOption, deviceIp: string | null | undefined): boolean {
+  if (!getInterfaceValue(option)) return false
+  if (option.reachable === false) return false
+
+  const type = String(option.type || '').toLowerCase()
+  if (type && !type.includes('ethernet')) return false
+
+  const text = [
+    option.name,
+    option.interface,
+    option.id,
+    option.label,
+    option.type,
+  ].filter(Boolean).join(' ').toLowerCase()
+  const unsafeHints = [
+    'bluetooth',
+    'docker',
+    'hyper-v',
+    'loopback',
+    'tunnel',
+    'virtual',
+    'vethernet',
+    'vnic',
+    'wi-fi',
+    'wifi',
+    'wireless',
+    'wlan',
+    'wsl',
+  ]
+  if (unsafeHints.some((hint) => text.includes(hint))) return false
+
+  return ipMatchesCidr(deviceIp, option.cidr)
+}
+
+function getDisplayInterfaceOptions(
+  options: HostInterfaceOption[],
+  deviceIp: string | null | undefined,
+): HostInterfaceOption[] {
+  const safeCandidates = options.filter((option) => isSafeEthernetCandidate(option, deviceIp))
+  return safeCandidates.length > 0 ? safeCandidates : options
+}
+
 function findSuggestedInterface(options: HostInterfaceOption[], deviceIp: string | null | undefined): HostInterfaceOption | null {
+  const safeCandidates = options.filter((option) => isSafeEthernetCandidate(option, deviceIp))
+  if (safeCandidates.length === 1) return safeCandidates[0]
+
   const matching = options.filter((option) => ipMatchesCidr(deviceIp, option.cidr))
   if (matching.length === 1) return matching[0]
   if (options.length === 1) return options[0]
@@ -257,8 +302,9 @@ export default function TestRunDetailPage() {
             return Boolean(getInterfaceValue(option as HostInterfaceOption))
           })
         : []
-      setHostInterfaces(interfaces)
-      const suggested = findSuggestedInterface(interfaces, run?.device_ip)
+      const displayInterfaces = getDisplayInterfaceOptions(interfaces, run?.device_ip)
+      setHostInterfaces(displayInterfaces)
+      const suggested = findSuggestedInterface(displayInterfaces, run?.device_ip)
       if (suggested) {
         setSelectedInterface((current) => current || getInterfaceValue(suggested))
       }

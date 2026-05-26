@@ -1995,8 +1995,119 @@ class TestEngine:
         interface = str(raw or "").strip()
         return interface or None
 
-    async def _await_required_network_interface(self, run_id: str, test_id: str) -> tuple[str | None, str | None]:
+    @staticmethod
+    def _host_interface_value(option: dict[str, Any]) -> str:
+        return str(
+            option.get("name")
+            or option.get("interface")
+            or option.get("id")
+            or option.get("label")
+            or ""
+        ).strip()
+
+    @staticmethod
+    def _host_interface_label(option: dict[str, Any]) -> str:
+        return str(option.get("label") or TestEngine._host_interface_value(option)).strip()
+
+    @staticmethod
+    def _interface_cidr_contains_device(option: dict[str, Any], device_ip: str) -> bool:
+        try:
+            cidr = str(option.get("cidr") or "").strip()
+            return bool(cidr) and ipaddress.ip_address(device_ip) in ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _is_safe_host_ethernet_candidate(option: dict[str, Any], device_ip: str) -> bool:
+        value = TestEngine._host_interface_value(option)
+        if not value:
+            return False
+        if option.get("reachable") is False:
+            return False
+
+        kind = str(option.get("type") or "").strip().lower()
+        if kind and "ethernet" not in kind:
+            return False
+
+        text = " ".join(
+            str(option.get(key) or "")
+            for key in ("name", "interface", "id", "label", "type", "description")
+        ).lower()
+        unsafe_hints = (
+            "bluetooth",
+            "docker",
+            "hyper-v",
+            "loopback",
+            "tunnel",
+            "virtual",
+            "vethernet",
+            "vnic",
+            "wi-fi",
+            "wifi",
+            "wireless",
+            "wlan",
+            "wsl",
+        )
+        if any(hint in text for hint in unsafe_hints):
+            return False
+
+        return TestEngine._interface_cidr_contains_device(option, device_ip)
+
+    @classmethod
+    def _find_safe_auto_network_interface(
+        cls,
+        device_ip: str,
+        interfaces: list[dict[str, Any]],
+    ) -> dict[str, str] | None:
+        candidates = [
+            option
+            for option in interfaces
+            if isinstance(option, dict) and cls._is_safe_host_ethernet_candidate(option, device_ip)
+        ]
+        if len(candidates) != 1:
+            return None
+
+        selected = candidates[0]
+        value = cls._host_interface_value(selected)
+        if not value:
+            return None
+        label = cls._host_interface_label(selected) or value
+        return {
+            "name": value,
+            "label": label,
+            "cidr": str(selected.get("cidr") or ""),
+        }
+
+    async def _auto_select_network_interface(self, device_ip: str) -> dict[str, str] | None:
+        try:
+            response = await tools_client.host_network_interfaces()
+        except Exception as exc:
+            logger.info("Could not auto-select host interface: %s", describe_tools_error(exc))
+            return None
+
+        if response.get("supported") is False:
+            return None
+        raw_interfaces = response.get("interfaces")
+        if not isinstance(raw_interfaces, list):
+            return None
+
+        selection = self._find_safe_auto_network_interface(device_ip, raw_interfaces)
+        if selection:
+            logger.info(
+                "Auto-selected host interface %s for device %s during host workflow",
+                selection["name"],
+                device_ip,
+            )
+        return selection
+
+    async def _await_required_network_interface(
+        self,
+        run_id: str,
+        test_id: str,
+        auto_select_device_ip: str | None = None,
+    ) -> tuple[str | None, str | None]:
         announced = False
+        auto_selection_attempted = False
         while True:
             async with async_session() as db:
                 run = await db.get(TestRun, run_id)
@@ -2019,6 +2130,24 @@ class TestEngine:
                     TestRunStatus.COMPLETED.value,
                 }:
                     return None, f"Run is {status}; host interface selection was not completed."
+
+                if auto_select_device_ip and not auto_selection_attempted:
+                    auto_selection_attempted = True
+                    selection = await self._auto_select_network_interface(auto_select_device_ip)
+                    if selection:
+                        metadata["network_interface"] = {
+                            "name": selection["name"],
+                            "label": selection["label"],
+                            "auto_selected": True,
+                            "cidr": selection["cidr"],
+                            "reason": "Automatically selected the only safe physical Ethernet interface on the device subnet.",
+                        }
+                        metadata.pop("interface_selection", None)
+                        run.run_metadata = metadata
+                        if status == TestRunStatus.SELECTING_INTERFACE.value:
+                            run.status = TestRunStatus.RUNNING
+                        await db.commit()
+                        return selection["name"], None
 
                 metadata["interface_selection"] = {
                     "required": True,
@@ -2071,7 +2200,11 @@ class TestEngine:
                 "reason": "Host network scanner is not configured; speed/duplex control cannot run from Docker-only mode.",
             }, None)
 
-        interface, reason = await self._await_required_network_interface(run_id, "U03")
+        interface, reason = await self._await_required_network_interface(
+            run_id,
+            "U03",
+            auto_select_device_ip=device_ip,
+        )
         if not interface:
             return ({"check_ran": False, "reason": reason}, None)
 

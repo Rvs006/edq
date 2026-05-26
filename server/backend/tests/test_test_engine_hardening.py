@@ -74,6 +74,60 @@ def test_nmap_xml_or_raise_rejects_invalid_xml():
         )
 
 
+def test_safe_auto_interface_selection_picks_only_physical_ethernet_on_device_subnet():
+    selection = TestEngine._find_safe_auto_network_interface(
+        "192.168.4.64",
+        [
+            {
+                "label": "vEthernet (WSL (Hyper-V firewall))",
+                "cidr": "172.26.16.0/20",
+                "type": "ethernet",
+                "reachable": True,
+            },
+            {
+                "label": "Ethernet",
+                "cidr": "192.168.4.0/24",
+                "type": "ethernet",
+                "reachable": True,
+            },
+            {
+                "label": "Wi-Fi",
+                "cidr": "192.168.1.0/24",
+                "type": "ethernet",
+                "reachable": True,
+            },
+        ],
+    )
+
+    assert selection == {
+        "name": "Ethernet",
+        "label": "Ethernet",
+        "cidr": "192.168.4.0/24",
+    }
+
+
+def test_safe_auto_interface_selection_stays_manual_when_ambiguous():
+    selection = TestEngine._find_safe_auto_network_interface(
+        "192.168.4.64",
+        [
+            {
+                "label": "Ethernet",
+                "cidr": "192.168.4.0/24",
+                "type": "ethernet",
+                "reachable": True,
+            },
+            {
+                "label": "USB Ethernet",
+                "cidr": "192.168.4.0/24",
+                "type": "ethernet",
+                "reachable": True,
+            },
+        ],
+    )
+
+    assert selection is None
+
+
 def test_nmap_scan_evidence_distinguishes_missing_from_valid_empty_scan():
     assert test_engine_module._has_nmap_scan_evidence({}) is False
     assert test_engine_module._has_nmap_scan_evidence({"open_ports": []}) is False
@@ -1020,9 +1074,10 @@ async def test_u03_host_workflow_cycles_profiles_and_restores(monkeypatch):
     engine = TestEngine()
     calls: list[tuple[object, ...]] = []
 
-    async def fake_required_interface(run_id: str, test_id: str):
+    async def fake_required_interface(run_id: str, test_id: str, **kwargs):
         assert run_id == "run-1"
         assert test_id == "U03"
+        assert kwargs["auto_select_device_ip"] == "192.168.4.64"
         return "Ethernet 2", None
 
     async def fake_state(interface: str):
@@ -1070,7 +1125,7 @@ async def test_u03_host_workflow_does_not_probe_or_pass_failed_profile_changes(m
     engine = TestEngine()
     probe_calls: list[str] = []
 
-    async def fake_required_interface(run_id: str, test_id: str):
+    async def fake_required_interface(run_id: str, test_id: str, **_kwargs):
         return "Ethernet 2", None
 
     async def fake_state(interface: str):
@@ -1123,7 +1178,7 @@ async def test_u03_host_workflow_does_not_probe_or_pass_failed_profile_changes(m
 async def test_u03_host_workflow_degrades_when_host_scanner_unavailable(monkeypatch):
     engine = TestEngine()
 
-    async def fake_required_interface(run_id: str, test_id: str):
+    async def fake_required_interface(run_id: str, test_id: str, **_kwargs):
         assert run_id == "run-1"
         assert test_id == "U03"
         return "Ethernet 2", None
