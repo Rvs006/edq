@@ -38,7 +38,7 @@ docker scout cves edq-frontend:latest --only-severity critical,high
 Pass `-BaseUrl` to `collect-production-evidence.ps1` when the URL under test differs from `EDQ_PUBLIC_URL`, such as a local pilot preflight before DNS is live or a final HTTPS check after cutover.
 Pass `-BaseUrl` to `configure-production.ps1` when adding authorized CIDRs so the CIDR is written to the intended running stack.
 
-Use `.\scripts\production-gate.ps1 -Mode production -DeploymentConfig prod-compose` only for wider production sign-off. Use `-DeploymentConfig tls-compose` for the Caddy TLS overlay. Production mode fails until the operator has recorded evidence and set:
+Use `.\scripts\production-gate.ps1 -Mode production -DeploymentConfig prod-compose` only for wider production sign-off. Use `-DeploymentConfig tls-compose` for the Caddy TLS overlay, or `-DeploymentConfig internal-tls-compose` when using the private-hostname Caddy internal TLS overlay. Production mode fails until the operator has recorded evidence and set:
 
 - `EDQ_BACKUP_RESTORE_DRILL_CONFIRMED=true`
 - or `EDQ_BACKUP_RESTORE_DRILL_EVIDENCE=<path-to-passing-json>`
@@ -50,6 +50,15 @@ Use `.\scripts\production-gate.ps1 -Mode production -DeploymentConfig prod-compo
 - or `EDQ_REAL_DEVICE_PILOT_EVIDENCE=<path-to-passing-json>`
 
 Production runtime checks must target the real HTTPS deployment URL. Use pilot mode for local preflight checks; production mode rejects local or non-HTTPS `-BaseUrl` values.
+
+If there is no public domain yet, choose a stable internal hostname such as `edq.internal`, resolve it through internal DNS or hosts files, and start:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.tls.yml -f docker-compose.internal-tls.yml up -d
+.\scripts\production-gate.ps1 -Mode production -DeploymentConfig internal-tls-compose -BaseUrl https://edq.internal
+```
+
+Every engineer workstation must trust the Caddy internal root CA before this is treated as production-like. If the certificate is not trusted, keep the deployment in pilot mode.
 
 The GitHub gate is verified automatically when the GitHub CLI can read the repository: branch protection, required checks, latest `CI`, `CodeQL`, and `Container Security` runs, and open high/critical CodeQL and Dependabot alerts. Use `EDQ_GITHUB_SECURITY_CONFIRMED=true` only when that evidence was verified outside the script.
 

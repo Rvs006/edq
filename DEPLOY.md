@@ -124,6 +124,32 @@ docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
 
 That optional overlay uses the repo-root `Caddyfile`. Keep one TLS approach per deployment; do not combine `docker-compose.prod.yml` and `docker-compose.tls.yml`.
 
+### No Public Domain Yet
+
+You can run a production-like private deployment without a public DNS name by using a stable internal hostname and Caddy's internal CA.
+
+1. Choose an internal hostname, for example `edq.internal` or `edq.site.lan`.
+2. Point that hostname at the EDQ host through internal DNS or each engineer workstation's hosts file.
+3. Configure EDQ with that hostname:
+
+```powershell
+.\scripts\configure-production.ps1 -Domain edq.internal -BaseUrl https://edq.internal -CorsOrigins https://edq.internal -AuthorizedCidrs 192.168.10.0/24
+```
+
+4. Start the internal TLS overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tls.yml -f docker-compose.internal-tls.yml up -d
+```
+
+5. Install the Caddy internal root CA into the trusted certificate store for every engineer workstation that will use EDQ. Without trusting that CA, browsers will show certificate warnings and the deployment should remain pilot-only.
+
+Use this gate command for the private-hostname path:
+
+```powershell
+.\scripts\production-gate.ps1 -Mode production -DeploymentConfig internal-tls-compose -BaseUrl https://edq.internal
+```
+
 ## Operations
 
 Start:

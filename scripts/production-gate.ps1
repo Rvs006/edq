@@ -1,7 +1,7 @@
 param(
     [ValidateSet("pilot", "production")]
     [string]$Mode = "pilot",
-    [ValidateSet("env", "prod-compose", "tls-compose")]
+    [ValidateSet("env", "prod-compose", "tls-compose", "internal-tls-compose")]
     [string]$DeploymentConfig = "env",
     [string]$BaseUrl = "",
     [string]$AdminUser = "admin",
@@ -72,6 +72,9 @@ function Add-DeploymentConfigChecks {
         $composeFiles += "docker-compose.prod.yml"
     } elseif ($DeploymentConfig -eq "tls-compose") {
         $composeFiles += "docker-compose.tls.yml"
+    } elseif ($DeploymentConfig -eq "internal-tls-compose") {
+        $composeFiles += "docker-compose.tls.yml"
+        $composeFiles += "docker-compose.internal-tls.yml"
     }
 
     $args = @("compose")

@@ -67,7 +67,7 @@ Before a wider production rollout:
 - Prove backup restore on a separate host
 - Configure HTTPS with `COOKIE_SECURE=true`
 - Restrict access through VPN or private network controls
-- Configure real `DOMAIN` and `EDQ_PUBLIC_URL`
+- Configure real `DOMAIN` and `EDQ_PUBLIC_URL`; a stable private hostname with trusted internal TLS is acceptable before a public domain exists
 - Configure explicit HTTPS `CORS_ORIGINS` with no paths; do not use wildcard origins
 - Rotate every placeholder secret
 - Configure authorized scan networks
