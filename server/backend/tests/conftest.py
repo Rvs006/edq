@@ -12,7 +12,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 # Force a test-local configuration so pytest does not inherit the repo's
 # shared handoff settings from the root .env file.
@@ -34,11 +34,22 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.models.database import Base, get_db
 from app.main import create_app
 from app.middleware import rate_limit as rate_limit_module
+from app.models.authorized_network import AuthorizedNetwork
 from app.models.user import User, UserRole
 from app.services.tools_client import tools_client
 
 # Module-level ref so helpers can access the session factory
 _session_factory: async_sessionmaker | None = None
+_DEFAULT_ADMIN_TEST_NETWORKS = (
+    "10.0.0.0/16",
+    "10.42.0.0/16",
+    "10.66.0.0/16",
+    "10.67.0.0/16",
+    "10.99.0.0/16",
+    "172.16.0.0/16",
+    "172.19.0.0/16",
+    "192.168.0.0/16",
+)
 
 
 @pytest.fixture(scope="session")
@@ -107,6 +118,7 @@ async def register_and_login(
     client: AsyncClient,
     suffix: str = "default",
     role: str = "engineer",
+    authorize_default_networks: bool = True,
 ) -> dict:
     """Register a user, optionally promote to admin/reviewer, return CSRF headers."""
     email = f"{suffix}@example.com"
@@ -127,6 +139,19 @@ async def register_and_login(
                 await session.execute(
                     update(User).where(User.id == user_id).values(role=role_enum)
                 )
+                if role == "admin" and authorize_default_networks:
+                    for cidr in _DEFAULT_ADMIN_TEST_NETWORKS:
+                        existing = await session.execute(
+                            select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == cidr)
+                        )
+                        if existing.scalar_one_or_none() is None:
+                            session.add(AuthorizedNetwork(
+                                cidr=cidr,
+                                label="Test authorized range",
+                                description="Default backend test scan boundary",
+                                is_active=True,
+                                created_by=user_id,
+                            ))
                 await session.commit()
 
     resp = await client.post("/api/auth/login", json={

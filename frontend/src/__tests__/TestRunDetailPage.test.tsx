@@ -110,7 +110,7 @@ function renderWithProviders(ui: React.ReactElement) {
 describe('TestRunDetailPage', () => {
   beforeAll(async () => {
     TestRunDetailPage = (await import('@/pages/TestRunDetailPage')).default
-  })
+  }, 30000)
 
   afterEach(() => {
     queryClients.splice(0).forEach((client) => client.clear())

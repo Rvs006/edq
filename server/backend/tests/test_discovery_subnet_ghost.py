@@ -20,6 +20,12 @@ TWO_HOST_STDOUT = (
 async def test_subnet_discovery_skips_ghost_hosts(client: AsyncClient, monkeypatch):
     """nmap -sn reports 2 hosts; probe says only one is real -> skip the ghost."""
     headers = await register_and_login(client, suffix="subghost", role="admin")
+    auth_resp = await client.post(
+        "/api/authorized-networks/",
+        json={"cidr": "10.50.50.0/24", "label": "Subnet ghost test"},
+        headers=headers,
+    )
+    assert auth_resp.status_code in {201, 409}
 
     async def fake_nmap(target, args=None, timeout=120):
         return {"stdout": TWO_HOST_STDOUT}

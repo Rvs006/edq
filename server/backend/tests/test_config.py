@@ -94,6 +94,112 @@ def test_cloud_environment_strips_localhost_cors_origins():
     assert any("Stripped localhost origins" in message for message in messages)
 
 
+def test_cloud_environment_strips_ipv6_loopback_cors_origin():
+    with pytest.warns(UserWarning, match="Stripped localhost origins"):
+        settings = _apply_runtime_security_guards(
+            _base_settings(
+                DEBUG=False,
+                ENVIRONMENT="cloud",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["https://edq.example.com", "https://[::1]:3000"],
+            )
+        )
+
+    assert settings.CORS_ORIGINS == ["https://edq.example.com"]
+
+
+def test_cloud_environment_strips_abbreviated_ipv4_loopback_cors_origin():
+    with pytest.warns(UserWarning, match="Stripped localhost origins"):
+        settings = _apply_runtime_security_guards(
+            _base_settings(
+                DEBUG=False,
+                ENVIRONMENT="cloud",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["https://edq.example.com", "https://127.1"],
+            )
+        )
+
+    assert settings.CORS_ORIGINS == ["https://edq.example.com"]
+
+
+def test_cloud_environment_rejects_wildcard_cors_origin():
+    with pytest.raises(RuntimeError, match="CORS_ORIGINS must not contain"):
+        _apply_runtime_security_guards(
+            _base_settings(
+                ENVIRONMENT="cloud",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["*"],
+            )
+        )
+
+
+def test_secure_docker_environment_rejects_wildcard_cors_origin():
+    with pytest.raises(RuntimeError, match="CORS_ORIGINS must not contain"):
+        _apply_runtime_security_guards(
+            _base_settings(
+                ENVIRONMENT="docker",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["https://edq.example.com", "*"],
+            )
+        )
+
+
+def test_cloud_environment_rejects_http_cors_origin():
+    with pytest.raises(RuntimeError, match="explicit https origins"):
+        _apply_runtime_security_guards(
+            _base_settings(
+                ENVIRONMENT="cloud",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["http://edq.example.com"],
+            )
+        )
+
+
+def test_cloud_environment_rejects_cors_origin_with_path():
+    with pytest.raises(RuntimeError, match="without paths"):
+        _apply_runtime_security_guards(
+            _base_settings(
+                ENVIRONMENT="cloud",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["https://edq.example.com/app"],
+            )
+        )
+
+
+def test_cloud_environment_rejects_cors_origin_with_userinfo():
+    with pytest.raises(RuntimeError, match="explicit https origins"):
+        _apply_runtime_security_guards(
+            _base_settings(
+                ENVIRONMENT="cloud",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["https://user:pass@edq.example.com"],
+            )
+        )
+
+
+def test_cloud_environment_rejects_cors_origin_with_invalid_port():
+    with pytest.raises(RuntimeError, match="explicit https origins"):
+        _apply_runtime_security_guards(
+            _base_settings(
+                ENVIRONMENT="cloud",
+                COOKIE_SECURE=True,
+                CORS_ORIGINS=["https://edq.example.com:port"],
+            )
+        )
+
+
+def test_cloud_environment_rejects_empty_cors_after_localhost_strip():
+    with pytest.warns(UserWarning, match="Stripped localhost origins"):
+        with pytest.raises(RuntimeError, match="at least one explicit"):
+            _apply_runtime_security_guards(
+                _base_settings(
+                    ENVIRONMENT="cloud",
+                    COOKIE_SECURE=True,
+                    CORS_ORIGINS=["http://localhost:3000"],
+                )
+            )
+
+
 def test_normalize_debug_accepts_production_aliases():
     settings = _base_settings(DEBUG="production")
     assert settings.DEBUG is False

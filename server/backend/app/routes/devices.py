@@ -20,8 +20,7 @@ from pydantic import BaseModel, Field
 from app.models.database import get_db
 from app.models.device import Device, DeviceStatus
 from app.models.project import Project
-from app.models.authorized_network import AuthorizedNetwork
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.models.test_run import TestRun, TestRunStatus
 from app.models.test_result import TestResult, TestVerdict
 from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse, DeviceCreateResponse
@@ -70,25 +69,13 @@ async def _ensure_device_ip_authorized(db: AsyncSession, user: User, ip_address:
     authorized = await get_active_networks(db)
     if is_ip_authorized(ip_address, authorized):
         return
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=403,
-            detail=f"IP address {ip_address} is not authorized. Contact your admin to authorize this scan range.",
-        )
-    subnet = str(ipaddress.ip_network(f"{ip_address}/24", strict=False))
-    existing = await db.execute(
-        select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == subnet)
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"IP address {ip_address} is not authorized. Add the containing CIDR "
+            "in Authorized Networks before creating or scanning this device."
+        ),
     )
-    if existing.scalar_one_or_none() is None:
-        db.add(AuthorizedNetwork(
-            cidr=subnet,
-            label="Auto-authorized (device)",
-            description=f"Automatically authorized by {user.username} during device registration",
-            is_active=True,
-            created_by=user.id,
-        ))
-        await db.flush()
-        logger.info("Auto-authorized device target %s for admin %s", subnet, user.username)
 
 
 def _build_discovery_scan_ranges(authorized_cidrs: list[str], detection: dict | None) -> list[str]:

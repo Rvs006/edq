@@ -26,7 +26,7 @@ Current production posture:
 - high availability, automated restore drills, and centralized observability are deployment-owner responsibilities
 - active scanning must be limited through authorized networks and operational process.
 
-Tip: Set `ENVIRONMENT=cloud` in `.env` for production deployments — this auto-derives `COOKIE_SECURE=true`, `COOKIE_SAMESITE=lax`, and Postgres defaults.
+The production TLS overlays set `ENVIRONMENT=cloud`, `COOKIE_SECURE=true`, and `LOG_JSON=true` for the backend. If you run behind a different upstream proxy without these overlays, set equivalent values in `.env` or your deployment environment.
 
 ## Prerequisites
 
@@ -50,10 +50,20 @@ Tip: Set `ENVIRONMENT=cloud` in `.env` for production deployments — this auto-
 3. Set production-safe values for:
    - `COOKIE_SECURE=true`
    - `DEBUG=false`
-   - `CORS_ORIGINS` to your real domain(s)
+   - `CORS_ORIGINS` to explicit HTTPS origins, with no paths and never `*`
    - `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE` if you want incident telemetry
    - `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`, `VITE_SENTRY_RELEASE`, and optionally `VITE_SOURCEMAP=true` if you want browser-side Sentry reporting with hidden source maps
 4. Do not rely on placeholder values from `.env.example`
+5. Run the production gate before sign-off:
+
+```powershell
+.\scripts\configure-production.ps1 -Domain edq.example.com -BaseUrl https://edq.example.com -AuthorizedCidrs 192.168.10.0/24
+.\scripts\collect-production-evidence.ps1 -BaseUrl https://edq.example.com -PilotDeviceIps 192.168.10.42
+. .\reports\production\production-gate-env-YYYYMMDD_HHMMSS.ps1
+.\scripts\production-gate.ps1 -Mode production -DeploymentConfig prod-compose -BaseUrl https://edq.example.com
+```
+
+If the deployment is not reachable through `EDQ_PUBLIC_URL` yet, pass the reachable URL explicitly to evidence collection, for example `-BaseUrl http://localhost:3000` during a local pilot preflight or `-BaseUrl https://edq.example.com` after DNS and TLS are live. Production sign-off must run against the real HTTPS deployment URL; `production-gate.ps1 -Mode production` rejects local or non-HTTPS runtime targets.
 
 ## Start Without HTTPS
 
@@ -100,7 +110,7 @@ The production override:
 - binds ports `80` and `443`
 - removes the local-only `:3000` frontend publish
 - starts in HTTP bootstrap mode until certificates exist, then enables nginx TLS config
-- sets `COOKIE_SECURE=true` for the backend
+- sets `ENVIRONMENT=cloud`, `COOKIE_SECURE=true`, and `LOG_JSON=true` for the backend
 
 During the bootstrap phase, port `80` is used for ACME validation and health checks. Browser login should be treated as unavailable until certificates are issued and the frontend has been restarted onto HTTPS.
 
@@ -218,17 +228,22 @@ asyncio.run(reset())
 - `DEBUG=false`
 - `COOKIE_SECURE=true`
 - `CORS_ORIGINS` set to real domains only
+- `scripts/configure-production.ps1` run with the real domain and approved CIDRs
 - all required secrets rotated away from placeholders
-- PostgreSQL backups tested with `scripts/backup.sh`
+- PostgreSQL backups tested with `scripts/backup.sh` or `scripts/backup-restore-drill.ps1`
 - Sentry configured if you need incident alerting and stack traces
+- `scripts/monitor-health.ps1` wired into the chosen scheduler or alerting path
 - access restricted to trusted networks or VPN
 - authorized scan networks configured in the app
-- backups tested
+- backups restored in a disposable drill, with JSON evidence recorded
+- scanner governance report generated, with legacy auto-authorized ranges reviewed or disabled
+- real-device pilot evidence generated with `scripts/real-device-pilot-report.ps1`
 - log collection in place
 - dependency, code, and secret scanning enabled in GitHub or an equivalent platform
 - restore tested from a real backup before a wider rollout
 - pilot completed against representative devices and networks
 - release gate completed from [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md)
+- `scripts/production-gate.ps1 -Mode production -DeploymentConfig prod-compose -BaseUrl https://<real-hostname>` passes with evidence recorded
 
 ## Notes
 

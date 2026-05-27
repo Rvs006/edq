@@ -1,7 +1,6 @@
 """Test Run management routes."""
 
 import logging
-import ipaddress
 import re
 import uuid
 from typing import List, Optional
@@ -55,7 +54,6 @@ from app.config import settings
 from app.utils.audit import log_action
 from app.utils.datetime import utcnow_naive
 from app.models.user import UserRole
-from app.models.authorized_network import AuthorizedNetwork
 from app.routes.authorized_networks import get_active_networks, is_ip_authorized
 
 logger = logging.getLogger("edq.routes.test_runs")
@@ -90,25 +88,13 @@ async def _ensure_test_run_target_authorized(db: AsyncSession, user: User, devic
     authorized = await get_active_networks(db)
     if is_ip_authorized(device.ip_address, authorized):
         return
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=403,
-            detail=f"IP address {device.ip_address} is not authorized. Contact your admin to authorize this scan range.",
-        )
-    subnet = str(ipaddress.ip_network(f"{device.ip_address}/24", strict=False))
-    existing = await db.execute(
-        select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == subnet)
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"IP address {device.ip_address} is not authorized. Add the containing CIDR "
+            "in Authorized Networks before starting this test run."
+        ),
     )
-    if existing.scalar_one_or_none() is None:
-        db.add(AuthorizedNetwork(
-            cidr=subnet,
-            label="Auto-authorized (test run)",
-            description=f"Automatically authorized by {user.username} during test run start",
-            is_active=True,
-            created_by=user.id,
-        ))
-        await db.flush()
-        logger.info("Auto-authorized test-run target %s for admin %s", subnet, user.username)
 
 
 async def _sync_run_result_routing(

@@ -21,7 +21,7 @@ services:
     env_file:
       - .env
     environment:
-      - ENVIRONMENT=docker
+      - ENVIRONMENT=${ENVIRONMENT:-docker}
       - DATABASE_URL=${DOCKER_DATABASE_URL:-postgresql+asyncpg://${DB_USER:-edq}:${POSTGRES_PASSWORD}@postgres:5432/${DB_NAME:-edq}}
       - DB_HOST=postgres
       - DB_PORT=5432

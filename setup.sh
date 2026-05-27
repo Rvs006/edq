@@ -54,6 +54,7 @@ if ensure_env_value "$ADMIN_ENV_KEY" "$(generate_password)"; then
 fi
 POSTGRES_DB_CREDENTIAL=$(grep -E "^${POSTGRES_ENV_KEY}=" .env | head -1 | cut -d= -f2- | tr -d '\r')
 ensure_env_value "DATABASE_URL" "" >/dev/null
+ensure_env_value "ENVIRONMENT" "docker" >/dev/null
 if grep -q -E '^DATABASE_URL=.*sqlite' .env; then
   sed -i 's|^DATABASE_URL=.*|DATABASE_URL=|' .env
 fi
@@ -70,6 +71,7 @@ ensure_env_value "EDQ_TOOLS_BIND_HOST" "127.0.0.1" >/dev/null
 ensure_env_value "EDQ_TOOLS_PORT" "8001" >/dev/null
 ensure_env_value "EDQ_POSTGRES_BIND_HOST" "127.0.0.1" >/dev/null
 ensure_env_value "EDQ_POSTGRES_PORT" "55432" >/dev/null
+ensure_env_value "EDQ_PUBLIC_URL" "" >/dev/null
 ensure_env_value "VITE_API_URL" "/api" >/dev/null
 ensure_env_value "VITE_CLIENT_ERROR_ENDPOINT" "/api/client-errors" >/dev/null
 ensure_env_value "VITE_SENTRY_ENABLED" "false" >/dev/null

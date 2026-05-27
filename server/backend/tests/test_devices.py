@@ -28,6 +28,24 @@ async def test_create_device(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_create_device_admin_requires_pre_authorized_ip(client: AsyncClient):
+    headers = await register_and_login(
+        client,
+        "devadminunauth",
+        role="admin",
+        authorize_default_networks=False,
+    )
+    resp = await client.post("/api/devices/", json={
+        "ip_address": "192.168.1.10",
+        "hostname": "test-camera",
+        "manufacturer": "Axis",
+        "category": "camera",
+    }, headers=headers)
+    assert resp.status_code == 403
+    assert "not authorized" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_create_device_with_project_and_extended_fields(client: AsyncClient):
     """Creating a device should persist project, location, and serial number."""
     headers = await register_and_login(client, "devproject", role="admin")

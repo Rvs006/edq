@@ -46,7 +46,9 @@ services:
 
   backend:
     environment:
+      - ENVIRONMENT=cloud
       - COOKIE_SECURE=true
+      - LOG_JSON=true
 
   certbot:
     image: certbot/certbot:latest

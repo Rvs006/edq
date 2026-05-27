@@ -1,5 +1,6 @@
 """Application configuration from environment variables."""
 
+import ipaddress
 import os
 from pathlib import Path
 from typing import List
@@ -24,14 +25,61 @@ ROOT_ENV_FILE = _resolve_env_file()
 load_dotenv(ROOT_ENV_FILE, override=False)
 
 
+def _is_loopback_host(host: str | None) -> bool:
+    if not host:
+        return False
+    normalized = host.strip().strip("[]").lower()
+    if normalized == "localhost" or normalized.endswith(".localhost"):
+        return True
+    if normalized.startswith("127."):
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_localhost_origin(origin: str) -> bool:
+    candidate = origin.strip()
+    parsed = urlparse(candidate)
+    if parsed.hostname:
+        return _is_loopback_host(parsed.hostname)
+    return _is_loopback_host(candidate)
+
+
 def _partition_localhost_origins(origins: List[str]) -> tuple[list[str], bool]:
-    localhost_origins = [
-        origin
-        for origin in origins
-        if "localhost" in origin or "127.0.0.1" in origin
-    ]
+    localhost_origins = [origin for origin in origins if _is_localhost_origin(origin)]
     localhost_only = bool(origins) and len(localhost_origins) == len(origins)
     return localhost_origins, localhost_only
+
+
+def _has_wildcard_origin(origins: List[str]) -> bool:
+    return any(origin.strip() == "*" for origin in origins)
+
+
+def _invalid_production_cors_origins(origins: List[str]) -> list[str]:
+    invalid: list[str] = []
+    for origin in origins:
+        candidate = origin.strip()
+        parsed = urlparse(candidate)
+        try:
+            parsed.port
+        except ValueError:
+            invalid.append(origin)
+            continue
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or _is_loopback_host(parsed.hostname)
+            or parsed.path
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+        ):
+            invalid.append(origin)
+    return invalid
 
 
 class Settings(BaseSettings):
@@ -326,6 +374,29 @@ def _apply_runtime_security_guards(runtime_settings: Settings) -> Settings:
             "[EDQ SECURITY] Stripped localhost origins from CORS_ORIGINS in production: "
             f"{localhost_origins}. Only non-localhost origins remain.",
             stacklevel=2,
+        )
+
+    if production_like_env and _has_wildcard_origin(runtime_settings.CORS_ORIGINS):
+        raise RuntimeError(
+            "[EDQ SECURITY] CORS_ORIGINS must not contain '*' in production mode. "
+            "Set explicit https origins for the EDQ frontend."
+        )
+
+    if production_like_env and not runtime_settings.CORS_ORIGINS:
+        raise RuntimeError(
+            "[EDQ SECURITY] CORS_ORIGINS must include at least one explicit "
+            "https production origin."
+        )
+
+    invalid_production_origins = (
+        _invalid_production_cors_origins(runtime_settings.CORS_ORIGINS)
+        if production_like_env
+        else []
+    )
+    if invalid_production_origins:
+        raise RuntimeError(
+            "[EDQ SECURITY] CORS_ORIGINS must contain only explicit https origins "
+            f"without paths in production mode: {invalid_production_origins}"
         )
 
     if not runtime_settings.COOKIE_SECURE and production_like_env and not localhost_only:

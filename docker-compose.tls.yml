@@ -22,6 +22,12 @@ services:
   frontend:
     ports: !reset []
 
+  backend:
+    environment:
+      - ENVIRONMENT=cloud
+      - COOKIE_SECURE=true
+      - LOG_JSON=true
+
 volumes:
   caddy-data:
   caddy-config:
