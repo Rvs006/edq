@@ -40,8 +40,8 @@ class NetworkCreate(BaseModel):
         except ValueError:
             raise ValueError(f"Invalid CIDR notation: {v}")
         prefix = net.prefixlen
-        if prefix < 8 or prefix > 30:
-            raise ValueError("Prefix must be between /8 and /30")
+        if prefix < 16 or prefix > 32:
+            raise ValueError("Prefix must be between /16 and /32")
         return str(net)
 
 

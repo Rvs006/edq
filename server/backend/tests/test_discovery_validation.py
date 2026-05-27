@@ -72,15 +72,20 @@ async def test_discovery_rejects_unauthorized_engineer_target(client: AsyncClien
 
 
 @pytest.mark.asyncio
-async def test_discovery_admin_auto_authorizes_target(
+async def test_discovery_admin_requires_pre_authorized_target(
     client: AsyncClient,
     db_session,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    headers = await register_and_login(client, suffix="discadminauth", role="admin")
+    headers = await register_and_login(
+        client,
+        suffix="discadminauth",
+        role="admin",
+        authorize_default_networks=False,
+    )
 
     async def fake_nmap(_target: str, _args=None, timeout: int = 300):
-        return {"stdout": ""}
+        raise AssertionError("Discovery must not run against an unauthorized target")
 
     monkeypatch.setattr("app.routes.discovery.tools_client.nmap", fake_nmap)
 
@@ -89,12 +94,67 @@ async def test_discovery_admin_auto_authorizes_target(
         json={"subnet": "10.67.0.0/24"},
         headers=headers,
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 403, resp.text
 
     saved = await db_session.execute(
         select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == "10.67.0.0/24")
     )
-    assert saved.scalar_one_or_none() is not None
+    assert saved.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_authorized_network_rejects_overly_broad_range(client: AsyncClient):
+    headers = await register_and_login(client, suffix="authbroad", role="admin")
+    resp = await client.post(
+        "/api/authorized-networks/",
+        json={"cidr": "10.0.0.0/8", "label": "Too broad"},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert "Prefix must be between /16 and /32" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_authorized_network_accepts_single_host_range(client: AsyncClient):
+    headers = await register_and_login(client, suffix="authsingle", role="admin")
+    resp = await client.post(
+        "/api/authorized-networks/",
+        json={"cidr": "192.168.4.64/32", "label": "Bench device"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["cidr"] == "192.168.4.64/32"
+
+
+@pytest.mark.asyncio
+async def test_network_scan_admin_requires_pre_authorized_range(
+    client: AsyncClient,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = await register_and_login(
+        client,
+        suffix="netscanadminauth",
+        role="admin",
+        authorize_default_networks=False,
+    )
+
+    async def fake_nmap(_target: str, _args=None, timeout: int = 300):
+        raise AssertionError("Network scan must not run against an unauthorized target")
+
+    monkeypatch.setattr("app.routes.network_scan.tools_client.nmap", fake_nmap)
+
+    resp = await client.post(
+        "/api/network-scan/discover",
+        json={"cidr": "10.67.0.0/24", "connection_scenario": "test_lab"},
+        headers=headers,
+    )
+    assert resp.status_code == 403, resp.text
+
+    saved = await db_session.execute(
+        select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == "10.67.0.0/24")
+    )
+    assert saved.scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio

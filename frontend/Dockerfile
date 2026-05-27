@@ -50,7 +50,8 @@ RUN if command -v pnpm >/dev/null 2>&1 && [ -f pnpm-lock.yaml ]; then \
     fi
 
 FROM nginx:alpine
-RUN apk upgrade --no-cache
+RUN apk upgrade --no-cache && \
+    if apk info -e curl >/dev/null 2>&1; then apk del curl libcurl; fi
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 

@@ -14,9 +14,11 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 $csrfToken = ""
 $createdDeviceId = ""
+$createdAuthorizedNetworkId = ""
 $randomSuffix = Get-Random -Minimum 100 -Maximum 255
 $deviceIp = "10.99.99.$randomSuffix"
 $deviceMac = "AA:BB:CC:DD:EE:{0:X2}" -f (Get-Random -Minimum 16 -Maximum 254)
+$deviceAuthCidr = "$deviceIp/32"
 
 function Get-RootEnvValue {
     param([string]$Name)
@@ -155,6 +157,31 @@ function Get-CsrfHeaders {
     return @{ "X-CSRF-Token" = $csrfToken }
 }
 
+function Ensure-AuthorizedRange {
+    param([string]$Cidr)
+
+    $payload = @{
+        cidr        = $Cidr
+        label       = "PowerShell E2E"
+        description = "Temporary range for API regression"
+    } | ConvertTo-Json -Compress
+
+    try {
+        $response = Invoke-RestMethod -Uri "$apiUrl/authorized-networks/" -Method Post -ContentType "application/json" -Body $payload -Headers (Get-CsrfHeaders) -WebSession $session
+        if (-not $response.id) {
+            throw "Missing authorized network ID."
+        }
+        $script:createdAuthorizedNetworkId = $response.id
+        return $response.cidr
+    } catch {
+        $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode.value__ } else { 0 }
+        if ($status -eq 409) {
+            return "$Cidr already authorized"
+        }
+        throw
+    }
+}
+
 $resolvedPassword = Resolve-AdminPassword
 if (-not $resolvedPassword -or $resolvedPassword.StartsWith("CHANGE_ME") -or $resolvedPassword.StartsWith("change-me")) {
     throw "Admin password is still a placeholder. Update the root .env file first."
@@ -233,6 +260,10 @@ Invoke-Check "List test templates" {
     "{0} templates" -f $count
 }
 
+Invoke-Check "Authorize E2E device range" {
+    Ensure-AuthorizedRange $deviceAuthCidr
+}
+
 Invoke-Check "Create device" {
     $payload = @{
         ip_address   = $deviceIp
@@ -252,7 +283,19 @@ Invoke-Check "Create device" {
 
 Invoke-Check "Get device detail" {
     if (-not $createdDeviceId) { throw "No device created." }
-    $response = Invoke-RestMethod -Uri "$apiUrl/devices/$createdDeviceId" -Method Get -WebSession $session
+    $response = $null
+    $lastError = $null
+    for ($attempt = 1; $attempt -le 5 -and -not $response; $attempt++) {
+        try {
+            $response = Invoke-RestMethod -Uri "$apiUrl/devices/$createdDeviceId" -Method Get -WebSession $session
+        } catch {
+            $lastError = $_
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    if (-not $response) {
+        throw $lastError
+    }
     if ($response.ip_address -ne $deviceIp) {
         throw "Device detail mismatch."
     }
@@ -280,6 +323,22 @@ Invoke-Check "Delete device" {
         throw "Expected 204, got $status"
     }
     $script:createdDeviceId = ""
+    "HTTP 204"
+}
+
+Invoke-Check "Delete E2E authorized range" {
+    if (-not $createdAuthorizedNetworkId) {
+        return "SKIP: range already existed"
+    }
+    $cookieHeader = (($session.Cookies.GetCookies($apiUrl) | ForEach-Object { "{0}={1}" -f $_.Name, $_.Value }) -join "; ")
+    $status = (& curl.exe -s -o NUL -w "%{http_code}" -X DELETE -H ("X-CSRF-Token: " + $csrfToken) -H ("Cookie: " + $cookieHeader) "$apiUrl/authorized-networks/$createdAuthorizedNetworkId")
+    if ($LASTEXITCODE -ne 0) {
+        throw "curl.exe delete authorized range request failed."
+    }
+    if ($status -ne "204") {
+        throw "Expected 204, got $status"
+    }
+    $script:createdAuthorizedNetworkId = ""
     "HTTP 204"
 }
 

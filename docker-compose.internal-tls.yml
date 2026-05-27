@@ -1,0 +1,13 @@
+# Internal TLS override for deployments without a public DNS name.
+# Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml -f docker-compose.internal-tls.yml up -d
+#
+# Set DOMAIN to a stable internal hostname such as edq.internal.example or
+# edq.internal, then resolve that hostname through internal DNS or each
+# engineer workstation's hosts file.
+services:
+  caddy:
+    volumes: !override
+      - ./Caddyfile.internal:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config

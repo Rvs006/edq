@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import ipaddress
 import logging
 import socket
 from typing import Any, Dict, List, Optional
@@ -13,11 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.authorized_network import AuthorizedNetwork
 from app.models.database import get_db
 from app.models.device import Device, DeviceCategory, DeviceStatus
 from app.models.project import Project
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.routes.authorized_networks import get_active_networks, is_ip_authorized, is_target_authorized
 from app.schemas.device import DiscoveryRequest
 from app.security.auth import get_current_active_user
@@ -239,27 +237,14 @@ async def _ensure_discovery_target_authorized(
     if allowed:
         return
 
-    if user.role != UserRole.ADMIN:
-        target_label = "Network" if is_subnet else "IP address"
-        raise HTTPException(
-            status_code=403,
-            detail=f"{target_label} {target} is not authorized. Contact your admin to authorize this scan range.",
-        )
-
-    net = ipaddress.ip_network(target if is_subnet else f"{target}/24", strict=False)
-    existing = await db.execute(
-        select(AuthorizedNetwork).where(AuthorizedNetwork.cidr == str(net))
+    target_label = "Network" if is_subnet else "IP address"
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"{target_label} {target} is not authorized. Add the containing CIDR "
+            "in Authorized Networks before running discovery."
+        ),
     )
-    if existing.scalar_one_or_none() is None:
-        db.add(AuthorizedNetwork(
-            cidr=str(net),
-            label="Auto-authorized (discovery)",
-            description=f"Automatically authorized by {user.username} during discovery",
-            is_active=True,
-            created_by=user.id,
-        ))
-        await db.flush()
-        logger.info("Auto-authorized discovery target %s for admin %s", net, user.username)
 
 
 @router.post("/scan")

@@ -17,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ADMIN_USER="${EDQ_ADMIN_USER:-admin}"
 COOKIE=$(mktemp)
+TMP_DIR=$(mktemp -d)
 CSRF_TOKEN=""
 LAST_RESULT=""
 TOTAL=0 PASS=0 FAIL=0 SKIP=0
@@ -26,12 +27,16 @@ GREEN='\033[32m' RED='\033[31m' YELLOW='\033[33m' CYAN='\033[36m' BOLD='\033[1m'
 CREATED_DEVICE_IDS=()
 CREATED_RUN_IDS=()
 CREATED_WHITELIST_IDS=()
-RUN_SUFFIX=$(( ( $(date +%s) + $$ ) % 1000 ))
-CRUD_DEVICE_IP="10.99.99.$((100 + (RUN_SUFFIX % 100)))"
+RUN_SUFFIX=$(( ( $(date +%s) + $$ + RANDOM ) % 1000 ))
+CRUD_DEVICE_IP="10.99.99.$((100 + (RUN_SUFFIX % 155)))"
+CRUD_AUTH_CIDR="${CRUD_DEVICE_IP}/32"
+CRUD_DEVICE_MAC=$(printf 'AA:BB:CC:DD:EE:%02X' $((16 + (RUN_SUFFIX % 223))))
 RUN_DEVICE_IP_VALUE="10.99.98.$((100 + (RUN_SUFFIX % 100)))"
 WHITELIST_NAME="E2E Test Whitelist ${RUN_SUFFIX}"
 PROFILE_NAME="E2E Test Profile ${RUN_SUFFIX}"
 PLAN_NAME="E2E Test Plan ${RUN_SUFFIX}"
+DEVICE_ID_FILE="$TMP_DIR/device_id"
+AUTH_NETWORK_ID_FILE="$TMP_DIR/auth_network_id"
 
 read_root_env() {
   local key="$1"
@@ -71,7 +76,16 @@ export EDQ_LOGIN_USER="$ADMIN_USER"
 export EDQ_LOGIN_PASS="$ADMIN_PASS"
 
 cleanup() {
+  if [ -n "${CSRF_TOKEN:-}" ]; then
+    if [ -s "$DEVICE_ID_FILE" ]; then
+      api_delete "/devices/$(cat "$DEVICE_ID_FILE")" >/dev/null 2>&1 || true
+    fi
+    if [ -s "$AUTH_NETWORK_ID_FILE" ]; then
+      api_delete "/authorized-networks/$(cat "$AUTH_NETWORK_ID_FILE")" >/dev/null 2>&1 || true
+    fi
+  fi
   rm -f "$COOKIE"
+  rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
 
@@ -274,6 +288,93 @@ d = json.load(sys.stdin)
 assert d.get('username') == '$ADMIN_USER'
 print(d['username'])
 \"
+" || true
+
+test_case "2.3 Authenticated tool versions" bash -c "
+  api_get '/health/tools/versions' | python3 -c \"
+import sys, json
+d = json.load(sys.stdin)
+tools = d.get('tools', d.get('versions', {}))
+required = ['nmap', 'testssl', 'ssh_audit', 'hydra', 'nikto', 'snmpwalk']
+missing = [tool for tool in required if not tools.get(tool) or tools.get(tool) == 'unavailable']
+if missing:
+    raise SystemExit('missing tools: ' + ', '.join(missing))
+print(str(len(required)) + ' required tools')
+\"
+" || true
+
+section "3. API Regression"
+
+test_case "3.1 List test templates" bash -c "
+  count=\$(api_get '/test-templates/' | json_len)
+  if [ \"\$count\" -lt 1 ]; then
+    exit 1
+  fi
+  echo \"\$count templates\"
+" || true
+
+test_case "3.2 Authorize E2E device range" bash -c "
+  payload=\$(printf '{\"cidr\":\"%s\",\"label\":\"Shell E2E\",\"description\":\"Temporary range for API regression\"}' '$CRUD_AUTH_CIDR')
+  resp=\$(api_post '/authorized-networks/' \"\$payload\")
+  echo \"\$resp\" | json_get 'id' > '$AUTH_NETWORK_ID_FILE'
+  echo \"\$resp\" | json_get 'cidr'
+" || true
+
+test_case "3.3 Create device" bash -c "
+  payload=\$(printf '{\"ip_address\":\"%s\",\"mac_address\":\"%s\",\"hostname\":\"Shell E2E Device\",\"category\":\"camera\",\"manufacturer\":\"EDQ\",\"model\":\"Smoke\"}' '$CRUD_DEVICE_IP' '$CRUD_DEVICE_MAC')
+  resp=\$(api_post '/devices/' \"\$payload\")
+  echo \"\$resp\" | json_get 'id' > '$DEVICE_ID_FILE'
+  echo \"\$resp\" | json_get 'ip_address'
+" || true
+
+test_case "3.4 Get device detail" bash -c "
+  id=\$(cat '$DEVICE_ID_FILE')
+  resp=''
+  for attempt in 1 2 3 4 5; do
+    if resp=\$(api_get \"/devices/\$id\"); then
+      break
+    fi
+    sleep 0.5
+  done
+  echo \"\$resp\" | python3 -c \"
+import sys, json
+d = json.load(sys.stdin)
+assert d.get('ip_address') == '$CRUD_DEVICE_IP'
+print(d.get('hostname', ''))
+\"
+" || true
+
+test_case "3.5 Update device metadata" bash -c "
+  id=\$(cat '$DEVICE_ID_FILE')
+  resp=\$(api_patch \"/devices/\$id\" '{\"firmware_version\":\"2.0.1\"}')
+  echo \"\$resp\" | python3 -c \"
+import sys, json
+d = json.load(sys.stdin)
+assert d.get('firmware_version') == '2.0.1'
+print(d['firmware_version'])
+\"
+" || true
+
+test_case "3.6 Delete device" bash -c "
+  id=\$(cat '$DEVICE_ID_FILE')
+  status=\$(api_delete \"/devices/\$id\")
+  if [ \"\$status\" != '204' ]; then
+    echo \"expected 204, got \$status\" >&2
+    exit 1
+  fi
+  rm -f '$DEVICE_ID_FILE'
+  echo 'HTTP 204'
+" || true
+
+test_case "3.7 Delete E2E authorized range" bash -c "
+  id=\$(cat '$AUTH_NETWORK_ID_FILE')
+  status=\$(api_delete \"/authorized-networks/\$id\")
+  if [ \"\$status\" != '204' ]; then
+    echo \"expected 204, got \$status\" >&2
+    exit 1
+  fi
+  rm -f '$AUTH_NETWORK_ID_FILE'
+  echo 'HTTP 204'
 " || true
 
 rm -f /tmp/edq_e2e_csrf

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Shield, Plus, Trash2, ToggleLeft, ToggleRight, Network, AlertTriangle, Loader2 } from 'lucide-react'
 import { authorizedNetworksApi } from '@/lib/api'
 import { toLocalDateOnly } from '@/lib/testContracts'
+import { parseIpv4Cidr } from '@/lib/ipValidation'
 import { useAuth } from '@/contexts/AuthContext'
 import toast from 'react-hot-toast'
 
@@ -99,7 +100,9 @@ export default function AuthorizedNetworksPage() {
     }
   }
 
-  const cidrValid = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(cidr.trim())
+  const cidrCheck = parseIpv4Cidr(cidr.trim())
+  const cidrValid = cidrCheck.formatValid
+  const cidrPrefixInRange = cidrCheck.prefixInRange
   const activeCount = networks.filter((network: AuthorizedNetwork) => network.is_active).length
   const disabledCount = Math.max(networks.length - activeCount, 0)
   const setupSummary = [
@@ -176,9 +179,10 @@ export default function AuthorizedNetworksPage() {
                 value={cidr}
                 onChange={(e: { target: { value: string } }) => setCidr(e.target.value)}
                 placeholder="192.168.1.0/24"
-                className={`input ${cidr && !cidrValid ? 'border-red-300 focus:border-red-400' : ''}`}
+                className={`input ${cidr && (!cidrValid || !cidrPrefixInRange) ? 'border-red-300 focus:border-red-400' : ''}`}
               />
               {cidr && !cidrValid && <p className="text-xs text-red-500 mt-1">Invalid CIDR format</p>}
+              {cidr && cidrValid && !cidrPrefixInRange && <p className="text-xs text-red-500 mt-1">CIDR prefix must be between /16 and /32</p>}
             </div>
             <div>
               <label className="label">Label</label>
@@ -205,7 +209,7 @@ export default function AuthorizedNetworksPage() {
             <button
               type="button"
               onClick={handleAdd}
-              disabled={!cidrValid || saving}
+              disabled={!cidrValid || !cidrPrefixInRange || saving}
               className="btn-primary"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
@@ -331,7 +335,7 @@ export default function AuthorizedNetworksPage() {
         <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
           <strong>How it works:</strong> When an engineer starts a network scan, EDQ checks that the target subnet
           falls entirely within one of the authorized ranges above. Scans outside authorized ranges are blocked.
-          Common ranges: <span className="font-mono">192.168.0.0/16</span>, <span className="font-mono">10.0.0.0/8</span>, <span className="font-mono">172.16.0.0/12</span>.
+          Common ranges: <span className="font-mono">192.168.4.0/24</span>, <span className="font-mono">10.42.0.0/16</span>, <span className="font-mono">192.168.4.64/32</span>.
         </p>
       </div>
     </div>

@@ -169,6 +169,33 @@ async def test_start_run_rejects_unauthorized_engineer_target(
 
 
 @pytest.mark.asyncio
+async def test_start_run_rejects_unauthorized_admin_target(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = await register_and_login(
+        client,
+        suffix="startAdminUnauthorized",
+        role="admin",
+        authorize_default_networks=False,
+    )
+    user_id = await _get_user_id(db_session, "startAdminUnauthorizeduser")
+    run_id = await _create_run(db_session, user_id, status=RunStatus.PENDING)
+    await db_session.commit()
+
+    def fail_launch(_run_id: str, test_plan_id: str | None = None):
+        raise AssertionError("Unauthorized target must not launch")
+
+    monkeypatch.setattr("app.routes.test_runs.launch_test_run", fail_launch)
+
+    resp = await client.post(f"/api/test-runs/{run_id}/start", headers=headers)
+
+    assert resp.status_code == 403
+    assert "not authorized" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_create_run_deduplicates_template_test_ids_preserving_order(
     client: AsyncClient,
     db_session: AsyncSession,

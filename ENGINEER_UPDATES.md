@@ -67,7 +67,15 @@ If this update is part of a pilot or release validation, also run:
 .\scripts\e2e-test.ps1
 .\scripts\backend-test.ps1
 docker scout cves edq-backend:latest --only-severity critical,high
+docker scout cves edq-frontend:latest --only-severity critical,high
+.\scripts\configure-production.ps1 -Domain <real-hostname> -BaseUrl https://<real-hostname> -AuthorizedCidrs <approved-cidr> -DryRun
+.\scripts\collect-production-evidence.ps1 -PilotDeviceIps <pilot-device-ip> -SkipBackupRestore
+. .\reports\production\production-gate-env-YYYYMMDD_HHMMSS.ps1
+.\scripts\production-gate.ps1 -Mode pilot -DeploymentConfig prod-compose
 ```
+
+Pass `-BaseUrl` to `collect-production-evidence.ps1` if the pilot stack is being checked through a different URL than `EDQ_PUBLIC_URL`.
+Use production mode only against the final HTTPS deployment URL; local engineer validation should stay in pilot mode.
 
 ## If Update Fails
 

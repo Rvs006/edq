@@ -16,10 +16,10 @@ EDQ is not yet a **9/10 production platform** for broad enterprise rollout, inte
 - Local verification scripts pass against the running stack.
 - Backend regression suite passes locally.
 - GitHub CI passes on `main`.
-- The backend image currently scans clean with Docker Scout for vulnerable packages.
+- The backend and frontend runtime images currently scan clean with Docker Scout for vulnerable packages.
 - Dependabot security updates, secret scanning, and push protection are enabled on GitHub; routine version-update PRs are disabled to avoid unreviewed runtime churn.
 - CodeQL, container CVE scanning, and nightly full-verification workflows are configured.
-- Branch protection requires the named CI jobs plus backend container scanning.
+- Branch protection requires the named CI jobs plus container scanning.
 - Auth, refresh-token rotation, CSRF, role checks, 2FA hooks, OIDC hooks, audit logs, and authorized-network gates exist.
 - Subnet discovery is blocked until an admin explicitly configures authorized CIDR ranges.
 - Report generation and core qualification workflows are implemented.
@@ -59,10 +59,16 @@ Before a wider production rollout:
 - Run `.\scripts\e2e-test.ps1`
 - Run `.\scripts\backend-test.ps1`
 - Run `docker scout cves edq-backend:latest`
+- Run `docker scout cves edq-frontend:latest`
+- Run `.\scripts\configure-production.ps1 -Domain <real-hostname> -BaseUrl https://<real-hostname> -AuthorizedCidrs <approved-cidr>`
+- Run `.\scripts\collect-production-evidence.ps1 -BaseUrl https://<real-hostname> -PilotDeviceIps <pilot-device-ip>`
+- Dot-source the generated `reports/production/production-gate-env-YYYYMMDD_HHMMSS.ps1`
+- Run `.\scripts\production-gate.ps1 -Mode production -DeploymentConfig prod-compose -BaseUrl https://<real-hostname>`
 - Prove backup restore on a separate host
 - Configure HTTPS with `COOKIE_SECURE=true`
 - Restrict access through VPN or private network controls
-- Configure real `CORS_ORIGINS`
+- Configure real `DOMAIN` and `EDQ_PUBLIC_URL`; a stable private hostname with trusted internal TLS is acceptable before a public domain exists
+- Configure explicit HTTPS `CORS_ORIGINS` with no paths; do not use wildcard origins
 - Rotate every placeholder secret
 - Configure authorized scan networks
 - Enable log collection and incident alerting
