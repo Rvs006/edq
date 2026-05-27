@@ -442,6 +442,25 @@ function Invoke-GhText {
     return (($output -join "`n").Trim())
 }
 
+function Get-LatestWorkflowRun {
+    param([string]$WorkflowName)
+
+    $runs = @(
+        Invoke-GhJson @(
+            "run",
+            "list",
+            "--branch", "main",
+            "--workflow", $WorkflowName,
+            "--limit", "1",
+            "--json", "workflowName,status,conclusion,createdAt"
+        )
+    )
+    if ($runs.Count -lt 1) {
+        return $null
+    }
+    return $runs[0]
+}
+
 function Add-GitHubSecurityGate {
     $confirmed = Get-RootEnvValue "EDQ_GITHUB_SECURITY_CONFIRMED"
     if (-not $confirmed) {
@@ -479,10 +498,9 @@ function Add-GitHubSecurityGate {
             throw "Branch protection does not enforce linear history, or allows force-push/delete."
         }
 
-        $runs = Invoke-GhJson @("run", "list", "--branch", "main", "--limit", "20", "--json", "workflowName,status,conclusion,createdAt")
         foreach ($workflow in @("CI", "CodeQL", "Container Security")) {
-            $latest = @($runs | Where-Object { $_.workflowName -eq $workflow } | Select-Object -First 1)
-            if (-not $latest -or $latest[0].status -ne "completed" -or $latest[0].conclusion -ne "success") {
+            $latest = Get-LatestWorkflowRun $workflow
+            if (-not $latest -or $latest.status -ne "completed" -or $latest.conclusion -ne "success") {
                 throw "Latest $workflow run on main is not successful."
             }
         }
