@@ -8,7 +8,7 @@ asyncpg==0.31.0
 psycopg2-binary==2.9.11
 pydantic[email]==2.13.1
 pydantic-settings==2.13.1
-PyJWT[crypto]==2.12.1
+PyJWT[crypto]==2.13.0
 nh3>=0.3.4
 bcrypt==5.0.0
 python-multipart==0.0.27
