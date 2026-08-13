@@ -1,5 +1,10 @@
 # ---------- Stage 1: unpack vendored testssl.sh ----------
 FROM python:3.13-slim AS tools-builder
+COPY ca-bundle.crt /usr/local/share/ca-certificates/proxy-ca.crt
+RUN cat /usr/local/share/ca-certificates/proxy-ca.crt >> /etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt
 
 ARG TESTSSL_SOURCE_SHA256=1c4bb10185a67592164eb870c717b8bdd03f290c8d68f9a8c658335ff5ac8b91
 
@@ -12,6 +17,8 @@ RUN mkdir -p /opt/testssl \
 
 # ---------- Stage 2: build Hydra without Firebird support ----------
 FROM python:3.13-slim AS hydra-builder
+COPY ca-bundle.crt /usr/local/share/ca-certificates/proxy-ca.crt
+RUN cat /usr/local/share/ca-certificates/proxy-ca.crt >> /etc/ssl/certs/ca-certificates.crt
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG HYDRA_SOURCE_SHA256=9dd193b011fdb3c52a17b0da61a38a4148ffcad731557696819d4721d1bee76b
@@ -38,6 +45,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ---------- Stage 3: build Python dependencies ----------
 FROM python:3.13-slim AS builder
+COPY ca-bundle.crt /usr/local/share/ca-certificates/proxy-ca.crt
+RUN cat /usr/local/share/ca-certificates/proxy-ca.crt >> /etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -57,6 +69,8 @@ RUN pip install --no-cache-dir --prefix=/install -r tools-requirements.txt
 
 # ---------- Stage 4: runtime (backend + tools combined) ----------
 FROM python:3.13-slim
+COPY ca-bundle.crt /usr/local/share/ca-certificates/proxy-ca.crt
+RUN cat /usr/local/share/ca-certificates/proxy-ca.crt >> /etc/ssl/certs/ca-certificates.crt
 ENV HOME=/home/edq
 ENV XDG_CACHE_HOME=/app/.cache
 ENV XDG_CONFIG_HOME=/app/.config
