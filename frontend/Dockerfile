@@ -1,4 +1,8 @@
 FROM node:24-alpine AS build
+COPY ca-bundle.crt /usr/local/share/ca-certificates/proxy-ca.crt
+RUN cat /usr/local/share/ca-certificates/proxy-ca.crt >> /etc/ssl/certs/ca-certificates.crt
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /app
 
@@ -50,8 +54,8 @@ RUN if command -v pnpm >/dev/null 2>&1 && [ -f pnpm-lock.yaml ]; then \
     fi
 
 FROM nginx:alpine
-RUN apk upgrade --no-cache && \
-    if apk info -e curl >/dev/null 2>&1; then apk del curl libcurl; fi
+RUN apk upgrade --no-cache --force-missing-repositories 2>/dev/null || true; \
+    if apk info -e curl >/dev/null 2>&1; then apk del curl libcurl 2>/dev/null || true; fi
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 

@@ -7,11 +7,11 @@ aiosqlite==0.22.1
 asyncpg==0.31.0
 psycopg2-binary==2.9.11
 pydantic[email]==2.13.1
-pydantic-settings==2.13.1
-PyJWT[crypto]==2.12.1
+pydantic-settings==2.14.2
+PyJWT[crypto]==2.13.0
 nh3>=0.3.4
 bcrypt==5.0.0
-python-multipart==0.0.27
+python-multipart==0.0.31
 httpx==0.28.1
 openpyxl==3.1.5
 lxml>=5.0.0
