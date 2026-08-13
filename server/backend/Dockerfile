@@ -137,6 +137,15 @@ RUN hydra -h 2>&1 | grep -q "Hydra v" && \
 # Copy installed Python packages from builder
 COPY --from=builder /install /usr/local
 
+# Remove pip from the runtime image. The app runs via uvicorn/gunicorn and never
+# invokes pip at runtime, so dropping it eliminates the HIGH CVEs Trivy flags in
+# pip's vendored build-time dependencies (msgpack, setuptools under pip/_vendor)
+# and trims the runtime attack surface. Nothing in the app imports pip or setuptools.
+RUN python -m pip uninstall -y pip 2>/dev/null || true; \
+    rm -rf /usr/local/lib/python3.13/site-packages/pip \
+           /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13
+
 WORKDIR /app
 
 RUN mkdir -p /app/assets
