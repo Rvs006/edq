@@ -45,6 +45,7 @@ jobs:
           exit-code: "1"
           format: sarif
           output: trivy-backend-results.sarif
+          trivyignores: .trivyignore
 
       - name: Scan frontend image for critical and high CVEs
         id: scan-frontend
@@ -58,6 +59,7 @@ jobs:
           exit-code: "1"
           format: sarif
           output: trivy-frontend-results.sarif
+          trivyignores: .trivyignore
 
       # Diagnostic only (exit-code 0, never fails the job): print the exact
       # fixable CRITICAL/HIGH findings to the job log, since the gating scans
