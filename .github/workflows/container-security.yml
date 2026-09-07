@@ -26,7 +26,16 @@ jobs:
       - name: Build runtime images
         run: docker compose build backend frontend
 
+      # continue-on-error keeps a failing scan (fixable CRITICAL/HIGH found)
+      # from aborting the job. Without it, a backend finding stopped the job
+      # before the frontend scan ran, so trivy-frontend-results.sarif was never
+      # written and the "Upload frontend Trivy SARIF" step (if: always()) then
+      # errored with "Path does not exist: trivy-frontend-results.sarif". Both
+      # scans now always run and always write their SARIF; the gate step below
+      # re-imposes the build failure on any fixable CRITICAL/HIGH.
       - name: Scan backend image for critical and high CVEs
+        id: scan-backend
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: edq-backend:latest
@@ -38,6 +47,8 @@ jobs:
           output: trivy-backend-results.sarif
 
       - name: Scan frontend image for critical and high CVEs
+        id: scan-frontend
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: edq-frontend:latest
@@ -49,15 +60,36 @@ jobs:
           output: trivy-frontend-results.sarif
 
       - name: Upload backend Trivy SARIF
-        if: always()
+        if: always() && hashFiles('trivy-backend-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225
         with:
           sarif_file: trivy-backend-results.sarif
           category: trivy-backend
 
       - name: Upload frontend Trivy SARIF
-        if: always()
+        if: always() && hashFiles('trivy-frontend-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225
         with:
           sarif_file: trivy-frontend-results.sarif
           category: trivy-frontend
+
+      - name: Fail if any image has fixable CRITICAL/HIGH CVEs
+        if: always()
+        run: |
+          backend_outcome='${{ steps.scan-backend.outcome }}'
+          frontend_outcome='${{ steps.scan-frontend.outcome }}'
+          echo "Backend scan outcome:  $backend_outcome"
+          echo "Frontend scan outcome: $frontend_outcome"
+          failed=0
+          # An empty outcome means the scan step was skipped (e.g. the image
+          # build failed) — treat that as a failure too, since we have no clean
+          # scan result to trust.
+          if [ "$backend_outcome" != "success" ]; then
+            echo "::error::Backend image has fixable CRITICAL/HIGH CVEs (or the scan did not complete)."
+            failed=1
+          fi
+          if [ "$frontend_outcome" != "success" ]; then
+            echo "::error::Frontend image has fixable CRITICAL/HIGH CVEs (or the scan did not complete)."
+            failed=1
+          fi
+          exit "$failed"

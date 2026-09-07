@@ -8,10 +8,10 @@ asyncpg==0.31.0
 psycopg2-binary==2.9.11
 pydantic[email]==2.13.1
 pydantic-settings==2.13.1
-PyJWT[crypto]==2.12.1
+PyJWT[crypto]==2.13.0
 nh3>=0.3.4
 bcrypt==5.0.0
-python-multipart==0.0.27
+python-multipart==0.0.31
 httpx==0.28.1
 openpyxl==3.1.5
 lxml>=5.0.0
@@ -19,6 +19,10 @@ python-docx==1.2.0
 fpdf2==2.8.7
 websockets==16.0
 redis[hiredis]==6.4.0
+# Transitive dependency pinned for security: msgpack < 1.2.1 is affected by
+# GHSA-6v7p-g79w-8964 (out-of-bounds read / crash on Unpacker reuse after a
+# caught error). Pinning the fixed release keeps it out of the backend image.
+msgpack==1.2.1
 defusedxml==0.7.1
 python-dotenv==1.2.2
 alembic==1.18.4

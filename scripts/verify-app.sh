@@ -85,12 +85,75 @@ skip() {
   SKIP=$((SKIP + 1))
 }
 
+# Bounded wait-for-ready gate. Removes the CI race where the smoke checks fire
+# before the backend API has finished starting. `docker compose up -d` can
+# return (and nginx can already be serving static HTML) while uvicorn is still
+# running its ASGI lifespan — DB connect, schema, and the first-boot admin seed
+# all happen there, before uvicorn accepts requests. So a /health response that
+# reports the database "ok" also means the admin user has been seeded. We poll
+# the REAL public API endpoint (not the container healthcheck, which only needs
+# an HTTP 200) with bounded retries, then confirm authentication once. Callers
+# invoke this in an `if` so `set -e` is suspended for the polling loop.
+wait_for_ready() {
+  local max_attempts="${EDQ_READY_MAX_ATTEMPTS:-90}"
+  local delay="${EDQ_READY_DELAY_SECONDS:-2}"
+  local attempt=1
+  local status=""
+
+  echo "--- Waiting for API readiness (<= $((max_attempts * delay))s) ---"
+  echo "Probing: $API_URL/health"
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    status="$(curl -sf --max-time 5 "$API_URL/health" 2>/dev/null \
+      | python3 -c "import sys, json; print(json.load(sys.stdin).get('status', ''))" 2>/dev/null)" || status=""
+    if [ "$status" = "ok" ]; then
+      echo "  API reported healthy after ${attempt} attempt(s)"
+      break
+    fi
+    if [ "$attempt" -eq "$max_attempts" ]; then
+      echo "  API did not become healthy within $((max_attempts * delay))s (last status: '${status:-no-response}')" >&2
+      return 1
+    fi
+    sleep "$delay"
+    attempt=$((attempt + 1))
+  done
+
+  # Confirm admin authentication works. A healthy /health already implies the
+  # seed ran, so keep this gentle: /auth/login is rate limited to
+  # LOGIN_RATE_LIMIT_PER_MINUTE (15) per identity and every attempt — success
+  # or failure — consumes that budget, which the real "Login (admin)" check
+  # below and e2e-test.sh also draw from.
+  local login_payload
+  login_payload="$(python3 -c 'import json, os; print(json.dumps({"username": os.environ["EDQ_LOGIN_USER"], "password": os.environ["EDQ_LOGIN_PASS"]}))')"
+  local login_attempt=1
+  local login_max=3
+  while [ "$login_attempt" -le "$login_max" ]; do
+    if curl -sf --max-time 5 -X POST "$API_URL/auth/login" \
+        -H 'Content-Type: application/json' \
+        -d "$login_payload" -o /dev/null 2>/dev/null; then
+      echo "  Admin authentication succeeded after ${login_attempt} attempt(s)"
+      return 0
+    fi
+    login_attempt=$((login_attempt + 1))
+    [ "$login_attempt" -le "$login_max" ] && sleep 3
+  done
+
+  echo "  Admin authentication did not succeed after ${login_max} attempts" >&2
+  return 1
+}
+
 echo ""
 echo "====================================="
 echo "  EDQ Integration Verification"
 echo "====================================="
 echo ""
 echo "Target: $BASE_URL"
+echo ""
+
+if ! wait_for_ready; then
+  echo "ERROR: backend did not become ready at $BASE_URL — aborting smoke checks" >&2
+  exit 1
+fi
 echo ""
 
 echo "--- Backend Health ---"

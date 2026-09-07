@@ -123,6 +123,15 @@ RUN hydra -h 2>&1 | grep -q "Hydra v" && \
 # Copy installed Python packages from builder
 COPY --from=builder /install /usr/local
 
+# Security: patch setuptools in the FINAL image, after copying the builder
+# packages. The python:3.13-slim base ships setuptools 70.3.0, which is affected
+# by CVE-2025-47273 (path traversal in PackageIndex.download -> arbitrary file
+# write), fixed in 78.1.1. Upgrading here (rather than pinning in
+# requirements.txt) lets pip cleanly uninstall the old distribution so the
+# vulnerable *.dist-info is removed and image scanners no longer flag it. Runs
+# as root, before the USER switch below.
+RUN python -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1"
+
 WORKDIR /app
 
 RUN mkdir -p /app/assets
