@@ -123,6 +123,24 @@ RUN hydra -h 2>&1 | grep -q "Hydra v" && \
 # Copy installed Python packages from builder
 COPY --from=builder /install /usr/local
 
+# Security: patch setuptools and msgpack in the FINAL image, after copying the
+# builder packages. `COPY --from=builder /install /usr/local` is a file overlay,
+# NOT a pip operation, so the python:3.13-slim base's own setuptools 70.3.0
+# (CVE-2025-47273, path traversal in PackageIndex, fixed 78.1.1) and any stale
+# msgpack 1.1.2 (GHSA-6v7p-g79w-8964, fixed 1.2.1) leave *.dist-info metadata
+# behind that pip's upgrade does not always reconcile. Upgrade to the patched
+# releases, then purge any lingering vulnerable *.dist-info so image scanners
+# (which read dist-info METADATA) no longer flag the ghost copies. Runs as root,
+# before the USER switch below.
+#
+# Fail-closed: `pip install` must abort the build if the security upgrade fails,
+# so the `|| true` that swallows find's benign traversal errors over / is scoped
+# to the find alone (in braces) — never to the pip install. A trailing `; true`
+# on the whole line would make the RUN exit 0 even when the upgrade failed,
+# shipping a vulnerable image.
+RUN python -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1" "msgpack>=1.2.1" \
+    && { find / -type d \( -name 'setuptools-70.3.0.dist-info' -o -name 'msgpack-1.1.2.dist-info' \) -exec rm -rf {} + 2>/dev/null || true; }
+
 WORKDIR /app
 
 RUN mkdir -p /app/assets

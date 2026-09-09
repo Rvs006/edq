@@ -123,7 +123,11 @@ jobs:
       - name: Install smoke-test Python dependency
         run: python -m pip install websockets==16.0
       - name: Start stack
-        run: docker compose up --build -d
+        # --wait blocks until every service with a healthcheck (postgres,
+        # backend, frontend) reports healthy, so the smoke step cannot start
+        # against a backend that is still running its ASGI lifespan. The
+        # in-script wait_for_ready gate in verify-app.sh is the second layer.
+        run: docker compose up --build -d --wait --wait-timeout 180
       - name: Run smoke and API regression
         run: |
           ./scripts/verify-app.sh
